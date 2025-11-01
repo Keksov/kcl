@@ -1,8 +1,10 @@
 #!/bin/bash
 # common.sh - Shared setup code for kcl tests
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get script directory (only if not already set)
+if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tpath" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 KCL_DIR="$SCRIPT_DIR/.."
 TPATH_SCRIPT="$KCL_DIR/tpath.sh"
 
@@ -159,3 +161,8 @@ trap 'echo "Error occurred at line $LINENO: $BASH_COMMAND"' ERR
 if ! declare -F | grep -q "tpath.combine"; then
     source "$TPATH_SCRIPT"
 fi
+
+# Also source tpath_extra for additional methods
+# if ! declare -F | grep -q "tpath_props.getAltDirectorySeparatorChar"; then
+# source "$KCL_DIR/tpath_extra.sh"
+# fi

@@ -9,10 +9,10 @@ test_start "DirectorySeparatorChar property"
 result=$(tpath.getDirectorySeparatorChar)
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
-        expected="\\"
+        expected=\
         ;;
-    *)
-        expected="/"
+*)
+expected="/"
         ;;
 esac
 if [[ "$result" == "$expected" ]]; then
