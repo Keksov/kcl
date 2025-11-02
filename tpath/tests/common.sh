@@ -161,8 +161,3 @@ trap 'echo "Error occurred at line $LINENO: $BASH_COMMAND"' ERR
 if ! declare -F | grep -q "tpath.combine"; then
     source "$TPATH_SCRIPT"
 fi
-
-# Also source tpath_extra for additional methods
-# if ! declare -F | grep -q "tpath_props.getAltDirectorySeparatorChar"; then
-# source "$KCL_DIR/tpath_extra.sh"
-# fi

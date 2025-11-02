@@ -6,15 +6,16 @@ parse_args "$@"
 
 # Test 1: DirectorySeparatorChar
 test_start "DirectorySeparatorChar property"
-result=$(tpath.getDirectorySeparatorChar)
+result=$(tpath.getDirectorySeparatorChar | tr -d '\r\n')
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
-        expected=\
+        expected='\\'
         ;;
 *)
 expected="/"
         ;;
 esac
+
 if [[ "$result" == "$expected" ]]; then
     test_pass "DirectorySeparatorChar property"
 else
@@ -23,7 +24,7 @@ fi
 
 # Test 2: AltDirectorySeparatorChar
 test_start "AltDirectorySeparatorChar property"
-result=$(tpath.getAltDirectorySeparatorChar)
+result=$(tpath.getAltDirectorySeparatorChar | tr -d '\r\n')
 if [[ "$result" == "/" ]]; then
     test_pass "AltDirectorySeparatorChar property"
 else
@@ -32,7 +33,7 @@ fi
 
 # Test 3: ExtensionSeparatorChar
 test_start "ExtensionSeparatorChar property"
-result=$(tpath.getExtensionSeparatorChar)
+result=$(tpath.getExtensionSeparatorChar | tr -d '\r\n')
 if [[ "$result" == "." ]]; then
     test_pass "ExtensionSeparatorChar property"
 else
@@ -41,7 +42,7 @@ fi
 
 # Test 4: PathSeparator
 test_start "PathSeparator property"
-result=$(tpath.getPathSeparator)
+result=$(tpath.getPathSeparator | tr -d '\r\n')
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
         expected=";"
@@ -58,7 +59,7 @@ fi
 
 # Test 5: VolumeSeparatorChar
 test_start "VolumeSeparatorChar property"
-result=$(tpath.getVolumeSeparatorChar)
+result=$(tpath.getVolumeSeparatorChar | tr -d '\r\n')
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
         expected=":"

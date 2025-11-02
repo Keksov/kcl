@@ -1,5 +1,4 @@
 #!/bin/bash
-# kcl/tpath_minimal.sh - TPath with essential methods only
 
 # Source kklass system (don't override SCRIPT_DIR)
 TPATH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,16 +103,11 @@ tpath.driveExists() {
 
     case "$(uname -s)" in
         MINGW*|CYGWIN*|MSYS*)
-            if [[ "$path" =~ ^[A-Za-z]: ]]; then
-                local drive="${path:0:2}"
-                if ls "$drive" >/dev/null 2>&1; then
-                    echo "true"
-                else
-                    echo "false"
-                fi
-            else
-                echo "false"
-            fi
+        if [[ "$path" =~ ^[A-Za-z]: ]]; then
+        echo "true"
+        else
+        echo "false"
+        fi
             ;;
         *)
             echo "false"
@@ -139,18 +133,32 @@ tpath.getAttributes() {
         local mode
         mode="$(stat $stat_flags -c "%a" "$path" 2>/dev/null)"
         if [[ $? -eq 0 ]]; then
-            local attrs=""
-            if [[ -d "$path" ]]; then
-                attrs="${attrs}faDirectory"
-            fi
-            if [[ ! -w "$path" ]]; then
-                attrs="${attrs},faReadOnly"
-            fi
-            if [[ "$(basename "$path")" =~ ^\. ]]; then
-                attrs="${attrs},faHidden"
+        local attrs=""
+        if [[ -d "$path" ]]; then
+        attrs="faDirectory"
+        else
+        attrs="faNormal"
+        fi
+        if [[ ! -w "$path" ]]; then
+            if [[ -n "$attrs" ]]; then
+            attrs="${attrs},faReadOnly"
+            else
+                attrs="faReadOnly"
+        fi
+        fi
+        if [[ "$(basename "$path")" =~ ^\. ]]; then
+                if [[ -n "$attrs" ]]; then
+                    attrs="${attrs},faHidden"
+                else
+                    attrs="faHidden"
+                fi
             fi
             if [[ "$mode" =~ ^[0-7][0-7][0-7]$ ]] && [[ "$((8#${mode:0:1} & 4))" -eq 0 ]]; then
-                attrs="${attrs},faSystem"
+                if [[ -n "$attrs" ]]; then
+                    attrs="${attrs},faSystem"
+                else
+                    attrs="faSystem"
+                fi
             fi
             echo "$attrs"
         else
@@ -158,9 +166,11 @@ tpath.getAttributes() {
         fi
     else
         if [[ -e "$path" ]]; then
-            local attrs=""
-            if [[ -d "$path" ]]; then
+        local attrs=""
+                                if [[ -d "$path" ]]; then
                 attrs="faDirectory"
+            else
+                attrs="faNormal"
             fi
             echo "$attrs"
         else
@@ -257,18 +267,17 @@ tpath.matchesPattern() {
         return 0
     fi
 
-    local flags=""
     if [[ "$case_sensitive" == "false" ]]; then
-        flags="nocasematch"
+        shopt -s nocasematch
     fi
-
-    shopt -s $flags
     if [[ "$filename" == $pattern ]]; then
         echo "true"
     else
         echo "false"
     fi
-    shopt -u $flags
+    if [[ "$case_sensitive" == "false" ]]; then
+        shopt -u nocasematch
+    fi
 }
 
 # Add additional methods as functions
@@ -289,12 +298,12 @@ tpath.changeExtension() {
     fi
 
     if [[ -n "$extension" ]]; then
-        if [[ "$extension" != \".\"* ]]; then
-            extension=".$extension"
-        fi
-        echo "${base_path}${extension}"
+    if [[ "$extension" != .* ]]; then
+    extension=".$extension"
+    fi
+    echo "${base_path}${extension}"
     else
-        echo "$base_path"
+    echo "$base_path"
     fi
 }
 
@@ -306,16 +315,21 @@ tpath.getDirectoryName() {
         return 0
     fi
 
-    path="${path%\"$DIRECTORY_SEPARATOR_CHAR\"}"
-    path="${path%\"$ALT_DIRECTORY_SEPARATOR_CHAR\"}"
+    # Remove trailing separators
+    path="${path%/}"
+path="${path%\\}"
 
-    local dir_path="${path%[\"$DIRECTORY_SEPARATOR_CHAR\"\"$ALT_DIRECTORY_SEPARATOR_CHAR\"]*}"
-
+# Get directory part
+    local dir_path="${path%/*}"
     if [[ "$dir_path" == "$path" ]]; then
-        echo ""
-    else
-        echo "$dir_path"
+    dir_path="${path%\\*}"
     fi
+
+if [[ "$dir_path" == "$path" ]]; then
+echo ""
+else
+echo "$dir_path"
+fi
 }
 
 tpath.getExtension() {
@@ -621,14 +635,9 @@ tpath.driveExists() {
     case "$(uname -s)" in
         MINGW*|CYGWIN*|MSYS*)
             if [[ "$path" =~ ^[A-Za-z]: ]]; then
-                local drive="${path:0:2}"
-                if ls "$drive" >/dev/null 2>&1; then
-                    echo "true"
-                else
-                    echo "false"
-                fi
+            echo "true"
             else
-                echo "false"
+            echo "false"
             fi
             ;;
         *)
@@ -656,8 +665,10 @@ tpath.getAttributes() {
         mode="$(stat $stat_flags -c "%a" "$path" 2>/dev/null)"
         if [[ $? -eq 0 ]]; then
             local attrs=""
-            if [[ -d "$path" ]]; then
-                attrs="${attrs}faDirectory"
+                                    if [[ -d "$path" ]]; then
+                attrs="faDirectory"
+            else
+                attrs="faNormal"
             fi
             if [[ ! -w "$path" ]]; then
                 attrs="${attrs},faReadOnly"
@@ -675,8 +686,10 @@ tpath.getAttributes() {
     else
         if [[ -e "$path" ]]; then
             local attrs=""
-            if [[ -d "$path" ]]; then
+                                    if [[ -d "$path" ]]; then
                 attrs="faDirectory"
+            else
+                attrs="faNormal"
             fi
             echo "$attrs"
         else
@@ -773,18 +786,17 @@ tpath.matchesPattern() {
         return 0
     fi
 
-    local flags=""
     if [[ "$case_sensitive" == "false" ]]; then
-        flags="nocasematch"
+        shopt -s nocasematch
     fi
-
-    shopt -s $flags
     if [[ "$filename" == $pattern ]]; then
         echo "true"
     else
         echo "false"
     fi
-    shopt -u $flags
+    if [[ "$case_sensitive" == "false" ]]; then
+        shopt -u nocasematch
+    fi
 }
 
 echo "tpath class created successfully"

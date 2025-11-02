@@ -1,0 +1,1 @@
+'source /c/projects/kkbot/lib/kcl/tpath/tpath.sh; echo DIRECTORY_SEPARATOR_CHAR=$DIRECTORY_SEPARATOR_CHAR; echo ALT=$ALT_DIRECTORY_SEPARATOR_CHAR; result=$(tpath.getDirectoryName "/home/user/"); echo result=$result'  
