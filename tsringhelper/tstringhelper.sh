@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Source kklass system (don't override SCRIPT_DIR)
-TSRINGHELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TSRINGHELPER_DIR/../../kklass/kklass.sh"
+tstringhelper_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$tstringhelper_DIR/../../kklass/kklass.sh"
 
 # Define the string class with methods from TStringHelper
 defineClass "string" "" \

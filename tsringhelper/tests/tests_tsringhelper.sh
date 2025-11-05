@@ -1,5 +1,5 @@
 #!/bin/bash
-# test_tsringhelper.sh - Comprehensive test suite for TStringHelper class
+# test_tstringhelper.sh - Comprehensive test suite for TStringHelper class
 # Tests all TStringHelper functionality
 
 set -e  # Exit on any error

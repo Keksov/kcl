@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Comprehensive analysis comparing [`TStringHelper.md`](docs/TStringHelper.md) documentation with actual implementation in [`tsringhelper.sh`](tsringhelper.sh) has revealed significant discrepancies requiring immediate attention.
+Comprehensive analysis comparing [`TStringHelper.md`](docs/TStringHelper.md) documentation with actual implementation in [`tstringhelper.sh`](tstringhelper.sh) has revealed significant discrepancies requiring immediate attention.
 
 **Critical Finding:** Only 24 of 58+ documented methods are implemented (41% coverage), with **34+ critical methods missing** implementation.
 
@@ -271,7 +271,7 @@ Created test files are comprehensive but will **FAIL** until implementations are
 The TStringHelper implementation is **incomplete and does not match the documented API**. While basic functionality exists for ~24 methods, **34+ critical methods are missing**, making the library unsuitable for production use without implementing these methods first.
 
 ### Immediate Actions Required:
-1. ✅ Implement all missing methods in [`tsringhelper.sh`](tsringhelper.sh)
+1. ✅ Implement all missing methods in [`tstringhelper.sh`](tstringhelper.sh)
 2. ✅ Add missing method overloads
 3. ✅ Run all 27 test files to verify implementations
 4. ✅ Fix any failing tests

@@ -2,11 +2,11 @@
 # common.sh - Shared setup code for kcl tests
 
 # Get script directory (only if not already set)
-if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tsringhelper" ]]; then
+if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tstringhelper" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
 KCL_DIR="$SCRIPT_DIR/.."
-TSRINGHELPER_SCRIPT="$KCL_DIR/tsringhelper.sh"
+tstringhelper_SCRIPT="$KCL_DIR/tstringhelper.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -160,7 +160,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'echo "Error occurred at line $LINENO: $BASH_COMMAND"' ERR
 
-# Source the tsringhelper script if not already sourced
+# Source the tstringhelper script if not already sourced
 if ! declare -F | grep -q "string.compare"; then
-    source "$TSRINGHELPER_SCRIPT"
+    source "$tstringhelper_SCRIPT"
 fi

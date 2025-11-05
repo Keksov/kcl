@@ -235,7 +235,7 @@ Each test file includes comprehensive testing:
 
 ```bash
 # Run all tests
-cd kcl/tsringhelper/tests
+cd kcl/tstringhelper/tests
 bash tests.sh
 
 # Run specific test file
@@ -306,7 +306,7 @@ bash tests.sh -n 1,3,5
 5. ✅ **Execute** test suite after each phase completion
 
 ### Development Process
-1. Implement method in [`tsringhelper.sh`](tsringhelper.sh)
+1. Implement method in [`tstringhelper.sh`](tstringhelper.sh)
 2. Add method documentation comment
 3. Run corresponding test file to verify
 4. Fix any failing tests
