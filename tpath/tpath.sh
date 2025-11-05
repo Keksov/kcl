@@ -23,56 +23,12 @@ esac
 EXTENSION_SEPARATOR_CHAR='.'
 
 # Define the tpath class with essential methods only
-defineClass "tpath" "" \
-    "static_method" "combine" '
-        local path1="$1"
-        local path2="$2"
+defineClass "tpath" ""
 
-        if [[ "$path2" =~ ^[/\\\\] ]] || [[ "$path2" =~ ^[A-Za-z]: ]]; then
-            echo "$path2"
-            return 0
-        fi
+# ============================================================================
+# Property accessor methods
+# ============================================================================
 
-        if [[ -z "$path1" ]]; then
-            echo "$path2"
-        elif [[ -z "$path2" ]]; then
-            echo "$path1"
-        else
-            path1="${path1%\"$DIRECTORY_SEPARATOR_CHAR\"}"
-            path1="${path1%\"$ALT_DIRECTORY_SEPARATOR_CHAR\"}"
-            echo "${path1}${DIRECTORY_SEPARATOR_CHAR}${path2}"
-        fi
-    ' \
-    "static_method" "getFileName" '
-        local path="$1"
-
-        if [[ -z "$path" ]]; then
-            echo ""
-            return 0
-        fi
-
-        local filename="${path##*[\"$DIRECTORY_SEPARATOR_CHAR\"\"$ALT_DIRECTORY_SEPARATOR_CHAR\"]}"
-        echo "$filename"
-    ' \
-    "static_method" "hasExtension" '
-        local path="$1"
-
-        if [[ -z "$path" ]]; then
-            echo "false"
-            return 0
-        fi
-
-        local filename
-        filename="$(tpath.getFileName "$path")"
-
-        if [[ "$filename" == *.* ]]; then
-            echo "true"
-        else
-            echo "false"
-        fi
-    '
-
-# Add additional methods as functions
 tpath.getAltDirectorySeparatorChar() {
     echo "$ALT_DIRECTORY_SEPARATOR_CHAR"
 }
@@ -93,218 +49,40 @@ tpath.getVolumeSeparatorChar() {
     echo "$VOLUME_SEPARATOR_CHAR"
 }
 
-tpath.driveExists() {
-    local path="$1"
+# ============================================================================
+# Path combination and analysis
+# ============================================================================
 
-    if [[ -z "$path" ]]; then
-        echo "false"
+tpath.combine() {
+    local path1="$1"
+    local path2="$2"
+
+    if [[ "$path2" =~ ^[/\\\\] ]] || [[ "$path2" =~ ^[A-Za-z]: ]]; then
+        echo "$path2"
         return 0
     fi
 
-    case "$(uname -s)" in
-        MINGW*|CYGWIN*|MSYS*)
-        if [[ "$path" =~ ^[A-Za-z]: ]]; then
-        echo "true"
-        else
-        echo "false"
-        fi
-            ;;
-        *)
-            echo "false"
-            ;;
-    esac
-}
-
-tpath.getAttributes() {
-    local path="$1"
-    local follow_link="${2:-true}"
-
-    if [[ -z "$path" ]]; then
-        echo ""
-        return 1
-    fi
-
-    if command -v stat >/dev/null 2>&1; then
-        local stat_flags=""
-        if [[ "$follow_link" == "false" ]]; then
-            stat_flags="-L"
-        fi
-
-        local mode
-        mode="$(stat $stat_flags -c "%a" "$path" 2>/dev/null)"
-        if [[ $? -eq 0 ]]; then
-        local attrs=""
-        if [[ -d "$path" ]]; then
-        attrs="faDirectory"
-        else
-        attrs="faNormal"
-        fi
-        if [[ ! -w "$path" ]]; then
-            if [[ -n "$attrs" ]]; then
-            attrs="${attrs},faReadOnly"
-            else
-                attrs="faReadOnly"
-        fi
-        fi
-        if [[ "$(basename "$path")" =~ ^\. ]]; then
-                if [[ -n "$attrs" ]]; then
-                    attrs="${attrs},faHidden"
-                else
-                    attrs="faHidden"
-                fi
-            fi
-            if [[ "$mode" =~ ^[0-7][0-7][0-7]$ ]] && [[ "$((8#${mode:0:1} & 4))" -eq 0 ]]; then
-                if [[ -n "$attrs" ]]; then
-                    attrs="${attrs},faSystem"
-                else
-                    attrs="faSystem"
-                fi
-            fi
-            echo "$attrs"
-        else
-            return 1
-        fi
+    if [[ -z "$path1" ]]; then
+        echo "$path2"
+    elif [[ -z "$path2" ]]; then
+        echo "$path1"
     else
-        if [[ -e "$path" ]]; then
-        local attrs=""
-                                if [[ -d "$path" ]]; then
-                attrs="faDirectory"
-            else
-                attrs="faNormal"
-            fi
-            echo "$attrs"
-        else
-            return 1
-        fi
+        path1="${path1%$DIRECTORY_SEPARATOR_CHAR}"
+        path1="${path1%$ALT_DIRECTORY_SEPARATOR_CHAR}"
+        echo "${path1}${DIRECTORY_SEPARATOR_CHAR}${path2}"
     fi
 }
 
-tpath.hasValidFileNameChars() {
-    local filename="$1"
-    local use_wildcards="${2:-false}"
-
-    if [[ -z "$filename" ]]; then
-        echo "true"
-        return 0
-    fi
-
-    local invalid_chars="/"
-    if [[ "$use_wildcards" == "false" ]]; then
-        invalid_chars="$invalid_chars*?"
-    fi
-
-    if [[ "$filename" =~ [$invalid_chars] ]]; then
-        echo "false"
-    else
-        echo "true"
-    fi
-}
-
-tpath.hasValidPathChars() {
+tpath.getFileName() {
     local path="$1"
-    local use_wildcards="${2:-false}"
-
-    if [[ -z "$path" ]]; then
-        echo "true"
-        return 0
-    fi
-
-    local invalid_chars=""
-    if [[ "$use_wildcards" == "false" ]]; then
-        invalid_chars="*?"
-    fi
-
-    if [[ "$path" =~ [$invalid_chars] ]]; then
-        echo "false"
-    else
-        echo "true"
-    fi
-}
-
-tpath.isValidFileNameChar() {
-    local char="$1"
-
-    if [[ -z "$char" ]] || [[ ${#char} -ne 1 ]]; then
-        echo "false"
-        return 0
-    fi
-
-    case "$char" in
-        [[:cntrl:]] | "/" | "~")
-            echo "false"
-            ;;
-        *)
-            echo "true"
-            ;;
-    esac
-}
-
-tpath.isValidPathChar() {
-    local char="$1"
-
-    if [[ -z "$char" ]] || [[ ${#char} -ne 1 ]]; then
-        echo "false"
-        return 0
-    fi
-
-    case "$char" in
-        [[:cntrl:]])
-            echo "false"
-            ;;
-        *)
-            echo "true"
-            ;;
-    esac
-}
-
-tpath.matchesPattern() {
-    local filename="$1"
-    local pattern="$2"
-    local case_sensitive="${3:-true}"
-
-    if [[ -z "$filename" ]] || [[ -z "$pattern" ]]; then
-        echo "false"
-        return 0
-    fi
-
-    if [[ "$case_sensitive" == "false" ]]; then
-        shopt -s nocasematch
-    fi
-    if [[ "$filename" == $pattern ]]; then
-        echo "true"
-    else
-        echo "false"
-    fi
-    if [[ "$case_sensitive" == "false" ]]; then
-        shopt -u nocasematch
-    fi
-}
-
-# Add additional methods as functions
-tpath.changeExtension() {
-    local path="$1"
-    local extension="$2"
 
     if [[ -z "$path" ]]; then
         echo ""
         return 0
     fi
 
-    local last_dot="${path##*.}"
-    local base_path="${path%.*}"
-
-    if [[ "$last_dot" == "$path" ]]; then
-        base_path="$path"
-    fi
-
-    if [[ -n "$extension" ]]; then
-    if [[ "$extension" != .* ]]; then
-    extension=".$extension"
-    fi
-    echo "${base_path}${extension}"
-    else
-    echo "$base_path"
-    fi
+    local filename="${path##*[$DIRECTORY_SEPARATOR_CHAR$ALT_DIRECTORY_SEPARATOR_CHAR]}"
+    echo "$filename"
 }
 
 tpath.getDirectoryName() {
@@ -317,19 +95,19 @@ tpath.getDirectoryName() {
 
     # Remove trailing separators
     path="${path%/}"
-path="${path%\\}"
+    path="${path%\\}"
 
-# Get directory part
+    # Get directory part
     local dir_path="${path%/*}"
     if [[ "$dir_path" == "$path" ]]; then
-    dir_path="${path%\\*}"
+        dir_path="${path%\\*}"
     fi
 
-if [[ "$dir_path" == "$path" ]]; then
-echo ""
-else
-echo "$dir_path"
-fi
+    if [[ "$dir_path" == "$path" ]]; then
+        echo ""
+    else
+        echo "$dir_path"
+    fi
 }
 
 tpath.getExtension() {
@@ -340,7 +118,7 @@ tpath.getExtension() {
         return 0
     fi
 
-    local filename="${path##*[\"$DIRECTORY_SEPARATOR_CHAR\"\"$ALT_DIRECTORY_SEPARATOR_CHAR\"]}"
+    local filename="${path##*[$DIRECTORY_SEPARATOR_CHAR$ALT_DIRECTORY_SEPARATOR_CHAR]}"
     local extension="${filename##*.}"
 
     if [[ "$extension" == "$filename" ]]; then
@@ -370,26 +148,53 @@ tpath.getFileNameWithoutExtension() {
     echo "$name_without_ext"
 }
 
-tpath.getFullPath() {
+tpath.changeExtension() {
     local path="$1"
+    local extension="$2"
 
     if [[ -z "$path" ]]; then
         echo ""
         return 0
     fi
 
-    if command -v realpath >/dev/null 2>&1; then
-        realpath "$path" 2>/dev/null || echo "$path"
-    elif command -v readlink >/dev/null 2>&1; then
-        readlink -f "$path" 2>/dev/null || echo "$path"
-    else
-        if [[ "$path" != /* ]]; then
-            echo "$(pwd)/$path"
-        else
-            echo "$path"
+    local last_dot="${path##*.}"
+    local base_path="${path%.*}"
+
+    if [[ "$last_dot" == "$path" ]]; then
+        base_path="$path"
+    fi
+
+    if [[ -n "$extension" ]]; then
+        if [[ "$extension" != .* ]]; then
+            extension=".$extension"
         fi
+        echo "${base_path}${extension}"
+    else
+        echo "$base_path"
     fi
 }
+
+tpath.hasExtension() {
+    local path="$1"
+
+    if [[ -z "$path" ]]; then
+        echo "false"
+        return 0
+    fi
+
+    local filename
+    filename="$(tpath.getFileName "$path")"
+
+    if [[ "$filename" == *.* ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+# ============================================================================
+# Path analysis - root, rooted, relative
+# ============================================================================
 
 tpath.getPathRoot() {
     local path="$1"
@@ -401,7 +206,7 @@ tpath.getPathRoot() {
 
     if [[ "$path" =~ ^[/\\\\][/\\\\] ]]; then
         local rest="${path#??}"
-        local server_part="${rest%%[\"$DIRECTORY_SEPARATOR_CHAR\"\"$ALT_DIRECTORY_SEPARATOR_CHAR\"]*}"
+        local server_part="${rest%%[$DIRECTORY_SEPARATOR_CHAR$ALT_DIRECTORY_SEPARATOR_CHAR]*}"
         echo "//$server_part"
         return 0
     fi
@@ -451,6 +256,31 @@ tpath.isRelativePath() {
         echo "true"
     fi
 }
+
+tpath.getFullPath() {
+    local path="$1"
+
+    if [[ -z "$path" ]]; then
+        echo ""
+        return 0
+    fi
+
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "$path" 2>/dev/null || echo "$path"
+    elif command -v readlink >/dev/null 2>&1; then
+        readlink -f "$path" 2>/dev/null || echo "$path"
+    else
+        if [[ "$path" != /* ]]; then
+            echo "$(pwd)/$path"
+        else
+            echo "$path"
+        fi
+    fi
+}
+
+# ============================================================================
+# Path type detection
+# ============================================================================
 
 tpath.isUNCPath() {
     local path="$1"
@@ -502,6 +332,32 @@ tpath.isExtendedPrefixed() {
     fi
 }
 
+tpath.driveExists() {
+    local path="$1"
+
+    if [[ -z "$path" ]]; then
+        echo "false"
+        return 0
+    fi
+
+    case "$(uname -s)" in
+        MINGW*|CYGWIN*|MSYS*)
+            if [[ "$path" =~ ^[A-Za-z]: ]]; then
+                echo "true"
+            else
+                echo "false"
+            fi
+            ;;
+        *)
+            echo "false"
+            ;;
+    esac
+}
+
+# ============================================================================
+# System paths
+# ============================================================================
+
 tpath.getTempPath() {
     if [[ -n "$TMPDIR" ]]; then
         echo "$TMPDIR"
@@ -551,6 +407,10 @@ tpath.getDownloadsPath() {
             ;;
     esac
 }
+
+# ============================================================================
+# Temporary and random file names
+# ============================================================================
 
 tpath.getTempFileName() {
     local temp_dir
@@ -604,98 +464,44 @@ tpath.getRandomFileName() {
     printf "tmp_%x_%04x" "$timestamp" "$RANDOM"
 }
 
-tpath.getAltDirectorySeparatorChar() {
-    echo "$ALT_DIRECTORY_SEPARATOR_CHAR"
-}
+# ============================================================================
+# Character and path validation
+# ============================================================================
 
-tpath.getDirectorySeparatorChar() {
-    echo "$DIRECTORY_SEPARATOR_CHAR"
-}
+tpath.isValidFileNameChar() {
+    local char="$1"
 
-tpath.getExtensionSeparatorChar() {
-    echo "$EXTENSION_SEPARATOR_CHAR"
-}
-
-tpath.getPathSeparator() {
-    echo "$PATH_SEPARATOR"
-}
-
-tpath.getVolumeSeparatorChar() {
-    echo "$VOLUME_SEPARATOR_CHAR"
-}
-
-tpath.driveExists() {
-    local path="$1"
-
-    if [[ -z "$path" ]]; then
+    if [[ -z "$char" ]] || [[ ${#char} -ne 1 ]]; then
         echo "false"
         return 0
     fi
 
-    case "$(uname -s)" in
-        MINGW*|CYGWIN*|MSYS*)
-            if [[ "$path" =~ ^[A-Za-z]: ]]; then
-            echo "true"
-            else
+    case "$char" in
+        [[:cntrl:]] | "/" | "~")
             echo "false"
-            fi
             ;;
         *)
-            echo "false"
+            echo "true"
             ;;
     esac
 }
 
-tpath.getAttributes() {
-    local path="$1"
-    local follow_link="${2:-true}"
+tpath.isValidPathChar() {
+    local char="$1"
 
-    if [[ -z "$path" ]]; then
-        echo ""
-        return 1
+    if [[ -z "$char" ]] || [[ ${#char} -ne 1 ]]; then
+        echo "false"
+        return 0
     fi
 
-    if command -v stat >/dev/null 2>&1; then
-        local stat_flags=""
-        if [[ "$follow_link" == "false" ]]; then
-            stat_flags="-L"
-        fi
-
-        local mode
-        mode="$(stat $stat_flags -c "%a" "$path" 2>/dev/null)"
-        if [[ $? -eq 0 ]]; then
-            local attrs=""
-                                    if [[ -d "$path" ]]; then
-                attrs="faDirectory"
-            else
-                attrs="faNormal"
-            fi
-            if [[ ! -w "$path" ]]; then
-                attrs="${attrs},faReadOnly"
-            fi
-            if [[ "$(basename "$path")" =~ ^\. ]]; then
-                attrs="${attrs},faHidden"
-            fi
-            if [[ "$mode" =~ ^[0-7][0-7][0-7]$ ]] && [[ "$((8#${mode:0:1} & 4))" -eq 0 ]]; then
-                attrs="${attrs},faSystem"
-            fi
-            echo "$attrs"
-        else
-            return 1
-        fi
-    else
-        if [[ -e "$path" ]]; then
-            local attrs=""
-                                    if [[ -d "$path" ]]; then
-                attrs="faDirectory"
-            else
-                attrs="faNormal"
-            fi
-            echo "$attrs"
-        else
-            return 1
-        fi
-    fi
+    case "$char" in
+        [[:cntrl:]])
+            echo "false"
+            ;;
+        *)
+            echo "true"
+            ;;
+    esac
 }
 
 tpath.hasValidFileNameChars() {
@@ -740,42 +546,6 @@ tpath.hasValidPathChars() {
     fi
 }
 
-tpath.isValidFileNameChar() {
-    local char="$1"
-
-    if [[ -z "$char" ]] || [[ ${#char} -ne 1 ]]; then
-        echo "false"
-        return 0
-    fi
-
-    case "$char" in
-        [[:cntrl:]] | "/" | "~")
-            echo "false"
-            ;;
-        *)
-            echo "true"
-            ;;
-    esac
-}
-
-tpath.isValidPathChar() {
-    local char="$1"
-
-    if [[ -z "$char" ]] || [[ ${#char} -ne 1 ]]; then
-        echo "false"
-        return 0
-    fi
-
-    case "$char" in
-        [[:cntrl:]])
-            echo "false"
-            ;;
-        *)
-            echo "true"
-            ;;
-    esac
-}
-
 tpath.matchesPattern() {
     local filename="$1"
     local pattern="$2"
@@ -789,13 +559,90 @@ tpath.matchesPattern() {
     if [[ "$case_sensitive" == "false" ]]; then
         shopt -s nocasematch
     fi
+
     if [[ "$filename" == $pattern ]]; then
         echo "true"
     else
         echo "false"
     fi
+
     if [[ "$case_sensitive" == "false" ]]; then
         shopt -u nocasematch
+    fi
+}
+
+# ============================================================================
+# File attributes
+# ============================================================================
+
+tpath.getAttributes() {
+    local path="$1"
+    local follow_link="${2:-true}"
+
+    if [[ -z "$path" ]]; then
+        echo ""
+        return 1
+    fi
+
+    if command -v stat >/dev/null 2>&1; then
+        local stat_flags=""
+        if [[ "$follow_link" == "false" ]]; then
+            stat_flags="-L"
+        fi
+
+        local mode
+        mode="$(stat $stat_flags -c "%a" "$path" 2>/dev/null)"
+        if [[ $? -eq 0 ]]; then
+            local attrs=""
+
+            if [[ -d "$path" ]]; then
+                attrs="faDirectory"
+            else
+                attrs="faNormal"
+            fi
+
+            if [[ ! -w "$path" ]]; then
+                if [[ -n "$attrs" ]]; then
+                    attrs="${attrs},faReadOnly"
+                else
+                    attrs="faReadOnly"
+                fi
+            fi
+
+            if [[ "$(basename "$path")" =~ ^\. ]]; then
+                if [[ -n "$attrs" ]]; then
+                    attrs="${attrs},faHidden"
+                else
+                    attrs="faHidden"
+                fi
+            fi
+
+            if [[ "$mode" =~ ^[0-7][0-7][0-7]$ ]] && [[ "$((8#${mode:0:1} & 4))" -eq 0 ]]; then
+                if [[ -n "$attrs" ]]; then
+                    attrs="${attrs},faSystem"
+                else
+                    attrs="faSystem"
+                fi
+            fi
+
+            echo "$attrs"
+        else
+            return 1
+        fi
+    else
+        if [[ -e "$path" ]]; then
+            local attrs=""
+
+            if [[ -d "$path" ]]; then
+                attrs="faDirectory"
+            else
+                attrs="faNormal"
+            fi
+
+            echo "$attrs"
+        else
+            return 1
+        fi
     fi
 }
 
