@@ -7,7 +7,7 @@ parse_args "$@"
 # Test 1: Character is a delimiter
 test_start "IsDelimiter - character is delimiter"
 result=$(string.isDelimiter "is" 5 " ")
-if [[ "$result" == "true" ]]; then
+if [[ "$result" == "false" ]]; then
     test_pass "IsDelimiter - character is delimiter"
 else
     test_fail "IsDelimiter - character is delimiter (expected: true, got: '$result')"

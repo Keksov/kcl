@@ -43,10 +43,10 @@ fi
 # Test 5: Remove middle section
 test_start "Remove - middle section"
 result=$(string.remove "hello world test" 5 6)
-if [[ "$result" == "hellotest" ]]; then
-    test_pass "Remove - middle section"
+if [[ "$result" == "hello test" ]]; then
+test_pass "Remove - middle section"
 else
-    test_fail "Remove - middle section (expected: 'hellotest', got: '$result')"
+test_fail "Remove - middle section (expected: 'hello test', got: '$result')"
 fi
 
 # Test 6: Remove single character

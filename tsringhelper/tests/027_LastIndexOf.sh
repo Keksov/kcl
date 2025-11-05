@@ -88,7 +88,7 @@ fi
 # Test 10: Multiple occurrences
 test_start "LastIndexOf - multiple occurrences"
 result=$(string.lastIndexOf "aabbaa" "a")
-if [[ "$result" == "4" ]]; then
+if [[ "$result" == "5" ]]; then
     test_pass "LastIndexOf - multiple occurrences"
 else
     test_fail "LastIndexOf - multiple occurrences (expected: 4, got: '$result')"

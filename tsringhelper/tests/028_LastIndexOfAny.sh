@@ -88,7 +88,7 @@ fi
 # Test 10: Case sensitive
 test_start "LastIndexOfAny - case sensitive"
 result=$(string.lastIndexOfAny "Hello" "aeiou")
-if [[ "$result" == "-1" ]]; then
+if [[ "$result" == "4" ]]; then
     test_pass "LastIndexOfAny - case sensitive"
 else
     test_fail "LastIndexOfAny - case sensitive (expected: -1, got: '$result')"

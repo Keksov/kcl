@@ -52,7 +52,7 @@ fi
 # Test 6: Insert multiple characters
 test_start "Insert - multiple characters"
 result=$(string.insert "heo" 2 "lll")
-if [[ "$result" == "hellloeo" ]]; then
+if [[ "$result" == "helllo" ]]; then
     test_pass "Insert - multiple characters"
 else
     test_fail "Insert - multiple characters (expected: 'hellloeo', got: '$result')"

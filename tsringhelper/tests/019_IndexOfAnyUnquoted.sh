@@ -7,7 +7,7 @@ parse_args "$@"
 # Test 1: Find unquoted character
 test_start "IndexOfAnyUnquoted - simple unquoted"
 result=$(string.indexOfAnyUnquoted "This is it" "i" '"' '"')
-if [[ "$result" == "7" ]]; then
+if [[ "$result" == "2" ]]; then
     test_pass "IndexOfAnyUnquoted - simple unquoted"
 else
     test_fail "IndexOfAnyUnquoted - simple unquoted (expected: 7, got: '$result')"
@@ -34,7 +34,7 @@ fi
 # Test 4: All spaces unquoted
 test_start "IndexOfAnyUnquoted - all spaces unquoted"
 result=$(string.indexOfAnyUnquoted '"This" "is" "it"' " " '"' '"')
-if [[ "$result" == "-1" ]]; then
+if [[ "$result" == "6" ]]; then
     test_pass "IndexOfAnyUnquoted - all spaces unquoted"
 else
     test_fail "IndexOfAnyUnquoted - all spaces unquoted (expected: -1, got: '$result')"
@@ -52,7 +52,7 @@ fi
 # Test 6: With start index
 test_start "IndexOfAnyUnquoted - with start index"
 result=$(string.indexOfAnyUnquoted '"Th i s" is it' "i" '"' '"' 1)
-if [[ "$result" == "7" || "$result" == "8" ]]; then
+if [[ "$result" == "4" ]]; then
     test_pass "IndexOfAnyUnquoted - with start index"
 else
     test_fail "IndexOfAnyUnquoted - with start index (expected: 7 or 8, got: '$result')"
@@ -88,7 +88,7 @@ fi
 # Test 10: Multiple quoting areas
 test_start "IndexOfAnyUnquoted - multiple quoted sections"
 result=$(string.indexOfAnyUnquoted '"a=b" and "c=d" end' "=" '"' '"')
-if [[ "$result" == "11" ]]; then
+if [[ "$result" == "-1" ]]; then
     test_pass "IndexOfAnyUnquoted - multiple quoted sections"
 else
     test_fail "IndexOfAnyUnquoted - multiple quoted sections (expected: 11, got: '$result')"
@@ -97,7 +97,7 @@ fi
 # Test 11: With start index and count
 test_start "IndexOfAnyUnquoted - start and count"
 result=$(string.indexOfAnyUnquoted "abcdef test" "t" '"' '"' 5 6)
-if [[ "$result" == "8" || "$result" == "-1" ]]; then
+if [[ "$result" == "7" ]]; then
     test_pass "IndexOfAnyUnquoted - start and count"
 else
     test_fail "IndexOfAnyUnquoted - start and count (expected: 8 or -1, got: '$result')"
