@@ -149,24 +149,24 @@ defineClass "string" "" \
         done
     ' \
     "static_method" "toDouble" '
-        local s="$1"
-        echo "$s" | awk '{print $1 + 0.0}'
+    local s="$1"
+    echo "$s" | awk ''{print $1 + 0.0}''
     ' \
     "method" "toDouble" '
         local self="$1"
         string.toDouble "$self"
     ' \
     "static_method" "toInt64" '
-        local s="$1"
-        echo "$s" | awk '{print int($1)}'
+    local s="$1"
+    echo "$s" | awk ''{print int($1)}''
     ' \
     "method" "toInt64" '
         local self="$1"
         string.toInt64 "$self"
     ' \
     "static_method" "toInteger" '
-        local s="$1"
-        echo "$s" | awk '{print int($1)}'
+    local s="$1"
+    echo "$s" | awk ''{print int($1)}''
     ' \
     "method" "toInteger" '
         local self="$1"
@@ -182,7 +182,7 @@ defineClass "string" "" \
     ' \
     "static_method" "toSingle" '
         local s="$1"
-        echo "$s" | awk '{print $1 + 0.0}'
+        echo "$s" | awk "{print \$1 + 0.0}"
     ' \
     "method" "toSingle" '
         local self="$1"
