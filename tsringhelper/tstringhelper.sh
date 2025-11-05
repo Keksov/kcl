@@ -150,7 +150,8 @@ defineClass "string" "" \
     ' \
     "static_method" "toDouble" '
     local s="$1"
-    echo "$s" | awk ''{print $1 + 0.0}''
+    local num="${s%% *}"
+    printf "%.1f\n" "$num" 2>/dev/null || echo "$num"
     ' \
     "method" "toDouble" '
         local self="$1"
@@ -158,7 +159,7 @@ defineClass "string" "" \
     ' \
     "static_method" "toInt64" '
     local s="$1"
-    echo "$s" | awk ''{print int($1)}''
+    echo "$(( ${s%%.*} ))"
     ' \
     "method" "toInt64" '
         local self="$1"
@@ -166,7 +167,7 @@ defineClass "string" "" \
     ' \
     "static_method" "toInteger" '
     local s="$1"
-    echo "$s" | awk ''{print int($1)}''
+    echo "$(( ${s%%.*} ))"
     ' \
     "method" "toInteger" '
         local self="$1"
@@ -181,8 +182,9 @@ defineClass "string" "" \
         echo "${self,,}"
     ' \
     "static_method" "toSingle" '
-        local s="$1"
-        echo "$s" | awk "{print \$1 + 0.0}"
+         local s="$1"
+         local num="${s%% *}"
+         printf "%.1f\n" "$num" 2>/dev/null || echo "$num"
     ' \
     "method" "toSingle" '
         local self="$1"
