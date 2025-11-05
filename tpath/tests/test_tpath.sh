@@ -78,12 +78,12 @@ run_tests() {
             for _m in "${test_files[@]}"; do echo " - ${_m}"; done
         fi
     else
-    # Run all test files
-    for f in "$SCRIPT_DIR"/[0-9][0-9]*_*.sh; do
-        if [[ -f "$f" ]]; then
-        test_files+=("$f")
-    fi
-    done
+        # Run all test files
+        for f in "$SCRIPT_DIR"/[0-9][0-9][0-9]_*.sh; do
+            if [[ -f "$f" ]]; then
+                test_files+=("$f")
+            fi
+        done
     fi
     # Revert nullglob
     shopt -u nullglob
@@ -154,7 +154,7 @@ run_tests() {
         local temp_files=()
 
         for test_file in "${test_files[@]}"; do
-            local clean_file="${test_file%$'\r'}"
+            local clean_file="${test_file%$'\\r'}"
             local temp_file="$temp_dir/$(basename "$test_file").out"
             temp_files+=("$temp_file")
 

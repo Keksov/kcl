@@ -39,8 +39,9 @@ parse_test_selection() {
 
 # Parse command line arguments
 parse_args() {
-    # If VERBOSITY is already set (e.g., from runner), use it
+    # If VERBOSITY is already set (e.g., from runner), use it and set kklass verbosity
     if [[ -n "$VERBOSITY" ]]; then
+        export VERBOSE_KKLASS="$VERBOSITY"
         return
     fi
     VERBOSITY="error"
@@ -108,6 +109,8 @@ parse_args() {
         parse_test_selection "$TEST_SELECTION"
     fi
 
+    # Set kklass verbosity based on our verbosity
+    export VERBOSE_KKLASS="$VERBOSITY"
     export MODE WORKERS
 }
 

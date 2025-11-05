@@ -2,11 +2,11 @@
 # common.sh - Shared setup code for kcl tests
 
 # Get script directory (only if not already set)
-if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tpath" ]]; then
+if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tsringhelper" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
 KCL_DIR="$SCRIPT_DIR/.."
-TPATH_SCRIPT="$KCL_DIR/tpath.sh"
+TSRINGHELPER_SCRIPT="$KCL_DIR/tsringhelper.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -39,9 +39,8 @@ parse_test_selection() {
 
 # Parse command line arguments
 parse_args() {
-    # If VERBOSITY is already set (e.g., from runner), use it and set kklass verbosity
+    # If VERBOSITY is already set (e.g., from runner), use it
     if [[ -n "$VERBOSITY" ]]; then
-        export VERBOSE_KKLASS="$VERBOSITY"
         return
     fi
     VERBOSITY="error"
@@ -109,8 +108,6 @@ parse_args() {
         parse_test_selection "$TEST_SELECTION"
     fi
 
-    # Set kklass verbosity based on our verbosity
-    export VERBOSE_KKLASS="$VERBOSITY"
     export MODE WORKERS
 }
 
@@ -160,7 +157,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'echo "Error occurred at line $LINENO: $BASH_COMMAND"' ERR
 
-# Source the tpath script if not already sourced
-if ! declare -F | grep -q "tpath.combine"; then
-    source "$TPATH_SCRIPT"
+# Source the tsringhelper script if not already sourced
+if ! declare -F | grep -q "string.compare"; then
+    source "$TSRINGHELPER_SCRIPT"
 fi
