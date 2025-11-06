@@ -4,11 +4,15 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
+# Set up temp directory for this test
+TEST_ID=037
+mkdir -p ".tmp/$TEST_ID"
+
 # Test 1: Write bytes to new file
 test_start "Write bytes to new file"
 bytes="Hello World"
-result=$(tfile.writeAllBytes "test_writebytes.tmp" "$bytes")
-if [[ -f "test_writebytes.tmp" && "$(cat test_writebytes.tmp)" == "$bytes" ]]; then
+result=$(tfile.writeAllBytes ".tmp/$TEST_ID/writebytes.tmp" "$bytes")
+if [[ -f ".tmp/$TEST_ID/writebytes.tmp" && "$(cat .tmp/$TEST_ID/writebytes.tmp)" == "$bytes" ]]; then
     test_pass "Write bytes to new file"
 else
     test_fail "Write bytes to new file"
@@ -16,9 +20,9 @@ fi
 
 # Test 2: Write bytes to existing file (overwrites)
 test_start "Write bytes to existing file"
-echo "old" > test_overwrite_bytes.tmp
-result=$(tfile.writeAllBytes "test_overwrite_bytes.tmp" "new")
-if [[ "$(cat test_overwrite_bytes.tmp)" == "new" ]]; then
+echo "old" > ".tmp/$TEST_ID/overwrite_bytes.tmp"
+result=$(tfile.writeAllBytes ".tmp/$TEST_ID/overwrite_bytes.tmp" "new")
+if [[ "$(cat .tmp/$TEST_ID/overwrite_bytes.tmp)" == "new" ]]; then
     test_pass "Write bytes to existing file"
 else
     test_fail "Write bytes to existing file"
@@ -26,8 +30,8 @@ fi
 
 # Test 3: Write empty bytes
 test_start "Write empty bytes"
-result=$(tfile.writeAllBytes "test_empty_bytes.tmp" "")
-if [[ -f "test_empty_bytes.tmp" && ! -s "test_empty_bytes.tmp" ]]; then
+result=$(tfile.writeAllBytes ".tmp/$TEST_ID/empty_bytes.tmp" "")
+if [[ -f ".tmp/$TEST_ID/empty_bytes.tmp" && ! -s ".tmp/$TEST_ID/empty_bytes.tmp" ]]; then
     test_pass "Write empty bytes"
 else
     test_fail "Write empty bytes"

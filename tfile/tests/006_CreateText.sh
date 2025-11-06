@@ -4,13 +4,15 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
+# Set up temp directory for this test
+TEST_ID=006
+mkdir -p ".tmp/$TEST_ID"
+
 # Test 1: Create new text file
 test_start "Create new text file"
-rm -f test_create_text.tmp
-writer=$(tfile.createText "test_create_text.tmp")
+writer=$(tfile.createText ".tmp/$TEST_ID/create_text.tmp")
 printf "text content" > "$writer"
-# close_writer "$writer"
-if [[ -f "test_create_text.tmp" && "$(cat test_create_text.tmp)" == "text content" ]]; then
+if [[ -f ".tmp/$TEST_ID/create_text.tmp" && "$(cat .tmp/$TEST_ID/create_text.tmp)" == "text content" ]]; then
     test_pass "Create new text file"
 else
     test_fail "Create new text file"
@@ -18,11 +20,10 @@ fi
 
 # Test 2: Create existing file (should overwrite)
 test_start "Create text on existing file"
-printf "old content" > test_overwrite_text.tmp
-writer=$(tfile.createText "test_overwrite_text.tmp")
+printf "old content" > ".tmp/$TEST_ID/overwrite_text.tmp"
+writer=$(tfile.createText ".tmp/$TEST_ID/overwrite_text.tmp")
 printf "new content" > "$writer"
-# close_writer "$writer"
-if [[ "$(cat test_overwrite_text.tmp)" == "new content" ]]; then
+if [[ "$(cat .tmp/$TEST_ID/overwrite_text.tmp)" == "new content" ]]; then
     test_pass "Create text on existing file"
 else
     test_fail "Create text on existing file"

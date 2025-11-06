@@ -4,26 +4,30 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
+# Set up temp directory for this test
+TEST_ID=002
+mkdir -p ".tmp/$TEST_ID"
+
 # Test 1: Append to existing file
 test_start "Append text to existing file"
-printf "initial" > test_append_text.tmp
-writer=$(tfile.appendText "test_append_text.tmp")
+printf "initial" > ".tmp/$TEST_ID/append_text.tmp"
+writer=$(tfile.appendText ".tmp/$TEST_ID/append_text.tmp")
 # Note: This assumes writer has write and close methods, adjust based on actual API
 printf " appended" >> "$writer"  # Simplified, actual implementation may vary
 # close_writer "$writer"
-if [[ "$(cat test_append_text.tmp)" == "initial appended" ]]; then
+if [[ "$(cat .tmp/$TEST_ID/append_text.tmp)" == "initial appended" ]]; then
     test_pass "Append text to existing file"
 else
-    test_fail "Append text to existing file (got: $(cat test_append_text.tmp))"
+    test_fail "Append text to existing file (got: $(cat .tmp/$TEST_ID/append_text.tmp))"
 fi
 
 # Test 2: Append to new file
 test_start "Append text to new file"
-rm -f test_new_append.tmp
-writer=$(tfile.appendText "test_new_append.tmp")
+rm -f ".tmp/$TEST_ID/new_append.tmp"
+writer=$(tfile.appendText ".tmp/$TEST_ID/new_append.tmp")
 printf "new content" > "$writer"
 # close_writer "$writer"
-if [[ "$(cat test_new_append.tmp)" == "new content" ]]; then
+if [[ "$(cat .tmp/$TEST_ID/new_append.tmp)" == "new content" ]]; then
     test_pass "Append text to new file"
 else
     test_fail "Append text to new file"

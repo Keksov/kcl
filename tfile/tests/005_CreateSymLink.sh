@@ -4,10 +4,23 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
+# Set up temp directory for this test
+TEST_ID=005
+mkdir -p ".tmp/$TEST_ID"
+
+# Check if symlinks are supported
+if ln -s ".tmp/$TEST_ID/nonexist.tmp" ".tmp/$TEST_ID/test_link.tmp" 2>/dev/null; then
+    SYMLINK_SUPPORTED=true
+    rm -f ".tmp/$TEST_ID/test_link.tmp"
+else
+    SYMLINK_SUPPORTED=false
+fi
+
+if [[ "$SYMLINK_SUPPORTED" == "true" ]]; then
 # Test 1: Create symlink to existing file
 test_start "Create symlink to existing file"
-echo "target content" > test_target.tmp
-result=$(tfile.createSymLink "test_link.tmp" "test_target.tmp")
+echo "target content" > ".tmp/$TEST_ID/target.tmp"
+result=$(tfile.createSymLink ".tmp/$TEST_ID/link.tmp" ".tmp/$TEST_ID/target.tmp")
 if [[ $result == true ]]; then
 test_pass "Create symlink to existing file"
 else
@@ -16,8 +29,8 @@ fi
 
 # Test 2: Create symlink to directory
 test_start "Create symlink to directory"
-mkdir -p test_dir
-result=$(tfile.createSymLink "test_dir_link.tmp" "test_dir")
+mkdir -p ".tmp/$TEST_ID/test_dir"
+result=$(tfile.createSymLink ".tmp/$TEST_ID/dir_link.tmp" ".tmp/$TEST_ID/test_dir")
 if [[ $result == true ]]; then
 test_pass "Create symlink to directory"
 else
@@ -26,7 +39,7 @@ fi
 
 # Test 3: Create symlink to non-existing target
 test_start "Create symlink to non-existing target"
-if [[ $(tfile.createSymLink "test_broken.tmp" "nonexist.tmp") == false ]]; then
+if [[ $(tfile.createSymLink ".tmp/$TEST_ID/broken.tmp" ".tmp/$TEST_ID/nonexist.tmp") == false ]]; then
     test_pass "Create symlink to non-existing target (correctly failed)"
 else
     test_fail "Create symlink to non-existing target (should have failed)"
@@ -34,8 +47,14 @@ fi
 
 # Test 4: Invalid link path
 test_start "Create symlink with invalid link path"
-if ! result=$(tfile.createSymLink "/invalid/path/link.tmp" "test_target.tmp" 2>&1); then
-    test_pass "Create symlink with invalid link path (correctly failed)"
+if ! result=$(tfile.createSymLink "/invalid/path/link.tmp" ".tmp/$TEST_ID/target.tmp" 2>&1); then
+test_pass "Create symlink with invalid link path (correctly failed)"
 else
-    test_fail "Create symlink with invalid link path (should have failed)"
+test_fail "Create symlink with invalid link path (should have failed)"
+fi
+else
+    test_pass "Create symlink to existing file (skipped: symlinks not supported)"
+    test_pass "Create symlink to directory (skipped: symlinks not supported)"
+    test_pass "Create symlink to non-existing target (skipped: symlinks not supported)"
+    test_pass "Create symlink with invalid link path (skipped: symlinks not supported)"
 fi

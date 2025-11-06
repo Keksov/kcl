@@ -4,6 +4,11 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
+# Set up temp directory for this test
+TEST_ID=011
+mkdir -p ".tmp/$TEST_ID"
+
+
 # Test 1: Convert empty attributes
 test_start "Convert empty attributes"
 result=$(tfile.fileAttributesToInteger "[]")
