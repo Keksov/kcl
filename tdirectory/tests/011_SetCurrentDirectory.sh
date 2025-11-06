@@ -8,8 +8,8 @@ parse_args "$@"
 original_dir=$(pwd)
 
 # Setup temp directories for tests
-temp_base="$(tpath.getTempPath)/tdirectory_test_$$"
-tdirectory.createDirectory "$temp_base"
+init_test_tmpdir "011"
+temp_base="$TEST_TMP_DIR"
 
 # Test 1: Set current directory to existing directory
 test_start "SetCurrentDirectory - change to existing directory"
@@ -117,6 +117,5 @@ fi
 
 # Cleanup - restore original directory
 cd "$original_dir" 2>/dev/null || true
-rm -rf "$temp_base" 2>/dev/null || true
 
-echo "__COUNTS__:$TESTS_TOTAL:$TESTS_PASSED:$TESTS_FAILED"
+

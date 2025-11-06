@@ -94,4 +94,4 @@ else
     test_fail "IsRelativePath - single relative name (expected: true, got: '$result')"
 fi
 
-echo "__COUNTS__:$TESTS_TOTAL:$TESTS_PASSED:$TESTS_FAILED"
+

@@ -97,4 +97,4 @@ else
     test_fail "GetParent - sequential parent extraction (p1:'$parent1' p2:'$parent2' p3:'$parent3')"
 fi
 
-echo "__COUNTS__:$TESTS_TOTAL:$TESTS_PASSED:$TESTS_FAILED"
+

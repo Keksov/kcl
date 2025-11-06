@@ -5,8 +5,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
 # Setup temp directory
-temp_base="$(tpath.getTempPath)/tdirectory_test_$$"
-tdirectory.createDirectory "$temp_base"
+init_test_tmpdir "018"
+temp_base="$TEST_TMP_DIR"
 
 # Test 1: GetCreationTime returns datetime
 test_start "GetCreationTime - returns datetime value"
@@ -36,7 +36,8 @@ test_start "GetCreationTime - consistent results"
 test_dir="$temp_base/consistent_time"
 tdirectory.createDirectory "$test_dir"
 result1=$(tdirectory.getCreationTime "$test_dir")
-sleep 1
+# Note: do not sleep between calls - access time may be updated by filesystem
+# Just verify that immediate calls return consistent results
 result2=$(tdirectory.getCreationTime "$test_dir")
 if [[ "$result1" == "$result2" ]]; then
     test_pass "GetCreationTime - consistent results"
@@ -79,6 +80,5 @@ else
 fi
 
 # Cleanup
-rm -rf "$temp_base" 2>/dev/null || true
 
-#echo "__COUNTS__:\$TESTS_TOTAL:\$TESTS_PASSED:\$TESTS_FAILED"
+

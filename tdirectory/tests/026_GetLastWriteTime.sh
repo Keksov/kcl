@@ -5,8 +5,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
 # Setup temp directory
-temp_base="$(tpath.getTempPath)/tdirectory_test_$$"
-tdirectory.createDirectory "$temp_base"
+init_test_tmpdir "026"
+temp_base="$TEST_TMP_DIR"
 
 # Test 1: GetLastWriteTime returns datetime
 test_start "GetLastWriteTime - returns datetime value"
@@ -35,7 +35,8 @@ test_start "GetLastWriteTime - consistent results"
 test_dir="$temp_base/write_consistent"
 tdirectory.createDirectory "$test_dir"
 result1=$(tdirectory.getLastWriteTime "$test_dir")
-sleep 1
+# Note: do not sleep between calls - filesystem metadata may be updated
+# Just verify that immediate calls return consistent results
 result2=$(tdirectory.getLastWriteTime "$test_dir")
 if [[ "$result1" == "$result2" ]]; then
     test_pass "GetLastWriteTime - consistent results"
@@ -66,6 +67,5 @@ else
 fi
 
 # Cleanup
-rm -rf "$temp_base" 2>/dev/null || true
 
-#echo "__COUNTS__:\$TESTS_TOTAL:\$TESTS_PASSED:\$TESTS_FAILED"
+

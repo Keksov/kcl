@@ -5,8 +5,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
 # Setup temp directory for tests
-temp_base="$(tpath.getTempPath)/tdirectory_test_$$"
-tdirectory.createDirectory "$temp_base"
+init_test_tmpdir "002"
+temp_base="$TEST_TMP_DIR"
 
 # Test 1: Delete empty directory
 test_start "Delete - delete empty directory"
@@ -113,6 +113,5 @@ else
 fi
 
 # Cleanup
-rm -rf "$temp_base" 2>/dev/null || true
 
-echo "__COUNTS__:$TESTS_TOTAL:$TESTS_PASSED:$TESTS_FAILED"
+

@@ -19,6 +19,10 @@ NC='\033[0m' # No Color
 # Global array for selected tests
 TESTS_TO_RUN=()
 
+# Test ID for temp file isolation
+TEST_ID=""
+TEST_TMP_DIR=""
+
 # Parse test selection string into TESTS_TO_RUN array
 parse_test_selection() {
     local selection="$1"
@@ -35,6 +39,21 @@ parse_test_selection() {
             TESTS_TO_RUN+=("$part")
         fi
     done
+}
+
+# Initialize test-specific temporary directory
+init_test_tmpdir() {
+    TEST_ID="$1"
+    # Create isolated temp directory
+    local base_tmp_dir="$SCRIPT_DIR/.tmp"
+    [[ ! -d "$base_tmp_dir" ]] && mkdir -p "$base_tmp_dir"
+
+    TEST_TMP_DIR="$base_tmp_dir/$TEST_ID"
+    mkdir -p "$TEST_TMP_DIR"
+
+    if [[ "$VERBOSITY" == "info" ]]; then
+        echo -e "${YELLOW}[INFO]${NC} Using test temp directory: $TEST_TMP_DIR"
+    fi
 }
 
 # Parse command line arguments
@@ -153,7 +172,11 @@ test_section() {
 # Cleanup function
 cleanup() {
     # Clean up test files
-    rm -f test_*.tmp 2>/dev/null || true
+    if [[ -n "$TEST_TMP_DIR" ]]; then
+        rm -rf "$TEST_TMP_DIR" 2>/dev/null || true
+    else
+        rm -f *.tmp 2>/dev/null || true
+    fi
 }
 
 # Set up cleanup trap

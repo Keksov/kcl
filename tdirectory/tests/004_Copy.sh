@@ -5,8 +5,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
 # Setup temp directory for tests
-temp_base="$(tpath.getTempPath)/tdirectory_test_$$"
-tdirectory.createDirectory "$temp_base"
+init_test_tmpdir "004"
+temp_base="$TEST_TMP_DIR"
 
 # Test 1: Copy simple directory
 test_start "Copy - copy simple directory"
@@ -123,6 +123,5 @@ test_fail "Copy - copy empty directory (expected destination directory to exist)
 fi
 
 # Cleanup
-rm -rf "$temp_base" 2>/dev/null || true
 
-echo "__COUNTS__:$TESTS_TOTAL:$TESTS_PASSED:$TESTS_FAILED"
+

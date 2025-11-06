@@ -5,8 +5,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
 # Setup temp directory
-temp_base="$(tpath.getTempPath)/tdirectory_test_$$"
-tdirectory.createDirectory "$temp_base"
+init_test_tmpdir "013"
+temp_base="$TEST_TMP_DIR"
 
 # Test 1: GetDirectories with simple directory
 test_start "GetDirectories - basic subdirectory listing"
@@ -96,6 +96,5 @@ else
 fi
 
 # Cleanup
-rm -rf "$temp_base" 2>/dev/null || true
 
-echo "__COUNTS__:$TESTS_TOTAL:$TESTS_PASSED:$TESTS_FAILED"
+

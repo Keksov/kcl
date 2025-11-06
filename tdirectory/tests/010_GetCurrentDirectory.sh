@@ -56,19 +56,14 @@ fi
 
 # Test 6: GetCurrentDirectory with SetCurrentDirectory
 test_start "GetCurrentDirectory - reflects SetCurrentDirectory"
-temp_dir="/tmp/test_getCurrentDirectory_$$"
-mkdir -p "$temp_dir" 2>/dev/null || true
-if [[ -d "$temp_dir" ]]; then
-    tdirectory.setCurrentDirectory "$temp_dir"
-    result=$(tdirectory.getCurrentDirectory)
-    if [[ "$result" == "$temp_dir" ]]; then
-        test_pass "GetCurrentDirectory - reflects SetCurrentDirectory"
-    else
-        test_fail "GetCurrentDirectory - reflects SetCurrentDirectory (expected: $temp_dir, got: '$result')"
-    fi
-    rm -rf "$temp_dir"
+init_test_tmpdir "010"
+temp_dir="$TEST_TMP_DIR"
+tdirectory.setCurrentDirectory "$temp_dir"
+result=$(tdirectory.getCurrentDirectory)
+if [[ "$result" == "$temp_dir" ]]; then
+    test_pass "GetCurrentDirectory - reflects SetCurrentDirectory"
 else
-    test_pass "GetCurrentDirectory - reflects SetCurrentDirectory (skipped)"
+    test_fail "GetCurrentDirectory - reflects SetCurrentDirectory (expected: $temp_dir, got: '$result')"
 fi
 
 # Test 7: GetCurrentDirectory returns no trailing slash
@@ -91,4 +86,4 @@ fi
 # Cleanup - restore original directory
 cd "$original_dir" 2>/dev/null || true
 
-echo "__COUNTS__:$TESTS_TOTAL:$TESTS_PASSED:$TESTS_FAILED"
+
