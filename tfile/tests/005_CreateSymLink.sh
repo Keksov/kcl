@@ -5,13 +5,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
 # Set up temp directory for this test
-TEST_ID=005
-mkdir -p ".tmp/$TEST_ID"
+init_test_tmpdir "005"
 
 # Check if symlinks are supported
-if ln -s ".tmp/$TEST_ID/nonexist.tmp" ".tmp/$TEST_ID/test_link.tmp" 2>/dev/null; then
+if ln -s "$TEST_TMP_DIR/nonexist.tmp" "$TEST_TMP_DIR/test_link.tmp" 2>/dev/null; then
     SYMLINK_SUPPORTED=true
-    rm -f ".tmp/$TEST_ID/test_link.tmp"
+    rm -f "$TEST_TMP_DIR/test_link.tmp"
 else
     SYMLINK_SUPPORTED=false
 fi
@@ -19,8 +18,8 @@ fi
 if [[ "$SYMLINK_SUPPORTED" == "true" ]]; then
 # Test 1: Create symlink to existing file
 test_start "Create symlink to existing file"
-echo "target content" > ".tmp/$TEST_ID/target.tmp"
-result=$(tfile.createSymLink ".tmp/$TEST_ID/link.tmp" ".tmp/$TEST_ID/target.tmp")
+echo "target content" > "$TEST_TMP_DIR/target.tmp"
+result=$(tfile.createSymLink "$TEST_TMP_DIR/link.tmp" "$TEST_TMP_DIR/target.tmp")
 if [[ $result == true ]]; then
 test_pass "Create symlink to existing file"
 else
@@ -29,8 +28,8 @@ fi
 
 # Test 2: Create symlink to directory
 test_start "Create symlink to directory"
-mkdir -p ".tmp/$TEST_ID/test_dir"
-result=$(tfile.createSymLink ".tmp/$TEST_ID/dir_link.tmp" ".tmp/$TEST_ID/test_dir")
+mkdir -p "$TEST_TMP_DIR/test_dir"
+result=$(tfile.createSymLink "$TEST_TMP_DIR/dir_link.tmp" "$TEST_TMP_DIR/test_dir")
 if [[ $result == true ]]; then
 test_pass "Create symlink to directory"
 else
@@ -39,7 +38,7 @@ fi
 
 # Test 3: Create symlink to non-existing target
 test_start "Create symlink to non-existing target"
-if [[ $(tfile.createSymLink ".tmp/$TEST_ID/broken.tmp" ".tmp/$TEST_ID/nonexist.tmp") == false ]]; then
+if [[ $(tfile.createSymLink "$TEST_TMP_DIR/broken.tmp" "$TEST_TMP_DIR/nonexist.tmp") == false ]]; then
     test_pass "Create symlink to non-existing target (correctly failed)"
 else
     test_fail "Create symlink to non-existing target (should have failed)"
@@ -47,7 +46,7 @@ fi
 
 # Test 4: Invalid link path
 test_start "Create symlink with invalid link path"
-if ! result=$(tfile.createSymLink "/invalid/path/link.tmp" ".tmp/$TEST_ID/target.tmp" 2>&1); then
+if ! result=$(tfile.createSymLink "/invalid/path/link.tmp" "$TEST_TMP_DIR/target.tmp" 2>&1); then
 test_pass "Create symlink with invalid link path (correctly failed)"
 else
 test_fail "Create symlink with invalid link path (should have failed)"

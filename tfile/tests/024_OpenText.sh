@@ -5,13 +5,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
 # Set up temp directory for this test
-TEST_ID=024
-mkdir -p ".tmp/$TEST_ID"
+init_test_tmpdir "024"
 
 # Test 1: Open existing text file
 test_start "Open existing text file"
-echo "text content" > ".tmp/$TEST_ID/opentext.tmp"
-reader=$(tfile.openText ".tmp/$TEST_ID/opentext.tmp")
+echo "text content" > "$TEST_TMP_DIR/opentext.tmp"
+reader=$(tfile.openText "$TEST_TMP_DIR/opentext.tmp")
 if [[ -n "$reader" ]]; then
     test_pass "Open existing text file"
 else
@@ -20,8 +19,8 @@ fi
 
 # Test 2: Open non-existing file
 test_start "Open non-existing text file"
-rm -f ".tmp/$TEST_ID/nonexist.tmp"
-if ! reader=$(tfile.openText ".tmp/$TEST_ID/nonexist.tmp" 2>&1); then
+rm -f "$TEST_TMP_DIR/nonexist.tmp"
+if ! reader=$(tfile.openText "$TEST_TMP_DIR/nonexist.tmp" 2>&1); then
     test_pass "Open non-existing text file (correctly failed)"
 else
     test_fail "Open non-existing text file (should have failed)"

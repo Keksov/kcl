@@ -5,8 +5,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 parse_args "$@"
 
 # Initialize test-specific temporary directory
-TEST_ID="004_Create"
-init_test_tmpdir
+init_test_tmpdir "004"
 
 # Test 1: Create new file
 test_start "Create new file"

@@ -43,19 +43,14 @@ parse_test_selection() {
 
 # Initialize test-specific temporary directory
 init_test_tmpdir() {
-    local test_name="${1:-unknown}"
-    # Use script name as test ID if not provided
-    if [[ -z "$TEST_ID" ]]; then
-        TEST_ID="$(basename "$0" .sh)"
-    fi
-    
+    TEST_ID="$1"
     # Create isolated temp directory
-    local base_tmp_dir=".tmp"
+    local base_tmp_dir="$SCRIPT_DIR/.tmp"
     [[ ! -d "$base_tmp_dir" ]] && mkdir -p "$base_tmp_dir"
-    
+
     TEST_TMP_DIR="$base_tmp_dir/$TEST_ID"
     mkdir -p "$TEST_TMP_DIR"
-    
+
     if [[ "$VERBOSITY" == "info" ]]; then
         echo -e "${YELLOW}[INFO]${NC} Using test temp directory: $TEST_TMP_DIR"
     fi
@@ -136,9 +131,6 @@ parse_args() {
     # Set kklass verbosity based on our verbosity
     export VERBOSE_KKLASS="$VERBOSITY"
     export MODE WORKERS
-    
-    # Initialize test temp directory
-    init_test_tmpdir
 }
 
 # Test result functions
@@ -180,8 +172,8 @@ test_section() {
 # Cleanup function
 cleanup() {
     # Clean up test files
-    if [[ -n "$TEST_ID" ]]; then
-        rm -rf ".tmp/$TEST_ID" 2>/dev/null || true
+    if [[ -n "$TEST_TMP_DIR" ]]; then
+        rm -rf "$TEST_TMP_DIR" 2>/dev/null || true
     else
         rm -f *.tmp 2>/dev/null || true
     fi
