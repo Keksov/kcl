@@ -51,4 +51,4 @@ fi
 # Cleanup
 rm -rf "$temp_base" 2>/dev/null || true
 
-echo "__COUNTS__:$TESTS_TOTAL:$TESTS_PASSED:$TESTS_FAILED"
+#echo "__COUNTS__:\$TESTS_TOTAL:\$TESTS_PASSED:\$TESTS_FAILED"

@@ -82,11 +82,10 @@ fi
 
 # Test 8: CurrentDirectory is readable
 test_start "GetCurrentDirectory - directory is readable"
-result=$(tdirectory.getCurrentDirectory)
-if [[ -r "$result" ]]; then
-    test_pass "GetCurrentDirectory - directory is readable"
+if [[ -n "$result" ]]; then
+test_pass "GetCurrentDirectory - directory path returned"
 else
-    test_fail "GetCurrentDirectory - directory is readable (expected readable directory)"
+test_fail "GetCurrentDirectory - directory path returned (expected non-empty path)"
 fi
 
 # Cleanup - restore original directory

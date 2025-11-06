@@ -2,11 +2,11 @@
 # common.sh - Shared setup code for kcl tests
 
 # Get script directory (only if not already set)
-if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tdirectory" ]]; then
+if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tfile" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
 KCL_DIR="$SCRIPT_DIR/.."
-TDIRECTORY_SCRIPT="$KCL_DIR/tdirectory.sh"
+TFILE_SCRIPT="$KCL_DIR/tfile.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -158,15 +158,11 @@ cleanup() {
 
 # Set up cleanup trap
 trap cleanup EXIT
-trap 'echo "Error occurred at line $LINENO: $BASH_COMMAND"' ERR
+# trap 'echo "Error occurred at line $LINENO: $BASH_COMMAND"' ERR
 
-# Source the tdirectory script if not already sourced
-if ! declare -F | grep -q "tdirectory.copy"; then
-    source "$TDIRECTORY_SCRIPT"
+# Source the tfile script if not already sourced
+if ! declare -F | grep -q "tfile.copy"; then
+    source "$TFILE_SCRIPT"
 fi
 
-# Source the tpath script if not already sourced
-TPATH_SCRIPT="$KCL_DIR/../tpath/tpath.sh"
-if ! declare -F | grep -q "tpath.getTempPath"; then
-    source "$TPATH_SCRIPT"
-fi
+

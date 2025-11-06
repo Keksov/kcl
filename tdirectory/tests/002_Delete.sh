@@ -88,10 +88,10 @@ test_start "Delete - directory does not exist after deletion"
 test_dir="$temp_base/verify_delete"
 tdirectory.createDirectory "$test_dir"
 tdirectory.delete "$test_dir"
-if ! tdirectory.exists "$test_dir"; then
-    test_pass "Delete - directory does not exist after deletion"
+if ! [[ -d "$test_dir" ]]; then
+test_pass "Delete - directory does not exist after deletion"
 else
-    test_fail "Delete - directory does not exist after deletion (expected Exists to return false)"
+test_fail "Delete - directory does not exist after deletion (directory still exists)"
 fi
 
 # Test 8: Multiple sequential deletes

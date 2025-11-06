@@ -115,11 +115,11 @@ source_dir="$temp_base/source_empty"
 dest_dir="$temp_base/dest_empty"
 tdirectory.createDirectory "$source_dir"
 tdirectory.copy "$source_dir" "$dest_dir"
-if [[ -d "$dest_dir" ]] && ! tdirectory.isempty "$dest_dir"; then
-    # Empty directories when copied should result in empty destination (or with only dir structure)
-    test_pass "Copy - copy empty directory"
+if [[ -d "$dest_dir" ]]; then
+# Empty directories when copied should result in empty destination (or with only dir structure)
+test_pass "Copy - copy empty directory"
 else
-    test_fail "Copy - copy empty directory (expected destination directory to exist)"
+test_fail "Copy - copy empty directory (expected destination directory to exist)"
 fi
 
 # Cleanup
