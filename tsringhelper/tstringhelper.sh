@@ -5,236 +5,7 @@ tstringhelper_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$tstringhelper_DIR/../../kklass/kklass.sh"
 
 # Define the string class with methods from TStringHelper
-defineClass "string" "" \
-    "static_method" "compare" '
-        local strA="$1"
-        local strB="$2"
-        local options="${3:-}"
-        local locale="${4:-}"
-
-        # Simple implementation: use bash string comparison
-        if [[ "$strA" < "$strB" ]]; then
-            echo -1
-        elif [[ "$strA" > "$strB" ]]; then
-            echo 1
-        else
-            echo 0
-        fi
-    ' \
-    "static_method" "compareOrdinal" '
-        local strA="$1"
-        local strB="$2"
-
-        # Ordinal comparison
-        if [[ "$strA" < "$strB" ]]; then
-            echo -1
-        elif [[ "$strA" > "$strB" ]]; then
-            echo 1
-        else
-            echo 0
-        fi
-    ' \
-    "static_method" "compareText" '
-        local strA="$1"
-        local strB="$2"
-
-        # Case insensitive
-        local a_lower="${strA,,}"
-        local b_lower="${strB,,}"
-        if [[ "$a_lower" < "$b_lower" ]]; then
-            echo -1
-        elif [[ "$a_lower" > "$b_lower" ]]; then
-            echo 1
-        else
-            echo 0
-        fi
-    ' \
-    "static_method" "compareTo" '
-    local self="$1"
-    local strB="$2"
-
-    string.compare "$self" "$strB"
-    ' \
-    "static_method" "contains" '
-        local self="$1"
-        local value="$2"
-
-        if [[ "$self" == *"$value"* ]]; then
-            echo "true"
-        else
-            echo "false"
-        fi
-    ' \
-    "static_method" "copy" '
-        local str="$1"
-        echo "$str"
-    ' \
-    "static_method" "copyTo" '
-        echo "Not implemented"
-    ' \
-    "static_method" "countChar" '
-        local self="$1"
-        local char="$2"
-        local count=0
-        local i
-        for ((i=0; i<${#self}; i++)); do
-            if [[ "${self:i:1}" == "$char" ]]; then
-                ((count++))
-            fi
-        done
-        echo "$count"
-    ' \
-    "static_method" "create" '
-        # Simplified, assume char and count
-        local char="$1"
-        local count="$2"
-        local result=""
-        for ((i=0; i<count; i++)); do
-            result+="$char"
-        done
-        echo "$result"
-    ' \
-    "static_method" "deQuotedString" '
-        local self="$1"
-        # Simple remove quotes
-        echo "${self//\"/}"
-    ' \
-    "static_method" "endsText" '
-        local subText="$1"
-        local text="$2"
-        local sub_lower="${subText,,}"
-        local text_lower="${text,,}"
-        if [[ "$text_lower" == *"$sub_lower" ]]; then
-            echo "true"
-        else
-            echo "false"
-        fi
-    ' \
-    "static_method" "startsWith" '
-        local self="$1"
-        local value="$2"
-        if [[ "$self" == "$value"* ]]; then
-            echo "true"
-        else
-            echo "false"
-        fi
-    ' \
-    "static_method" "substring" '
-        local self="$1"
-        local startIndex="$2"
-        local length="$3"
-        if [[ -z "$length" ]]; then
-            echo "${self:startIndex}"
-        else
-            echo "${self:startIndex:length}"
-        fi
-    ' \
-    "static_method" "toBoolean" '
-        local s="$1"
-        if [[ "$s" == "true" || "$s" == "1" ]]; then
-            echo "true"
-        else
-            echo "false"
-        fi
-    ' \
-    "static_method" "toBoolean" '
-    local self="$1"
-    if [[ "$self" == "true" || "$self" == "1" ]]; then
-            echo "true"
-        else
-            echo "false"
-        fi
-    ' \
-    "static_method" "toCharArray" '
-        local self="$1"
-        # Simple, echo each char
-        for ((i=0; i<${#self}; i++)); do
-            echo "${self:i:1}"
-        done
-    ' \
-    "static_method" "toDouble" '
-    local s="$1"
-    local num="${s%% *}"
-    echo "$num"
-    ' \
-    "static_method" "toDouble" '
-    local self="$1"
-    local num="${self%% *}"
-    echo "$num"
-    ' \
-    "static_method" "toInt64" '
-    local s="$1"
-    echo "$(( ${s%%.*} ))"
-    ' \
-    "static_method" "toInt64" '
-    local self="$1"
-    echo "$(( ${self%%.*} ))"
-    ' \
-    "static_method" "toInteger" '
-    local s="$1"
-    echo "$(( ${s%%.*} ))"
-    ' \
-    "static_method" "toInteger" '
-    local self="$1"
-    echo "$(( ${self%%.*} ))"
-    ' \
-    "static_method" "toLower" '
-        local self="$1"
-        echo "${self,,}"
-    ' \
-    "static_method" "toLowerInvariant" '
-        local self="$1"
-        echo "${self,,}"
-    ' \
-    "static_method" "toSingle" '
-         local s="$1"
-         local num="${s%% *}"
-         printf "%.1f\n" "$num" 2>/dev/null || echo "$num"
-    ' \
-    "static_method" "toSingle" '
-    local self="$1"
-     local num="${self%% *}"
-         echo "$num"
-    ' \
-    "static_method" "toUpper" '
-        local self="$1"
-        echo "${self^^}"
-    ' \
-    "static_method" "toUpperInvariant" '
-        local self="$1"
-        echo "${self^^}"
-    ' \
-    "static_method" "trim" '
-        local self="$1"
-        # Trim spaces
-        local trimmed="${self#"${self%%[![:space:]]*}"}"
-        echo "${trimmed%"${trimmed##*[![:space:]]}"}"
-    ' \
-    "static_method" "trimLeft" '
-        local self="$1"
-        echo "${self#"${self%%[![:space:]]*}"}"
-    ' \
-    "static_method" "trimRight" '
-        local self="$1"
-        echo "${self%"${self##*[![:space:]]}"}"
-    ' \
-    "static_method" "upperCase" '
-        local s="$1"
-        echo "${s^^}"
-    ' \
-    "static_method" "length" '
-    local self="$1"
-    echo "${#self}"
-    ' \
-    "static_method" "chars" '
-    local self="$1"
-    local index="$2"
-    if [[ $index -ge 0 && $index -lt ${#self} ]]; then
-    echo "${self:index:1}"
-    else
-    echo "undefined"
-    fi
-    '
+defineClass "string" ""
 
 string.equals() {
     local str1="$1"
@@ -320,9 +91,9 @@ string.remove() {
     local start="$2"
     local count="$3"
     if [[ -z "$count" ]]; then
-        echo "${str:0:start}"
+        echo "${str:0:$start}"
     else
-        echo "${str:0:start}${str:start+count}"
+        echo "${str:0:$start}${str:$start+$count}"
     fi
 }
 
@@ -430,7 +201,7 @@ string.isDelimiter() {
     if [[ $index -lt 0 || $index -ge ${#str} ]]; then
         echo "false"
     else
-        local char="${str:index:1}"
+        local char="${str:$index:1}"
         if [[ "$delims" == *"$char"* ]]; then
             echo "true"
         else
@@ -448,7 +219,7 @@ string.insert() {
     elif [[ $index -ge ${#str} ]]; then
         echo "$str$value"
     else
-        echo "${str:0:index}$value${str:index}"
+        echo "${str:0:$index}$value${str:$index}"
     fi
 }
 
@@ -558,7 +329,7 @@ string.lastDelimiter() {
         if [[ "$delim" == *"$char"* ]]; then
             last_index=$i
         fi
-    ((i++))
+        ((i++))
     done
     echo "$last_index"
 }
@@ -625,15 +396,247 @@ string.lowerCase() {
     string.toLower "$1"
 }
 
-string.endsWith() {
-local self="$1"
-local value="$2"
-local ignoreCase="$3"
-if [[ "$ignoreCase" == "true" ]]; then
-local self_lower="${self,,}"
-local value_lower="${value,,}"
-if [[ "$self_lower" == *"$value_lower" ]]; then
+string.compare() {
+    local strA="$1"
+    local strB="$2"
+    local options="${3:-}"
+    local locale="${4:-}"
+
+    # Simple implementation: use bash string comparison
+    if [[ "$strA" < "$strB" ]]; then
+        echo -1
+    elif [[ "$strA" > "$strB" ]]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+string.compareOrdinal() {
+    local strA="$1"
+    local strB="$2"
+
+    # Ordinal comparison
+    if [[ "$strA" < "$strB" ]]; then
+        echo -1
+    elif [[ "$strA" > "$strB" ]]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+string.compareText() {
+    local strA="$1"
+    local strB="$2"
+
+    # Case insensitive
+    local a_lower="${strA,,}"
+    local b_lower="${strB,,}"
+    if [[ "$a_lower" < "$b_lower" ]]; then
+        echo -1
+    elif [[ "$a_lower" > "$b_lower" ]]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+string.compareTo() {
+    local self="$1"
+    local strB="$2"
+
+    string.compare "$self" "$strB"
+}
+
+string.contains() {
+    local self="$1"
+    local value="$2"
+
+    if [[ "$self" == *"$value"* ]]; then
         echo "true"
+    else
+        echo "false"
+    fi
+}
+
+string.copy() {
+    local str="$1"
+    echo "$str"
+}
+
+string.copyTo() {
+    echo "Not implemented"
+}
+
+string.countChar() {
+    local self="$1"
+    local char="$2"
+    local count=0
+    local i
+    for ((i=0; i<${#self}; i++)); do
+        if [[ "${self:i:1}" == "$char" ]]; then
+            ((count++))
+        fi
+    done
+    echo "$count"
+}
+
+string.create() {
+    # Simplified, assume char and count
+    local char="$1"
+    local count="$2"
+    local result=""
+    for ((i=0; i<count; i++)); do
+        result+="$char"
+    done
+    echo "$result"
+}
+
+string.deQuotedString() {
+    local self="$1"
+    # Simple remove quotes
+    echo "${self//\"/}"
+}
+
+string.endsText() {
+    local subText="$1"
+    local text="$2"
+    local sub_lower="${subText,,}"
+    local text_lower="${text,,}"
+    if [[ "$text_lower" == *"$sub_lower" ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+string.startsWith() {
+    local self="$1"
+    local value="$2"
+    if [[ "$self" == "$value"* ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+string.substring() {
+    local self="$1"
+    local startIndex="$2"
+    local length="$3"
+    if [[ -z "$length" ]]; then
+        echo "${self:$startIndex}"
+    else
+        echo "${self:$startIndex:$length}"
+    fi
+}
+
+string.toBoolean() {
+    local self="$1"
+    if [[ "$self" == "true" || "$self" == "1" ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+string.toCharArray() {
+    local self="$1"
+    # Simple, echo each char
+    for ((i=0; i<${#self}; i++)); do
+        echo "${self:i:1}"
+    done
+}
+
+string.toDouble() {
+    local self="$1"
+    local num="${self%% *}"
+    echo "$num"
+}
+
+string.toInt64() {
+    local self="$1"
+    echo "$(( ${self%%.*} ))"
+}
+
+string.toInteger() {
+    local self="$1"
+    echo "$(( ${self%%.*} ))"
+}
+
+string.toLower() {
+    local self="$1"
+    echo "${self,,}"
+}
+
+string.toLowerInvariant() {
+    local self="$1"
+    echo "${self,,}"
+}
+
+string.toSingle() {
+    local self="$1"
+    local num="${self%% *}"
+    echo "$num"
+}
+
+string.toUpper() {
+    local self="$1"
+    echo "${self^^}"
+}
+
+string.toUpperInvariant() {
+    local self="$1"
+    echo "${self^^}"
+}
+
+string.trim() {
+    local self="$1"
+    # Trim spaces
+    local trimmed="${self#"${self%%[![:space:]]*}"}"
+    echo "${trimmed%"${trimmed##*[![:space:]]}"}"
+}
+
+string.trimLeft() {
+    local self="$1"
+    echo "${self#"${self%%[![:space:]]*}"}"
+}
+
+string.trimRight() {
+    local self="$1"
+    echo "${self%"${self##*[![:space:]]}"}"
+}
+
+string.upperCase() {
+    local s="$1"
+    echo "${s^^}"
+}
+
+string.length() {
+    local self="$1"
+    echo "${#self}"
+}
+
+string.chars() {
+    local self="$1"
+    local index="$2"
+    if [[ $index -ge 0 && $index -lt ${#self} ]]; then
+        echo "${self:$index:1}"
+    else
+        echo "undefined"
+    fi
+}
+
+string.endsWith() {
+    local self="$1"
+    local value="$2"
+    local ignoreCase="$3"
+    if [[ "$ignoreCase" == "true" ]]; then
+        local self_lower="${self,,}"
+        local value_lower="${value,,}"
+        if [[ "$self_lower" == *"$value_lower" ]]; then
+            echo "true"
         else
             echo "false"
         fi

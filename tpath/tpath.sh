@@ -646,4 +646,4 @@ tpath.getAttributes() {
     fi
 }
 
-echo "tpath class created successfully"
+#echo "tpath class created successfully"
