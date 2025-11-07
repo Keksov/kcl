@@ -25,7 +25,7 @@ fi
 # Test: Add multiple items
 test_start "Add multiple items"
 mylist.Add "item2" >/dev/null
-mylist.Add "item3" >/dev/null
+mylist.AddNoEcho "item3"
 count=$(mylist.Count)
 if [[ "$count" == "3" ]]; then
     test_pass "Count is 3 after adding three items"
@@ -46,7 +46,7 @@ fi
 test_start "Add many items to test capacity growth"
 initial_capacity=$capacity
 for i in {4..20}; do
-    mylist.Add "item$i"
+    mylist.Add "item$i" >/dev/null
 done
 final_count=$(mylist.Count)
 final_capacity=$(mylist.Capacity)

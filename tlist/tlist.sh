@@ -9,11 +9,11 @@ defineClass TList "" \
     property capacity \
     property item_count \
     constructor '{
-        # Initialize capacity and count directly in the data array
-        eval "${this}_data[capacity]=\"0\""
-        eval "${this}_data[item_count]=\"0\""
+        # Initialize properties
+        capacity="0"
+        item_count="0"
         # Initialize items array
-        eval "${this}_items=()"
+        eval "${__inst__}_items=()"
     }' \
     method Capacity '{
         echo "$capacity"
@@ -75,22 +75,23 @@ defineClass TList "" \
     method Expand '{
         $this.Grow
     }' \
-    method Add '{
-        local item="$1"
-        local current_count="$item_count"
-        local current_capacity="$capacity"
-        if (( current_count >= current_capacity )); then
-            local new_cap=$((current_capacity * 2))
-            if (( new_cap == 0 )); then new_cap=4; fi
-            $__inst__.property capacity = "$new_cap"
-        fi
-        local items_var="${__inst__}_items"
-        declare -n items_ref="$items_var"
-        items_ref[$current_count]="$item"
-        local new_count=$((current_count + 1))
-        $__inst__.property item_count = "$new_count"
-        echo "$current_count"
-    }' \
+   method Add '{
+       local item="$1"
+       local current_count="$item_count"
+       local current_capacity="$capacity"
+       if (( current_count >= current_capacity )); then
+           capacity=$((current_capacity * 2))
+           if (( capacity == 0 )); then capacity=4; fi
+       fi
+       local items_var="${__inst__}_items"
+       declare -n items_ref="$items_var"
+       items_ref[$current_count]="$item"
+       item_count=$((current_count + 1))
+       echo "$current_count"
+   }' \
+   method AddNoEcho '{
+        $this.Add "$1" > /dev/null
+   }' \
     method Insert '{
         local index="$1"
         local item="$2"
@@ -110,7 +111,7 @@ defineClass TList "" \
         done
         items_ref[$index]="$item"
         local new_count=$((current_count + 1))
-        eval "${__inst__}_data[item_count]=\"$new_count\""
+        $__inst__.property item_count = "$new_count"
     }' \
     method Delete '{
         local index="$1"
@@ -127,7 +128,8 @@ defineClass TList "" \
         done
         # Clear the last element
         unset "items_ref[$((current_count-1))]"
-        item_count=$((current_count - 1))
+        local new_count=$((current_count - 1))
+        $__inst__.property item_count = "$new_count"
     }' \
     method Exchange '{
         local index1="$1"
@@ -169,11 +171,11 @@ defineClass TList "" \
         items_ref[$to_index]="$item"
     }' \
     method Clear '{
-        item_count="0"
-        capacity="0"
-        local items_var="${__inst__}_items"
-        eval "${items_var}=()"
-    }' \
+        $__inst__.property item_count = "0"
+        $__inst__.property capacity = "0"
+         local items_var="${__inst__}_items"
+         eval "${items_var}=()"
+     }' \
     method Pack '{
         local items_var="${__inst__}_items"
         declare -n items_ref="$items_var"
@@ -188,9 +190,10 @@ defineClass TList "" \
             fi
         done
         items_ref=("${packed_items[@]}")
-        item_count=$new_count
-        if (( capacity > item_count * 2 )); then
-            capacity=$item_count
+        $__inst__.property item_count = "$new_count"
+        local current_capacity="$capacity"
+        if (( current_capacity > new_count * 2 )); then
+            $__inst__.property capacity = "$new_count"
         fi
     }' \
     method First '{
