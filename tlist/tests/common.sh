@@ -2,11 +2,11 @@
 # common.sh - Shared setup code for kcl tests
 
 # Get script directory (only if not already set)
-if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tdirectory" ]]; then
+if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tlist" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
 KCL_DIR="$SCRIPT_DIR/.."
-TDIRECTORY_SCRIPT="$KCL_DIR/tdirectory.sh"
+TLIST_SCRIPT="$KCL_DIR/tlist.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -189,8 +189,3 @@ if ! declare -F | grep -q "TList.new"; then
     source "$TLIST_SCRIPT"
 fi
 
-# Source the tpath script if not already sourced
-TPATH_SCRIPT="$KCL_DIR/../tpath/tpath.sh"
-if ! declare -F | grep -q "tpath.getTempPath"; then
-    source "$TPATH_SCRIPT"
-fi

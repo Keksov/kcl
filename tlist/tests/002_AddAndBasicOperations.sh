@@ -25,7 +25,7 @@ fi
 # Test: Add multiple items
 test_start "Add multiple items"
 mylist.Add "item2" >/dev/null
-mylist.AddNoEcho "item3"
+mylist.AddUsingExistingAdd "item3" 
 count=$(mylist.Count)
 if [[ "$count" == "3" ]]; then
     test_pass "Count is 3 after adding three items"

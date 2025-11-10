@@ -75,23 +75,27 @@ defineClass TList "" \
     method Expand '{
         $this.Grow
     }' \
-   method Add '{
-       local item="$1"
-       local current_count="$item_count"
-       local current_capacity="$capacity"
-       if (( current_count >= current_capacity )); then
-           capacity=$((current_capacity * 2))
-           if (( capacity == 0 )); then capacity=4; fi
-       fi
-       local items_var="${__inst__}_items"
-       declare -n items_ref="$items_var"
-       items_ref[$current_count]="$item"
-       item_count=$((current_count + 1))
-       echo "$current_count"
-   }' \
-   method AddNoEcho '{
-        $this.Add "$1" > /dev/null
-   }' \
+    method Add '{
+        local item="$1"
+        local current_count="$item_count"
+        # Grow capacity if needed
+        if (( current_count >= capacity )); then
+            $__inst__.call Grow
+        fi
+        local items_var="${__inst__}_items"
+        declare -n items_ref="$items_var"
+        items_ref[$current_count]="$item"
+        local new_count=$((current_count + 1))
+        $__inst__.property item_count = "$new_count"
+        echo "$current_count"
+    }' \
+    method AddUsingExistingAdd '{
+        $__inst__.call Add "$1" >/dev/null
+        # Refresh local property mirrors from instance data without eval
+        #local -n __data_ref="${__inst__}_data"
+        #item_count="${__data_ref[item_count]}"
+        #capacity="${__data_ref[capacity]}"
+        }' \
     method Insert '{
         local index="$1"
         local item="$2"

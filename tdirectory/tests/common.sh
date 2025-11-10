@@ -187,9 +187,3 @@ trap 'echo "Error occurred at line $LINENO: $BASH_COMMAND"' ERR
 if ! declare -F | grep -q "tdirectory.copy"; then
     source "$TDIRECTORY_SCRIPT"
 fi
-
-# Source the tpath script if not already sourced
-TPATH_SCRIPT="$KCL_DIR/../tpath/tpath.sh"
-if ! declare -F | grep -q "tpath.getTempPath"; then
-    source "$TPATH_SCRIPT"
-fi
