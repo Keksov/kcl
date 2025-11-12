@@ -23,7 +23,7 @@ esac
 EXTENSION_SEPARATOR_CHAR='.'
 
 # Define the tpath class with essential methods only
-defineClass "tpath" ""
+#defineClass "tpath" ""
 
 # ============================================================================
 # Property accessor methods

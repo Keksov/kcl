@@ -7,7 +7,7 @@ source "$TDIRECTORY_DIR/../../kklass/kklass.sh"
 
 
 # Define the tdirectory class
-defineClass "tdirectory" ""
+#defineClass "tdirectory" ""
 
 # Define tdirectory.createDirectory function
 tdirectory.createDirectory() {

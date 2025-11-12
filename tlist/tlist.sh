@@ -3,6 +3,7 @@
 # Source kklass system (don't override SCRIPT_DIR)
 TLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TLIST_DIR/../../kklass/kklass.sh"
+source "$TLIST_DIR/../../kklass/kklib.sh"
 
 # Define TList class
 defineClass TList "" \
@@ -16,7 +17,7 @@ defineClass TList "" \
         eval "${__inst__}_items=()"
     }' \
     method Capacity '{
-        echo "$capacity"
+        kk.write "$capacity"
     }' \
     method SetCapacity '{
         local new_capacity="$1"
@@ -36,7 +37,7 @@ defineClass TList "" \
         done
     }' \
     method Count '{
-        echo "$item_count"
+        kk.write "$item_count"
     }' \
     method SetCount '{
         local new_count="$1"

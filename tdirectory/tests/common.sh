@@ -5,8 +5,8 @@
 if [[ -z "$SCRIPT_DIR" || "$SCRIPT_DIR" == *"/tdirectory" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
-KCL_DIR="$SCRIPT_DIR/.."
-TDIRECTORY_SCRIPT="$KCL_DIR/tdirectory.sh"
+TDIRECTORY_SCRIPT="$SCRIPT_DIR/../tdirectory.sh"
+TPATH_SCRIPT="$SCRIPT_DIR/../../tpath/tpath.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -186,4 +186,9 @@ trap 'echo "Error occurred at line $LINENO: $BASH_COMMAND"' ERR
 # Source the tdirectory script if not already sourced
 if ! declare -F | grep -q "tdirectory.copy"; then
     source "$TDIRECTORY_SCRIPT"
+fi
+
+# Source the tpath script if not already sourced
+if ! declare -F | grep -q "tpath.combine"; then
+    source "$TPATH_SCRIPT"
 fi
