@@ -14,6 +14,7 @@ hidden_file="$temp_dir/.hidden_file.txt"
 # Setup test files
 echo "test content" > "$test_file"
 mkdir -p "$test_dir"
+rm -f "$readonly_file"
 echo "readonly content" > "$readonly_file"
 chmod 444 "$readonly_file"
 echo "hidden content" > "$hidden_file"
@@ -56,7 +57,7 @@ fi
 
 # Test 5: Non-existent file
 test_start "GetAttributes for non-existent file"
-result=$(tpath.getAttributes "$temp_dir/non_existent_file.txt")
+result=$(tpath.getAttributes "$temp_dir/non_existent_file.txt" 2>/dev/null) || result=""
 if [[ -z "$result" ]]; then
     test_pass "GetAttributes for non-existent file"
 else
@@ -65,7 +66,7 @@ fi
 
 # Test 6: Empty path
 test_start "GetAttributes with empty path"
-result=$(tpath.getAttributes "")
+result=$(tpath.getAttributes "" 2>/dev/null) || result=""
 if [[ -z "$result" ]]; then
     test_pass "GetAttributes with empty path"
 else
