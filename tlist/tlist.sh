@@ -74,7 +74,7 @@ defineClass TList "" \
              new_capacity=$((current_capacity + current_capacity / 2))
          fi
          
-         capacity="$new_capacity"
+         $__inst__.property capacity = "$new_capacity"
          local items_var="${__inst__}_items"
          eval "local len=\${#${items_var}[@]}"
          while (( len < new_capacity )); do
@@ -294,4 +294,88 @@ defineClass TList "" \
         # Basic assignment - would need to be overridden in subclasses
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Assign method not implemented in TList - use in subclasses" >&2
         return 1
+    }' \
+    method BatchInsert '{
+        local index="$1"
+        shift
+        local items=("$@")
+        local items_to_add=${#items[@]}
+        local current_count=$count
+        
+        # Validate index
+        if (( index < 0 || index > current_count )); then
+            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+            RESULT="$current_count"
+            return 1
+        fi
+        
+        # No items to add - return current count
+        if (( items_to_add == 0 )); then
+            RESULT="$current_count"
+            return 0
+        fi
+        
+        # Ensure sufficient capacity
+        local current_capacity=$capacity
+        while (( current_count + items_to_add > current_capacity )); do
+            $this.Grow
+            current_capacity=$capacity
+        done
+        
+        local items_var="${__inst__}_items"
+        declare -n items_ref="$items_var"
+        
+        # Shift existing elements right
+        for (( i = current_count + items_to_add - 1; i >= index + items_to_add; i-- )); do
+            items_ref[$i]="${items_ref[$((i - items_to_add))]}"
+        done
+        
+        # Insert new items
+        for (( i = 0; i < items_to_add; i++ )); do
+            items_ref[$((index + i))]="${items[$i]}"
+        done
+        
+        local new_count=$((current_count + items_to_add))
+        $__inst__.property count = "$new_count"
+        RESULT="$new_count"
+    }' \
+    method BatchDelete '{
+        local index="$1"
+        local count_to_delete="$2"
+        local current_count=$count
+        
+        # Validate index
+        if (( index < 0 || index >= current_count )); then
+            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+            RESULT="$current_count"
+            return 1
+        fi
+        
+        # Clamp count_to_delete to available items
+        if (( index + count_to_delete > current_count )); then
+            count_to_delete=$((current_count - index))
+        fi
+        
+        # No items to delete - return current count
+        if (( count_to_delete <= 0 )); then
+            RESULT="$current_count"
+            return 0
+        fi
+        
+        local items_var="${__inst__}_items"
+        declare -n items_ref="$items_var"
+        
+        # Shift elements left
+        for (( i = index; i < current_count - count_to_delete; i++ )); do
+            items_ref[$i]="${items_ref[$((i + count_to_delete))]}"
+        done
+        
+        # Clear removed elements
+        for (( i = current_count - count_to_delete; i < current_count; i++ )); do
+            unset "items_ref[$i]"
+        done
+        
+        local new_count=$((current_count - count_to_delete))
+        $__inst__.property count = "$new_count"
+        RESULT="$new_count"
     }'
