@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "012"
@@ -20,14 +21,14 @@ mylist.Add ""      # empty
 mylist.Add ""      # empty
 mylist.Add "item3"
 
-initial_count=$(mylist.Count)
-initial_capacity=$(mylist.Capacity)
+initial_count=$(mylist.count)
+initial_capacity=$(mylist.capacity)
 
 # Test: Pack the list
 test_start "Pack list with empty items"
 mylist.Pack
-count=$(mylist.Count)
-capacity=$(mylist.Capacity)
+count=$(mylist.count)
+capacity=$(mylist.capacity)
 
 # Should remove empty items: item1, item2, item3 (3 items)
 if [[ "$count" == "3" ]]; then
@@ -52,7 +53,7 @@ fi
 # Test: Pack list with no empty items
 test_start "Pack list with no empty items"
 mylist.Pack
-count_after=$(mylist.Count)
+count_after=$(mylist.count)
 if [[ "$count_after" == "3" ]]; then
     test_pass "Pack on list with no empty items does nothing"
 else
@@ -63,7 +64,7 @@ fi
 test_start "Pack empty list"
 TList.new emptylist
 emptylist.Pack
-count=$(emptylist.Count)
+count=$(emptylist.count)
 if [[ "$count" == "0" ]]; then
     test_pass "Pack empty list works"
 else
@@ -78,7 +79,7 @@ allemptylist.Add ""
 allemptylist.Add ""
 allemptylist.Add ""
 allemptylist.Pack
-count=$(allemptylist.Count)
+count=$(allemptylist.count)
 if [[ "$count" == "0" ]]; then
     test_pass "Pack list with all empty items results in empty list"
 else
@@ -86,13 +87,13 @@ else
 fi
 allemptylist.delete
 
-# Test: Pack after SetCount (which adds empty items)
-test_start "Pack after SetCount"
-mylist.SetCount 10  # Adds 7 empty items
+# Test: Pack after count assignment (which adds empty items)
+test_start "Pack after count assignment"
+mylist.count = "10"  # Adds 7 empty items
 mylist.Pack
-count=$(mylist.Count)
+count=$(mylist.count)
 if [[ "$count" == "3" ]]; then
-    test_pass "Pack after SetCount removes added empty items"
+    test_pass "Pack after count assignment removes added empty items"
 else
     test_fail "Count after pack: $count (expected 3)"
 fi

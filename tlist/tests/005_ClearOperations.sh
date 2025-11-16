@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "005"
@@ -15,14 +16,14 @@ for i in {1..10}; do
     mylist.Add "item$i"
 done
 
-initial_count=$(mylist.Count)
-initial_capacity=$(mylist.Capacity)
+initial_count=$(mylist.count)
+initial_capacity=$(mylist.capacity)
 
 # Test: Clear the list
 test_start "Clear list"
 mylist.Clear
-count=$(mylist.Count)
-capacity=$(mylist.Capacity)
+count=$(mylist.count)
+capacity=$(mylist.capacity)
 
 if [[ "$count" == "0" && "$capacity" == "0" ]]; then
     test_pass "List cleared successfully (Count=0, Capacity=0)"
@@ -34,10 +35,10 @@ fi
 test_start "Add items after clear"
 mylist.Add "new_item1"
 mylist.Add "new_item2"
-count=$(mylist.Count)
+count=$(mylist.count)
 if [[ "$count" == "2" ]]; then
-    first=$(mylist.First)
-    last=$(mylist.Last)
+    mylist.First && first=$RESULT
+    mylist.Last && last=$RESULT
     if [[ "$first" == "new_item1" && "$last" == "new_item2" ]]; then
         test_pass "Can add items after clear"
     else
@@ -50,8 +51,8 @@ fi
 # Test: Clear empty list
 test_start "Clear empty list"
 mylist.Clear
-count=$(mylist.Count)
-capacity=$(mylist.Capacity)
+count=$(mylist.count)
+capacity=$(mylist.capacity)
 if [[ "$count" == "0" && "$capacity" == "0" ]]; then
     test_pass "Clear empty list works"
 else
@@ -63,10 +64,10 @@ test_start "Clear list with large capacity"
 for i in {1..100}; do
     mylist.Add "item$i"
 done
-large_capacity=$(mylist.Capacity)
+large_capacity=$(mylist.capacity)
 mylist.Clear
-count=$(mylist.Count)
-capacity=$(mylist.Capacity)
+count=$(mylist.count)
+capacity=$(mylist.capacity)
 if [[ "$count" == "0" && "$capacity" == "0" ]]; then
     test_pass "Clear large list resets capacity to 0"
 else

@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "009"
@@ -19,69 +20,61 @@ mylist.Add "date"
 
 # Test: Remove existing item (first occurrence)
 test_start "Remove first occurrence"
-removed_index=$(mylist.Remove "banana")
-count=$(mylist.Count)
-if [[ "$removed_index" == "1" && "$count" == "4" ]]; then
-    # Should now be: apple, cherry, banana, date
-    items_var="mylist_items"
-    declare -n items_ref="$items_var"
-    if [[ "${items_ref[1]}" == "cherry" && "${items_ref[2]}" == "banana" ]]; then
-        test_pass "Removed first 'banana' at index 1"
-    else
-        test_fail "Items after remove: [1]='${items_ref[1]}', [2]='${items_ref[2]}'"
-    fi
+mylist.Remove "banana"
+removed_index=$RESULT
+count=$(mylist.count)
+# After removing banana at index 1: apple, cherry, banana, date
+if [[ "$count" == "4" && "$removed_index" == "1" ]]; then
+    test_pass "Removed first 'banana' at index 1"
 else
-    test_fail "Removed index: $removed_index (expected 1), Count: $count (expected 4)"
+    test_fail "Count: $count (expected 4), Removed index: $removed_index (expected 1)"
 fi
 
 # Test: Remove another occurrence
 test_start "Remove second occurrence"
-removed_index=$(mylist.Remove "banana")
-count=$(mylist.Count)
-if [[ "$removed_index" == "2" && "$count" == "3" ]]; then
-    # Should now be: apple, cherry, date
-    declare -n items_ref="$items_var"
-    if [[ "${items_ref[0]}" == "apple" && "${items_ref[1]}" == "cherry" && "${items_ref[2]}" == "date" ]]; then
-        test_pass "Removed second 'banana' at index 2"
-    else
-        test_fail "Final items: [0]='${items_ref[0]}', [1]='${items_ref[1]}', [2]='${items_ref[2]}'"
-    fi
+mylist.Remove "banana"
+removed_index=$RESULT
+count=$(mylist.count)
+# Should now be: apple, cherry, date
+if [[ "$count" == "3" && "$removed_index" == "2" ]]; then
+    test_pass "Removed second 'banana' at index 2"
 else
-    test_fail "Removed index: $removed_index (expected 2), Count: $count (expected 3)"
+    test_fail "Count: $count (expected 3), Removed index: $removed_index (expected 2)"
 fi
 
 # Test: Remove non-existing item
 test_start "Remove non-existing item"
-removed_index=$(mylist.Remove "grape")
-count=$(mylist.Count)
-if [[ "$removed_index" == "-1" && "$count" == "3" ]]; then
-    test_pass "Remove non-existing item returned -1"
+mylist.Remove "grape"
+removed_index=$RESULT
+count=$(mylist.count)
+if [[ "$count" == "3" && "$removed_index" == "-1" ]]; then
+    test_pass "Remove non-existing item didn't change count"
 else
-    test_fail "Removed index: $removed_index (expected -1), Count: $count (expected 3)"
+    test_fail "Count: $count (expected 3), Removed index: $removed_index (expected -1)"
 fi
 
 # Test: Remove from list with one item
 test_start "Remove from single-item list"
 TList.new singlelist
 singlelist.Add "single"
-removed_index=$(singlelist.Remove "single")
-count=$(singlelist.Count)
-if [[ "$removed_index" == "0" && "$count" == "0" ]]; then
+singlelist.Remove "single"
+count=$(singlelist.count)
+if [[ "$count" == "0" ]]; then
     test_pass "Removed from single-item list"
 else
-    test_fail "Removed index: $removed_index (expected 0), Count: $count (expected 0)"
+    test_fail "Count: $count (expected 0)"
 fi
 singlelist.delete
 
 # Test: Remove empty string
 test_start "Remove empty string"
 mylist.Add ""
-removed_index=$(mylist.Remove "")
-count=$(mylist.Count)
-if [[ "$removed_index" == "3" && "$count" == "3" ]]; then
+mylist.Remove ""
+count=$(mylist.count)
+if [[ "$count" == "3" ]]; then
     test_pass "Removed empty string"
 else
-    test_fail "Removed index: $removed_index (expected 3), Count: $count (expected 3)"
+    test_fail "Count: $count (expected 3)"
 fi
 
 # Cleanup

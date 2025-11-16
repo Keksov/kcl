@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "003"
@@ -20,9 +21,9 @@ mylist.Add "item4"
 # Test: Insert at beginning
 test_start "Insert at index 0"
 mylist.Insert 0 "item0"
-count=$(mylist.Count)
+count=$(mylist.count)
 if [[ "$count" == "4" ]]; then
-    first=$(mylist.First)
+    mylist.First && first=$RESULT
     if [[ "$first" == "item0" ]]; then
         test_pass "Inserted at index 0 correctly"
     else
@@ -35,7 +36,7 @@ fi
 # Test: Insert in middle
 test_start "Insert in middle"
 mylist.Insert 2 "item2"
-count=$(mylist.Count)
+count=$(mylist.count)
 if [[ "$count" == "5" ]]; then
     # Check items: item0, item1, item2, item3, item4
     items_var="mylist_items"
@@ -52,8 +53,8 @@ fi
 # Test: Insert at end (should work like Add)
 test_start "Insert at end"
 mylist.Insert 5 "item5"
-count=$(mylist.Count)
-last=$(mylist.Last)
+count=$(mylist.count)
+mylist.Last && last=$RESULT
 if [[ "$count" == "6" && "$last" == "item5" ]]; then
     test_pass "Inserted at end correctly"
 else
@@ -62,8 +63,10 @@ fi
 
 # Test: Insert out of bounds (should fail)
 test_start "Insert out of bounds (high)"
-mylist.Insert 10 "invalid" 2>/dev/null
+TRAP_ERRORS_ENABLED=false
+mylist.Insert 10 "invalid"
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Insert out of bounds returned error"
 else
@@ -72,8 +75,10 @@ fi
 
 # Test: Insert negative index (should fail)
 test_start "Insert negative index"
-mylist.Insert -1 "invalid" 2>/dev/null
+TRAP_ERRORS_ENABLED=false
+mylist.Insert -1 "invalid"
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Insert negative index returned error"
 else

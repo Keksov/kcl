@@ -26,12 +26,6 @@ List.Capacity := Count;
 for I := 1 to Count do List.Add(...);
 
 > 
-**Note:**  C++ example:
-
-List->Clear();
-List->Capacity = Count;
-for (int I = 0; I < Count; I++)
-  List->Add(...);
 
 The assignment to [Capacity]() before the for loop ensures that each of the following [Add](/Libraries/Sydney/en/System.Classes.TList.Add) operations doesn't cause the list to be reallocated. Avoiding reallocations on the calls to [Add](/Libraries/Sydney/en/System.Classes.TList.Add) improves performance and ensures that the [Add](/Libraries/Sydney/en/System.Classes.TList.Add) operations never raise an exception.
 
@@ -345,12 +339,6 @@ List.Capacity := Count;
 for I := 1 to Count do List.Add(...);
 
 > 
-**Note:**  C++ example:
-
-List->Clear();
-List->Capacity = Count;
-for (int I = 0; I < Count; I++)
-  List->Add(...);
 
 The assignment to [Capacity]() before the for loop ensures that each of the following [Add](/Libraries/Sydney/en/System.Classes.TList.Add) operations doesn't cause the list to be reallocated. Avoiding reallocations on the calls to [Add](/Libraries/Sydney/en/System.Classes.TList.Add) improves performance and ensures that the [Add](/Libraries/Sydney/en/System.Classes.TList.Add) operations never raise an exception.
 

@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "001"
@@ -12,23 +13,23 @@ test_section "001: Basic TList Creation and Destruction"
 # Test: Create a TList instance
 test_start "Create TList instance"
 TList.new mylist
-if declare -f mylist.Count >/dev/null 2>&1; then
+if [[ -n "$(mylist.count)" ]]; then
     test_pass "TList instance created successfully"
 else
     test_fail "Failed to create TList instance"
 fi
 
 # Test: Check initial state
-test_start "Check initial Count"
-count=$(mylist.Count)
+test_start "Check initial count"
+count=$(mylist.count)
 if [[ "$count" == "0" ]]; then
-    test_pass "Initial Count is 0"
+    test_pass "Initial count is 0"
 else
-    test_fail "Initial Count is $count, expected 0"
+    test_fail "Initial count is $count, expected 0"
 fi
 
-test_start "Check initial Capacity"
-capacity=$(mylist.Capacity)
+test_start "Check initial capacity"
+capacity=$(mylist.capacity)
 if [[ "$capacity" == "0" ]]; then
     test_pass "Initial Capacity is 0"
 else
@@ -38,7 +39,8 @@ fi
 # Test: Destroy the instance
 test_start "Destroy TList instance"
 mylist.delete
-if ! declare -f mylist.Count >/dev/null 2>&1; then
+result=$?
+if [[ $result -eq 0 ]]; then
     test_pass "TList instance destroyed successfully"
 else
     test_fail "Failed to destroy TList instance"
@@ -48,7 +50,9 @@ fi
 test_start "Create multiple TList instances"
 TList.new list1
 TList.new list2
-if declare -f list1.Count >/dev/null 2>&1 && declare -f list2.Count >/dev/null 2>&1; then
+count1=$(list1.count 2>/dev/null)
+count2=$(list2.count 2>/dev/null)
+if [[ -n "$count1" && -n "$count2" ]]; then
     test_pass "Multiple TList instances created successfully"
 else
     test_fail "Failed to create multiple TList instances"
@@ -60,7 +64,11 @@ list2.delete
 
 # Test: Attempt to access destroyed instance (should fail gracefully)
 test_start "Access destroyed instance"
-if ! declare -f list1.Count >/dev/null 2>&1; then
+TRAP_ERRORS_ENABLED=false
+list1.count >/dev/null 2>&1
+result=$?
+TRAP_ERRORS_ENABLED=true
+if [[ $result -ne 0 ]]; then
     test_pass "Destroyed instance properly inaccessible"
 else
     test_fail "Destroyed instance still accessible"

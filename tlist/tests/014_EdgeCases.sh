@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "014"
@@ -15,8 +16,10 @@ TList.new temp_list
 temp_list.delete
 
 # Try to call methods on destroyed instance
-temp_list.Count 2>/dev/null
+TRAP_ERRORS_ENABLED=false
+temp_list.count >/dev/null 2>&1
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Operations on destroyed instance fail gracefully"
 else
@@ -26,10 +29,10 @@ fi
 # Test: Very large capacity
 test_start "Very large capacity"
 TList.new biglist
-biglist.SetCapacity 10000
-capacity=$(biglist.Capacity)
+biglist.capacity = "10000"
+capacity=$(biglist.capacity)
 if [[ "$capacity" == "10000" ]]; then
-    test_pass "SetCapacity to 10000 works"
+    test_pass "Set capacity to 10000 works"
 else
     test_fail "Capacity is $capacity, expected 10000"
 fi
@@ -41,7 +44,7 @@ TList.new emptylist
 emptylist.Add ""
 emptylist.Add ""
 emptylist.Add ""
-count=$(emptylist.Count)
+count=$(emptylist.count)
 if [[ "$count" == "3" ]]; then
     test_pass "Added empty strings successfully"
 else
@@ -49,24 +52,26 @@ else
 fi
 emptylist.delete
 
-# Test: Insert at position 0 in empty list (should fail or handle)
+# Test: Insert at position 0 in empty list (should succeed)
 test_start "Insert at 0 in empty list"
 TList.new insertlist
-insertlist.Insert 0 "test" 2>/dev/null
+insertlist.Insert 0 "test" >/dev/null 2>&1
 result=$?
-count=$(insertlist.Count)
-if [[ $result -ne 0 || "$count" == "0" ]]; then
-    test_pass "Insert at 0 in empty list handled appropriately"
+count=$(insertlist.count)
+if [[ $result -eq 0 && "$count" == "1" ]]; then
+    test_pass "Insert at 0 in empty list succeeded"
 else
-    test_fail "Insert at 0 in empty list succeeded unexpectedly"
+    test_fail "Insert at 0 in empty list failed unexpectedly"
 fi
 insertlist.delete
 
 # Test: Delete from empty list
 test_start "Delete from empty list"
 TList.new dellist
-dellist.Delete 0 2>/dev/null
+TRAP_ERRORS_ENABLED=false
+dellist.Delete 0
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Delete from empty list fails gracefully"
 else
@@ -81,8 +86,10 @@ duplist.Add "dup"
 duplist.Add "unique"
 duplist.Add "dup"
 duplist.Add "dup"
-index1=$(duplist.IndexOf "dup")
-index2=$(duplist.IndexOf "unique")
+duplist.IndexOf "dup"
+index1=$RESULT
+duplist.IndexOf "unique"
+index2=$RESULT
 if [[ "$index1" == "0" && "$index2" == "1" ]]; then
     test_pass "IndexOf finds first occurrence"
 else
@@ -99,7 +106,7 @@ remlist.Add "keep"
 remlist.Add "remove"
 remlist.Remove "remove"
 remlist.Remove "remove"
-count=$(remlist.Count)
+count=$(remlist.count)
 if [[ "$count" == "2" ]]; then
     items_var="remlist_items"
     declare -n items_ref="$items_var"
@@ -117,9 +124,9 @@ remlist.delete
 test_start "Capacity always >= Count"
 TList.new caplist
 caplist.Add "test"
-caplist.SetCapacity 10
-count=$(caplist.Count)
-capacity=$(caplist.Capacity)
+caplist.capacity = "10"
+count=$(caplist.count)
+capacity=$(caplist.capacity)
 if [[ "$capacity" -ge "$count" ]]; then
     test_pass "Capacity >= Count maintained"
 else

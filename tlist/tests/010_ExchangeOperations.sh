@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "010"
@@ -49,8 +50,10 @@ fi
 
 # Test: Exchange out of bounds (should handle gracefully)
 test_start "Exchange out of bounds"
-mylist.Exchange 0 10 2>/dev/null
+TRAP_ERRORS_ENABLED=false
+mylist.Exchange 0 10
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Exchange out of bounds handled gracefully"
 else
@@ -59,8 +62,10 @@ fi
 
 # Test: Exchange negative index
 test_start "Exchange negative index"
-mylist.Exchange -1 2 2>/dev/null
+TRAP_ERRORS_ENABLED=false
+mylist.Exchange -1 2
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Exchange negative index handled gracefully"
 else
@@ -72,7 +77,9 @@ test_start "Exchange on single item list"
 TList.new singlelist
 singlelist.Add "only"
 singlelist.Exchange 0 0
-if [[ "$(singlelist.First)" == "only" ]]; then
+singlelist.First
+first_item=$RESULT
+if [[ "$first_item" == "only" ]]; then
     test_pass "Exchange on single item list works"
 else
     test_fail "Exchange on single item changed the item"

@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "002"
@@ -14,19 +15,26 @@ TList.new mylist
 
 # Test: Add single item
 test_start "Add single item"
-mylist.Add "item1" >/dev/null
-count=$(mylist.Count)
+mylist.Add "item1"
+count=$(mylist.count)
 if [[ "$count" == "1" ]]; then
-    test_pass "Added item and Count is 1"
+    test_pass "Added item and count is 1"
 else
     test_fail "Count is $count, expected 1"
 fi
 
 # Test: Add multiple items
 test_start "Add multiple items"
-mylist.Add "item2" >/dev/null
-mylist.AddUsingExistingAdd "item3" 
-count=$(mylist.Count)
+mylist.Add "item2"
+count=${TLIST_ADD}
+if [[ "$count" == "2" ]]; then
+    test_pass "Count is 2 after adding two items"
+else
+    test_fail "Count is $count, expected 2"
+fi
+
+mylist.Add "item3" 
+count=$RESULT
 if [[ "$count" == "3" ]]; then
     test_pass "Count is 3 after adding three items"
 else
@@ -35,7 +43,7 @@ fi
 
 # Test: Capacity growth
 test_start "Capacity growth on Add"
-capacity=$(mylist.Capacity)
+capacity=$(mylist.capacity)
 if [[ "$capacity" -ge "$count" ]]; then
     test_pass "Capacity ($capacity) >= Count ($count)"
 else
@@ -48,8 +56,8 @@ initial_capacity=$capacity
 for i in {4..20}; do
     mylist.Add "item$i" >/dev/null
 done
-final_count=$(mylist.Count)
-final_capacity=$(mylist.Capacity)
+final_count=$(mylist.count)
+final_capacity=$(mylist.capacity)
 if [[ "$final_count" == "20" && "$final_capacity" -ge "$final_count" ]]; then
     test_pass "Added 20 items, capacity grew appropriately"
 else
@@ -58,8 +66,8 @@ fi
 
 # Test: First and Last
 test_start "First and Last methods"
-first=$(mylist.First)
-last=$(mylist.Last)
+mylist.First && first=$RESULT
+mylist.Last && last=$TLIST_LAST
 if [[ "$first" == "item1" && "$last" == "item20" ]]; then
     test_pass "First and Last return correct items"
 else

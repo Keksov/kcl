@@ -58,6 +58,7 @@ init_test_tmpdir() {
 
 # Parse command line arguments
 parse_args() {
+
     # If VERBOSITY is already set (e.g., from runner), use it and set kklass verbosity
     if [[ -n "$VERBOSITY" ]]; then
         export VERBOSE_KKLASS="$VERBOSITY"
@@ -69,17 +70,13 @@ parse_args() {
     WORKERS=8
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --verbosity|--verbosity=*)
+            -v|--verbosity|--verbosity=*)
                 if [[ $1 == --verbosity=* ]]; then
                     VERBOSITY="${1#*=}"
                 else
                     VERBOSITY="$2"
                     shift
                 fi
-                ;;
-            -v)
-                VERBOSITY="$2"
-                shift
                 ;;
             -n|--tests)
                 TEST_SELECTION="$2"
@@ -106,8 +103,9 @@ parse_args() {
     done
 
     # Validate verbosity
-    if [[ "$VERBOSITY" != "info" && "$VERBOSITY" != "error" ]]; then
-        echo "Error: verbosity must be 'info' or 'error'"
+    local levels=" info error debug "
+    if [[ "$levels" != *" $VERBOSITY "* ]]; then
+        echo "Error: verbosity must be:$levels"
         exit 1
     fi
 
@@ -179,9 +177,12 @@ cleanup() {
     fi
 }
 
+# Control flag for error trap (allow tests to suppress intentional errors)
+TRAP_ERRORS_ENABLED=true
+
 # Set up cleanup trap
 trap cleanup EXIT
-trap 'echo "Error occurred at line $LINENO: $BASH_COMMAND"' ERR
+trap 'kk.errorHandler ${LINENO} ${BASH_LINENO}' ERR
 
 # Source the tlist script if not already sourced
 TLIST_SCRIPT="$KCL_DIR/tlist.sh"

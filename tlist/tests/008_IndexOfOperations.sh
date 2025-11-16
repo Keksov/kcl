@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "008"
@@ -19,7 +20,8 @@ mylist.Add "date"
 
 # Test: IndexOf existing item (first occurrence)
 test_start "IndexOf first occurrence"
-index=$(mylist.IndexOf "banana")
+mylist.IndexOf "banana"
+index=$RESULT
 if [[ "$index" == "1" ]]; then
     test_pass "IndexOf 'banana' returned 1 (first occurrence)"
 else
@@ -28,7 +30,8 @@ fi
 
 # Test: IndexOf first item
 test_start "IndexOf first item"
-index=$(mylist.IndexOf "apple")
+mylist.IndexOf "apple"
+index=$RESULT
 if [[ "$index" == "0" ]]; then
     test_pass "IndexOf 'apple' returned 0"
 else
@@ -37,7 +40,8 @@ fi
 
 # Test: IndexOf last item
 test_start "IndexOf last item"
-index=$(mylist.IndexOf "date")
+mylist.IndexOf "date"
+index=$RESULT
 if [[ "$index" == "4" ]]; then
     test_pass "IndexOf 'date' returned 4"
 else
@@ -46,7 +50,8 @@ fi
 
 # Test: IndexOf non-existing item
 test_start "IndexOf non-existing item"
-index=$(mylist.IndexOf "grape")
+mylist.IndexOf "grape"
+index=$RESULT
 if [[ "$index" == "-1" ]]; then
     test_pass "IndexOf 'grape' returned -1 (not found)"
 else
@@ -56,7 +61,8 @@ fi
 # Test: IndexOf empty string
 test_start "IndexOf empty string"
 mylist.Add ""
-index=$(mylist.IndexOf "")
+mylist.IndexOf ""
+index=$RESULT
 if [[ "$index" == "5" ]]; then
     test_pass "IndexOf empty string returned 5"
 else
@@ -66,7 +72,8 @@ fi
 # Test: IndexOf on empty list
 test_start "IndexOf on empty list"
 TList.new emptylist
-index=$(emptylist.IndexOf "anything")
+emptylist.IndexOf "anything"
+index=$RESULT
 if [[ "$index" == "-1" ]]; then
     test_pass "IndexOf on empty list returned -1"
 else
@@ -77,8 +84,10 @@ emptylist.delete
 # Test: IndexOf null/empty pointer (if supported)
 test_start "IndexOf null value"
 # Add an empty item
-mylist.SetCount 7  # Add 2 more empty items
-index=$(mylist.IndexOf "")
+mylist.Add ""
+mylist.Add ""
+mylist.IndexOf ""
+index=$RESULT
 if [[ "$index" == "5" ]]; then
     test_pass "IndexOf empty string works with multiple empty items"
 else

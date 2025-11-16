@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "004"
@@ -20,7 +21,7 @@ mylist.Add "item4"
 # Test: Delete from middle
 test_start "Delete from middle"
 mylist.Delete 2
-count=$(mylist.Count)
+count=$(mylist.count)
 if [[ "$count" == "4" ]]; then
     items_var="mylist_items"
     declare -n items_ref="$items_var"
@@ -37,8 +38,8 @@ fi
 # Test: Delete from beginning
 test_start "Delete from beginning"
 mylist.Delete 0
-count=$(mylist.Count)
-first=$(mylist.First)
+count=$(mylist.count)
+mylist.First && first=$RESULT
 if [[ "$count" == "3" && "$first" == "item1" ]]; then
     test_pass "Deleted from beginning correctly"
 else
@@ -48,8 +49,8 @@ fi
 # Test: Delete from end
 test_start "Delete from end"
 mylist.Delete 2  # Last index now
-count=$(mylist.Count)
-last=$(mylist.Last)
+count=$(mylist.count)
+mylist.Last && last=$RESULT
 if [[ "$count" == "2" && "$last" == "item3" ]]; then
     test_pass "Deleted from end correctly"
 else
@@ -58,8 +59,10 @@ fi
 
 # Test: Delete invalid index (should handle gracefully)
 test_start "Delete invalid index"
-mylist.Delete 10 2>/dev/null  # Out of bounds
+TRAP_ERRORS_ENABLED=false
+mylist.Delete 10   # Out of bounds
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Delete invalid index handled gracefully"
 else
@@ -68,8 +71,10 @@ fi
 
 # Test: Delete negative index
 test_start "Delete negative index"
-mylist.Delete -1 2>/dev/null
+TRAP_ERRORS_ENABLED=false
+mylist.Delete -1
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Delete negative index handled gracefully"
 else

@@ -3,6 +3,7 @@
 
 # Source common.sh for shared code
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+parse_args "$@"
 
 # Initialize test-specific temp directory
 init_test_tmpdir "011"
@@ -63,8 +64,10 @@ fi
 
 # Test: Move out of bounds (should handle gracefully)
 test_start "Move out of bounds"
-mylist.Move 0 10 2>/dev/null
+TRAP_ERRORS_ENABLED=false
+mylist.Move 0 10
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Move out of bounds handled gracefully"
 else
@@ -73,8 +76,10 @@ fi
 
 # Test: Move negative index
 test_start "Move negative index"
-mylist.Move -1 2 2>/dev/null
+TRAP_ERRORS_ENABLED=false
+mylist.Move -1 2
 result=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $result -ne 0 ]]; then
     test_pass "Move negative index handled gracefully"
 else
