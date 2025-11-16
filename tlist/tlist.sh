@@ -14,45 +14,52 @@ defineClass TList "" \
         capacity="0"
         count="0"
         # Initialize items array
-        eval "${__inst__}_items=()"
+        declare -n items_ref="${__inst__}_items"
+        items_ref=()
     }' \
     method _setCapacity '{
          local new_capacity="$1"
          local items_var="${__inst__}_items"
          local current_count="$count"
+         declare -n items_ref="$items_var"
          if (( new_capacity < current_count )); then
              # Truncate items to new capacity
-             eval "${items_var}=(\"\${${items_var}[@]:0:$new_capacity}\")"
+             items_ref=("${items_ref[@]:0:$new_capacity}")
              count="$new_capacity"
          fi
-        capacity="$new_capacity"
-        # Resize the array if needed
-        eval "local len=\${#${items_var}[@]}"
-        while (( len < new_capacity )); do
-            eval "${items_var}[$len]=\"\""
-            ((len++))
-        done
-    }' \
+         capacity="$new_capacity"
+         # Resize the array if needed
+         local len=${#items_ref[@]}
+         while (( len < new_capacity )); do
+             items_ref[$len]=""
+             ((len++))
+         done
+     }' \
     method _setCount '{
-        local new_count="$1"
-        local items_var="${__inst__}_items"
-        local current_count="$count"
-        local current_capacity="$capacity"
-        if (( new_count < current_count )); then
-            # Truncate items
-            eval "${items_var}=(\"\${${items_var}[@]:0:$new_count}\")"
-        elif (( new_count > current_count )); then
-            # Pad with nil elements
-            eval "local len=\${#${items_var}[@]}"
-            while (( len < new_count )); do
-                eval "${items_var}[$len]=\"\""
-                ((len++))
-            done
-        fi
-        eval "${__inst__}_data[count]=\"$new_count\""
-        # Note: Capacity should be managed separately, not automatically adjusted here
-        # This was causing infinite loops in capacity growth
-    }' \
+         local new_count="$1"
+         local items_var="${__inst__}_items"
+         local current_count="$count"
+         local current_capacity="$capacity"
+         declare -n items_ref="$items_var"
+         if (( new_count < current_count )); then
+             # Truncate items
+             items_ref=("${items_ref[@]:0:$new_count}")
+         elif (( new_count > current_count )); then
+             # Ensure capacity is sufficient
+             if (( new_count > current_capacity )); then
+                 $__inst__.property capacity = "$new_count"
+             fi
+             # Pad with nil elements
+             local len=${#items_ref[@]}
+             while (( len < new_count )); do
+                 items_ref[$len]=""
+                 ((len++))
+             done
+         fi
+         count="$new_count"
+         # Note: Capacity should be managed separately, not automatically adjusted here
+         # This was causing infinite loops in capacity growth
+     }' \
     method Grow '{
          local current_capacity="$capacity"
          local new_capacity
@@ -74,12 +81,13 @@ defineClass TList "" \
          
          $__inst__.property capacity = "$new_capacity"
          local items_var="${__inst__}_items"
-         eval "local len=\${#${items_var}[@]}"
+         declare -n items_ref="$items_var"
+         local len=${#items_ref[@]}
          while (( len < new_capacity )); do
-             eval "${items_var}[$len]=\"\""
+             items_ref[$len]=""
              ((len++))
          done
-    }' \
+     }' \
     method Expand '{
         $this.Grow
     }' \
@@ -178,11 +186,12 @@ defineClass TList "" \
         items_ref[$to_index]="$item"
     }' \
     method Clear '{
-        $__inst__.property count = "0"
-        $__inst__.property capacity = "0"
-         local items_var="${__inst__}_items"
-         eval "${items_var}=()"
-     }' \
+         $__inst__.property count = "0"
+         $__inst__.property capacity = "0"
+          local items_var="${__inst__}_items"
+          declare -n items_ref="$items_var"
+          items_ref=()
+      }' \
     method Pack '{
         local items_var="${__inst__}_items"
         declare -n items_ref="$items_var"
