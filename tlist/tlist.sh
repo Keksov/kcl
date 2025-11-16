@@ -24,7 +24,7 @@ defineClass TList "" \
              # Truncate items to new capacity
              eval "${items_var}=(\"\${${items_var}[@]:0:$new_capacity}\")"
              count="$new_capacity"
-        fi
+         fi
         capacity="$new_capacity"
         # Resize the array if needed
         eval "local len=\${#${items_var}[@]}"
@@ -50,10 +50,8 @@ defineClass TList "" \
             done
         fi
         eval "${__inst__}_data[count]=\"$new_count\""
-        # Ensure capacity is at least count
-        if (( current_capacity < new_count )); then
-            eval "${__inst__}_data[capacity]=\"$new_count\""
-        fi
+        # Note: Capacity should be managed separately, not automatically adjusted here
+        # This was causing infinite loops in capacity growth
     }' \
     method Grow '{
          local current_capacity="$capacity"
@@ -315,12 +313,25 @@ defineClass TList "" \
             return 0
         fi
         
-        # Ensure sufficient capacity
+        # Ensure sufficient capacity - simplified approach
+        local required_capacity=$((current_count + items_to_add))
         local current_capacity=$capacity
-        while (( current_count + items_to_add > current_capacity )); do
-            $this.Grow
-            current_capacity=$capacity
-        done
+        if (( required_capacity > current_capacity )); then
+            # Calculate how many times we need to grow
+            while (( current_capacity < required_capacity )); do
+                local new_capacity
+                if (( current_capacity < 4 )); then
+                    new_capacity=4
+                elif (( current_capacity < 16 )); then
+                    new_capacity=$((current_capacity * 2))
+                else
+                    new_capacity=$((current_capacity + current_capacity / 2))
+                fi
+                current_capacity=$new_capacity
+            done
+            # Set capacity directly
+            $__inst__.property capacity = "$current_capacity"
+        fi
         
         local items_var="${__inst__}_items"
         declare -n items_ref="$items_var"
