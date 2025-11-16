@@ -58,13 +58,22 @@ defineClass TList "" \
     method Grow '{
          local current_capacity="$capacity"
          local new_capacity
+         
+         # OPTIMIZATION: Adaptive capacity growth strategy
+         # Small arrays: fixed growth (better for small lists)
+         # Medium arrays: 2x multiplier (exponential growth)
+         # Large arrays: 1.5x multiplier (better memory efficiency)
          if (( current_capacity < 4 )); then
              new_capacity=4
-         elif (( current_capacity < 8 )); then
-             new_capacity=8
+         elif (( current_capacity < 16 )); then
+             # Medium arrays: 2x multiplier
+             new_capacity=$((current_capacity * 2))
          else
-             new_capacity=$((current_capacity + 16))
+             # Large arrays: 1.5x multiplier (better memory efficiency)
+             # Using integer arithmetic: capacity + capacity/2
+             new_capacity=$((current_capacity + current_capacity / 2))
          fi
+         
          capacity="$new_capacity"
          local items_var="${__inst__}_items"
          eval "local len=\${#${items_var}[@]}"
