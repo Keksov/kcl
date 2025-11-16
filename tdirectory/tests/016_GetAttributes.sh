@@ -12,7 +12,7 @@ temp_base="$TEST_TMP_DIR"
 test_start "GetAttributes - existing directory returns attributes"
 test_dir="$temp_base/test_dir"
 tdirectory.createDirectory "$test_dir"
-result=$(tdirectory.getAttributes "$test_dir")
+result=$(tdirectory.getAttributes "$test_dir" || true)
 if [[ -n "$result" ]]; then
     test_pass "GetAttributes - existing directory returns attributes"
 else
@@ -23,18 +23,18 @@ fi
 test_start "GetAttributes - includes directory attribute"
 test_dir="$temp_base/dir_test"
 tdirectory.createDirectory "$test_dir"
-result=$(tdirectory.getAttributes "$test_dir")
-if [[ "$result" =~ "Directory" ]] || [[ "$result" =~ "oDirectory" ]] || [[ "$result" =~ "D" ]]; then
+result=$(tdirectory.getAttributes "$test_dir" || true)
+if [[ "$result" =~ "faDirectory" ]]; then
     test_pass "GetAttributes - includes directory attribute"
 else
-    test_fail "GetAttributes - includes directory attribute (expected Directory info, got: '$result')"
+    test_fail "GetAttributes - includes directory attribute (expected faDirectory, got: '$result')"
 fi
 
 # Test 3: GetAttributes with FollowLink true
 test_start "GetAttributes - FollowLink true"
 test_dir="$temp_base/follow_link_true"
 tdirectory.createDirectory "$test_dir"
-result=$(tdirectory.getAttributes "$test_dir" "true")
+result=$(tdirectory.getAttributes "$test_dir" "true" || true)
 if [[ -n "$result" ]]; then
     test_pass "GetAttributes - FollowLink true"
 else
@@ -45,7 +45,7 @@ fi
 test_start "GetAttributes - FollowLink false"
 test_dir="$temp_base/follow_link_false"
 tdirectory.createDirectory "$test_dir"
-result=$(tdirectory.getAttributes "$test_dir" "false")
+result=$(tdirectory.getAttributes "$test_dir" "false" || true)
 if [[ -n "$result" ]]; then
     test_pass "GetAttributes - FollowLink false"
 else
@@ -55,7 +55,7 @@ fi
 # Test 5: GetAttributes for non-existent directory
 test_start "GetAttributes - non-existent directory"
 test_dir="$temp_base/nonexistent_attrs"
-result=$(tdirectory.getAttributes "$test_dir" 2>/dev/null)
+result=$(tdirectory.getAttributes "$test_dir" 2>/dev/null || true)
 # Should either return empty or error
 if [[ -z "$result" ]]; then
     test_pass "GetAttributes - non-existent directory"
@@ -67,7 +67,7 @@ fi
 test_start "GetAttributes - hidden directory"
 test_dir="$temp_base/.hidden_dir"
 tdirectory.createDirectory "$test_dir"
-result=$(tdirectory.getAttributes "$test_dir")
+result=$(tdirectory.getAttributes "$test_dir" || true)
 if [[ -n "$result" ]]; then
     test_pass "GetAttributes - hidden directory"
 else
@@ -78,8 +78,8 @@ fi
 test_start "GetAttributes - consistent results"
 test_dir="$temp_base/consistency_test"
 tdirectory.createDirectory "$test_dir"
-result1=$(tdirectory.getAttributes "$test_dir")
-result2=$(tdirectory.getAttributes "$test_dir")
+result1=$(tdirectory.getAttributes "$test_dir" || true)
+result2=$(tdirectory.getAttributes "$test_dir" || true)
 if [[ "$result1" == "$result2" ]]; then
     test_pass "GetAttributes - consistent results"
 else
@@ -91,7 +91,7 @@ test_start "GetAttributes - after creation"
 test_dir="$temp_base/after_create"
 tdirectory.createDirectory "$test_dir"
 sleep 1  # Small delay to ensure attributes are set
-result=$(tdirectory.getAttributes "$test_dir")
+result=$(tdirectory.getAttributes "$test_dir" || true)
 if [[ -n "$result" ]]; then
     test_pass "GetAttributes - after creation"
 else

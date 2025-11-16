@@ -19,6 +19,11 @@ NC='\033[0m' # No Color
 # Global array for selected tests
 TESTS_TO_RUN=()
 
+# Test counters (initialize to 0)
+TESTS_TOTAL=0
+TESTS_PASSED=0
+TESTS_FAILED=0
+
 # Test ID for temp file isolation
 TEST_ID=""
 TEST_TMP_DIR=""

@@ -43,6 +43,8 @@ else
     test_fail "Count after pack: $count (expected 3)"
 fi
 
+# Test: Capacity after pack
+test_start "Capacity after pack"
 # Capacity should still be the same or larger
 if [[ "$capacity" -ge "$count" ]]; then
     test_pass "Capacity after pack is adequate"

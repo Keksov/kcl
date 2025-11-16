@@ -23,8 +23,8 @@ else
     test_fail "Count is $count, expected 1"
 fi
 
-# Test: Add multiple items
-test_start "Add multiple items"
+# Test: Add second item
+test_start "Add second item"
 mylist.Add "item2"
 count=${TLIST_ADD}
 if [[ "$count" == "2" ]]; then
@@ -33,6 +33,8 @@ else
     test_fail "Count is $count, expected 2"
 fi
 
+# Test: Add third item
+test_start "Add third item"
 mylist.Add "item3" 
 count=$RESULT
 if [[ "$count" == "3" ]]; then
