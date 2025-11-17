@@ -11,76 +11,30 @@ defineClass TStringList TList \
     property sorted \
     property duplicates \
     constructor '{
-        # Call parent constructor
-        TList.new "$this"
-        # Initialize properties
+        # Initialize parent TList properties
+        capacity="0"
+        count="0"
+        declare -n items_ref="${__inst__}_items"
+        items_ref=()
+        
+        # Initialize TStringList-specific properties
         case_sensitive=false
         sorted=false
         duplicates="dupAccept"
     }' \
     method Add '{
         local item="$1"
-        if [[ "$sorted" == "true" ]]; then
-            if [[ "$duplicates" == "dupIgnore" || "$duplicates" == "dupError" ]]; then
-                local existing_index
-                existing_index=$($this.IndexOf "$item")
-                if (( existing_index >= 0 )); then
-                    if [[ "$duplicates" == "dupError" ]]; then
-                        echo "Error: Duplicate string not allowed" >&2
-                        return 1
-                    elif [[ "$duplicates" == "dupIgnore" ]]; then
-                        echo "$existing_index"
-                        return 0
-                    fi
-                fi
-            fi
-            local insert_pos
-            insert_pos=$($this.Find "$item")
-            if (( insert_pos < 0 )); then
-                insert_pos=$(( -insert_pos - 1 ))
-            fi
-            $this.Insert "$insert_pos" "$item"
-            echo "$insert_pos"
-        else
-            $this.parent.Add "$item"
-        fi
+        # Call the parent TList Add function
+        $this.parent Add "$item"
     }' \
     method Get '{
         local index="$1"
-        if (( index < 0 || index >= count )); then
-            echo "Error: Index out of bounds" >&2
-            return 1
-        fi
-        local items_var="${this}_items"
-        declare -n items_ref="$items_var"
-        echo "${items_ref[$index]}"
+        $__inst__.call Get "$index"
     }' \
     method Put '{
         local index="$1"
         local item="$2"
-        if (( index < 0 || index >= count )); then
-            echo "Error: Index out of bounds" >&2
-            return 1
-        fi
-        # Check duplicates if sorted
-        if [[ "$sorted" == "true" ]]; then
-            if [[ "$duplicates" == "dupIgnore" || "$duplicates" == "dupError" ]]; then
-                local existing_index
-                existing_index=$($this.IndexOf "$item")
-                if (( existing_index >= 0 && existing_index != index )); then
-                    if [[ "$duplicates" == "dupError" ]]; then
-                        echo "Error: Duplicate string not allowed" >&2
-                        return 1
-                    elif [[ "$duplicates" == "dupIgnore" ]]; then
-                        return 0
-                    fi
-                fi
-            fi
-        fi
-        local items_var="${this}_items"
-        declare -n items_ref="$items_var"
-        items_ref[$index]="$item"
-        # If sorted, we might need to re-sort, but for now assume user knows what they're doing
+        $__inst__.call Put "$index" "$item"
     }' \
     method IndexOf '{
         local item="$1"
@@ -156,9 +110,14 @@ defineClass TStringList TList \
         local source="$1"
         $this.Clear
         # Handle both TList and TStringList sources
-        # For simplicity, assume it's another list and copy items
-        echo "Error: Assign method not fully implemented" >&2
-        return 1
+        local source_items_var="${source}_items"
+        declare -n source_items_ref="$source_items_var"
+        local source_count
+        source_count=$($source.Count)
+        for (( i = 0; i < source_count; i++ )); do
+            local item="${source_items_ref[$i]}"
+            $this.Add "$item"
+        done
     }' \
     method AddStrings '{
         local source="$1"
