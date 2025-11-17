@@ -11,11 +11,8 @@ defineClass TStringList TList \
     property sorted \
     property duplicates \
     constructor '{
-          # Initialize parent TList properties
-          capacity="0"
-          count="0"
-          declare -n items_ref="${__inst__}_items"
-          items_ref=()
+          # Call parent constructor
+          parent.constructor "$@"
           
           # Initialize TStringList-specific properties
           case_sensitive=false
@@ -119,23 +116,35 @@ defineClass TStringList TList \
             $this.Add "$item"
         done
     }' \
-    function CompareStrings '{
-        local str1="$1"
-        local str2="$2"
-        local cmp_str1 cmp_str2
-        if [[ "$case_sensitive" == "true" ]]; then
-            cmp_str1="$str1"
-            cmp_str2="$str2"
-        else
-            cmp_str1="${str1,,}"
-            cmp_str2="${str2,,}"
-        fi
-        if [[ "$cmp_str1" < "$cmp_str2" ]]; then
-            RESULT=1 # str1 < str2
-        elif [[ "$cmp_str1" > "$cmp_str2" ]]; then
-            RESULT=2 # str1 > str2
-        else
-            RESULT=0 # equal
-        fi
-        return $RESULT
-    }'
+    procedure Put '{
+         local index="$1"
+         local item="$2"
+         local current_count="$count"
+         if (( index < 0 || index >= current_count )); then
+             [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+             return 1
+         fi
+         local items_var="${this}_items"
+         declare -n items_ref="$items_var"
+         items_ref[$index]="$item"
+     }' \
+     function CompareStrings '{
+         local str1="$1"
+         local str2="$2"
+         local cmp_str1 cmp_str2
+         if [[ "$case_sensitive" == "true" ]]; then
+             cmp_str1="$str1"
+             cmp_str2="$str2"
+         else
+             cmp_str1="${str1,,}"
+             cmp_str2="${str2,,}"
+         fi
+         if [[ "$cmp_str1" < "$cmp_str2" ]]; then
+             RESULT=1 # str1 < str2
+         elif [[ "$cmp_str1" > "$cmp_str2" ]]; then
+             RESULT=2 # str1 > str2
+         else
+             RESULT=0 # equal
+         fi
+         return $RESULT
+     }'
