@@ -11,55 +11,43 @@ defineClass TStringList TList \
     property sorted \
     property duplicates \
     constructor '{
-        # Initialize parent TList properties
-        capacity="0"
-        count="0"
-        declare -n items_ref="${__inst__}_items"
-        items_ref=()
-        
-        # Initialize TStringList-specific properties
-        case_sensitive=false
-        sorted=false
-        duplicates="dupAccept"
-    }' \
-    method Add '{
-        local item="$1"
-        # Call the parent TList Add function
-        $this.parent Add "$item"
-    }' \
-    method Get '{
+          # Initialize parent TList properties
+          capacity="0"
+          count="0"
+          declare -n items_ref="${__inst__}_items"
+          items_ref=()
+          
+          # Initialize TStringList-specific properties
+          case_sensitive=false
+          sorted=false
+          duplicates="dupAccept"
+      }' \
+    function Get '{
         local index="$1"
-        $__inst__.call Get "$index"
-    }' \
-    method Put '{
-        local index="$1"
-        local item="$2"
-        $__inst__.call Put "$index" "$item"
-    }' \
-    method IndexOf '{
-        local item="$1"
-        local items_var="${this}_items"
+        local current_count="$count"
+        if (( index < 0 || index >= current_count )); then
+            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+            return 1
+        fi
+        local items_var="${__inst__}_items"
         declare -n items_ref="$items_var"
-        for (( i = 0; i < count; i++ )); do
+        RESULT="${items_ref[$index]}"
+        echo "$RESULT"
+    }' \
+    function IndexOf '{
+        local item="$1"
+        local items_var="${__inst__}_items"
+        local current_count="$count"
+        declare -n items_ref="$items_var"
+        for (( i = 0; i < current_count; i++ )); do
             local current_item="${items_ref[$i]}"
             $this.CompareStrings "$current_item" "$item"
             if (( $? == 0 )); then
-                echo "$i"
+                RESULT="$i"
                 return 0
             fi
         done
-        echo "-1"
-    }' \
-    method Remove '{
-        local item="$1"
-        local index
-        index=$($this.IndexOf "$item")
-        if (( index >= 0 )); then
-            $this.Delete "$index"
-            echo "$index"
-        else
-            echo "-1"
-        fi
+        RESULT="-1"
     }' \
     method Sort '{
         local items_var="${this}_items"
@@ -79,10 +67,10 @@ defineClass TStringList TList \
         done
         sorted=true
     }' \
-    method Find '{
+    function Find '{
         local item="$1"
         if [[ "$sorted" != "true" ]]; then
-            echo "Error: List must be sorted for Find operation" >&2
+            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: List must be sorted for Find operation" >&2
             return 1
         fi
         # Binary search
@@ -95,7 +83,7 @@ defineClass TStringList TList \
             $this.CompareStrings "$mid_item" "$item"
             local cmp_result=$?
             if (( cmp_result == 0 )); then
-                echo "$mid"
+                RESULT="$mid"
                 return 0
             elif (( cmp_result == 1 )); then  # mid_item < item, search right
                 left=$((mid + 1))
@@ -104,9 +92,9 @@ defineClass TStringList TList \
             fi
         done
         # Return insertion point (negative)
-        echo $(( -left - 1 ))
+        RESULT=$(( -left - 1 ))
     }' \
-    method Assign '{
+    procedure Assign '{
         local source="$1"
         $this.Clear
         # Handle both TList and TStringList sources
@@ -119,7 +107,7 @@ defineClass TStringList TList \
             $this.Add "$item"
         done
     }' \
-    method AddStrings '{
+    procedure AddStrings '{
         local source="$1"
         # Add all strings from source list
         local source_items_var="${source}_items"
@@ -131,7 +119,7 @@ defineClass TStringList TList \
             $this.Add "$item"
         done
     }' \
-    method CompareStrings '{
+    function CompareStrings '{
         local str1="$1"
         local str2="$2"
         local cmp_str1 cmp_str2
@@ -143,10 +131,11 @@ defineClass TStringList TList \
             cmp_str2="${str2,,}"
         fi
         if [[ "$cmp_str1" < "$cmp_str2" ]]; then
-            return 1  # str1 < str2
+            RESULT=1 # str1 < str2
         elif [[ "$cmp_str1" > "$cmp_str2" ]]; then
-            return 2  # str1 > str2
+            RESULT=2 # str1 > str2
         else
-            return 0  # equal
+            RESULT=0 # equal
         fi
+        return $RESULT
     }'

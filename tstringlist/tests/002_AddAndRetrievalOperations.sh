@@ -15,7 +15,7 @@ TStringList.new mylist
 
 # Test: Add single string
 test_start "Add single string"
-result=$(mylist.Add "apple")
+mylist.Add "apple" >/dev/null
 count=$(mylist.count)
 if [[ "$count" == "1" ]]; then
     test_pass "Added string, count is 1"
@@ -25,7 +25,7 @@ fi
 
 # Test: Add second string
 test_start "Add second string"
-mylist.Add "banana"
+mylist.Add "banana" >/dev/null
 count=$(mylist.count)
 if [[ "$count" == "2" ]]; then
     test_pass "Count is 2 after adding two strings"
@@ -35,7 +35,7 @@ fi
 
 # Test: Add third string
 test_start "Add third string"
-mylist.Add "cherry"
+mylist.Add "cherry" >/dev/null
 count=$(mylist.count)
 if [[ "$count" == "3" ]]; then
     test_pass "Count is 3 after adding three strings"

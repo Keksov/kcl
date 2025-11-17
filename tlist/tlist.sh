@@ -105,6 +105,7 @@ defineClass TList "" \
         #$__inst__.property count = "$new_count"
         $__inst__.property count = "$new_count"
         RESULT="$new_count"
+        echo "$RESULT"
     }' \
     method Insert '{
         local index="$1"
