@@ -38,7 +38,8 @@ emptylist.delete
 # Test: Remove on empty list
 test_start "Remove on empty list"
 TStringList.new emptylist
-index=$(emptylist.Remove "anything")
+emptylist.Remove "anything"
+index=$RESULT
 if [[ "$index" == "-1" ]]; then
     test_pass "Remove on empty list returned -1"
 else

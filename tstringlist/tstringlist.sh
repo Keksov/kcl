@@ -175,14 +175,20 @@ defineClass TStringList TList \
          local item="$1"
          local current_count="$count"
          
-         # Check for duplicates if dupIgnore is set
-         if [[ "$duplicates" == "dupIgnore" ]]; then
-             local dup_index
-             dup_index=$($__inst__.call IndexOf "$item")
-             if [[ "$dup_index" != "-1" ]]; then
+         # Check for duplicates
+         local dup_index
+         dup_index=$($__inst__.call IndexOf "$item")
+         
+         if [[ "$dup_index" != "-1" ]]; then
+             # Found duplicate
+             if [[ "$duplicates" == "dupIgnore" ]]; then
                  RESULT="$dup_index"
                  return 0
+             elif [[ "$duplicates" == "dupError" ]]; then
+                 [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Duplicate item not allowed" >&2
+                 return 1
              fi
+             # else dupAccept - allow duplicates
          fi
          
          # Grow capacity if needed
