@@ -111,7 +111,8 @@ sortedlist.delete
 
 # Test: Find on non-empty sorted list
 test_start "Find on non-empty sorted list"
-result=$(mylist.Find "banana")
+mylist.Find "banana"
+result=$RESULT
 if [[ "$result" == "1" ]]; then
     test_pass "Find returned correct index 1 for 'banana'"
 else
@@ -120,7 +121,8 @@ fi
 
 # Test: Find insertion point for new item
 test_start "Find insertion point for non-existent item"
-result=$(mylist.Find "blueberry")
+mylist.Find "blueberry"
+result=$RESULT
 # Should return negative insertion point
 if [[ "$result" -lt "0" ]]; then
     test_pass "Find returned negative value (insertion point)"

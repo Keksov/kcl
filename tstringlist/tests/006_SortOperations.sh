@@ -62,7 +62,8 @@ fi
 
 # Test: Find method on sorted list
 test_start "Find on sorted list"
-index=$(mylist.Find "date")
+mylist.Find "date"
+index=$RESULT
 if [[ "$index" == "3" ]]; then
     test_pass "Find returned correct index 3 for 'date'"
 else
@@ -71,7 +72,8 @@ fi
 
 # Test: Find non-existent item (returns negative insertion point)
 test_start "Find non-existent item returns insertion point"
-result=$(mylist.Find "aardvark")
+mylist.Find "aardvark"
+result=$RESULT
 if [[ "$result" == "-1" ]]; then
     test_pass "Find returned -1 (insertion point for first position)"
 else
@@ -109,12 +111,11 @@ caselist.Sort
 item0=$(caselist.Get 0)
 item1=$(caselist.Get 1)
 item2=$(caselist.Get 2)
-item3=$(caselist.Get 3)
 # Case-sensitive ASCII order: Apple, banana, zebra (uppercase before lowercase)
-if [[ "$item0" == "Apple" ]]; then
+if [[ "$item0" == "Apple" && "$item1" == "banana" && "$item2" == "zebra" ]]; then
     test_pass "Case-sensitive sort works correctly"
 else
-    test_fail "First item is '$item0', expected 'Apple'"
+    test_fail "Case-sensitive sort incorrect: '$item0', '$item1', '$item2'"
 fi
 caselist.delete
 

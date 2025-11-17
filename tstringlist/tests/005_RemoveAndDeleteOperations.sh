@@ -20,7 +20,8 @@ mylist.Add "elderberry"
 
 # Test: Remove by value (apple)
 test_start "Remove string by value"
-index=$(mylist.Remove "apple")
+mylist.Remove "apple"
+index=$RESULT
 count=$(mylist.count)
 if [[ "$index" == "0" && "$count" == "4" ]]; then
     test_pass "Remove 'apple' succeeded, count is now 4"
@@ -39,7 +40,8 @@ fi
 
 # Test: Remove non-existent string
 test_start "Remove non-existent string"
-index=$(mylist.Remove "grape")
+mylist.Remove "grape"
+index=$RESULT
 if [[ "$index" == "-1" ]]; then
     test_pass "Remove non-existent string returned -1"
 else
@@ -137,7 +139,8 @@ duplist.Add "item"
 duplist.Add "item"
 duplist.Add "item"
 count_before=$(duplist.count)
-index=$(duplist.Remove "item")
+duplist.Remove "item"
+index=$RESULT
 count_after=$(duplist.count)
 if [[ "$count_before" == "3" && "$index" == "0" && "$count_after" == "2" ]]; then
     test_pass "Remove removed first occurrence of duplicates"
