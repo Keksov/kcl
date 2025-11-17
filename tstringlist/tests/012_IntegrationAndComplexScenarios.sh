@@ -14,7 +14,7 @@ test_section "012: Integration and Complex Scenarios"
 test_start "Build sorted list from unsorted data"
 TStringList.new mylist
 for fruit in "mango" "apple" "cherry" "banana" "date"; do
-    mylist.Add "$fruit" >/dev/null
+    mylist.Add "$fruit"
 done
 mylist.Sort
 items_ordered="true"
@@ -31,12 +31,12 @@ fi
 # Test: Find-Add workflow
 test_start "Find item, then add related items"
 TStringList.new list
-list.Add "apple" >/dev/null
-list.Add "banana" >/dev/null
-list.Add "cherry" >/dev/null
+list.Add "apple"
+list.Add "banana"
+list.Add "cherry"
 index=$(list.IndexOf "banana")
 if [[ "$index" == "1" ]]; then
-    list.Add "apricot" >/dev/null
+    list.Add "apricot"
     list.Sort
     test_pass "Found and sorted list successfully"
 else
@@ -46,9 +46,9 @@ fi
 # Test: Copy and modify
 test_start "Copy list and modify independently"
 TStringList.new original
-original.Add "first" >/dev/null
-original.Add "second" >/dev/null
-original.Add "third" >/dev/null
+original.Add "first"
+original.Add "second"
+original.Add "third"
 TStringList.new copy
 copy.AddStrings original
 copy.Put 0 "changed"
@@ -65,13 +65,13 @@ copy.delete
 # Test: Remove while iterating (simulated)
 test_start "Remove multiple items"
 TStringList.new mylist
-mylist.Add "keep1" >/dev/null
-mylist.Add "remove1" >/dev/null
-mylist.Add "keep2" >/dev/null
-mylist.Add "remove2" >/dev/null
-mylist.Add "keep3" >/dev/null
-mylist.Remove "remove1" >/dev/null
-mylist.Remove "remove2" >/dev/null
+mylist.Add "keep1"
+mylist.Add "remove1"
+mylist.Add "keep2"
+mylist.Add "remove2"
+mylist.Add "keep3"
+mylist.Remove "remove1"
+mylist.Remove "remove2"
 count=$(mylist.count)
 items_correct="true"
 if [[ "$(mylist.Get 0)" != "keep1" ]]; then items_correct="false"; fi
@@ -89,9 +89,11 @@ test_start "Switch case sensitivity"
 TStringList.new mylist
 mylist.Add "ABC"
 mylist.case_sensitive = "true"
-index1=$(mylist.IndexOf "abc")
+mylist.IndexOf "abc"
+index1=$RESULT
 mylist.case_sensitive = "false"
-index2=$(mylist.IndexOf "abc")
+mylist.IndexOf "abc"
+index2=$RESULT
 if [[ "$index1" == "-1" && "$index2" == "0" ]]; then
     test_pass "Case sensitivity switch affects search correctly"
 else
@@ -106,7 +108,7 @@ mylist.sorted = "false"
 mylist.duplicates = "dupIgnore"
 # Add items, then sort to check it works correctly
 for item in "grape" "apple" "cherry" "apple" "banana"; do
-    mylist.Add "$item" >/dev/null
+    mylist.Add "$item"
 done
 mylist.Sort
 count=$(mylist.count)
@@ -123,7 +125,7 @@ test_start "Large list operations"
 TStringList.new mylist
 # Add 100 items
 for i in {1..100}; do
-    mylist.Add "item_$i" >/dev/null
+    mylist.Add "item_$i"
 done
 count=$(mylist.count)
 first=$(mylist.Get 0)
@@ -141,10 +143,10 @@ mylist.delete
 test_start "Stress test - rapid operations"
 TStringList.new mylist
 for i in {1..50}; do
-    mylist.Add "item$i" >/dev/null
+    mylist.Add "item$i"
 done
 for i in {1..25}; do
-    mylist.Remove "item$i" >/dev/null
+    mylist.Remove "item$i"
 done
 count=$(mylist.count)
 if [[ "$count" == "25" ]]; then
@@ -158,8 +160,8 @@ mylist.delete
 test_start "Clear and reuse list multiple times"
 TStringList.new mylist
 for cycle in {1..3}; do
-    mylist.Add "cycle${cycle}_item1" >/dev/null
-    mylist.Add "cycle${cycle}_item2" >/dev/null
+    mylist.Add "cycle${cycle}_item1"
+    mylist.Add "cycle${cycle}_item2"
     count=$(mylist.count)
     if [[ "$count" != "2" ]]; then
         break
@@ -180,7 +182,7 @@ mylist.case_sensitive = "false"
 mylist.sorted = "true"
 mylist.duplicates = "dupIgnore"
 for item in "Zebra" "apple" "BANANA" "cherry" "apple"; do
-    mylist.Add "$item" >/dev/null
+    mylist.Add "$item"
 done
 count=$(mylist.count)
 first=$(mylist.Get 0)

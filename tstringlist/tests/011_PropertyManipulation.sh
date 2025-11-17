@@ -133,9 +133,11 @@ test_start "case_sensitive property affects IndexOf"
 TStringList.new caselist
 caselist.case_sensitive = "false"
 caselist.Add "Apple"
-index1=$(caselist.IndexOf "apple")
+caselist.IndexOf "apple"
+index1=$RESULT
 caselist.case_sensitive = "true"
-index2=$(caselist.IndexOf "apple")
+caselist.IndexOf "apple"
+index2=$RESULT
 if [[ "$index1" == "0" && "$index2" == "-1" ]]; then
     test_pass "case_sensitive property affects IndexOf behavior"
 else
@@ -149,7 +151,8 @@ TStringList.new proplist
 proplist.sorted = "true"
 proplist.duplicates = "dupIgnore"
 proplist.Add "item"
-index1=$(proplist.Add "item")
+proplist.Add "item"
+index1=$RESULT
 proplist.duplicates = "dupAccept"
 proplist.sorted = "false"
 proplist.Clear

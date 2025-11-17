@@ -29,25 +29,24 @@ defineClass TStringList TList \
         local items_var="${__inst__}_items"
         declare -n items_ref="$items_var"
         RESULT="${items_ref[$index]}"
-        echo "$RESULT"
     }' \
     function IndexOf '{
-        local item="$1"
-        local items_var="${__inst__}_items"
-        local current_count="$count"
-        declare -n items_ref="$items_var"
-        for (( i = 0; i < current_count; i++ )); do
-            local current_item="${items_ref[$i]}"
-            $this.CompareStrings "$current_item" "$item"
-            if (( RESULT == 0 )); then
-                RESULT="$i"
-                echo "$RESULT"
-                return 0
-            fi
-        done
-        RESULT="-1"
-        echo "$RESULT"
-    }' \
+         local item="$1"
+         local items_var="${__inst__}_items"
+         local current_count="$count"
+         declare -n items_ref="$items_var"
+         for (( i = 0; i < current_count; i++ )); do
+             local current_item="${items_ref[$i]}"
+             $this.CompareStrings "$current_item" "$item"
+             if (( RESULT == 0 )); then
+                 RESULT="$i"
+                 break
+             fi
+         done
+         if (( i >= current_count )); then
+             RESULT="-1"
+         fi
+     }' \
     method Sort '{
         local items_var="${this}_items"
         declare -n items_ref="$items_var"
@@ -81,7 +80,8 @@ defineClass TStringList TList \
         while (( left <= right )); do
             local mid=$(( (left + right) / 2 ))
             local mid_item
-            mid_item=$($this.Get "$mid")
+            $this.Get "$mid"
+            mid_item=$RESULT
             $this.CompareStrings "$mid_item" "$item"
             local cmp_result="$RESULT"
             if (( cmp_result == 0 )); then
@@ -117,7 +117,7 @@ defineClass TStringList TList \
             ((i++))
         done
         }' \
-        procedure AddStrings '{
+    procedure AddStrings '{
          local source="$1"
          if [[ -z "$source" ]]; then
              return 0
@@ -149,7 +149,8 @@ defineClass TStringList TList \
      function Remove '{
          local item="$1"
          local index
-         index=$($this.IndexOf "$item")
+         $this.IndexOf "$item"
+         index=$RESULT
          if [[ "$index" != "-1" ]]; then
              local current_count=$count
              if (( index < 0 || index >= current_count )); then
@@ -177,7 +178,8 @@ defineClass TStringList TList \
          
          # Check for duplicates
          local dup_index
-         dup_index=$($__inst__.call IndexOf "$item")
+         $__inst__.call IndexOf "$item"
+         dup_index=$RESULT
          
          if [[ "$dup_index" != "-1" ]]; then
              # Found duplicate
