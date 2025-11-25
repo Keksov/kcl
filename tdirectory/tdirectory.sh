@@ -4,7 +4,8 @@
 TDIRECTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TDIRECTORY_DIR/../../kklass/kklass.sh"
 
-
+# Source tpath module (required by several tdirectory functions)
+source "$TDIRECTORY_DIR/../tpath/tpath.sh"
 
 # Define the tdirectory class
 #defineClass "tdirectory" ""
