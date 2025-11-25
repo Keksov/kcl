@@ -1,11 +1,20 @@
 #!/bin/bash
-# 010_properties.sh - Test TPath properties
+# Properties
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+kk_test_init "Properties" "$SCRIPT_DIR" "$@"
+
+# Source tpath if needed
+TPATH_DIR="$SCRIPT_DIR/.."
+[[ -f "$TPATH_DIR/tpath.sh" ]] && source "$TPATH_DIR/tpath.sh"
+
 
 # Test 1: DirectorySeparatorChar
-test_start "DirectorySeparatorChar property"
+kk_test_start "DirectorySeparatorChar property"
 result=$(tpath.getDirectorySeparatorChar | tr -d '\r\n')
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
@@ -17,31 +26,31 @@ expected="/"
 esac
 
 if [[ "$result" == "$expected" ]]; then
-    test_pass "DirectorySeparatorChar property"
+    kk_test_pass "DirectorySeparatorChar property"
 else
-    test_fail "DirectorySeparatorChar property (expected: '$expected', got: '$result')"
+    kk_test_fail "DirectorySeparatorChar property (expected: '$expected', got: '$result')"
 fi
 
 # Test 2: AltDirectorySeparatorChar
-test_start "AltDirectorySeparatorChar property"
+kk_test_start "AltDirectorySeparatorChar property"
 result=$(tpath.getAltDirectorySeparatorChar | tr -d '\r\n')
 if [[ "$result" == "/" ]]; then
-    test_pass "AltDirectorySeparatorChar property"
+    kk_test_pass "AltDirectorySeparatorChar property"
 else
-    test_fail "AltDirectorySeparatorChar property (expected: '/', got: '$result')"
+    kk_test_fail "AltDirectorySeparatorChar property (expected: '/', got: '$result')"
 fi
 
 # Test 3: ExtensionSeparatorChar
-test_start "ExtensionSeparatorChar property"
+kk_test_start "ExtensionSeparatorChar property"
 result=$(tpath.getExtensionSeparatorChar | tr -d '\r\n')
 if [[ "$result" == "." ]]; then
-    test_pass "ExtensionSeparatorChar property"
+    kk_test_pass "ExtensionSeparatorChar property"
 else
-    test_fail "ExtensionSeparatorChar property (expected: '.', got: '$result')"
+    kk_test_fail "ExtensionSeparatorChar property (expected: '.', got: '$result')"
 fi
 
 # Test 4: PathSeparator
-test_start "PathSeparator property"
+kk_test_start "PathSeparator property"
 result=$(tpath.getPathSeparator | tr -d '\r\n')
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
@@ -52,13 +61,13 @@ case "$(uname -s)" in
         ;;
 esac
 if [[ "$result" == "$expected" ]]; then
-    test_pass "PathSeparator property"
+    kk_test_pass "PathSeparator property"
 else
-    test_fail "PathSeparator property (expected: '$expected', got: '$result')"
+    kk_test_fail "PathSeparator property (expected: '$expected', got: '$result')"
 fi
 
 # Test 5: VolumeSeparatorChar
-test_start "VolumeSeparatorChar property"
+kk_test_start "VolumeSeparatorChar property"
 result=$(tpath.getVolumeSeparatorChar | tr -d '\r\n')
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
@@ -69,7 +78,7 @@ case "$(uname -s)" in
         ;;
 esac
 if [[ "$result" == "$expected" ]]; then
-    test_pass "VolumeSeparatorChar property"
+    kk_test_pass "VolumeSeparatorChar property"
 else
-    test_fail "VolumeSeparatorChar property (expected: '$expected', got: '$result')"
+    kk_test_fail "VolumeSeparatorChar property (expected: '$expected', got: '$result')"
 fi

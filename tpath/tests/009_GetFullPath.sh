@@ -1,50 +1,59 @@
 #!/bin/bash
-# 009_get_full_path.sh - Test TPath.getFullPath method
+# GetFullPath
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+kk_test_init "GetFullPath" "$SCRIPT_DIR" "$@"
+
+# Source tpath if needed
+TPATH_DIR="$SCRIPT_DIR/.."
+[[ -f "$TPATH_DIR/tpath.sh" ]] && source "$TPATH_DIR/tpath.sh"
+
 
 # Test 1: Relative path to absolute
-test_start "Convert relative path to absolute"
+kk_test_start "Convert relative path to absolute"
 result=$(tpath.getFullPath ".")
 if [[ "$result" == /* ]] || [[ "$result" =~ ^[A-Za-z]: ]]; then
-    test_pass "Convert relative path to absolute"
+    kk_test_pass "Convert relative path to absolute"
 else
-    test_fail "Convert relative path to absolute (expected absolute path, got: '$result')"
+    kk_test_fail "Convert relative path to absolute (expected absolute path, got: '$result')"
 fi
 
 # Test 2: Already absolute path
-test_start "Absolute path remains absolute"
+kk_test_start "Absolute path remains absolute"
 result=$(tpath.getFullPath "/tmp")
 if [[ "$result" == "/tmp" ]] || [[ "$result" =~ ^/.*tmp.* ]]; then
-    test_pass "Absolute path remains absolute"
+    kk_test_pass "Absolute path remains absolute"
 else
-    test_fail "Absolute path remains absolute (got: '$result')"
+    kk_test_fail "Absolute path remains absolute (got: '$result')"
 fi
 
 # Test 3: Empty path
-test_start "getFullPath with empty path"
+kk_test_start "getFullPath with empty path"
 result=$(tpath.getFullPath "")
 if [[ "$result" == "" ]]; then
-    test_pass "getFullPath with empty path"
+    kk_test_pass "getFullPath with empty path"
 else
-    test_fail "getFullPath with empty path (expected empty, got: '$result')"
+    kk_test_fail "getFullPath with empty path (expected empty, got: '$result')"
 fi
 
 # Test 4: Current directory
-test_start "getFullPath with current directory"
+kk_test_start "getFullPath with current directory"
 result=$(tpath.getFullPath ".")
 if [[ -n "$result" && "$result" != "." ]]; then
-    test_pass "getFullPath with current directory"
+    kk_test_pass "getFullPath with current directory"
 else
-    test_fail "getFullPath with current directory (got: '$result')"
+    kk_test_fail "getFullPath with current directory (got: '$result')"
 fi
 
 # Test 5: Parent directory
-test_start "getFullPath with parent directory"
+kk_test_start "getFullPath with parent directory"
 result=$(tpath.getFullPath "..")
 if [[ -n "$result" && "$result" != ".." ]]; then
-    test_pass "getFullPath with parent directory"
+    kk_test_pass "getFullPath with parent directory"
 else
-    test_fail "getFullPath with parent directory (got: '$result')"
+    kk_test_fail "getFullPath with parent directory (got: '$result')"
 fi
