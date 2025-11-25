@@ -103,7 +103,7 @@ tfile.integerToFileAttributes() {
     if [[ $((int & 4)) -ne 0 ]]; then attrs+="System,"; fi
     if [[ $((int & 16)) -ne 0 ]]; then attrs+="Directory,"; fi
     if [[ $((int & 32)) -ne 0 ]]; then attrs+="Archive,"; fi
-    attrs="\${attrs%,}"
+    attrs="${attrs%,}"
     echo "[\$attrs]"
 }
 tfile.open() { local file="$1" mode="$2"; if [[ "$mode" == "fmOpenRead" ]]; then if [[ -f "$file" ]]; then echo "$file"; fi; elif [[ "$mode" == "fmOpenWrite" ]]; then : > "$file"; echo "$file"; elif [[ "$mode" == "fmOpenReadWrite" ]]; then if [[ -f "$file" ]]; then echo "$file"; fi; fi ; }

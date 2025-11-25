@@ -82,6 +82,29 @@ else
     kk_test_fail "GetAttributes with empty path (expected empty, got: '$result')"
 fi
 
+# Test 7: Permission denied directory
+kk_test_start "GetAttributes for permission denied path"
+denied_dir="$temp_dir/denied"
+mkdir -p "$denied_dir"
+chmod 000 "$denied_dir"
+result=$(tpath.getAttributes "$denied_dir" 2>/dev/null) || result=""
+chmod 755 "$denied_dir"  # Restore permissions for cleanup
+if [[ -n "$result" ]]; then
+    kk_test_pass "GetAttributes for permission denied path"
+else
+    kk_test_fail "GetAttributes for permission denied path (expected non-empty, got empty)"
+fi
+
+# Test 8: Null bytes in path
+kk_test_start "GetAttributes with null bytes in path"
+null_path="test$(printf '\0')file.txt"
+result=$(tpath.getAttributes "$null_path" 2>/dev/null) || result=""
+if [[ -z "$result" ]]; then
+    kk_test_pass "GetAttributes with null bytes in path"
+else
+    kk_test_fail "GetAttributes with null bytes in path (expected empty, got: '$result')"
+fi
+
 # Cleanup
 rm -f "$test_file" "$readonly_file" "$hidden_file"
-rmdir "$test_dir"
+rmdir "$test_dir" "$denied_dir"

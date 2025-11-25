@@ -119,6 +119,6 @@ else
     kk_test_fail "Exists - deleted directory returns false (expected: false after deletion, got: '$result')"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

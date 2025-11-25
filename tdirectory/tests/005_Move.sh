@@ -123,6 +123,6 @@ else
     kk_test_fail "Move - move to path with spaces (expected move to path with spaces)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

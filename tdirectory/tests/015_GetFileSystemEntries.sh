@@ -118,6 +118,6 @@ else
     kk_test_fail "GetFileSystemEntries - recursive search (expected all nested entries)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

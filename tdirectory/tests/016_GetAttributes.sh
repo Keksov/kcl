@@ -103,6 +103,6 @@ else
     kk_test_fail "GetAttributes - after creation (expected: non-empty after creation)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

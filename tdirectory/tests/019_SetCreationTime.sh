@@ -68,6 +68,6 @@ else
     kk_test_fail "SetCreationTime - accepts datetime (expected: time to be set)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

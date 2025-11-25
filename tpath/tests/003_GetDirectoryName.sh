@@ -34,10 +34,11 @@ fi
 # Test 3: Root path
 kk_test_start "Get directory from root path"
 result=$(tpath.getDirectoryName "/file.txt")
-if [[ "$result" == "" || "$result" == "/" ]]; then
+expected=""
+if [[ "$result" == "$expected" ]]; then
     kk_test_pass "Get directory from root path"
 else
-    kk_test_fail "Get directory from root path (expected: empty or /, got: '$result')"
+    kk_test_fail "Get directory from root path (expected: $expected, got: '$result')"
 fi
 
 # Test 4: Relative path

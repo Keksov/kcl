@@ -100,6 +100,6 @@ else
     kk_test_fail "GetDirectories - special characters in names (expected all special char dirs)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

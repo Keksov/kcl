@@ -119,6 +119,6 @@ else
     kk_test_fail "GetFiles - special characters in names (expected special char files)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

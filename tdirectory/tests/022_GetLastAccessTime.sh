@@ -71,6 +71,6 @@ else
     kk_test_fail "GetLastAccessTime - directory with spaces (expected: valid datetime)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

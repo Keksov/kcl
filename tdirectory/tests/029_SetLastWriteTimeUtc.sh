@@ -65,6 +65,6 @@ else
     kk_test_fail "SetLastWriteTimeUtc - accepts UTC datetime (expected: UTC time to be set)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

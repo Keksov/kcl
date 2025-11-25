@@ -15,12 +15,13 @@ TPATH_DIR="$SCRIPT_DIR/.."
 
 # Test 1: Basic path combination
 kk_test_start "Combine two relative paths"
-result=$(tpath.combine "path1" "path2")
+result=$(tpath.combine "path1" "path2" | xargs)
 # Should combine with separator
-if [[ "$result" == "path1"*"path2" ]]; then
+expected="path1\\path2"
+if [[ "$result" == "$expected" ]]; then
     kk_test_pass "Combine two relative paths"
 else
-    kk_test_fail "Combine two relative paths (expected: path1[/\\]path2, got: '$result')"
+    kk_test_fail "Combine two relative paths (expected: $expected, got: '$result')"
 fi
 
 # Test 2: Absolute path2 returns path2
@@ -52,18 +53,34 @@ fi
 
 # Test 5: Path1 with trailing separator
 kk_test_start "Combine path1 with trailing separator"
-result=$(tpath.combine "path1/" "path2")
-if [[ "$result" == "path1"*"path2" ]]; then
+result=$(tpath.combine "path1/" "path2" | xargs)
+expected="path1\\path2"
+if [[ "$result" == "$expected" ]]; then
     kk_test_pass "Combine path1 with trailing separator"
 else
-    kk_test_fail "Combine path1 with trailing separator (got: '$result')"
+    kk_test_fail "Combine path1 with trailing separator (expected: $expected, got: '$result')"
 fi
 
 # Test 6: Complex path combination
 kk_test_start "Combine complex paths"
-result=$(tpath.combine "/home/user" "documents/file.txt")
-if [[ "$result" == "/home/user"*"documents"*"file.txt" ]]; then
+result=$(tpath.combine "/home/user" "documents/file.txt" | xargs)
+expected="/home/user\\documents/file.txt"
+if [[ "$result" == "$expected" ]]; then
     kk_test_pass "Combine complex paths"
 else
-    kk_test_fail "Combine complex paths (got: '$result')"
+    kk_test_fail "Combine complex paths (expected: $expected, got: '$result')"
+fi
+
+# Test 7: Performance test - combine many paths
+kk_test_start "Performance test for path combination"
+start_time=$(date +%s%N)
+for i in {1..100}; do
+    result=$(tpath.combine "path$i" "file$i.txt")
+done
+end_time=$(date +%s%N)
+duration=$(( (end_time - start_time) / 1000000 ))  # milliseconds
+if [[ $duration -lt 20000 ]]; then  # Less than 20 seconds
+    kk_test_pass "Performance test for path combination (${duration}ms)"
+else
+    kk_test_fail "Performance test for path combination (too slow: ${duration}ms)"
 fi

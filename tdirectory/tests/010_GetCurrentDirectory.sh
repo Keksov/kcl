@@ -91,7 +91,7 @@ else
 kk_test_fail "GetCurrentDirectory - directory path returned (expected non-empty path)"
 fi
 
-# Cleanup - restore original directory
+# Cleanup\nkk_fixture_teardown - restore original directory
 cd "$original_dir" 2>/dev/null || true
 
 

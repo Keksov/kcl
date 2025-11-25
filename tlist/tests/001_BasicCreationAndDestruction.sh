@@ -58,12 +58,12 @@ fi
 kk_test_start "Create multiple TList instances"
 TList.new list1
 TList.new list2
-count1=$(list1.count 2>/dev/null)
-count2=$(list2.count 2>/dev/null)
-if [[ -n "$count1" && -n "$count2" ]]; then
+count1=$(list1.count)
+count2=$(list2.count)
+if [[ "$count1" == "0" && "$count2" == "0" ]]; then
     kk_test_pass "Multiple TList instances created successfully"
 else
-    kk_test_fail "Failed to create multiple TList instances"
+    kk_test_fail "Failed to create multiple TList instances: count1=$count1, count2=$count2"
 fi
 
 # Destroy them

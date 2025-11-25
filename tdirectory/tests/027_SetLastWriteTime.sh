@@ -65,6 +65,6 @@ else
     kk_test_fail "SetLastWriteTime - accepts datetime (expected: time to be set)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

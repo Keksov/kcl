@@ -117,6 +117,7 @@ else
     kk_test_fail "Delete - delete multiple directories in sequence (some directories were not deleted)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
+kk_fixture_teardown
 
 

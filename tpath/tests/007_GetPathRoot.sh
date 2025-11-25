@@ -34,10 +34,11 @@ fi
 # Test 3: UNC path
 kk_test_start "Get root from UNC path"
 result=$(tpath.getPathRoot "//server/share/file.txt")
-if [[ "$result" == "//server" ]]; then
+expected="//server"
+if [[ "$result" == "$expected" ]]; then
     kk_test_pass "Get root from UNC path"
 else
-    kk_test_fail "Get root from UNC path (expected: //server, got: '$result')"
+    kk_test_fail "Get root from UNC path (expected: $expected, got: '$result')"
 fi
 
 # Test 4: Relative path

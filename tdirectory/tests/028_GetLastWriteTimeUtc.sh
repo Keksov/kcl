@@ -60,6 +60,6 @@ else
     kk_test_fail "GetLastWriteTimeUtc - nested directory (expected: valid datetime)"
 fi
 
-# Cleanup
+# Cleanup\nkk_fixture_teardown
 
 

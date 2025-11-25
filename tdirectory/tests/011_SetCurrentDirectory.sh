@@ -120,7 +120,7 @@ else
     kk_test_fail "SetCurrentDirectory - affects directory operations (expected subdir to be created)"
 fi
 
-# Cleanup - restore original directory
+# Cleanup\nkk_fixture_teardown - restore original directory
 cd "$original_dir" 2>/dev/null || true
 
 

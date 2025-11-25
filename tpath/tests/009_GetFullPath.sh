@@ -25,10 +25,11 @@ fi
 # Test 2: Already absolute path
 kk_test_start "Absolute path remains absolute"
 result=$(tpath.getFullPath "/tmp")
-if [[ "$result" == "/tmp" ]] || [[ "$result" =~ ^/.*tmp.* ]]; then
+expected="/tmp"
+if [[ "$result" == "$expected" ]]; then
     kk_test_pass "Absolute path remains absolute"
 else
-    kk_test_fail "Absolute path remains absolute (got: '$result')"
+    kk_test_fail "Absolute path remains absolute (expected: $expected, got: '$result')"
 fi
 
 # Test 3: Empty path
@@ -56,4 +57,24 @@ if [[ -n "$result" && "$result" != ".." ]]; then
     kk_test_pass "getFullPath with parent directory"
 else
     kk_test_fail "getFullPath with parent directory (got: '$result')"
+fi
+
+# Test 6: Very long path
+kk_test_start "getFullPath with very long path"
+long_path="folder/$(printf 'a%.0s' {1..100})/file.txt"
+result=$(tpath.getFullPath "$long_path")
+if [[ -n "$result" ]]; then
+    kk_test_pass "getFullPath with very long path"
+else
+    kk_test_fail "getFullPath with very long path (got empty)"
+fi
+
+# Test 7: Path with special characters
+kk_test_start "getFullPath with special characters"
+special_path="folder/file with spaces & symbols!.txt"
+result=$(tpath.getFullPath "$special_path")
+if [[ -n "$result" ]]; then
+    kk_test_pass "getFullPath with special characters"
+else
+    kk_test_fail "getFullPath with special characters (got empty)"
 fi
