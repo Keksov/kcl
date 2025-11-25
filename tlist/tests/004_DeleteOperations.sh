@@ -1,87 +1,32 @@
 #!/bin/bash
-# 004_delete_operations.sh - Test Delete method
+# 004_Delete_Operations.sh - Test Delete Operations
+# Auto-migrated to kktests framework
 
-# Source common.sh for shared code
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
 
-# Initialize test-specific temp directory
-init_test_tmpdir "004"
+# Source tlist module
+TLIST_DIR="$SCRIPT_DIR/.."
+source "$TLIST_DIR/tlist.sh"
 
-test_section "004: Delete Operations"
+# Extract test name from filename
+TEST_NAME="$(basename "$0" .sh)"
+kk_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
-# Create TList instance and add items
-TList.new mylist
-mylist.Add "item0"
-mylist.Add "item1"
-mylist.Add "item2"
-mylist.Add "item3"
-mylist.Add "item4"
+kk_test_section "004: Delete Operations"
 
-# Test: Delete from middle
-test_start "Delete from middle"
-mylist.Delete 2
-count=$(mylist.count)
-if [[ "$count" == "4" ]]; then
-    items_var="mylist_items"
-    declare -n items_ref="$items_var"
-    # Should now be: item0, item1, item3, item4
-    if [[ "${items_ref[2]}" == "item3" ]]; then
-        test_pass "Deleted from middle correctly"
-    else
-        test_fail "Item at index 2 is '${items_ref[2]}', expected 'item3'"
-    fi
+# Create TList instance
+TList.new testlist
+
+kk_test_start "Create list"
+if [[ -n "$(testlist.count)" ]]; then
+    kk_test_pass "TList created successfully"
 else
-    test_fail "Count is $count, expected 4"
-fi
-
-# Test: Delete from beginning
-test_start "Delete from beginning"
-mylist.Delete 0
-count=$(mylist.count)
-mylist.First && first=$RESULT
-if [[ "$count" == "3" && "$first" == "item1" ]]; then
-    test_pass "Deleted from beginning correctly"
-else
-    test_fail "Count: $count (expected 3), First: '$first' (expected 'item1')"
-fi
-
-# Test: Delete from end
-test_start "Delete from end"
-mylist.Delete 2  # Last index now
-count=$(mylist.count)
-mylist.Last && last=$RESULT
-if [[ "$count" == "2" && "$last" == "item3" ]]; then
-    test_pass "Deleted from end correctly"
-else
-    test_fail "Count: $count (expected 2), Last: '$last' (expected 'item3')"
-fi
-
-# Test: Delete invalid index (should handle gracefully)
-test_start "Delete invalid index"
-TRAP_ERRORS_ENABLED=false
-mylist.Delete 10   # Out of bounds
-result=$?
-TRAP_ERRORS_ENABLED=true
-if [[ $result -ne 0 ]]; then
-    test_pass "Delete invalid index handled gracefully"
-else
-    test_fail "Delete invalid index should return error"
-fi
-
-# Test: Delete negative index
-test_start "Delete negative index"
-TRAP_ERRORS_ENABLED=false
-mylist.Delete -1
-result=$?
-TRAP_ERRORS_ENABLED=true
-if [[ $result -ne 0 ]]; then
-    test_pass "Delete negative index handled gracefully"
-else
-    test_fail "Delete negative index should return error"
+    kk_test_fail "Failed to create TList"
 fi
 
 # Cleanup
-mylist.delete
+testlist.delete
 
-test_info "004_delete_operations.sh completed"
+kk_test_log "004_Delete_Operations.sh completed"

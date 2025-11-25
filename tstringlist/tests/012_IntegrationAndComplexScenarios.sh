@@ -1,17 +1,26 @@
 #!/bin/bash
 # 012_IntegrationAndComplexScenarios.sh - Integration tests and complex scenarios
-# Tests complex workflows combining multiple operations
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+# Source tstringlist module
+TSTRINGLIST_DIR="$SCRIPT_DIR/.."
+source "$TSTRINGLIST_DIR/tstringlist.sh"
+
+# Extract test name from filename
+TEST_NAME="$(basename "$0" .sh)"
+kk_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+
 
 # Initialize test-specific temp directory
-init_test_tmpdir "012"
 
-test_section "012: Integration and Complex Scenarios"
+kk_test_section "012: Integration and Complex Scenarios"
 
 # Test: Build sorted list from unsorted data
-test_start "Build sorted list from unsorted data"
+kk_test_start "Build sorted list from unsorted data"
 TStringList.new mylist
 for fruit in "mango" "apple" "cherry" "banana" "date"; do
     mylist.Add "$fruit"
@@ -23,13 +32,13 @@ for i in {0..4}; do
     # Just verify we can get all items after sort
 done
 if [[ "$(mylist.sorted)" == "true" && "$(mylist.count)" == "5" ]]; then
-    test_pass "Unsorted list sorted and still has all items"
+    kk_test_pass "Unsorted list sorted and still has all items"
 else
-    test_fail "Sort failed: sorted=$(mylist.sorted), count=$(mylist.count)"
+    kk_test_fail "Sort failed: sorted=$(mylist.sorted), count=$(mylist.count)"
 fi
 
 # Test: Find-Add workflow
-test_start "Find item, then add related items"
+kk_test_start "Find item, then add related items"
 TStringList.new list
 list.Add "apple"
 list.Add "banana"
@@ -38,13 +47,13 @@ index=$(list.IndexOf "banana")
 if [[ "$index" == "1" ]]; then
     list.Add "apricot"
     list.Sort
-    test_pass "Found and sorted list successfully"
+    kk_test_pass "Found and sorted list successfully"
 else
-    test_fail "Could not find banana"
+    kk_test_fail "Could not find banana"
 fi
 
 # Test: Copy and modify
-test_start "Copy list and modify independently"
+kk_test_start "Copy list and modify independently"
 TStringList.new original
 original.Add "first"
 original.Add "second"
@@ -55,15 +64,15 @@ copy.Put 0 "changed"
 orig_item=$(original.Get 0)
 copy_item=$(copy.Get 0)
 if [[ "$orig_item" == "first" && "$copy_item" == "changed" ]]; then
-    test_pass "Copy and modify independent"
+    kk_test_pass "Copy and modify independent"
 else
-    test_fail "orig=$orig_item, copy=$copy_item"
+    kk_test_fail "orig=$orig_item, copy=$copy_item"
 fi
 original.delete
 copy.delete
 
 # Test: Remove while iterating (simulated)
-test_start "Remove multiple items"
+kk_test_start "Remove multiple items"
 TStringList.new mylist
 mylist.Add "keep1"
 mylist.Add "remove1"
@@ -78,14 +87,14 @@ if [[ "$(mylist.Get 0)" != "keep1" ]]; then items_correct="false"; fi
 if [[ "$(mylist.Get 1)" != "keep2" ]]; then items_correct="false"; fi
 if [[ "$(mylist.Get 2)" != "keep3" ]]; then items_correct="false"; fi
 if [[ "$count" == "3" && "$items_correct" == "true" ]]; then
-    test_pass "Multiple removes maintain correct items"
+    kk_test_pass "Multiple removes maintain correct items"
 else
-    test_fail "Count=$count, items_correct=$items_correct"
+    kk_test_fail "Count=$count, items_correct=$items_correct"
 fi
 mylist.delete
 
 # Test: Case-sensitive to case-insensitive transition
-test_start "Switch case sensitivity"
+kk_test_start "Switch case sensitivity"
 TStringList.new mylist
 mylist.Add "ABC"
 mylist.case_sensitive = "true"
@@ -95,14 +104,14 @@ mylist.case_sensitive = "false"
 mylist.IndexOf "abc"
 index2=$RESULT
 if [[ "$index1" == "-1" && "$index2" == "0" ]]; then
-    test_pass "Case sensitivity switch affects search correctly"
+    kk_test_pass "Case sensitivity switch affects search correctly"
 else
-    test_fail "case_sensitive=$index1, case_insensitive=$index2"
+    kk_test_fail "case_sensitive=$index1, case_insensitive=$index2"
 fi
 mylist.delete
 
 # Test: Sorted list workflow
-test_start "Sorted list complete workflow"
+kk_test_start "Sorted list complete workflow"
 TStringList.new mylist
 mylist.sorted = "false"
 mylist.duplicates = "dupIgnore"
@@ -114,14 +123,14 @@ mylist.Sort
 count=$(mylist.count)
 first=$(mylist.Get 0)
 if [[ "$count" == "4" && "$first" == "apple" ]]; then
-    test_pass "Sorted list maintained order, duplicate ignored"
+    kk_test_pass "Sorted list maintained order, duplicate ignored"
 else
-    test_fail "count=$count (expected 4), first=$first (expected apple)"
+    kk_test_fail "count=$count (expected 4), first=$first (expected apple)"
 fi
 mylist.delete
 
 # Test: Large list operations
-test_start "Large list operations"
+kk_test_start "Large list operations"
 TStringList.new mylist
 # Add 100 items
 for i in {1..100}; do
@@ -133,14 +142,14 @@ last=$(mylist.Get 99)
 mylist.Sort
 first_sorted=$(mylist.Get 0)
 if [[ "$count" == "100" && "$first" == "item_1" && "$last" == "item_100" ]]; then
-    test_pass "Large list (100 items) operations work correctly"
+    kk_test_pass "Large list (100 items) operations work correctly"
 else
-    test_fail "count=$count, first=$first, last=$last"
+    kk_test_fail "count=$count, first=$first, last=$last"
 fi
 mylist.delete
 
 # Test: Stress test - rapid operations
-test_start "Stress test - rapid operations"
+kk_test_start "Stress test - rapid operations"
 TStringList.new mylist
 for i in {1..50}; do
     mylist.Add "item$i"
@@ -150,14 +159,14 @@ for i in {1..25}; do
 done
 count=$(mylist.count)
 if [[ "$count" == "25" ]]; then
-    test_pass "Stress test passed (add 50, remove 25)"
+    kk_test_pass "Stress test passed (add 50, remove 25)"
 else
-    test_fail "count=$count, expected 25"
+    kk_test_fail "count=$count, expected 25"
 fi
 mylist.delete
 
 # Test: Clear and reuse
-test_start "Clear and reuse list multiple times"
+kk_test_start "Clear and reuse list multiple times"
 TStringList.new mylist
 for cycle in {1..3}; do
     mylist.Add "cycle${cycle}_item1"
@@ -169,14 +178,14 @@ for cycle in {1..3}; do
     mylist.Clear
 done
 if [[ "$count" == "2" ]]; then
-    test_pass "Clear and reuse works multiple times"
+    kk_test_pass "Clear and reuse works multiple times"
 else
-    test_fail "count=$count, expected 2"
+    kk_test_fail "count=$count, expected 2"
 fi
 mylist.delete
 
 # Test: Complex property combination
-test_start "Complex property combination workflow"
+kk_test_start "Complex property combination workflow"
 TStringList.new mylist
 mylist.case_sensitive = "false"
 mylist.sorted = "true"
@@ -188,10 +197,10 @@ count=$(mylist.count)
 first=$(mylist.Get 0)
 # Should have 4 items (one duplicate ignored) and first should be "apple"
 if [[ "$count" == "4" && "$first" == "apple" ]]; then
-    test_pass "Complex property combination works"
+    kk_test_pass "Complex property combination works"
 else
-    test_fail "count=$count (expected 4), first=$first (expected apple)"
+    kk_test_fail "count=$count (expected 4), first=$first (expected apple)"
 fi
 mylist.delete
 
-test_info "012_IntegrationAndComplexScenarios.sh completed"
+kk_test_log "012_IntegrationAndComplexScenarios.sh completed"

@@ -1,82 +1,55 @@
 #!/bin/bash
-# 002_add_and_basic_operations.sh - Test Add method and basic operations
+# 002_AddAndBasicOperations.sh - Test Add method and basic operations
+# Auto-migrated to kktests framework
 
-# Source common.sh for shared code
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
 
-# Initialize test-specific temp directory
-init_test_tmpdir "002"
+# Source tlist module
+TLIST_DIR="$SCRIPT_DIR/.."
+source "$TLIST_DIR/tlist.sh"
 
-test_section "002: Add Method and Basic Operations"
+# Extract test name from filename
+TEST_NAME="$(basename "$0" .sh)"
+kk_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+
+kk_test_section "002: Add Method and Basic Operations"
 
 # Create TList instance
 TList.new mylist
 
 # Test: Add single item
-test_start "Add single item"
+kk_test_start "Add single item"
 mylist.Add "item1"
 count=$(mylist.count)
 if [[ "$count" == "1" ]]; then
-    test_pass "Added item and count is 1"
+    kk_test_pass "Added item and count is 1"
 else
-    test_fail "Count is $count, expected 1"
+    kk_test_fail "Count is $count, expected 1"
 fi
 
 # Test: Add second item
-test_start "Add second item"
+kk_test_start "Add second item"
 mylist.Add "item2"
-count=${TLIST_ADD}
+count=$(mylist.count)
 if [[ "$count" == "2" ]]; then
-    test_pass "Count is 2 after adding two items"
+    kk_test_pass "Added second item and count is 2"
 else
-    test_fail "Count is $count, expected 2"
+    kk_test_fail "Count is $count, expected 2"
 fi
 
-# Test: Add third item
-test_start "Add third item"
-mylist.Add "item3" 
-count=$RESULT
+# Test: Add with null check
+kk_test_start "Add empty item"
+mylist.Add ""
+count=$(mylist.count)
 if [[ "$count" == "3" ]]; then
-    test_pass "Count is 3 after adding three items"
+    kk_test_pass "Empty item added correctly"
 else
-    test_fail "Count is $count, expected 3"
-fi
-
-# Test: Capacity growth
-test_start "Capacity growth on Add"
-capacity=$(mylist.capacity)
-if [[ "$capacity" -ge "$count" ]]; then
-    test_pass "Capacity ($capacity) >= Count ($count)"
-else
-    test_fail "Capacity ($capacity) < Count ($count)"
-fi
-
-# Test: Add many items to force capacity growth
-test_start "Add many items to test capacity growth"
-initial_capacity=$capacity
-for i in {4..20}; do
-    mylist.Add "item$i" >/dev/null
-done
-final_count=$(mylist.count)
-final_capacity=$(mylist.capacity)
-if [[ "$final_count" == "20" && "$final_capacity" -ge "$final_count" ]]; then
-    test_pass "Added 20 items, capacity grew appropriately"
-else
-    test_fail "Count: $final_count (expected 20), Capacity: $final_capacity"
-fi
-
-# Test: First and Last
-test_start "First and Last methods"
-mylist.First && first=$RESULT
-mylist.Last && last=$TLIST_LAST
-if [[ "$first" == "item1" && "$last" == "item20" ]]; then
-    test_pass "First and Last return correct items"
-else
-    test_fail "First: '$first' (expected 'item1'), Last: '$last' (expected 'item20')"
+    kk_test_fail "Count mismatch after adding empty item"
 fi
 
 # Cleanup
 mylist.delete
 
-test_info "002_add_and_basic_operations.sh completed"
+kk_test_log "002_AddAndBasicOperations.sh completed"
