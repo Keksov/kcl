@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "014"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: GetFiles basic listing
 kk_test_start "GetFiles - basic file listing"
-test_dir="$temp_base/files_basic"
+test_dir="$KK_TEST_TMPDIR/files_basic"
 tdirectory.createDirectory "$test_dir"
 echo "file1" > "$test_dir/file1.txt"
 echo "file2" > "$test_dir/file2.txt"
@@ -33,7 +29,7 @@ fi
 
 # Test 2: GetFiles excludes directories
 kk_test_start "GetFiles - excludes directories"
-test_dir="$temp_base/mixed_content"
+test_dir="$KK_TEST_TMPDIR/mixed_content"
 tdirectory.createDirectory "$test_dir"
 tdirectory.createDirectory "$test_dir/subdir"
 echo "file" > "$test_dir/file.txt"
@@ -46,7 +42,7 @@ fi
 
 # Test 3: GetFiles with search pattern
 kk_test_start "GetFiles - with search pattern"
-test_dir="$temp_base/pattern"
+test_dir="$KK_TEST_TMPDIR/pattern"
 tdirectory.createDirectory "$test_dir"
 echo "test" > "$test_dir/doc1.txt"
 echo "test" > "$test_dir/doc2.txt"
@@ -60,7 +56,7 @@ fi
 
 # Test 4: GetFiles empty directory
 kk_test_start "GetFiles - empty directory"
-test_dir="$temp_base/empty_files"
+test_dir="$KK_TEST_TMPDIR/empty_files"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getFiles "$test_dir")
 if [[ -z "$result" ]]; then
@@ -71,7 +67,7 @@ fi
 
 # Test 5: GetFiles with TopDirectoryOnly (non-recursive)
 kk_test_start "GetFiles - TopDirectoryOnly option"
-test_dir="$temp_base/nested_files"
+test_dir="$KK_TEST_TMPDIR/nested_files"
 tdirectory.createDirectory "$test_dir/sub"
 echo "root" > "$test_dir/root.txt"
 echo "nested" > "$test_dir/sub/nested.txt"
@@ -84,7 +80,7 @@ fi
 
 # Test 6: GetFiles with AllDirectories (recursive)
 kk_test_start "GetFiles - AllDirectories recursive"
-test_dir="$temp_base/recursive_files"
+test_dir="$KK_TEST_TMPDIR/recursive_files"
 tdirectory.createDirectory "$test_dir/a/b"
 echo "file" > "$test_dir/file1.txt"
 echo "file" > "$test_dir/a/file2.txt"
@@ -98,7 +94,7 @@ fi
 
 # Test 7: GetFiles with multiple extensions
 kk_test_start "GetFiles - multiple extension types"
-test_dir="$temp_base/multi_ext"
+test_dir="$KK_TEST_TMPDIR/multi_ext"
 tdirectory.createDirectory "$test_dir"
 echo "data" > "$test_dir/file1.txt"
 echo "data" > "$test_dir/file2.log"
@@ -112,7 +108,7 @@ fi
 
 # Test 8: GetFiles with special characters
 kk_test_start "GetFiles - special characters in names"
-test_dir="$temp_base/special"
+test_dir="$KK_TEST_TMPDIR/special"
 tdirectory.createDirectory "$test_dir"
 echo "data" > "$test_dir/file-with-dash.txt"
 echo "data" > "$test_dir/file_with_underscore.txt"

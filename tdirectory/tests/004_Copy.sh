@@ -13,14 +13,10 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory for tests
-init_test_tmpdir "004"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: Copy simple directory
 kk_test_start "Copy - copy simple directory"
-source_dir="$temp_base/source_simple"
-dest_dir="$temp_base/dest_simple"
+source_dir="$KK_TEST_TMPDIR/source_simple"
+dest_dir="$KK_TEST_TMPDIR/dest_simple"
 tdirectory.createDirectory "$source_dir"
 echo "test content" > "$source_dir/file.txt"
 tdirectory.copy "$source_dir" "$dest_dir"
@@ -32,8 +28,8 @@ fi
 
 # Test 2: Copy directory with subdirectories
 kk_test_start "Copy - copy directory with subdirectories"
-source_dir="$temp_base/source_nested"
-dest_dir="$temp_base/dest_nested"
+source_dir="$KK_TEST_TMPDIR/source_nested"
+dest_dir="$KK_TEST_TMPDIR/dest_nested"
 tdirectory.createDirectory "$source_dir/sub1/sub2"
 echo "content" > "$source_dir/file.txt"
 echo "content" > "$source_dir/sub1/file1.txt"
@@ -47,8 +43,8 @@ fi
 
 # Test 3: Copy directory with multiple files
 kk_test_start "Copy - copy directory with multiple files"
-source_dir="$temp_base/source_multifile"
-dest_dir="$temp_base/dest_multifile"
+source_dir="$KK_TEST_TMPDIR/source_multifile"
+dest_dir="$KK_TEST_TMPDIR/dest_multifile"
 tdirectory.createDirectory "$source_dir"
 for i in {1..5}; do
     echo "file $i" > "$source_dir/file_$i.txt"
@@ -62,8 +58,8 @@ fi
 
 # Test 4: Copied files are independent
 kk_test_start "Copy - copied files are independent"
-source_dir="$temp_base/source_indep"
-dest_dir="$temp_base/dest_indep"
+source_dir="$KK_TEST_TMPDIR/source_indep"
+dest_dir="$KK_TEST_TMPDIR/dest_indep"
 tdirectory.createDirectory "$source_dir"
 echo "original" > "$source_dir/file.txt"
 tdirectory.copy "$source_dir" "$dest_dir"
@@ -78,8 +74,8 @@ fi
 
 # Test 5: Copy directory with special characters in names
 kk_test_start "Copy - copy directory with special characters"
-source_dir="$temp_base/source-special.dir"
-dest_dir="$temp_base/dest-special.dir"
+source_dir="$KK_TEST_TMPDIR/source-special.dir"
+dest_dir="$KK_TEST_TMPDIR/dest-special.dir"
 tdirectory.createDirectory "$source_dir"
 echo "content" > "$source_dir/file-with-dash.txt"
 echo "content" > "$source_dir/file_with_underscore.txt"
@@ -92,8 +88,8 @@ fi
 
 # Test 6: Copy to directory with spaces in path
 kk_test_start "Copy - copy to directory with spaces in path"
-source_dir="$temp_base/source_spaces"
-dest_dir="$temp_base/dest with spaces"
+source_dir="$KK_TEST_TMPDIR/source_spaces"
+dest_dir="$KK_TEST_TMPDIR/dest with spaces"
 tdirectory.createDirectory "$source_dir"
 echo "content" > "$source_dir/test.txt"
 tdirectory.copy "$source_dir" "$dest_dir"
@@ -105,8 +101,8 @@ fi
 
 # Test 7: Copy preserves directory structure
 kk_test_start "Copy - preserves directory structure"
-source_dir="$temp_base/source_struct"
-dest_dir="$temp_base/dest_struct"
+source_dir="$KK_TEST_TMPDIR/source_struct"
+dest_dir="$KK_TEST_TMPDIR/dest_struct"
 tdirectory.createDirectory "$source_dir/a/b/c"
 tdirectory.createDirectory "$source_dir/x/y/z"
 echo "file" > "$source_dir/a/b/c/deep.txt"
@@ -120,8 +116,8 @@ fi
 
 # Test 8: Copy empty directory
 kk_test_start "Copy - copy empty directory"
-source_dir="$temp_base/source_empty"
-dest_dir="$temp_base/dest_empty"
+source_dir="$KK_TEST_TMPDIR/source_empty"
+dest_dir="$KK_TEST_TMPDIR/dest_empty"
 tdirectory.createDirectory "$source_dir"
 tdirectory.copy "$source_dir" "$dest_dir"
 if [[ -d "$dest_dir" ]]; then

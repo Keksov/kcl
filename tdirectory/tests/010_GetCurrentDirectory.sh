@@ -65,8 +65,7 @@ fi
 
 # Test 6: GetCurrentDirectory with SetCurrentDirectory
 kk_test_start "GetCurrentDirectory - reflects SetCurrentDirectory"
-init_test_tmpdir "010"
-temp_dir="$TEST_TMP_DIR"
+temp_dir="$KK_TEST_TMPDIR"
 tdirectory.setCurrentDirectory "$temp_dir"
 result=$(tdirectory.getCurrentDirectory)
 if [[ "$result" == "$temp_dir" ]]; then

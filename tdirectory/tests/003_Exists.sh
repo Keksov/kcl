@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory for tests
-init_test_tmpdir "003"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: Existing directory
 kk_test_start "Exists - existing directory returns true"
-test_dir="$temp_base/existing"
+test_dir="$KK_TEST_TMPDIR/existing"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.exists "$test_dir")
 if [[ "$result" == "true" ]]; then
@@ -30,7 +26,7 @@ fi
 
 # Test 2: Non-existent directory
 kk_test_start "Exists - non-existent directory returns false"
-test_dir="$temp_base/nonexistent"
+test_dir="$KK_TEST_TMPDIR/nonexistent"
 result=$(tdirectory.exists "$test_dir")
 if [[ "$result" == "false" ]]; then
     kk_test_pass "Exists - non-existent directory returns false"
@@ -40,7 +36,7 @@ fi
 
 # Test 3: File instead of directory
 kk_test_start "Exists - file instead of directory returns false"
-test_file="$temp_base/test_file.txt"
+test_file="$KK_TEST_TMPDIR/test_file.txt"
 echo "content" > "$test_file"
 result=$(tdirectory.exists "$test_file")
 if [[ "$result" == "false" ]]; then
@@ -69,7 +65,7 @@ fi
 
 # Test 6: Directory with spaces
 kk_test_start "Exists - directory with spaces"
-test_dir="$temp_base/dir with spaces"
+test_dir="$KK_TEST_TMPDIR/dir with spaces"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.exists "$test_dir")
 if [[ "$result" == "true" ]]; then
@@ -80,7 +76,7 @@ fi
 
 # Test 7: FollowLink parameter with true (default)
 kk_test_start "Exists - FollowLink true with existing directory"
-test_dir="$temp_base/followlink_true"
+test_dir="$KK_TEST_TMPDIR/followlink_true"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.exists "$test_dir" "true")
 if [[ "$result" == "true" ]]; then
@@ -91,7 +87,7 @@ fi
 
 # Test 8: FollowLink parameter with false
 kk_test_start "Exists - FollowLink false with existing directory"
-test_dir="$temp_base/followlink_false"
+test_dir="$KK_TEST_TMPDIR/followlink_false"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.exists "$test_dir" "false")
 if [[ "$result" == "true" ]]; then
@@ -102,7 +98,7 @@ fi
 
 # Test 9: Nested existing directory
 kk_test_start "Exists - nested existing directory"
-test_dir="$temp_base/nested/path/to/directory"
+test_dir="$KK_TEST_TMPDIR/nested/path/to/directory"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.exists "$test_dir")
 if [[ "$result" == "true" ]]; then
@@ -113,7 +109,7 @@ fi
 
 # Test 10: Directory after deletion
 kk_test_start "Exists - deleted directory returns false"
-test_dir="$temp_base/to_delete"
+test_dir="$KK_TEST_TMPDIR/to_delete"
 tdirectory.createDirectory "$test_dir"
 tdirectory.delete "$test_dir"
 result=$(tdirectory.exists "$test_dir")

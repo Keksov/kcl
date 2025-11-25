@@ -1,47 +1,57 @@
 #!/bin/bash
 # 022_open.sh - Test TFile.Open method
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+# Source tfile module
+TFILE_DIR="$SCRIPT_DIR/.."
+source "$TFILE_DIR/tfile.sh"
+
+# Extract test name from filename
+TEST_NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
+kk_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+
 
 # Initialize test-specific temporary directory
-init_test_tmpdir "022"
 
 # Test 1: Open existing file for read
-test_start "Open existing file for read"
-echo "content" > "$TEST_TMP_DIR/open_read.tmp"
-stream=$(tfile.open "$TEST_TMP_DIR/open_read.tmp" "fmOpenRead")
+kk_test_start "Open existing file for read"
+echo "content" > "$KK_TEST_TMPDIR/open_read.tmp"
+stream=$(tfile.open "$KK_TEST_TMPDIR/open_read.tmp" "fmOpenRead")
 if [[ -n "$stream" ]]; then
-    test_pass "Open existing file for read"
+    kk_test_pass "Open existing file for read"
 else
-test_fail "Open existing file for read"
+kk_test_fail "Open existing file for read"
 fi
 
 # Test 2: Open for write (creates if not exists)
-test_start "Open for write"
-stream=$(tfile.open "$TEST_TMP_DIR/open_write.tmp" "fmOpenWrite")
-if [[ -f "$TEST_TMP_DIR/open_write.tmp" ]]; then
-    test_pass "Open for write"
+kk_test_start "Open for write"
+stream=$(tfile.open "$KK_TEST_TMPDIR/open_write.tmp" "fmOpenWrite")
+if [[ -f "$KK_TEST_TMPDIR/open_write.tmp" ]]; then
+    kk_test_pass "Open for write"
 else
-    test_fail "Open for write"
+    kk_test_fail "Open for write"
 fi
 
 # Test 3: Open with access and share
-test_start "Open with access and share"
-echo "content" > "$TEST_TMP_DIR/open_access.tmp"
-stream=$(tfile.open "$TEST_TMP_DIR/open_access.tmp" "fmOpenReadWrite" "faReadWrite" "fsReadWrite")
+kk_test_start "Open with access and share"
+echo "content" > "$KK_TEST_TMPDIR/open_access.tmp"
+stream=$(tfile.open "$KK_TEST_TMPDIR/open_access.tmp" "fmOpenReadWrite" "faReadWrite" "fsReadWrite")
 if [[ -n "$stream" ]]; then
-    test_pass "Open with access and share"
+    kk_test_pass "Open with access and share"
 else
-    test_fail "Open with access and share"
+    kk_test_fail "Open with access and share"
 fi
 
 # Test 4: Open non-existing file for read
-test_start "Open non-existing file for read"
-rm -f "$TEST_TMP_DIR/nonexistent.tmp"
-stream=$(tfile.open "$TEST_TMP_DIR/nonexistent.tmp" "fmOpenRead" 2>/dev/null)
+kk_test_start "Open non-existing file for read"
+rm -f "$KK_TEST_TMPDIR/nonexistent.tmp"
+stream=$(tfile.open "$KK_TEST_TMPDIR/nonexistent.tmp" "fmOpenRead" 2>/dev/null)
 if [[ -z "$stream" ]]; then
-    test_pass "Open non-existing file for read (correctly failed)"
+    kk_test_pass "Open non-existing file for read (correctly failed)"
 else
-    test_fail "Open non-existing file for read (should have failed)"
+    kk_test_fail "Open non-existing file for read (should have failed)"
 fi

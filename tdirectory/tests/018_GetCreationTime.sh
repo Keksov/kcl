@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "018"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: GetCreationTime returns datetime
 kk_test_start "GetCreationTime - returns datetime value"
-test_dir="$temp_base/time_001"
+test_dir="$KK_TEST_TMPDIR/time_001"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getCreationTime "$test_dir")
 if [[ -n "$result" ]]; then
@@ -30,7 +26,7 @@ fi
 
 # Test 2: GetCreationTime on newly created directory
 kk_test_start "GetCreationTime - newly created directory"
-test_dir="$temp_base/new_created"
+test_dir="$KK_TEST_TMPDIR/new_created"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getCreationTime "$test_dir")
 # Result should be a valid datetime (non-empty)
@@ -42,7 +38,7 @@ fi
 
 # Test 3: GetCreationTime consistency
 kk_test_start "GetCreationTime - consistent results"
-test_dir="$temp_base/consistent_time"
+test_dir="$KK_TEST_TMPDIR/consistent_time"
 tdirectory.createDirectory "$test_dir"
 result1=$(tdirectory.getCreationTime "$test_dir")
 # Note: do not sleep between calls - access time may be updated by filesystem
@@ -56,7 +52,7 @@ fi
 
 # Test 4: GetCreationTime is recent
 kk_test_start "GetCreationTime - recent for new directory"
-test_dir="$temp_base/recent_time"
+test_dir="$KK_TEST_TMPDIR/recent_time"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getCreationTime "$test_dir")
 # Time should be non-empty and reasonable
@@ -68,7 +64,7 @@ fi
 
 # Test 5: GetCreationTime on nested directory
 kk_test_start "GetCreationTime - nested directory"
-test_dir="$temp_base/nested/path/time"
+test_dir="$KK_TEST_TMPDIR/nested/path/time"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getCreationTime "$test_dir")
 if [[ -n "$result" ]]; then
@@ -79,7 +75,7 @@ fi
 
 # Test 6: GetCreationTime on directory with spaces
 kk_test_start "GetCreationTime - directory with spaces"
-test_dir="$temp_base/dir with spaces"
+test_dir="$KK_TEST_TMPDIR/dir with spaces"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getCreationTime "$test_dir")
 if [[ -n "$result" ]]; then

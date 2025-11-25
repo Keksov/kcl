@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory for tests
-init_test_tmpdir "006"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: Empty directory
 kk_test_start "IsEmpty - empty directory returns true"
-test_dir="$temp_base/empty"
+test_dir="$KK_TEST_TMPDIR/empty"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.isEmpty "$test_dir")
 if [[ "$result" == "true" ]]; then
@@ -30,7 +26,7 @@ fi
 
 # Test 2: Directory with files
 kk_test_start "IsEmpty - directory with files returns false"
-test_dir="$temp_base/with_files"
+test_dir="$KK_TEST_TMPDIR/with_files"
 tdirectory.createDirectory "$test_dir"
 echo "content" > "$test_dir/file.txt"
 result=$(tdirectory.isEmpty "$test_dir")
@@ -42,7 +38,7 @@ fi
 
 # Test 3: Directory with subdirectories
 kk_test_start "IsEmpty - directory with subdirectories returns false"
-test_dir="$temp_base/with_subdirs"
+test_dir="$KK_TEST_TMPDIR/with_subdirs"
 tdirectory.createDirectory "$test_dir/subdir"
 result=$(tdirectory.isEmpty "$test_dir")
 if [[ "$result" == "false" ]]; then
@@ -62,7 +58,7 @@ fi
 
 # Test 5: Directory with many files
 kk_test_start "IsEmpty - directory with many files"
-test_dir="$temp_base/many_files"
+test_dir="$KK_TEST_TMPDIR/many_files"
 tdirectory.createDirectory "$test_dir"
 for i in {1..10}; do
     echo "file" > "$test_dir/file_$i.txt"
@@ -76,7 +72,7 @@ fi
 
 # Test 6: Directory emptied becomes empty
 kk_test_start "IsEmpty - directory becomes empty after file deletion"
-test_dir="$temp_base/to_empty"
+test_dir="$KK_TEST_TMPDIR/to_empty"
 tdirectory.createDirectory "$test_dir"
 echo "content" > "$test_dir/file.txt"
 rm "$test_dir/file.txt"
@@ -89,7 +85,7 @@ fi
 
 # Test 7: Newly created directory is empty
 kk_test_start "IsEmpty - newly created directory is empty"
-test_dir="$temp_base/newly_created"
+test_dir="$KK_TEST_TMPDIR/newly_created"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.isEmpty "$test_dir")
 if [[ "$result" == "true" ]]; then
@@ -100,7 +96,7 @@ fi
 
 # Test 8: Directory with nested empty subdirectories
 kk_test_start "IsEmpty - directory with nested empty subdirectories returns false"
-test_dir="$temp_base/nested_empty_subdirs"
+test_dir="$KK_TEST_TMPDIR/nested_empty_subdirs"
 tdirectory.createDirectory "$test_dir/sub1/sub2/sub3"
 result=$(tdirectory.isEmpty "$test_dir")
 if [[ "$result" == "false" ]]; then

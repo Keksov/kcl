@@ -12,14 +12,9 @@ kk_test_init "CreateDirectory" "$SCRIPT_DIR" "$@"
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
-
-# Setup temp directory for tests
-init_test_tmpdir "001"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: Create single directory
 kk_test_start "CreateDirectory - create single directory"
-test_dir="$temp_base/test_dir_001"
+test_dir="$KK_TEST_TMPDIR/test_dir_001"
 tdirectory.createDirectory "$test_dir"
 if [[ -d "$test_dir" ]]; then
     kk_test_pass "CreateDirectory - create single directory"
@@ -29,7 +24,7 @@ fi
 
 # Test 2: Create nested directories
 kk_test_start "CreateDirectory - create nested directories"
-test_dir="$temp_base/nested/path/to/dir"
+test_dir="$KK_TEST_TMPDIR/nested/path/to/dir"
 tdirectory.createDirectory "$test_dir"
 if [[ -d "$test_dir" ]]; then
     kk_test_pass "CreateDirectory - create nested directories"
@@ -39,7 +34,7 @@ fi
 
 # Test 3: Create directory with spaces
 kk_test_start "CreateDirectory - create directory with spaces"
-test_dir="$temp_base/directory with spaces"
+test_dir="$KK_TEST_TMPDIR/directory with spaces"
 tdirectory.createDirectory "$test_dir"
 if [[ -d "$test_dir" ]]; then
     kk_test_pass "CreateDirectory - create directory with spaces"
@@ -49,7 +44,7 @@ fi
 
 # Test 4: Create directory that already exists (should not fail)
 kk_test_start "CreateDirectory - directory already exists"
-test_dir="$temp_base/existing_dir"
+test_dir="$KK_TEST_TMPDIR/existing_dir"
 tdirectory.createDirectory "$test_dir"
 tdirectory.createDirectory "$test_dir"  # Create again
 if [[ -d "$test_dir" ]]; then
@@ -60,7 +55,7 @@ fi
 
 # Test 5: Create directory with special characters
 kk_test_start "CreateDirectory - directory with special characters"
-test_dir="$temp_base/dir-with_special.chars"
+test_dir="$KK_TEST_TMPDIR/dir-with_special.chars"
 tdirectory.createDirectory "$test_dir"
 if [[ -d "$test_dir" ]]; then
     kk_test_pass "CreateDirectory - directory with special characters"
@@ -71,10 +66,10 @@ fi
 # Test 6: Create multiple directories in sequence
 kk_test_start "CreateDirectory - create multiple directories"
 for i in {1..3}; do
-    test_dir="$temp_base/multi_$i"
+    test_dir="$KK_TEST_TMPDIR/multi_$i"
     tdirectory.createDirectory "$test_dir"
 done
-if [[ -d "$temp_base/multi_1" && -d "$temp_base/multi_2" && -d "$temp_base/multi_3" ]]; then
+if [[ -d "$KK_TEST_TMPDIR/multi_1" && -d "$KK_TEST_TMPDIR/multi_2" && -d "$KK_TEST_TMPDIR/multi_3" ]]; then
     kk_test_pass "CreateDirectory - create multiple directories"
 else
     kk_test_fail "CreateDirectory - create multiple directories (expected all three directories to exist)"
@@ -82,7 +77,7 @@ fi
 
 # Test 7: Create long path
 kk_test_start "CreateDirectory - create long path"
-test_dir="$temp_base/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z"
+test_dir="$KK_TEST_TMPDIR/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z"
 tdirectory.createDirectory "$test_dir"
 if [[ -d "$test_dir" ]]; then
     kk_test_pass "CreateDirectory - create long path"

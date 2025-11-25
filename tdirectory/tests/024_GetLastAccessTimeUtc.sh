@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "024"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: GetLastAccessTimeUtc returns datetime
 kk_test_start "GetLastAccessTimeUtc - returns datetime value"
-test_dir="$temp_base/utc_access_001"
+test_dir="$KK_TEST_TMPDIR/utc_access_001"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTimeUtc "$test_dir")
 if [[ -n "$result" ]]; then
@@ -30,7 +26,7 @@ fi
 
 # Test 2: GetLastAccessTimeUtc on newly created directory
 kk_test_start "GetLastAccessTimeUtc - newly created directory"
-test_dir="$temp_base/utc_access_new"
+test_dir="$KK_TEST_TMPDIR/utc_access_new"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTimeUtc "$test_dir")
 if [[ -n "$result" ]]; then
@@ -41,7 +37,7 @@ fi
 
 # Test 3: GetLastAccessTimeUtc consistency
 kk_test_start "GetLastAccessTimeUtc - consistent results"
-test_dir="$temp_base/utc_access_consistent"
+test_dir="$KK_TEST_TMPDIR/utc_access_consistent"
 tdirectory.createDirectory "$test_dir"
 result1=$(tdirectory.getLastAccessTimeUtc "$test_dir")
 # Note: do not sleep between calls - access time may be updated by filesystem
@@ -55,7 +51,7 @@ fi
 
 # Test 4: GetLastAccessTimeUtc on nested directory
 kk_test_start "GetLastAccessTimeUtc - nested directory"
-test_dir="$temp_base/utc/access/nested/path"
+test_dir="$KK_TEST_TMPDIR/utc/access/nested/path"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTimeUtc "$test_dir")
 if [[ -n "$result" ]]; then

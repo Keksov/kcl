@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "017"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: SetAttributes on existing directory
 kk_test_start "SetAttributes - set attributes on directory"
-test_dir="$temp_base/set_attrs_001"
+test_dir="$KK_TEST_TMPDIR/set_attrs_001"
 tdirectory.createDirectory "$test_dir"
 # Try to set archive attribute (common attribute)
 tdirectory.setAttributes "$test_dir" "faArchive"
@@ -33,7 +29,7 @@ fi
 
 # Test 2: SetAttributes consistency
 kk_test_start "SetAttributes - attributes set consistently"
-test_dir="$temp_base/consistent_attrs"
+test_dir="$KK_TEST_TMPDIR/consistent_attrs"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setAttributes "$test_dir" "faArchive"
 result1=$(tdirectory.getAttributes "$test_dir")
@@ -46,7 +42,7 @@ fi
 
 # Test 3: SetAttributes persists after operations
 kk_test_start "SetAttributes - attributes persist"
-test_dir="$temp_base/persist_attrs"
+test_dir="$KK_TEST_TMPDIR/persist_attrs"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setAttributes "$test_dir" "faArchive"
 # Perform some operations
@@ -60,7 +56,7 @@ fi
 
 # Test 4: SetAttributes multiple attributes
 kk_test_start "SetAttributes - multiple attributes"
-test_dir="$temp_base/multi_attrs"
+test_dir="$KK_TEST_TMPDIR/multi_attrs"
 tdirectory.createDirectory "$test_dir"
 # Set both archive and system attributes
 tdirectory.setAttributes "$test_dir" "faArchive|faSystem"
@@ -73,7 +69,7 @@ fi
 
 # Test 5: SetAttributes on hidden directory
 kk_test_start "SetAttributes - hidden directory attributes"
-test_dir="$temp_base/.hidden_attrs"
+test_dir="$KK_TEST_TMPDIR/.hidden_attrs"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setAttributes "$test_dir" "faHidden"
 result=$(tdirectory.getAttributes "$test_dir")
@@ -85,7 +81,7 @@ fi
 
 # Test 6: SetAttributes read-only
 kk_test_start "SetAttributes - readonly attribute"
-test_dir="$temp_base/readonly_attrs"
+test_dir="$KK_TEST_TMPDIR/readonly_attrs"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setAttributes "$test_dir" "faReadOnly"
 result=$(tdirectory.getAttributes "$test_dir")
@@ -97,7 +93,7 @@ fi
 
 # Test 7: SetAttributes on nested directory
 kk_test_start "SetAttributes - nested directory"
-test_dir="$temp_base/nested/path/to/dir"
+test_dir="$KK_TEST_TMPDIR/nested/path/to/dir"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setAttributes "$test_dir" "faArchive"
 result=$(tdirectory.getAttributes "$test_dir")

@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "028"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: GetLastWriteTimeUtc returns datetime
 kk_test_start "GetLastWriteTimeUtc - returns datetime value"
-test_dir="$temp_base/utc_write_001"
+test_dir="$KK_TEST_TMPDIR/utc_write_001"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastWriteTimeUtc "$test_dir")
 if [[ -n "$result" ]]; then
@@ -30,7 +26,7 @@ fi
 
 # Test 2: GetLastWriteTimeUtc on newly created directory
 kk_test_start "GetLastWriteTimeUtc - newly created directory"
-test_dir="$temp_base/utc_write_new"
+test_dir="$KK_TEST_TMPDIR/utc_write_new"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastWriteTimeUtc "$test_dir")
 if [[ -n "$result" ]]; then
@@ -41,7 +37,7 @@ fi
 
 # Test 3: GetLastWriteTimeUtc consistency
 kk_test_start "GetLastWriteTimeUtc - consistent results"
-test_dir="$temp_base/utc_write_consistent"
+test_dir="$KK_TEST_TMPDIR/utc_write_consistent"
 tdirectory.createDirectory "$test_dir"
 result1=$(tdirectory.getLastWriteTimeUtc "$test_dir")
 # Note: do not sleep between calls - filesystem metadata may be updated
@@ -55,7 +51,7 @@ fi
 
 # Test 4: GetLastWriteTimeUtc on nested directory
 kk_test_start "GetLastWriteTimeUtc - nested directory"
-test_dir="$temp_base/utc/write/nested/path"
+test_dir="$KK_TEST_TMPDIR/utc/write/nested/path"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastWriteTimeUtc "$test_dir")
 if [[ -n "$result" ]]; then

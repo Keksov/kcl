@@ -1,46 +1,57 @@
 #!/bin/bash
 # 027_read_all_lines.sh - Test TFile.ReadAllLines method
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+# Source tfile module
+TFILE_DIR="$SCRIPT_DIR/.."
+source "$TFILE_DIR/tfile.sh"
+
+# Extract test name from filename
+TEST_NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
+kk_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+
 
 # Set up temp directory for this test
-init_test_tmpdir "027"
+KK_TEST_TMPDIR=$(kk_fixture_tmpdir)
 
 
 # Test 1: Read lines from existing file
-test_start "Read lines from existing file"
-echo -e "line1\nline2\nline3" > $TEST_TMP_DIR/readlines.tmp
-lines=$(tfile.readAllLines "$TEST_TMP_DIR/readlines.tmp")
+kk_test_start "Read lines from existing file"
+echo -e "line1\nline2\nline3" > $KK_TEST_TMPDIR/readlines.tmp
+lines=$(tfile.readAllLines "$KK_TEST_TMPDIR/readlines.tmp")
 if [[ $(echo "$lines" | wc -l) -eq 3 ]]; then
-    test_pass "Read lines from existing file"
+    kk_test_pass "Read lines from existing file"
 else
-    test_fail "Read lines from existing file"
+    kk_test_fail "Read lines from existing file"
 fi
 
 # Test 2: Read lines with encoding
-test_start "Read lines with encoding"
-lines=$(tfile.readAllLines "$TEST_TMP_DIR/readlines.tmp" "TEncoding.UTF8")
+kk_test_start "Read lines with encoding"
+lines=$(tfile.readAllLines "$KK_TEST_TMPDIR/readlines.tmp" "TEncoding.UTF8")
 if [[ $(echo "$lines" | wc -l) -eq 3 ]]; then
-    test_pass "Read lines with encoding"
+    kk_test_pass "Read lines with encoding"
 else
-    test_fail "Read lines with encoding"
+    kk_test_fail "Read lines with encoding"
 fi
 
 # Test 3: Read lines from empty file
-test_start "Read lines from empty file"
-touch \"$TEST_TMP_DIR/empty_lines.tmp\"
-lines=$(tfile.readAllLines "$TEST_TMP_DIR/empty_lines.tmp")
+kk_test_start "Read lines from empty file"
+touch "$KK_TEST_TMPDIR/empty_lines.tmp"
+lines=$(tfile.readAllLines "$KK_TEST_TMPDIR/empty_lines.tmp")
 if [[ -z "$lines" ]]; then
-    test_pass "Read lines from empty file"
+    kk_test_pass "Read lines from empty file"
 else
-    test_fail "Read lines from empty file"
+    kk_test_fail "Read lines from empty file"
 fi
 
 # Test 4: Read lines from non-existing file
-test_start "Read lines from non-existing file"
-if ! lines=$(tfile.readAllLines "$TEST_TMP_DIR/nonexist.tmp" 2>&1); then
-    test_pass "Read lines from non-existing file (correctly failed)"
+kk_test_start "Read lines from non-existing file"
+if ! lines=$(tfile.readAllLines "$KK_TEST_TMPDIR/nonexist.tmp" 2>&1); then
+    kk_test_pass "Read lines from non-existing file (correctly failed)"
 else
-    test_fail "Read lines from non-existing file (should have failed)"
+    kk_test_fail "Read lines from non-existing file (should have failed)"
 fi

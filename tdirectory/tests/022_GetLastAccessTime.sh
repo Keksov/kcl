@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "022"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: GetLastAccessTime returns datetime
 kk_test_start "GetLastAccessTime - returns datetime value"
-test_dir="$temp_base/access_001"
+test_dir="$KK_TEST_TMPDIR/access_001"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTime "$test_dir")
 if [[ -n "$result" ]]; then
@@ -30,7 +26,7 @@ fi
 
 # Test 2: GetLastAccessTime on newly created directory
 kk_test_start "GetLastAccessTime - newly created directory"
-test_dir="$temp_base/access_new"
+test_dir="$KK_TEST_TMPDIR/access_new"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTime "$test_dir")
 if [[ -n "$result" ]]; then
@@ -41,7 +37,7 @@ fi
 
 # Test 3: GetLastAccessTime consistency
 kk_test_start "GetLastAccessTime - consistent results"
-test_dir="$temp_base/access_consistent"
+test_dir="$KK_TEST_TMPDIR/access_consistent"
 tdirectory.createDirectory "$test_dir"
 result1=$(tdirectory.getLastAccessTime "$test_dir")
 # Note: do not sleep between calls - access time may be updated by filesystem
@@ -55,7 +51,7 @@ fi
 
 # Test 4: GetLastAccessTime on nested directory
 kk_test_start "GetLastAccessTime - nested directory"
-test_dir="$temp_base/access/nested/path"
+test_dir="$KK_TEST_TMPDIR/access/nested/path"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTime "$test_dir")
 if [[ -n "$result" ]]; then
@@ -66,7 +62,7 @@ fi
 
 # Test 5: GetLastAccessTime with spaces in path
 kk_test_start "GetLastAccessTime - directory with spaces"
-test_dir="$temp_base/access dir with spaces"
+test_dir="$KK_TEST_TMPDIR/access dir with spaces"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTime "$test_dir")
 if [[ -n "$result" ]]; then

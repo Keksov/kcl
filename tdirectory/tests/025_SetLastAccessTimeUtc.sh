@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "025"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: SetLastAccessTimeUtc changes UTC last access time
 kk_test_start "SetLastAccessTimeUtc - changes UTC last access time"
-test_dir="$temp_base/utc_access_set_001"
+test_dir="$KK_TEST_TMPDIR/utc_access_set_001"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastAccessTimeUtc "$test_dir" "$new_time"
@@ -32,7 +28,7 @@ fi
 
 # Test 2: SetLastAccessTimeUtc persists
 kk_test_start "SetLastAccessTimeUtc - persists after operation"
-test_dir="$temp_base/utc_access_persist"
+test_dir="$KK_TEST_TMPDIR/utc_access_persist"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastAccessTimeUtc "$test_dir" "$new_time"
@@ -46,7 +42,7 @@ fi
 
 # Test 3: SetLastAccessTimeUtc on nested directory
 kk_test_start "SetLastAccessTimeUtc - nested directory"
-test_dir="$temp_base/utc/access/nested/path"
+test_dir="$KK_TEST_TMPDIR/utc/access/nested/path"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastAccessTimeUtc "$test_dir" "$new_time"

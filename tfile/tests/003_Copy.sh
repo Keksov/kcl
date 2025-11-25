@@ -1,66 +1,69 @@
 #!/bin/bash
 # 003_copy.sh - Test TFile.Copy method
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
 
-# Set up temp directory for this test
-init_test_tmpdir "003"
+# Source tfile module
+TFILE_DIR="$SCRIPT_DIR/.."
+source "$TFILE_DIR/tfile.sh"
 
-# Setup test files
-printf "content" > "$TEST_TMP_DIR/source.tmp"
-printf "dest" > "$TEST_TMP_DIR/dest2.tmp"
+# Extract test name from filename
+TEST_NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
+kk_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 # Test 1: Copy existing file
-test_start "Copy existing file"
-printf "content" > "$TEST_TMP_DIR/source.tmp"
-result=$(tfile.copy "$TEST_TMP_DIR/source.tmp" "$TEST_TMP_DIR/dest.tmp")
-if [[ -f "$TEST_TMP_DIR/dest.tmp" && "$(cat "$TEST_TMP_DIR"/dest.tmp)" == "content" ]]; then
-    test_pass "Copy existing file"
+kk_test_start "Copy existing file"
+printf "content" > "$KK_TEST_TMPDIR/source.tmp"
+tfile.copy "$KK_TEST_TMPDIR/source.tmp" "$KK_TEST_TMPDIR/dest.tmp" >/dev/null 2>&1
+if [[ -f "$KK_TEST_TMPDIR/dest.tmp" && "$(cat "$KK_TEST_TMPDIR/dest.tmp")" == "content" ]]; then
+    kk_test_pass "Copy existing file"
 else
-    test_fail "Copy existing file"
+    kk_test_fail "Copy existing file"
 fi
 
 # Test 2: Copy with overwrite=false (default)
-test_start "Copy with overwrite=false"
-printf "dest" > "$TEST_TMP_DIR/dest2.tmp"
-if ! result=$(tfile.copy "$TEST_TMP_DIR/source.tmp" "$TEST_TMP_DIR/dest2.tmp" 2>&1); then
-    test_pass "Copy with overwrite=false (correctly failed)"
+kk_test_start "Copy with overwrite=false"
+printf "dest" > "$KK_TEST_TMPDIR/dest2.tmp"
+if tfile.copy "$KK_TEST_TMPDIR/source.tmp" "$KK_TEST_TMPDIR/dest2.tmp" >/dev/null 2>&1; then
+    kk_test_fail "Copy with overwrite=false (should have failed)"
 else
-    test_fail "Copy with overwrite=false (should have failed)"
+    kk_test_pass "Copy with overwrite=false (correctly failed)"
 fi
 
 # Test 3: Copy with overwrite=true
-test_start "Copy with overwrite=true"
-result=$(tfile.copy "$TEST_TMP_DIR/source.tmp" "$TEST_TMP_DIR/dest2.tmp" true)
-if [[ "$(cat "$TEST_TMP_DIR"/dest2.tmp)" == "content" ]]; then
-    test_pass "Copy with overwrite=true"
+kk_test_start "Copy with overwrite=true"
+tfile.copy "$KK_TEST_TMPDIR/source.tmp" "$KK_TEST_TMPDIR/dest2.tmp" true >/dev/null 2>&1
+if [[ "$(cat "$KK_TEST_TMPDIR/dest2.tmp")" == "content" ]]; then
+    kk_test_pass "Copy with overwrite=true"
 else
-    test_fail "Copy with overwrite=true"
+    kk_test_fail "Copy with overwrite=true"
 fi
 
 # Test 4: Copy non-existing source
-test_start "Copy non-existing source"
-if ! result=$(tfile.copy "$TEST_TMP_DIR/nonexist.tmp" "$TEST_TMP_DIR/dest.tmp" 2>&1); then
-    test_pass "Copy non-existing source (correctly failed)"
+kk_test_start "Copy non-existing source"
+if tfile.copy "$KK_TEST_TMPDIR/nonexist.tmp" "$KK_TEST_TMPDIR/dest.tmp" >/dev/null 2>&1; then
+    kk_test_fail "Copy non-existing source (should have failed)"
 else
-    test_fail "Copy non-existing source (should have failed)"
+    kk_test_pass "Copy non-existing source (correctly failed)"
 fi
 
 # Test 5: Copy to invalid destination path
-test_start "Copy to invalid path"
-if ! result=$(tfile.copy "$TEST_TMP_DIR/source.tmp" "/invalid/path/file.tmp" 2>&1); then
-    test_pass "Copy to invalid path (correctly failed)"
+kk_test_start "Copy to invalid path"
+if tfile.copy "$KK_TEST_TMPDIR/source.tmp" "/invalid/path/file.tmp" >/dev/null 2>&1; then
+    kk_test_fail "Copy to invalid path (should have failed)"
 else
-    test_fail "Copy to invalid path (should have failed)"
+    kk_test_pass "Copy to invalid path (correctly failed)"
 fi
 
 # Test 6: Copy empty file
-test_start "Copy empty file"
-touch "$TEST_TMP_DIR/empty.tmp"
-result=$(tfile.copy "$TEST_TMP_DIR/empty.tmp" "$TEST_TMP_DIR/empty_dest.tmp")
-if [[ -f "$TEST_TMP_DIR/empty_dest.tmp" && ! -s "$TEST_TMP_DIR/empty_dest.tmp" ]]; then
-    test_pass "Copy empty file"
+kk_test_start "Copy empty file"
+touch "$KK_TEST_TMPDIR/empty.tmp"
+tfile.copy "$KK_TEST_TMPDIR/empty.tmp" "$KK_TEST_TMPDIR/empty_dest.tmp" >/dev/null 2>&1
+if [[ -f "$KK_TEST_TMPDIR/empty_dest.tmp" && ! -s "$KK_TEST_TMPDIR/empty_dest.tmp" ]]; then
+    kk_test_pass "Copy empty file"
 else
-    test_fail "Copy empty file"
+    kk_test_fail "Copy empty file"
 fi

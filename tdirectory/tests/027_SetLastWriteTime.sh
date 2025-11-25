@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "027"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: SetLastWriteTime changes last write time
 kk_test_start "SetLastWriteTime - changes last write time"
-test_dir="$temp_base/write_set_001"
+test_dir="$KK_TEST_TMPDIR/write_set_001"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastWriteTime "$test_dir" "$new_time"
@@ -32,7 +28,7 @@ fi
 
 # Test 2: SetLastWriteTime persists
 kk_test_start "SetLastWriteTime - persists after operation"
-test_dir="$temp_base/write_persist"
+test_dir="$KK_TEST_TMPDIR/write_persist"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastWriteTime "$test_dir" "$new_time"
@@ -46,7 +42,7 @@ fi
 
 # Test 3: SetLastWriteTime on nested directory
 kk_test_start "SetLastWriteTime - nested directory"
-test_dir="$temp_base/write/nested/path"
+test_dir="$KK_TEST_TMPDIR/write/nested/path"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastWriteTime "$test_dir" "$new_time"
@@ -59,7 +55,7 @@ fi
 
 # Test 4: SetLastWriteTime with datetime format
 kk_test_start "SetLastWriteTime - accepts datetime"
-test_dir="$temp_base/write_format"
+test_dir="$KK_TEST_TMPDIR/write_format"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setLastWriteTime "$test_dir" "2024-01-01 12:00:00"
 result=$(tdirectory.getLastWriteTime "$test_dir")

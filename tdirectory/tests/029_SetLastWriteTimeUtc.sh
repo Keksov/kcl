@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "029"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: SetLastWriteTimeUtc changes UTC last write time
 kk_test_start "SetLastWriteTimeUtc - changes UTC last write time"
-test_dir="$temp_base/utc_write_set_001"
+test_dir="$KK_TEST_TMPDIR/utc_write_set_001"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastWriteTimeUtc "$test_dir" "$new_time"
@@ -32,7 +28,7 @@ fi
 
 # Test 2: SetLastWriteTimeUtc persists
 kk_test_start "SetLastWriteTimeUtc - persists after operation"
-test_dir="$temp_base/utc_write_persist"
+test_dir="$KK_TEST_TMPDIR/utc_write_persist"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastWriteTimeUtc "$test_dir" "$new_time"
@@ -46,7 +42,7 @@ fi
 
 # Test 3: SetLastWriteTimeUtc on nested directory
 kk_test_start "SetLastWriteTimeUtc - nested directory"
-test_dir="$temp_base/utc/write/nested/path"
+test_dir="$KK_TEST_TMPDIR/utc/write/nested/path"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastWriteTimeUtc "$test_dir" "$new_time"
@@ -59,7 +55,7 @@ fi
 
 # Test 4: SetLastWriteTimeUtc with datetime format
 kk_test_start "SetLastWriteTimeUtc - accepts UTC datetime"
-test_dir="$temp_base/utc_write_format"
+test_dir="$KK_TEST_TMPDIR/utc_write_format"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setLastWriteTimeUtc "$test_dir" "2024-01-01 12:00:00"
 result=$(tdirectory.getLastWriteTimeUtc "$test_dir")

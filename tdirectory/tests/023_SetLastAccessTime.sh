@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "023"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: SetLastAccessTime changes last access time
 kk_test_start "SetLastAccessTime - changes last access time"
-test_dir="$temp_base/access_set_001"
+test_dir="$KK_TEST_TMPDIR/access_set_001"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastAccessTime "$test_dir" "$new_time"
@@ -32,7 +28,7 @@ fi
 
 # Test 2: SetLastAccessTime persists
 kk_test_start "SetLastAccessTime - persists after operation"
-test_dir="$temp_base/access_persist"
+test_dir="$KK_TEST_TMPDIR/access_persist"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastAccessTime "$test_dir" "$new_time"
@@ -46,7 +42,7 @@ fi
 
 # Test 3: SetLastAccessTime on nested directory
 kk_test_start "SetLastAccessTime - nested directory"
-test_dir="$temp_base/access/nested/path"
+test_dir="$KK_TEST_TMPDIR/access/nested/path"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setLastAccessTime "$test_dir" "$new_time"
@@ -59,7 +55,7 @@ fi
 
 # Test 4: SetLastAccessTime with datetime format
 kk_test_start "SetLastAccessTime - accepts datetime"
-test_dir="$temp_base/access_format"
+test_dir="$KK_TEST_TMPDIR/access_format"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setLastAccessTime "$test_dir" "2024-01-01 12:00:00"
 result=$(tdirectory.getLastAccessTime "$test_dir")

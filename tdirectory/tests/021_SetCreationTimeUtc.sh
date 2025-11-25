@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "021"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: SetCreationTimeUtc changes UTC creation time
 kk_test_start "SetCreationTimeUtc - changes UTC creation time"
-test_dir="$temp_base/utc_set_001"
+test_dir="$KK_TEST_TMPDIR/utc_set_001"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setCreationTimeUtc "$test_dir" "$new_time"
@@ -32,7 +28,7 @@ fi
 
 # Test 2: SetCreationTimeUtc persists
 kk_test_start "SetCreationTimeUtc - persists after operation"
-test_dir="$temp_base/utc_persist"
+test_dir="$KK_TEST_TMPDIR/utc_persist"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setCreationTimeUtc "$test_dir" "$new_time"
@@ -46,7 +42,7 @@ fi
 
 # Test 3: SetCreationTimeUtc on nested directory
 kk_test_start "SetCreationTimeUtc - nested directory"
-test_dir="$temp_base/utc/nested/path"
+test_dir="$KK_TEST_TMPDIR/utc/nested/path"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setCreationTimeUtc "$test_dir" "$new_time"
@@ -59,7 +55,7 @@ fi
 
 # Test 4: SetCreationTimeUtc with datetime format
 kk_test_start "SetCreationTimeUtc - accepts UTC datetime"
-test_dir="$temp_base/utc_format"
+test_dir="$KK_TEST_TMPDIR/utc_format"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setCreationTimeUtc "$test_dir" "2024-01-01 12:00:00"
 result=$(tdirectory.getCreationTimeUtc "$test_dir")

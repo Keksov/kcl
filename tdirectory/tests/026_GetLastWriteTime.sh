@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "026"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: GetLastWriteTime returns datetime
 kk_test_start "GetLastWriteTime - returns datetime value"
-test_dir="$temp_base/write_001"
+test_dir="$KK_TEST_TMPDIR/write_001"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastWriteTime "$test_dir")
 if [[ -n "$result" ]]; then
@@ -30,7 +26,7 @@ fi
 
 # Test 2: GetLastWriteTime on newly created directory
 kk_test_start "GetLastWriteTime - newly created directory"
-test_dir="$temp_base/write_new"
+test_dir="$KK_TEST_TMPDIR/write_new"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastWriteTime "$test_dir")
 if [[ -n "$result" ]]; then
@@ -41,7 +37,7 @@ fi
 
 # Test 3: GetLastWriteTime consistency
 kk_test_start "GetLastWriteTime - consistent results"
-test_dir="$temp_base/write_consistent"
+test_dir="$KK_TEST_TMPDIR/write_consistent"
 tdirectory.createDirectory "$test_dir"
 result1=$(tdirectory.getLastWriteTime "$test_dir")
 # Note: do not sleep between calls - filesystem metadata may be updated
@@ -55,7 +51,7 @@ fi
 
 # Test 4: GetLastWriteTime on nested directory
 kk_test_start "GetLastWriteTime - nested directory"
-test_dir="$temp_base/write/nested/path"
+test_dir="$KK_TEST_TMPDIR/write/nested/path"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastWriteTime "$test_dir")
 if [[ -n "$result" ]]; then
@@ -66,7 +62,7 @@ fi
 
 # Test 5: GetLastWriteTime with spaces in path
 kk_test_start "GetLastWriteTime - directory with spaces"
-test_dir="$temp_base/write dir with spaces"
+test_dir="$KK_TEST_TMPDIR/write dir with spaces"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastWriteTime "$test_dir")
 if [[ -n "$result" ]]; then

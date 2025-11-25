@@ -1,28 +1,38 @@
 #!/bin/bash
 # 033_set_last_access_time.sh - Test TFile.SetLastAccessTime method
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+# Source tfile module
+TFILE_DIR="$SCRIPT_DIR/.."
+source "$TFILE_DIR/tfile.sh"
+
+# Extract test name from filename
+TEST_NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
+kk_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+
 
 # Set up temp directory for this test
-init_test_tmpdir "033"
 
 
 # Test 1: Set last access time on existing file
-test_start "Set last access time on existing file"
-echo "content" > "$TEST_TMP_DIR/setaccess.tmp"
+kk_test_start "Set last access time on existing file"
+echo "content" > "$KK_TEST_TMPDIR/setaccess.tmp"
 now=$(date +%s)
-result=$(tfile.setLastAccessTime "$TEST_TMP_DIR/setaccess.tmp" "$now")
+result=$(tfile.setLastAccessTime "$KK_TEST_TMPDIR/setaccess.tmp" "$now")
 if [[ $? -eq 0 ]]; then
-test_pass "Set last access time on existing file"
+kk_test_pass "Set last access time on existing file"
 else
-test_fail "Set last access time on existing file"
+kk_test_fail "Set last access time on existing file"
 fi
 
 # Test 2: Set last access time on non-existing file
-test_start "Set last access time on non-existing file"
-if ! result=$(tfile.setLastAccessTime "$TEST_TMP_DIR/nonexist.tmp" "$now" 2>&1); then
-test_pass "Set last access time on non-existing file (correctly failed)"
+kk_test_start "Set last access time on non-existing file"
+if ! result=$(tfile.setLastAccessTime "$KK_TEST_TMPDIR/nonexist.tmp" "$now" 2>&1); then
+kk_test_pass "Set last access time on non-existing file (correctly failed)"
 else
-test_fail "Set last access time on non-existing file (should have failed)"
+kk_test_fail "Set last access time on non-existing file (should have failed)"
 fi

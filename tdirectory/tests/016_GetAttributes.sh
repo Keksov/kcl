@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "016"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: GetAttributes on existing directory
 kk_test_start "GetAttributes - existing directory returns attributes"
-test_dir="$temp_base/test_dir"
+test_dir="$KK_TEST_TMPDIR/test_dir"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getAttributes "$test_dir" || true)
 if [[ -n "$result" ]]; then
@@ -30,7 +26,7 @@ fi
 
 # Test 2: GetAttributes includes directory attribute
 kk_test_start "GetAttributes - includes directory attribute"
-test_dir="$temp_base/dir_test"
+test_dir="$KK_TEST_TMPDIR/dir_test"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getAttributes "$test_dir" || true)
 if [[ "$result" =~ "faDirectory" ]]; then
@@ -41,7 +37,7 @@ fi
 
 # Test 3: GetAttributes with FollowLink true
 kk_test_start "GetAttributes - FollowLink true"
-test_dir="$temp_base/follow_link_true"
+test_dir="$KK_TEST_TMPDIR/follow_link_true"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getAttributes "$test_dir" "true" || true)
 if [[ -n "$result" ]]; then
@@ -52,7 +48,7 @@ fi
 
 # Test 4: GetAttributes with FollowLink false
 kk_test_start "GetAttributes - FollowLink false"
-test_dir="$temp_base/follow_link_false"
+test_dir="$KK_TEST_TMPDIR/follow_link_false"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getAttributes "$test_dir" "false" || true)
 if [[ -n "$result" ]]; then
@@ -63,7 +59,7 @@ fi
 
 # Test 5: GetAttributes for non-existent directory
 kk_test_start "GetAttributes - non-existent directory"
-test_dir="$temp_base/nonexistent_attrs"
+test_dir="$KK_TEST_TMPDIR/nonexistent_attrs"
 result=$(tdirectory.getAttributes "$test_dir" 2>/dev/null || true)
 # Should either return empty or error
 if [[ -z "$result" ]]; then
@@ -74,7 +70,7 @@ fi
 
 # Test 6: GetAttributes for hidden directory
 kk_test_start "GetAttributes - hidden directory"
-test_dir="$temp_base/.hidden_dir"
+test_dir="$KK_TEST_TMPDIR/.hidden_dir"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getAttributes "$test_dir" || true)
 if [[ -n "$result" ]]; then
@@ -85,7 +81,7 @@ fi
 
 # Test 7: GetAttributes consistency
 kk_test_start "GetAttributes - consistent results"
-test_dir="$temp_base/consistency_test"
+test_dir="$KK_TEST_TMPDIR/consistency_test"
 tdirectory.createDirectory "$test_dir"
 result1=$(tdirectory.getAttributes "$test_dir" || true)
 result2=$(tdirectory.getAttributes "$test_dir" || true)
@@ -97,7 +93,7 @@ fi
 
 # Test 8: GetAttributes after directory creation
 kk_test_start "GetAttributes - after creation"
-test_dir="$temp_base/after_create"
+test_dir="$KK_TEST_TMPDIR/after_create"
 tdirectory.createDirectory "$test_dir"
 sleep 1  # Small delay to ensure attributes are set
 result=$(tdirectory.getAttributes "$test_dir" || true)

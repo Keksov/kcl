@@ -13,13 +13,9 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
 
-# Setup temp directory
-init_test_tmpdir "013"
-temp_base="$TEST_TMP_DIR"
-
 # Test 1: GetDirectories with simple directory
 kk_test_start "GetDirectories - basic subdirectory listing"
-test_dir="$temp_base/simple"
+test_dir="$KK_TEST_TMPDIR/simple"
 tdirectory.createDirectory "$test_dir/sub1"
 tdirectory.createDirectory "$test_dir/sub2"
 tdirectory.createDirectory "$test_dir/sub3"
@@ -32,7 +28,7 @@ fi
 
 # Test 2: GetDirectories with search pattern
 kk_test_start "GetDirectories - with search pattern"
-test_dir="$temp_base/pattern_test"
+test_dir="$KK_TEST_TMPDIR/pattern_test"
 tdirectory.createDirectory "$test_dir/app_001"
 tdirectory.createDirectory "$test_dir/app_002"
 tdirectory.createDirectory "$test_dir/other_dir"
@@ -45,7 +41,7 @@ fi
 
 # Test 3: GetDirectories with files present (should exclude files)
 kk_test_start "GetDirectories - excludes files"
-test_dir="$temp_base/mixed_content"
+test_dir="$KK_TEST_TMPDIR/mixed_content"
 tdirectory.createDirectory "$test_dir/subdir"
 echo "file content" > "$test_dir/file.txt"
 result=$(tdirectory.getDirectories "$test_dir")
@@ -57,7 +53,7 @@ fi
 
 # Test 4: GetDirectories empty directory
 kk_test_start "GetDirectories - empty directory"
-test_dir="$temp_base/empty_dir"
+test_dir="$KK_TEST_TMPDIR/empty_dir"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getDirectories "$test_dir")
 if [[ -z "$result" ]]; then
@@ -68,7 +64,7 @@ fi
 
 # Test 5: GetDirectories with SearchOption TopDirectoryOnly
 kk_test_start "GetDirectories - TopDirectoryOnly option"
-test_dir="$temp_base/recursive_test"
+test_dir="$KK_TEST_TMPDIR/recursive_test"
 tdirectory.createDirectory "$test_dir/level1"
 tdirectory.createDirectory "$test_dir/level1/level2"
 # Just get top-level directories (non-recursive)
@@ -81,7 +77,7 @@ fi
 
 # Test 6: GetDirectories with SearchOption AllDirectories (recursive)
 kk_test_start "GetDirectories - AllDirectories recursive"
-test_dir="$temp_base/recursive_all"
+test_dir="$KK_TEST_TMPDIR/recursive_all"
 tdirectory.createDirectory "$test_dir/a/b/c"
 tdirectory.createDirectory "$test_dir/x/y"
 result=$(tdirectory.getDirectories "$test_dir" "*" "AllDirectories")
@@ -93,7 +89,7 @@ fi
 
 # Test 7: GetDirectories with special characters in names
 kk_test_start "GetDirectories - special characters in names"
-test_dir="$temp_base/special_chars"
+test_dir="$KK_TEST_TMPDIR/special_chars"
 tdirectory.createDirectory "$test_dir/dir-with-dash"
 tdirectory.createDirectory "$test_dir/dir_with_underscore"
 tdirectory.createDirectory "$test_dir/dir.with.dots"
