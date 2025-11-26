@@ -1,15 +1,24 @@
 #!/bin/bash
-# ToCharArray.sh - Test string.toCharArray method
+# ToCharArray
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+kk_test_init "ToCharArray" "$SCRIPT_DIR" "$@"
+
+# Source tstringhelper if needed
+TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
+[[ -f "$TSTRINGHELPER_DIR/tstringhelper.sh" ]] && source "$TSTRINGHELPER_DIR/tstringhelper.sh"
+
 
 # Test 1: To char array
-test_start "To char array"
+kk_test_start "To char array"
 result=$(string.toCharArray "hi")
 # Expected output not defined, just check it runs
 if [[ -n "$result" ]]; then
-    test_pass "To char array"
+    kk_test_pass "To char array"
 else
-    test_fail "To char array"
+    kk_test_fail "To char array"
 fi

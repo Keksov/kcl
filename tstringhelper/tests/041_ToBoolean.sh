@@ -1,23 +1,32 @@
 #!/bin/bash
-# ToBoolean.sh - Test string.toBoolean method
+# ToBoolean
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+kk_test_init "ToBoolean" "$SCRIPT_DIR" "$@"
+
+# Source tstringhelper if needed
+TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
+[[ -f "$TSTRINGHELPER_DIR/tstringhelper.sh" ]] && source "$TSTRINGHELPER_DIR/tstringhelper.sh"
+
 
 # Test 1: True
-test_start "To boolean true"
+kk_test_start "To boolean true"
 result=$(string.toBoolean "true")
 if [[ "$result" == "true" ]]; then
-    test_pass "To boolean true"
+    kk_test_pass "To boolean true"
 else
-    test_fail "To boolean true (expected: true, got: '$result')"
+    kk_test_fail "To boolean true (expected: true, got: '$result')"
 fi
 
 # Test 2: False
-test_start "To boolean false"
+kk_test_start "To boolean false"
 result=$(string.toBoolean "false")
 if [[ "$result" == "false" ]]; then
-    test_pass "To boolean false"
+    kk_test_pass "To boolean false"
 else
-    test_fail "To boolean false (expected: false, got: '$result')"
+    kk_test_fail "To boolean false (expected: false, got: '$result')"
 fi

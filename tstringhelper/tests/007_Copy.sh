@@ -1,14 +1,23 @@
 #!/bin/bash
-# Copy.sh - Test string.copy method
+# Copy
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+kk_test_init "Copy" "$SCRIPT_DIR" "$@"
+
+# Source tstringhelper if needed
+TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
+[[ -f "$TSTRINGHELPER_DIR/tstringhelper.sh" ]] && source "$TSTRINGHELPER_DIR/tstringhelper.sh"
+
 
 # Test 1: Copy string
-test_start "Copy string"
+kk_test_start "Copy string"
 result=$(string.copy "hello")
 if [[ "$result" == "hello" ]]; then
-    test_pass "Copy string"
+    kk_test_pass "Copy string"
 else
-    test_fail "Copy string (expected: 'hello', got: '$result')"
+    kk_test_fail "Copy string (expected: 'hello', got: '$result')"
 fi

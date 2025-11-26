@@ -1,14 +1,23 @@
 #!/bin/bash
-# ToUpperInvariant.sh - Test string.toUpperInvariant method
+# ToUpperInvariant
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+kk_test_init "ToUpperInvariant" "$SCRIPT_DIR" "$@"
+
+# Source tstringhelper if needed
+TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
+[[ -f "$TSTRINGHELPER_DIR/tstringhelper.sh" ]] && source "$TSTRINGHELPER_DIR/tstringhelper.sh"
+
 
 # Test 1: To upper invariant
-test_start "To upper invariant"
+kk_test_start "To upper invariant"
 result=$(string.toUpperInvariant "hello")
 if [[ "$result" == "HELLO" ]]; then
-    test_pass "To upper invariant"
+    kk_test_pass "To upper invariant"
 else
-    test_fail "To upper invariant (expected: 'HELLO', got: '$result')"
+    kk_test_fail "To upper invariant (expected: 'HELLO', got: '$result')"
 fi

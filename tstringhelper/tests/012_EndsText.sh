@@ -1,23 +1,32 @@
 #!/bin/bash
-# EndsText.sh - Test string.endsText method
+# EndsText
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+kk_test_init "EndsText" "$SCRIPT_DIR" "$@"
+
+# Source tstringhelper if needed
+TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
+[[ -f "$TSTRINGHELPER_DIR/tstringhelper.sh" ]] && source "$TSTRINGHELPER_DIR/tstringhelper.sh"
+
 
 # Test 1: Ends with
-test_start "Ends with"
+kk_test_start "Ends with"
 result=$(string.endsText "world" "hello world")
 if [[ "$result" == "true" ]]; then
-    test_pass "Ends with"
+    kk_test_pass "Ends with"
 else
-    test_fail "Ends with (expected: true, got: '$result')"
+    kk_test_fail "Ends with (expected: true, got: '$result')"
 fi
 
 # Test 2: Does not end with
-test_start "Does not end with"
+kk_test_start "Does not end with"
 result=$(string.endsText "hello" "hello world")
 if [[ "$result" == "false" ]]; then
-    test_pass "Does not end with"
+    kk_test_pass "Does not end with"
 else
-    test_fail "Does not end with (expected: false, got: '$result')"
+    kk_test_fail "Does not end with (expected: false, got: '$result')"
 fi

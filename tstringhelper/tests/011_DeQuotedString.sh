@@ -1,14 +1,23 @@
 #!/bin/bash
-# DeQuotedString.sh - Test string.deQuotedString method
+# DeQuotedString
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+kk_test_init "DeQuotedString" "$SCRIPT_DIR" "$@"
+
+# Source tstringhelper if needed
+TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
+[[ -f "$TSTRINGHELPER_DIR/tstringhelper.sh" ]] && source "$TSTRINGHELPER_DIR/tstringhelper.sh"
+
 
 # Test 1: Remove quotes
-test_start "Dequote string"
+kk_test_start "Dequote string"
 result=$(string.deQuotedString "\"hello\"")
 if [[ "$result" == "hello" ]]; then
-    test_pass "Dequote string"
+    kk_test_pass "Dequote string"
 else
-    test_fail "Dequote string (expected: 'hello', got: '$result')"
+    kk_test_fail "Dequote string (expected: 'hello', got: '$result')"
 fi

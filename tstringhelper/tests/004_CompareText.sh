@@ -1,23 +1,32 @@
 #!/bin/bash
-# CompareText.sh - Test string.compareText method
+# CompareText
+# Auto-migrated to kktests framework
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-parse_args "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
+source "$KKTESTS_LIB_DIR/kk-test.sh"
+
+kk_test_init "CompareText" "$SCRIPT_DIR" "$@"
+
+# Source tstringhelper if needed
+TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
+[[ -f "$TSTRINGHELPER_DIR/tstringhelper.sh" ]] && source "$TSTRINGHELPER_DIR/tstringhelper.sh"
+
 
 # Test 1: Case insensitive equal
-test_start "CompareText equal ignore case"
+kk_test_start "CompareText equal ignore case"
 result=$(string.compareText "Hello" "HELLO")
 if [[ "$result" == "0" ]]; then
-    test_pass "CompareText equal ignore case"
+    kk_test_pass "CompareText equal ignore case"
 else
-    test_fail "CompareText equal ignore case (expected: 0, got: '$result')"
+    kk_test_fail "CompareText equal ignore case (expected: 0, got: '$result')"
 fi
 
 # Test 2: Different case
-test_start "CompareText different"
+kk_test_start "CompareText different"
 result=$(string.compareText "abc" "DEF")
 if [[ "$result" == "-1" ]]; then
-    test_pass "CompareText different"
+    kk_test_pass "CompareText different"
 else
-    test_fail "CompareText different (expected: -1, got: '$result')"
+    kk_test_fail "CompareText different (expected: -1, got: '$result')"
 fi
