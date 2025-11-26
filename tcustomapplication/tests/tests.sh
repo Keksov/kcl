@@ -1,69 +1,48 @@
 #!/bin/bash
-# tests.sh - Run all TCustomApplication unit tests
-# Auto-generated for kktests framework
+# tests.sh - Test runner for tstringlist tests using kktests framework
+# Usage: ./tests.sh [OPTIONS]
 
+set -o pipefail
+
+# Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load test framework (kktests)
 KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
 source "$KKTESTS_LIB_DIR/kk-test.sh"
 
-# Source tcustomapplication module
-TCUSTOMAPPLICATION_DIR="$SCRIPT_DIR/.."
-source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
+# Parse command line arguments
+kk_runner_parse_args "$@"
 
-echo "Running TCustomApplication Unit Tests"
-echo "====================================="
+# Show test execution info
+kk_test_section "Starting TStringList Test Suite"
 
-# Run individual test files
-test_files=(
-    "001_BasicCreationAndInitialization.sh"
-    "002_TerminateOperations.sh"
-    "003_ExceptionHandling.sh"
-    "004_RunOperations.sh"
-    "005_CommandLineOptions.sh"
-    "006_GetNonOptions.sh"
-    "007_EnvironmentAndLogging.sh"
-    "008_PropertiesAndIntegration.sh"
-    "009_OnExceptionProperty.sh"
-    "010_EventLogFilter.sh"
-    "011_ParamsIndices.sh"
-    "012_GetNonOptionsProcedure.sh"
-    "013_CheckOptionsTStrings.sh"
-    "014_LogFiltering.sh"
-    "015_TerminateExitCode.sh"
-    "016_ExceptionIntegration.sh"
-)
+# Find test files - look for numbered test files [0-9][0-9][0-9]_*.sh
+test_files=()
+while IFS= read -r file; do
+    test_files+=("$file")
+done < <(kk_runner_find_tests "$SCRIPT_DIR" | grep '/[0-9][0-9][0-9]_')
 
-failed_tests=0
-total_tests=0
-
-for test_file in "${test_files[@]}"; do
-    if [[ -f "$SCRIPT_DIR/$test_file" ]]; then
-        echo "Running $test_file..."
-        bash "$SCRIPT_DIR/$test_file" "$@"
-        exit_code=$?
-        ((total_tests++))
-        if [[ $exit_code -ne 0 ]]; then
-            ((failed_tests++))
-            echo "FAILED: $test_file (exit code: $exit_code)"
-        else
-            echo "PASSED: $test_file"
-        fi
-        echo
-    else
-        echo "WARNING: Test file $test_file not found"
-    fi
-done
-
-echo "====================================="
-echo "Test Summary:"
-echo "Total tests: $total_tests"
-echo "Failed tests: $failed_tests"
-echo "Passed tests: $((total_tests - failed_tests))"
-
-if [[ $failed_tests -eq 0 ]]; then
-    echo "All tests PASSED!"
-    exit 0
-else
-    echo "Some tests FAILED!"
+if [[ ${#test_files[@]} -eq 0 ]]; then
+    kk_test_error "No test files found in $SCRIPT_DIR"
     exit 1
 fi
+
+# Show test files to be executed in info mode
+if [[ "$VERBOSITY" == "info" ]]; then
+    echo "Found ${#test_files[@]} test file(s):"
+    for f in "${test_files[@]}"; do
+        echo "  - $(basename "$f")"
+    done
+    echo ""
+fi
+
+# Execute all tests
+kk_runner_execute_tests "$SCRIPT_DIR"
+
+# Display final results
+echo ""
+kk_test_show_results "${FAILED_TEST_FILES[@]}"
+
+# Exit with appropriate code
+exit $?
