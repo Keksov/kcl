@@ -62,6 +62,40 @@ defineClass "TCustomApplication" "" \
         RESULT="${#TCUSTAPP_ARGS[@]}"
     ' \
     \
+    "function" "_BuildGetoptString" '
+        local short_opts="$1"
+        local getopt_opts=""
+        
+        for ((i = 0; i < ${#short_opts}; i++)); do
+            local ch="${short_opts:$i:1}"
+            if [[ "$ch" != ":" ]]; then
+                getopt_opts="$getopt_opts$ch"
+                if [[ $((i + 1)) -lt ${#short_opts} && "${short_opts:$((i+1)):1}" == ":" ]]; then
+                    getopt_opts="$getopt_opts:"
+                    ((i++))
+                fi
+            fi
+        done
+        
+        RESULT="$getopt_opts"
+    ' \
+    \
+    "function" "_GetNextArgValue" '
+        local -n args_array_ref="$1"
+        local idx="$2"
+        
+        if [[ $((idx + 1)) -lt ${#args_array_ref[@]} ]]; then
+            local next_arg="${args_array_ref[$((idx + 1))]}"
+            if [[ ! "$next_arg" =~ ^- ]]; then
+                RESULT="$next_arg"
+                return 0
+            fi
+        fi
+        
+        RESULT=""
+        return 1
+    ' \
+    \
     "function" "FindOptionIndex" '
         local short_opt="$1"
         local long_opt="${2:-}"
@@ -95,84 +129,78 @@ defineClass "TCustomApplication" "" \
     ' \
     \
     "function" "GetOptionValue" '
-        local opt="$1"
-        local secondary_opt="${2:-}"
-        
-        # Get arguments array directly - no eval needed
-        local -a args_array=("${TCUSTAPP_ARGS[@]}")
-        
-        # Try short option first
-        if [[ -n "$opt" ]]; then
-            local idx
-            $this.call FindOptionIndex "$opt" "" -1
-            idx="$RESULT"
-            
-            if [[ "$idx" -ge 0 && $((idx + 1)) -lt ${#args_array[@]} ]]; then
-                local next_arg="${args_array[$((idx + 1))]}"
-                # Check if next arg is not an option
-                if [[ ! "$next_arg" =~ ^- ]]; then
-                    RESULT="$next_arg"
-                    return 0
-                fi
-            fi
-        fi
-        
-        # Try secondary/long option
-        if [[ -n "$secondary_opt" ]]; then
-            local idx
-            $this.call FindOptionIndex "" "$secondary_opt" -1
-            idx="$RESULT"
-            
-            if [[ "$idx" -ge 0 && $((idx + 1)) -lt ${#args_array[@]} ]]; then
-                local next_arg="${args_array[$((idx + 1))]}"
-                # Check if next arg is not an option
-                if [[ ! "$next_arg" =~ ^- ]]; then
-                    RESULT="$next_arg"
-                    return 0
-                fi
-            fi
-        fi
-        
-        RESULT=""
-    ' \
+         local opt="$1"
+         local secondary_opt="${2:-}"
+         
+         # Get arguments array directly - no eval needed
+         local -a args_array=("${TCUSTAPP_ARGS[@]}")
+         
+         # Try short option first
+         if [[ -n "$opt" ]]; then
+             local idx
+             $this.call FindOptionIndex "$opt" "" -1
+             idx="$RESULT"
+             
+             if [[ "$idx" -ge 0 ]]; then
+                 $this.call _GetNextArgValue args_array "$idx"
+                 if [[ $? -eq 0 ]]; then
+                     return 0
+                 fi
+             fi
+         fi
+         
+         # Try secondary/long option
+         if [[ -n "$secondary_opt" ]]; then
+             local idx
+             $this.call FindOptionIndex "" "$secondary_opt" -1
+             idx="$RESULT"
+             
+             if [[ "$idx" -ge 0 ]]; then
+                 $this.call _GetNextArgValue args_array "$idx"
+                 if [[ $? -eq 0 ]]; then
+                     return 0
+                 fi
+             fi
+         fi
+         
+         RESULT=""
+     ' \
     \
     "function" "GetOptionValues" '
-        local short_opt="$1"
-        local long_opt="${2:-}"
-        
-        # Get arguments array directly - no eval needed
-        local -a args_array=("${TCUSTAPP_ARGS[@]}")
-        
-        local -a values=()
-        
-        # Collect all values for this option
-        local i=0
-        while true; do
-            local idx
-            $this.call FindOptionIndex "$short_opt" "$long_opt" "$i"
-            idx="$RESULT"
-            
-            if [[ "$idx" -lt 0 ]]; then
-                break
-            fi
-            
-            if [[ $((idx + 1)) -lt ${#args_array[@]} ]]; then
-                local next_arg="${args_array[$((idx + 1))]}"
-                if [[ ! "$next_arg" =~ ^- ]]; then
-                    values+=("$next_arg")
-                fi
-            fi
-            
-            i=$((idx + 1))
-        done
-        
-        # Return array count and values
-        if [[ ${#values[@]} -gt 0 ]]; then
-            RESULT="${#values[@]}:${values[*]}"
-        else
-            RESULT="0:"
-        fi
-    ' \
+         local short_opt="$1"
+         local long_opt="${2:-}"
+         
+         # Get arguments array directly - no eval needed
+         local -a args_array=("${TCUSTAPP_ARGS[@]}")
+         
+         local -a values=()
+         
+         # Collect all values for this option
+         local i=0
+         while true; do
+             local idx
+             $this.call FindOptionIndex "$short_opt" "$long_opt" "$i"
+             idx="$RESULT"
+             
+             if [[ "$idx" -lt 0 ]]; then
+                 break
+             fi
+             
+             $this.call _GetNextArgValue args_array "$idx"
+             if [[ $? -eq 0 ]]; then
+                 values+=("$RESULT")
+             fi
+             
+             i=$((idx + 1))
+         done
+         
+         # Return array count and values
+         if [[ ${#values[@]} -gt 0 ]]; then
+             RESULT="${#values[@]}:${values[*]}"
+         else
+             RESULT="0:"
+         fi
+     ' \
     \
     "function" "HasOption" '
         local opt="$1"
@@ -190,102 +218,84 @@ defineClass "TCustomApplication" "" \
     ' \
     \
     "function" "CheckOptions" '
-        local short_opts="$1"
-        local long_opts="$2"
-        local opts_param="${3:-}"
-        local non_opts_param="${4:-}"
-        
-        # Get arguments array directly - no eval needed
-        local -a args_array=("${TCUSTAPP_ARGS[@]}")
-        
-        # Build getopt options string
-        local getopt_opts=""
-        for ((i = 0; i < ${#short_opts}; i++)); do
-            local ch="${short_opts:$i:1}"
-            if [[ "$ch" != ":" ]]; then
-                getopt_opts="$getopt_opts$ch"
-                if [[ $((i + 1)) -lt ${#short_opts} && "${short_opts:$((i+1)):1}" == ":" ]]; then
-                    getopt_opts="$getopt_opts:"
-                    ((i++))
-                fi
-            fi
-        done
-        
-        # Use getopt to validate
-        local long_opts_str=""
-        if [[ -n "$long_opts" ]]; then
-            long_opts_str="$(echo "$long_opts" | sed "s/ /,/g")"
-        fi
-        
-        local getopts_output
-        if [[ -n "$long_opts_str" ]]; then
-            getopts_output=$(getopt -o "$getopt_opts" --long "$long_opts_str" -- "${args_array[@]}" 2>&1)
-        else
-            getopts_output=$(getopt -o "$getopt_opts" -- "${args_array[@]}" 2>&1)
-        fi
-        
-        if [[ $? -eq 0 ]]; then
-            RESULT=""
-        else
-            RESULT="$getopts_output"
-        fi
-    ' \
+         local short_opts="$1"
+         local long_opts="$2"
+         local opts_param="${3:-}"
+         local non_opts_param="${4:-}"
+         
+         # Get arguments array directly - no eval needed
+         local -a args_array=("${TCUSTAPP_ARGS[@]}")
+         
+         # Build getopt options string
+         $this.call _BuildGetoptString "$short_opts"
+         local getopt_opts="$RESULT"
+         
+         # Use getopt to validate
+         local long_opts_str=""
+         if [[ -n "$long_opts" ]]; then
+             long_opts_str="$(echo "$long_opts" | sed "s/ /,/g")"
+         fi
+         
+         local getopts_output
+         if [[ -n "$long_opts_str" ]]; then
+             getopts_output=$(getopt -o "$getopt_opts" --long "$long_opts_str" -- "${args_array[@]}" 2>&1)
+         else
+             getopts_output=$(getopt -o "$getopt_opts" -- "${args_array[@]}" 2>&1)
+         fi
+         
+         if [[ $? -eq 0 ]]; then
+             RESULT=""
+         else
+             RESULT="$getopts_output"
+         fi
+     ' \
     \
     "function" "GetNonOptions" '
-        local short_opts="$1"
-        local long_opts="$2"
-        local non_options_var="${3:-}"
-        
-        # Get arguments array directly - no eval needed
-        local -a args_array=("${TCUSTAPP_ARGS[@]}")
-        
-        # Build getopt options string
-        local getopt_opts=""
-        for ((i = 0; i < ${#short_opts}; i++)); do
-            local ch="${short_opts:$i:1}"
-            if [[ "$ch" != ":" ]]; then
-                getopt_opts="$getopt_opts$ch"
-                if [[ $((i + 1)) -lt ${#short_opts} && "${short_opts:$((i+1)):1}" == ":" ]]; then
-                    getopt_opts="$getopt_opts:"
-                    ((i++))
-                fi
-            fi
-        done
-        
-        # Use getopt to parse
-        local long_opts_str=""
-        if [[ -n "$long_opts" ]]; then
-            long_opts_str="$(echo "$long_opts" | sed "s/ /,/g")"
-        fi
-        
-        local -a non_opts=()
-        local getopts_output
-        if [[ -n "$long_opts_str" ]]; then
-            getopts_output=$(getopt -o "$getopt_opts" --long "$long_opts_str" -- "${args_array[@]}" 2>&1)
-        else
-            getopts_output=$(getopt -o "$getopt_opts" -- "${args_array[@]}" 2>&1)
-        fi
-        
-        if [[ $? -eq 0 ]]; then
-            # Parse output to get non-options after --
-            local found_sep=0
-            while IFS= read -r line; do
-                if [[ "$line" == "--" ]]; then
-                    found_sep=1
-                elif [[ "$found_sep" -eq 1 ]]; then
-                    non_opts+=("$line")
-                fi
-            done <<< "$getopts_output"
-        fi
-        
-        # Store results if variable provided
-        if [[ -n "$non_options_var" ]]; then
-            declare -n non_opts_ref="$non_options_var" 2>/dev/null
-            non_opts_ref=("${non_opts[@]}")
-        fi
-        
-        RESULT="${#non_opts[@]}"
-    ' \
+         local short_opts="$1"
+         local long_opts="$2"
+         local non_options_var="${3:-}"
+         
+         # Get arguments array directly - no eval needed
+         local -a args_array=("${TCUSTAPP_ARGS[@]}")
+         
+         # Build getopt options string
+         $this.call _BuildGetoptString "$short_opts"
+         local getopt_opts="$RESULT"
+         
+         # Use getopt to parse
+         local long_opts_str=""
+         if [[ -n "$long_opts" ]]; then
+             long_opts_str="$(echo "$long_opts" | sed "s/ /,/g")"
+         fi
+         
+         local -a non_opts=()
+         local getopts_output
+         if [[ -n "$long_opts_str" ]]; then
+             getopts_output=$(getopt -o "$getopt_opts" --long "$long_opts_str" -- "${args_array[@]}" 2>&1)
+         else
+             getopts_output=$(getopt -o "$getopt_opts" -- "${args_array[@]}" 2>&1)
+         fi
+         
+         if [[ $? -eq 0 ]]; then
+             # Parse output to get non-options after --
+             local found_sep=0
+             while IFS= read -r line; do
+                 if [[ "$line" == "--" ]]; then
+                     found_sep=1
+                 elif [[ "$found_sep" -eq 1 ]]; then
+                     non_opts+=("$line")
+                 fi
+             done <<< "$getopts_output"
+         fi
+         
+         # Store results if variable provided
+         if [[ -n "$non_options_var" ]]; then
+             declare -n non_opts_ref="$non_options_var" 2>/dev/null
+             non_opts_ref=("${non_opts[@]}")
+         fi
+         
+         RESULT="${#non_opts[@]}"
+     ' \
     \
     "procedure" "Terminate" '
         # Terminate with optional exit code parameter
