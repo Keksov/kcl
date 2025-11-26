@@ -271,4 +271,55 @@ else
 fi
 myapp.delete
 
+# Test: SetArgs replaces external arguments, not merges them
+kk_test_start "SetArgs replaces external arguments (not merges)"
+TCustomApplication.new myapp
+
+# Simulate external program being called with arguments
+# Then SetArgs is called with different arguments
+myapp.SetArgs -a arg1 -b arg2 -c arg3
+
+# Set new arguments via SetArgs (should replace the old ones)
+myapp.SetArgs -o output.txt --verbose file.txt
+
+# Verify that new arguments are set and old ones are gone
+myapp.FindOptionIndex "o" "" 0
+new_option_index=$RESULT
+
+myapp.GetOptionValue "o" ""
+output_value=$RESULT
+
+myapp.HasOption "" "verbose"
+has_verbose=$RESULT
+
+# Check that old arguments are NOT present
+myapp.HasOption "a" ""
+has_old_a=$RESULT
+
+if [[ "$new_option_index" == "0" && "$output_value" == "output.txt" && "$has_verbose" == "true" && "$has_old_a" == "false" ]]; then
+    kk_test_pass "SetArgs correctly replaces previous arguments"
+else
+    kk_test_fail "SetArgs replacement failed: index=$new_option_index, value=$output_value, verbose=$has_verbose, old_a=$has_old_a"
+fi
+myapp.delete
+
+# Test: External script receives arguments and calls SetArgs
+kk_test_start "External script receives args and calls SetArgs"
+TCustomApplication.new myapp
+
+# Call the helper external app with initial arguments
+external_setargs_output=$(cd "$SCRIPT_DIR" && bash helper_external_app.sh -x test1 -y test2 2>/dev/null)
+
+# Parse the output
+new_option_index=$(echo "$external_setargs_output" | grep "new_option_index=" | cut -d'=' -f2)
+output_value=$(echo "$external_setargs_output" | grep "output_value=" | cut -d'=' -f2)
+has_verbose=$(echo "$external_setargs_output" | grep "has_verbose=" | cut -d'=' -f2)
+
+if [[ "$new_option_index" == "0" && "$output_value" == "output.txt" && "$has_verbose" == "true" ]]; then
+    kk_test_pass "External script successfully replaced arguments via SetArgs"
+else
+    kk_test_fail "External script test failed: index=$new_option_index, value=$output_value, verbose=$has_verbose"
+fi
+myapp.delete
+
 kk_test_log "017_CommandLineOptionsExternal.sh completed"

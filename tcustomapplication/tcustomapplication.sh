@@ -7,19 +7,22 @@ source "$TCUSTOMAPPLICATION_DIR/../../kklass/kklass.sh"
 # Define TCustomApplication class
 defineClass "TCustomApplication" "" \
     "constructor" '
-        # Initialize all properties to default values
-        Terminated="false"
-        Title="Application"
-        HelpFile=""
-        OptionChar="-"
-        CaseSensitiveOptions="true"
-        StopOnException="true"
-        ExceptionExitCode="1"
-        OnException=""
-        EventLogFilter=""
-        # Initialize command-line arguments storage as empty array
-        TCUSTAPP_ARGS=()
-    ' \
+         # Initialize all properties to default values
+         Terminated="false"
+         Title="Application"
+         HelpFile=""
+         OptionChar="-"
+         CaseSensitiveOptions="true"
+         StopOnException="true"
+         ExceptionExitCode="1"
+         OnException=""
+         EventLogFilter=""
+         # Initialize command-line arguments storage as empty array
+         TCUSTAPP_ARGS=()
+         # Initialize cache for getopt string conversion
+         _CachedShortOpts=""
+         _CachedGetoptOpts=""
+     ' \
     \
     "property" "Terminated" \
     "property" "Title" \
@@ -37,24 +40,24 @@ defineClass "TCustomApplication" "" \
     ' \
     \
     "procedure" "SetArgs" '
-        # Store command-line arguments for this instance in the instance data
-        # Clear existing arguments first
-        TCUSTAPP_ARGS=()
-        
-        # Handle -- separator: if first argument is --, skip it
-        local start_index=0
-        if [[ "$1" == "--" ]]; then
-            start_index=1
-        fi
-        
-        # Store each argument without shell escaping - use a safer approach
-        for ((i = start_index + 1; i <= $#; i++)); do
-            # Get argument by position using indirect expansion
-            local arg="${!i}"
-            # Store arguments as-is, preserving their original form
-            TCUSTAPP_ARGS+=("$arg")
-        done
-    ' \
+         # Store command-line arguments for this instance in the instance data
+         # Clear existing arguments first
+         TCUSTAPP_ARGS=()
+         
+         # Handle -- separator: if first argument is --, skip it
+         local start_index=0
+         if [[ "$1" == "--" ]]; then
+             start_index=1
+         fi
+         
+         # Store each argument without shell escaping - use a safer approach
+         for ((i = start_index + 1; i <= $#; i++)); do
+             # Get argument by position using indirect expansion
+             local arg="${!i}"
+             # Store arguments as-is, preserving their original form
+             TCUSTAPP_ARGS+=("$arg")
+         done
+     ' \
     \
     "function" "_GetArgs" '
         # Get stored arguments array
@@ -64,8 +67,14 @@ defineClass "TCustomApplication" "" \
     \
     "function" "_BuildGetoptString" '
         local short_opts="$1"
-        local getopt_opts=""
         
+        # Check cache first
+        if [[ "$_CachedShortOpts" == "$short_opts" && -n "$_CachedGetoptOpts" ]]; then
+            RESULT="$_CachedGetoptOpts"
+            return 0
+        fi
+        
+        local getopt_opts=""
         for ((i = 0; i < ${#short_opts}; i++)); do
             local ch="${short_opts:$i:1}"
             if [[ "$ch" != ":" ]]; then
@@ -76,6 +85,10 @@ defineClass "TCustomApplication" "" \
                 fi
             fi
         done
+        
+        # Store in cache
+        _CachedShortOpts="$short_opts"
+        _CachedGetoptOpts="$getopt_opts"
         
         RESULT="$getopt_opts"
     ' \
