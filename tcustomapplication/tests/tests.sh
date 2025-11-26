@@ -23,6 +23,14 @@ test_files=(
     "006_GetNonOptions.sh"
     "007_EnvironmentAndLogging.sh"
     "008_PropertiesAndIntegration.sh"
+    "009_OnExceptionProperty.sh"
+    "010_EventLogFilter.sh"
+    "011_ParamsIndices.sh"
+    "012_GetNonOptionsProcedure.sh"
+    "013_CheckOptionsTStrings.sh"
+    "014_LogFiltering.sh"
+    "015_TerminateExitCode.sh"
+    "016_ExceptionIntegration.sh"
 )
 
 failed_tests=0
