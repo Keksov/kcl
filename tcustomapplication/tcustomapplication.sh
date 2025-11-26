@@ -47,12 +47,12 @@ defineClass "TCustomApplication" "" \
             start_index=1
         fi
         
-        # Store each argument with proper escaping for later retrieval
+        # Store each argument without shell escaping - use a safer approach
         for ((i = start_index + 1; i <= $#; i++)); do
             # Get argument by position using indirect expansion
             local arg="${!i}"
-            # Use printf %q for proper shell escaping
-            TCUSTAPP_ARGS+=("$(printf %q "$arg")")
+            # Store arguments as-is, preserving their original form
+            TCUSTAPP_ARGS+=("$arg")
         done
     ' \
     \
@@ -67,12 +67,8 @@ defineClass "TCustomApplication" "" \
         local long_opt="${2:-}"
         local start_at="${3:--1}"
         
-        # Get arguments array
-        local -a args_array=()
-        for arg in "${TCUSTAPP_ARGS[@]}"; do
-            # Evaluate the escaped argument back to original form
-            eval "args_array+=(\"$arg\")"
-        done
+        # Get arguments array directly - no eval needed
+        local -a args_array=("${TCUSTAPP_ARGS[@]}")
         
         # Search for option in arguments starting from start_at
         local search_start=0
@@ -102,12 +98,8 @@ defineClass "TCustomApplication" "" \
         local opt="$1"
         local secondary_opt="${2:-}"
         
-        # Get arguments array
-        local -a args_array=()
-        for arg in "${TCUSTAPP_ARGS[@]}"; do
-            # Evaluate the escaped argument back to original form
-            eval "args_array+=(\"$arg\")"
-        done
+        # Get arguments array directly - no eval needed
+        local -a args_array=("${TCUSTAPP_ARGS[@]}")
         
         # Try short option first
         if [[ -n "$opt" ]]; then
@@ -148,12 +140,8 @@ defineClass "TCustomApplication" "" \
         local short_opt="$1"
         local long_opt="${2:-}"
         
-        # Get arguments array
-        local -a args_array=()
-        for arg in "${TCUSTAPP_ARGS[@]}"; do
-            # Evaluate the escaped argument back to original form
-            eval "args_array+=(\"$arg\")"
-        done
+        # Get arguments array directly - no eval needed
+        local -a args_array=("${TCUSTAPP_ARGS[@]}")
         
         local -a values=()
         
@@ -207,12 +195,8 @@ defineClass "TCustomApplication" "" \
         local opts_param="${3:-}"
         local non_opts_param="${4:-}"
         
-        # Get arguments array
-        local -a args_array=()
-        for arg in "${TCUSTAPP_ARGS[@]}"; do
-            # Evaluate the escaped argument back to original form
-            eval "args_array+=(\"$arg\")"
-        done
+        # Get arguments array directly - no eval needed
+        local -a args_array=("${TCUSTAPP_ARGS[@]}")
         
         # Build getopt options string
         local getopt_opts=""
@@ -252,12 +236,8 @@ defineClass "TCustomApplication" "" \
         local long_opts="$2"
         local non_options_var="${3:-}"
         
-        # Get arguments array
-        local -a args_array=()
-        for arg in "${TCUSTAPP_ARGS[@]}"; do
-            # Evaluate the escaped argument back to original form
-            eval "args_array+=(\"$arg\")"
-        done
+        # Get arguments array directly - no eval needed
+        local -a args_array=("${TCUSTAPP_ARGS[@]}")
         
         # Build getopt options string
         local getopt_opts=""
@@ -332,9 +312,10 @@ defineClass "TCustomApplication" "" \
         local sender="$1"
         local exception_msg="$2"
         
-        # If OnException handler is set, call it
+        # If OnException handler is set, call it - using function call instead of eval
         if [[ -n "$OnException" ]]; then
-            eval "$OnException \"$sender\" \"$exception_msg\""
+            # Call the handler function directly instead of eval
+            "$OnException" "$sender" "$exception_msg"
         else
             # Otherwise call ShowException
             $this.call ShowException "$exception_msg"
