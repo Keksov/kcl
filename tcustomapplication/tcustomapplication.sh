@@ -3,6 +3,7 @@
 # Source kklass system (don't override SCRIPT_DIR)
 TCUSTOMAPPLICATION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TCUSTOMAPPLICATION_DIR/../../kklass/kklass.sh"
+source "$TCUSTOMAPPLICATION_DIR/../../kkore/kuse.sh"
 
 # Define TCustomApplication class
 defineClass "TCustomApplication" "" \
@@ -413,9 +414,7 @@ defineClass "TCustomApplication" "" \
     \
     "function" "Location" '
         # Return directory of the application
-        local script_dir="$(dirname "$0")"
-        [[ ! "$script_dir" = /* ]] && script_dir="$(cd "$script_dir" 2>/dev/null && pwd)"
-        RESULT="$script_dir"
+        RESULT="$(kk.getScriptDir "${BASH_SOURCE[0]}")"
     ' \
     \
     "function" "ParamCount" '
@@ -438,55 +437,4 @@ defineClass "TCustomApplication" "" \
         local var_name="$1"
         local var_value="${!var_name}"
         RESULT="$var_value"
-    ' \
-    \
-    "function" "title" '
-        # Getter for Title property (lowercase alias)
-        # Check if lowercase property was set via .property title =
-        local lowercase_title="$($this.property title)"
-        if [[ -n "$lowercase_title" ]]; then
-            RESULT="$lowercase_title"
-        else
-            RESULT="$Title"
-        fi
-    ' \
-    \
-    "function" "terminated" '
-        # Getter for Terminated property (lowercase alias)
-        RESULT="$Terminated"
-    ' \
-    \
-    "function" "helpfile" '
-        # Getter for HelpFile property (lowercase alias)
-        RESULT="$HelpFile"
-    ' \
-    \
-    "function" "optionchar" '
-        # Getter for OptionChar property (lowercase alias)
-        RESULT="$OptionChar"
-    ' \
-    \
-    "function" "casesensitiveoptions" '
-        # Getter for CaseSensitiveOptions property (lowercase alias)
-        RESULT="$CaseSensitiveOptions"
-    ' \
-    \
-    "function" "stoponexception" '
-        # Getter for StopOnException property (lowercase alias)
-        RESULT="$StopOnException"
-    ' \
-    \
-    "function" "exceptionexitcode" '
-        # Getter for ExceptionExitCode property (lowercase alias)
-        RESULT="$ExceptionExitCode"
-    ' \
-    \
-    "function" "onexception" '
-        # Getter for OnException property (lowercase alias)
-        RESULT="$OnException"
-    ' \
-    \
-    "function" "eventlogfilter" '
-        # Getter for EventLogFilter property (lowercase alias)
-        RESULT="$EventLogFilter"
     '

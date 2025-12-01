@@ -3,7 +3,7 @@
 # Source kklass system (don't override SCRIPT_DIR)
 TLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TLIST_DIR/../../kklass/kklass.sh"
-source "$TLIST_DIR/../../kklass/kklib.sh"
+source "$TLIST_DIR/../../kkore/klib.sh"
 
 # Define TList class
 defineClass TList "" \

@@ -1,12 +1,12 @@
 #!/bin/bash
 # ToLower
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "ToLower" "$SCRIPT_DIR" "$@"
+kt_test_init "ToLower" "$SCRIPT_DIR" "$@"
 
 # Source tstringhelper if needed
 TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
@@ -14,37 +14,37 @@ TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
 
 
 # Test 1: Convert to lowercase
-kk_test_start "To lower case"
+kt_test_start "To lower case"
 result=$(string.toLower "HELLO WORLD")
 if [[ "$result" == "hello world" ]]; then
-    kk_test_pass "To lower case"
+    kt_test_pass "To lower case"
 else
-    kk_test_fail "To lower case (expected: 'hello world', got: '$result')"
+    kt_test_fail "To lower case (expected: 'hello world', got: '$result')"
 fi
 
 # Test 2: Already lowercase
-kk_test_start "Already lowercase"
+kt_test_start "Already lowercase"
 result=$(string.toLower "hello")
 if [[ "$result" == "hello" ]]; then
-    kk_test_pass "Already lowercase"
+    kt_test_pass "Already lowercase"
 else
-    kk_test_fail "Already lowercase (expected: 'hello', got: '$result')"
+    kt_test_fail "Already lowercase (expected: 'hello', got: '$result')"
 fi
 
 # Test 3: Mixed case
-kk_test_start "Mixed case"
+kt_test_start "Mixed case"
 result=$(string.toLower "HeLLo WoRlD")
 if [[ "$result" == "hello world" ]]; then
-    kk_test_pass "Mixed case"
+    kt_test_pass "Mixed case"
 else
-    kk_test_fail "Mixed case (expected: 'hello world', got: '$result')"
+    kt_test_fail "Mixed case (expected: 'hello world', got: '$result')"
 fi
 
 # Test 4: Empty string
-kk_test_start "Empty string"
+kt_test_start "Empty string"
 result=$(string.toLower "")
 if [[ "$result" == "" ]]; then
-    kk_test_pass "Empty string"
+    kt_test_pass "Empty string"
 else
-    kk_test_fail "Empty string (expected: '', got: '$result')"
+    kt_test_fail "Empty string (expected: '', got: '$result')"
 fi

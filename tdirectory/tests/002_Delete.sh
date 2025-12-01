@@ -1,12 +1,12 @@
 #!/bin/bash
 # Delete
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "Delete" "$SCRIPT_DIR" "$@"
+kt_test_init "Delete" "$SCRIPT_DIR" "$@"
 
 # Source tdirectory if needed
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
@@ -14,96 +14,96 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 
 
 # Test 1: Delete empty directory
-kk_test_start "Delete - delete empty directory"
-test_dir="$KK_TEST_TMPDIR/empty_dir"
+kt_test_start "Delete - delete empty directory"
+test_dir="$_KT_TMPDIR/empty_dir"
 tdirectory.createDirectory "$test_dir"
 tdirectory.delete "$test_dir"
 if [[ ! -d "$test_dir" ]]; then
-    kk_test_pass "Delete - delete empty directory"
+    kt_test_pass "Delete - delete empty directory"
 else
-    kk_test_fail "Delete - delete empty directory (expected directory to be deleted)"
+    kt_test_fail "Delete - delete empty directory (expected directory to be deleted)"
 fi
 
 # Test 2: Delete empty directory with explicit Recursive=false
-kk_test_start "Delete - delete empty directory with Recursive false"
-test_dir="$KK_TEST_TMPDIR/empty_dir_explicit"
+kt_test_start "Delete - delete empty directory with Recursive false"
+test_dir="$_KT_TMPDIR/empty_dir_explicit"
 tdirectory.createDirectory "$test_dir"
 tdirectory.delete "$test_dir" "false"
 if [[ ! -d "$test_dir" ]]; then
-    kk_test_pass "Delete - delete empty directory with Recursive false"
+    kt_test_pass "Delete - delete empty directory with Recursive false"
 else
-    kk_test_fail "Delete - delete empty directory with Recursive false (expected directory to be deleted)"
+    kt_test_fail "Delete - delete empty directory with Recursive false (expected directory to be deleted)"
 fi
 
 # Test 3: Non-empty directory with Recursive=false should fail or not delete
-kk_test_start "Delete - non-empty directory with Recursive false fails gracefully"
-test_dir="$KK_TEST_TMPDIR/nonempty_dir"
+kt_test_start "Delete - non-empty directory with Recursive false fails gracefully"
+test_dir="$_KT_TMPDIR/nonempty_dir"
 tdirectory.createDirectory "$test_dir"
 echo "content" > "$test_dir/file.txt"
 tdirectory.delete "$test_dir" "false" 2>/dev/null || true
 if [[ -d "$test_dir" ]]; then
-    kk_test_pass "Delete - non-empty directory with Recursive false fails gracefully"
+    kt_test_pass "Delete - non-empty directory with Recursive false fails gracefully"
 else
-    kk_test_fail "Delete - non-empty directory with Recursive false fails gracefully (should not delete non-empty directory)"
+    kt_test_fail "Delete - non-empty directory with Recursive false fails gracefully (should not delete non-empty directory)"
 fi
 
 # Test 4: Non-empty directory with Recursive=true should delete
-kk_test_start "Delete - non-empty directory with Recursive true"
-test_dir="$KK_TEST_TMPDIR/nonempty_dir_recursive"
+kt_test_start "Delete - non-empty directory with Recursive true"
+test_dir="$_KT_TMPDIR/nonempty_dir_recursive"
 tdirectory.createDirectory "$test_dir/subdir"
 echo "content" > "$test_dir/file.txt"
 echo "content" > "$test_dir/subdir/file.txt"
 tdirectory.delete "$test_dir" "true"
 if [[ ! -d "$test_dir" ]]; then
-    kk_test_pass "Delete - non-empty directory with Recursive true"
+    kt_test_pass "Delete - non-empty directory with Recursive true"
 else
-    kk_test_fail "Delete - non-empty directory with Recursive true (expected directory and contents to be deleted)"
+    kt_test_fail "Delete - non-empty directory with Recursive true (expected directory and contents to be deleted)"
 fi
 
 # Test 5: Delete directory with multiple levels of nesting
-kk_test_start "Delete - delete deeply nested directory tree"
-test_dir="$KK_TEST_TMPDIR/deep_tree"
+kt_test_start "Delete - delete deeply nested directory tree"
+test_dir="$_KT_TMPDIR/deep_tree"
 tdirectory.createDirectory "$test_dir/a/b/c/d/e"
 echo "test" > "$test_dir/a/file1.txt"
 echo "test" > "$test_dir/a/b/file2.txt"
 echo "test" > "$test_dir/a/b/c/file3.txt"
 tdirectory.delete "$test_dir" "true"
 if [[ ! -d "$test_dir" ]]; then
-    kk_test_pass "Delete - delete deeply nested directory tree"
+    kt_test_pass "Delete - delete deeply nested directory tree"
 else
-    kk_test_fail "Delete - delete deeply nested directory tree (expected entire tree to be deleted)"
+    kt_test_fail "Delete - delete deeply nested directory tree (expected entire tree to be deleted)"
 fi
 
 # Test 6: Delete directory with special files
-kk_test_start "Delete - delete directory with various file types"
-test_dir="$KK_TEST_TMPDIR/special_files"
+kt_test_start "Delete - delete directory with various file types"
+test_dir="$_KT_TMPDIR/special_files"
 tdirectory.createDirectory "$test_dir"
 touch "$test_dir/regular.txt"
 touch "$test_dir/empty_file"
 echo "content" > "$test_dir/file_with_content.txt"
 tdirectory.delete "$test_dir" "true"
 if [[ ! -d "$test_dir" ]]; then
-    kk_test_pass "Delete - delete directory with various file types"
+    kt_test_pass "Delete - delete directory with various file types"
 else
-    kk_test_fail "Delete - delete directory with various file types (expected all files and directory to be deleted)"
+    kt_test_fail "Delete - delete directory with various file types (expected all files and directory to be deleted)"
 fi
 
 # Test 7: Delete directory and verify with Exists
-kk_test_start "Delete - directory does not exist after deletion"
-test_dir="$KK_TEST_TMPDIR/verify_delete"
+kt_test_start "Delete - directory does not exist after deletion"
+test_dir="$_KT_TMPDIR/verify_delete"
 tdirectory.createDirectory "$test_dir"
 tdirectory.delete "$test_dir"
 if ! [[ -d "$test_dir" ]]; then
-kk_test_pass "Delete - directory does not exist after deletion"
+kt_test_pass "Delete - directory does not exist after deletion"
 else
-kk_test_fail "Delete - directory does not exist after deletion (directory still exists)"
+kt_test_fail "Delete - directory does not exist after deletion (directory still exists)"
 fi
 
 # Test 8: Multiple sequential deletes
-kk_test_start "Delete - delete multiple directories in sequence"
+kt_test_start "Delete - delete multiple directories in sequence"
 success=true
 for i in {1..3}; do
-    test_dir="$KK_TEST_TMPDIR/sequential_$i"
+    test_dir="$_KT_TMPDIR/sequential_$i"
     tdirectory.createDirectory "$test_dir"
     tdirectory.delete "$test_dir"
     if [[ -d "$test_dir" ]]; then
@@ -112,12 +112,12 @@ for i in {1..3}; do
     fi
 done
 if [[ "$success" == "true" ]]; then
-    kk_test_pass "Delete - delete multiple directories in sequence"
+    kt_test_pass "Delete - delete multiple directories in sequence"
 else
-    kk_test_fail "Delete - delete multiple directories in sequence (some directories were not deleted)"
+    kt_test_fail "Delete - delete multiple directories in sequence (some directories were not deleted)"
 fi
 
-# Cleanup\nkk_fixture_teardown
-kk_fixture_teardown
+# Cleanup\nkt_fixture_teardown
+kt_fixture_teardown
 
 

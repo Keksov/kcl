@@ -1,12 +1,12 @@
 #!/bin/bash
 # GetAttributes
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "GetAttributes" "$SCRIPT_DIR" "$@"
+kt_test_init "GetAttributes" "$SCRIPT_DIR" "$@"
 
 # Source tpath if needed
 TPATH_DIR="$SCRIPT_DIR/.."
@@ -29,80 +29,80 @@ chmod 444 "$readonly_file"
 echo "hidden content" > "$hidden_file"
 
 # Test 1: Regular file attributes
-kk_test_start "GetAttributes for regular file"
+kt_test_start "GetAttributes for regular file"
 result=$(tpath.getAttributes "$test_file")
 if [[ -n "$result" ]] && [[ "$result" != *"faDirectory"* ]]; then
-    kk_test_pass "GetAttributes for regular file"
+    kt_test_pass "GetAttributes for regular file"
 else
-    kk_test_fail "GetAttributes for regular file (expected non-empty, non-directory, got: '$result')"
+    kt_test_fail "GetAttributes for regular file (expected non-empty, non-directory, got: '$result')"
 fi
 
 # Test 2: Directory attributes
-kk_test_start "GetAttributes for directory"
+kt_test_start "GetAttributes for directory"
 result=$(tpath.getAttributes "$test_dir")
 if [[ "$result" == *"faDirectory"* ]]; then
-    kk_test_pass "GetAttributes for directory"
+    kt_test_pass "GetAttributes for directory"
 else
-    kk_test_fail "GetAttributes for directory (expected to contain faDirectory, got: '$result')"
+    kt_test_fail "GetAttributes for directory (expected to contain faDirectory, got: '$result')"
 fi
 
 # Test 3: Read-only file
-kk_test_start "GetAttributes for read-only file"
+kt_test_start "GetAttributes for read-only file"
 result=$(tpath.getAttributes "$readonly_file")
 if [[ "$result" == *"faReadOnly"* ]]; then
-    kk_test_pass "GetAttributes for read-only file"
+    kt_test_pass "GetAttributes for read-only file"
 else
-    kk_test_fail "GetAttributes for read-only file (expected to contain faReadOnly, got: '$result')"
+    kt_test_fail "GetAttributes for read-only file (expected to contain faReadOnly, got: '$result')"
 fi
 
 # Test 4: Hidden file
-kk_test_start "GetAttributes for hidden file"
+kt_test_start "GetAttributes for hidden file"
 result=$(tpath.getAttributes "$hidden_file")
 if [[ "$result" == *"faHidden"* ]]; then
-    kk_test_pass "GetAttributes for hidden file"
+    kt_test_pass "GetAttributes for hidden file"
 else
-    kk_test_fail "GetAttributes for hidden file (expected to contain faHidden, got: '$result')"
+    kt_test_fail "GetAttributes for hidden file (expected to contain faHidden, got: '$result')"
 fi
 
 # Test 5: Non-existent file
-kk_test_start "GetAttributes for non-existent file"
+kt_test_start "GetAttributes for non-existent file"
 result=$(tpath.getAttributes "$temp_dir/non_existent_file.txt" 2>/dev/null) || result=""
 if [[ -z "$result" ]]; then
-    kk_test_pass "GetAttributes for non-existent file"
+    kt_test_pass "GetAttributes for non-existent file"
 else
-    kk_test_fail "GetAttributes for non-existent file (expected empty, got: '$result')"
+    kt_test_fail "GetAttributes for non-existent file (expected empty, got: '$result')"
 fi
 
 # Test 6: Empty path
-kk_test_start "GetAttributes with empty path"
+kt_test_start "GetAttributes with empty path"
 result=$(tpath.getAttributes "" 2>/dev/null) || result=""
 if [[ -z "$result" ]]; then
-    kk_test_pass "GetAttributes with empty path"
+    kt_test_pass "GetAttributes with empty path"
 else
-    kk_test_fail "GetAttributes with empty path (expected empty, got: '$result')"
+    kt_test_fail "GetAttributes with empty path (expected empty, got: '$result')"
 fi
 
 # Test 7: Permission denied directory
-kk_test_start "GetAttributes for permission denied path"
+kt_test_start "GetAttributes for permission denied path"
 denied_dir="$temp_dir/denied"
 mkdir -p "$denied_dir"
 chmod 000 "$denied_dir"
 result=$(tpath.getAttributes "$denied_dir" 2>/dev/null) || result=""
 chmod 755 "$denied_dir"  # Restore permissions for cleanup
 if [[ -n "$result" ]]; then
-    kk_test_pass "GetAttributes for permission denied path"
+    kt_test_pass "GetAttributes for permission denied path"
 else
-    kk_test_fail "GetAttributes for permission denied path (expected non-empty, got empty)"
+    kt_test_fail "GetAttributes for permission denied path (expected non-empty, got empty)"
 fi
 
 # Test 8: Null bytes in path
-kk_test_start "GetAttributes with null bytes in path"
+kt_test_start "GetAttributes with null bytes in path"
 null_path="test$(printf '\0')file.txt"
 result=$(tpath.getAttributes "$null_path" 2>/dev/null) || result=""
 if [[ -z "$result" ]]; then
-    kk_test_pass "GetAttributes with null bytes in path"
+    kt_test_pass "GetAttributes with null bytes in path"
 else
-    kk_test_fail "GetAttributes with null bytes in path (expected empty, got: '$result')"
+    kt_test_fail "GetAttributes with null bytes in path (expected empty, got: '$result')"
 fi
 
 # Cleanup

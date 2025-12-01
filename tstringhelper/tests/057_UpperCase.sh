@@ -1,12 +1,12 @@
 #!/bin/bash
 # UpperCase
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "UpperCase" "$SCRIPT_DIR" "$@"
+kt_test_init "UpperCase" "$SCRIPT_DIR" "$@"
 
 # Source tstringhelper if needed
 TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
@@ -14,10 +14,10 @@ TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
 
 
 # Test 1: Upper case
-kk_test_start "Upper case"
+kt_test_start "Upper case"
 result=$(string.upperCase "hello")
 if [[ "$result" == "HELLO" ]]; then
-    kk_test_pass "Upper case"
+    kt_test_pass "Upper case"
 else
-    kk_test_fail "Upper case (expected: 'HELLO', got: '$result')"
+    kt_test_fail "Upper case (expected: 'HELLO', got: '$result')"
 fi

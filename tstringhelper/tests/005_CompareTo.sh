@@ -1,12 +1,12 @@
 #!/bin/bash
 # CompareTo
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "CompareTo" "$SCRIPT_DIR" "$@"
+kt_test_init "CompareTo" "$SCRIPT_DIR" "$@"
 
 # Source tstringhelper if needed
 TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
@@ -14,19 +14,19 @@ TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
 
 
 # Test 1: Equal
-kk_test_start "CompareTo equal"
+kt_test_start "CompareTo equal"
 result=$(string.compareTo "test" "test")
 if [[ "$result" == "0" ]]; then
-    kk_test_pass "CompareTo equal"
+    kt_test_pass "CompareTo equal"
 else
-    kk_test_fail "CompareTo equal (expected: 0, got: '$result')"
+    kt_test_fail "CompareTo equal (expected: 0, got: '$result')"
 fi
 
 # Test 2: Less
-kk_test_start "CompareTo less"
+kt_test_start "CompareTo less"
 result=$(string.compareTo "abc" "def")
 if [[ "$result" == "-1" ]]; then
-    kk_test_pass "CompareTo less"
+    kt_test_pass "CompareTo less"
 else
-    kk_test_fail "CompareTo less (expected: -1, got: '$result')"
+    kt_test_fail "CompareTo less (expected: -1, got: '$result')"
 fi

@@ -1,12 +1,12 @@
 #!/bin/bash
 # TrimRight
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "TrimRight" "$SCRIPT_DIR" "$@"
+kt_test_init "TrimRight" "$SCRIPT_DIR" "$@"
 
 # Source tstringhelper if needed
 TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
@@ -14,10 +14,10 @@ TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
 
 
 # Test 1: Trim right
-kk_test_start "Trim right"
+kt_test_start "Trim right"
 result=$(string.trimRight "hello  ")
 if [[ "$result" == "hello" ]]; then
-    kk_test_pass "Trim right"
+    kt_test_pass "Trim right"
 else
-    kk_test_fail "Trim right (expected: 'hello', got: '$result')"
+    kt_test_fail "Trim right (expected: 'hello', got: '$result')"
 fi

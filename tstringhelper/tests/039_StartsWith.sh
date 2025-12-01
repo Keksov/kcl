@@ -1,12 +1,12 @@
 #!/bin/bash
 # StartsWith
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "StartsWith" "$SCRIPT_DIR" "$@"
+kt_test_init "StartsWith" "$SCRIPT_DIR" "$@"
 
 # Source tstringhelper if needed
 TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
@@ -14,19 +14,19 @@ TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
 
 
 # Test 1: Starts with
-kk_test_start "Starts with"
+kt_test_start "Starts with"
 result=$(string.startsWith "hello world" "hello")
 if [[ "$result" == "true" ]]; then
-    kk_test_pass "Starts with"
+    kt_test_pass "Starts with"
 else
-    kk_test_fail "Starts with (expected: true, got: '$result')"
+    kt_test_fail "Starts with (expected: true, got: '$result')"
 fi
 
 # Test 2: Does not start with
-kk_test_start "Does not start with"
+kt_test_start "Does not start with"
 result=$(string.startsWith "hello world" "world")
 if [[ "$result" == "false" ]]; then
-    kk_test_pass "Does not start with"
+    kt_test_pass "Does not start with"
 else
-    kk_test_fail "Does not start with (expected: false, got: '$result')"
+    kt_test_fail "Does not start with (expected: false, got: '$result')"
 fi

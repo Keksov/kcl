@@ -1,10 +1,10 @@
 #!/bin/bash
 # 017_CommandLineOptionsExternal.sh - Test TCustomApplication command-line options via external script
-# Auto-generated for kktests framework
+# Auto-generated for ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
 # Source tcustomapplication module
 TCUSTOMAPPLICATION_DIR="$SCRIPT_DIR/.."
@@ -12,13 +12,13 @@ source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 
 # Extract test name from filename
 TEST_NAME="$(basename "$0" .sh)"
-kk_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 
-kk_test_section "017: TCustomApplication Command Line Options (External Script)"
+kt_test_section "017: TCustomApplication Command Line Options (External Script)"
 
 # Test: FindOptionIndex with short option via external script
-kk_test_start "FindOptionIndex with short option (external)"
+kt_test_start "FindOptionIndex with short option (external)"
 TCustomApplication.new myapp
 myapp.SetArgs -- -v file.txt --verbose
 
@@ -41,14 +41,14 @@ external_result=$(cd "$TCUSTOMAPPLICATION_DIR" && bash -c '
 ' 2>/dev/null)
 
 if [[ "$external_result" == "external_pass" && "$result" == "0" ]]; then
-    kk_test_pass "External script confirms FindOptionIndex finds short option at index 0"
+    kt_test_pass "External script confirms FindOptionIndex finds short option at index 0"
 else
-    kk_test_fail "External script failed to confirm FindOptionIndex functionality"
+    kt_test_fail "External script failed to confirm FindOptionIndex functionality"
 fi
 myapp.delete
 
 # Test: FindOptionIndex with long option via external script
-kk_test_start "FindOptionIndex with long option (external)"
+kt_test_start "FindOptionIndex with long option (external)"
 TCustomApplication.new myapp
 myapp.SetArgs -h file.txt --verbose data.txt
 
@@ -73,17 +73,17 @@ if [[ "$result" == "2" ]]; then
     ' 2>/dev/null)
     
     if [[ "$external_verification" == "external_verification_pass" ]]; then
-        kk_test_pass "External verification confirms FindOptionIndex finds long option at index 2"
+        kt_test_pass "External verification confirms FindOptionIndex finds long option at index 2"
     else
-        kk_test_pass "FindOptionIndex finds long option at index 2 (method working correctly)"
+        kt_test_pass "FindOptionIndex finds long option at index 2 (method working correctly)"
     fi
 else
-    kk_test_fail "FindOptionIndex unexpected result: $result (expected 2)"
+    kt_test_fail "FindOptionIndex unexpected result: $result (expected 2)"
 fi
 myapp.delete
 
 # Test: GetOptionValue functionality via external verification
-kk_test_start "GetOptionValue functionality (external verification)"
+kt_test_start "GetOptionValue functionality (external verification)"
 TCustomApplication.new myapp
 myapp.SetArgs -c config.ini file.txt
 myapp.GetOptionValue "c" ""
@@ -104,17 +104,17 @@ if [[ "$value" == "config.ini" ]]; then
     ' 2>/dev/null)
     
     if [[ "$external_check" == "external_option_value_pass" ]]; then
-        kk_test_pass "External verification confirms GetOptionValue works correctly"
+        kt_test_pass "External verification confirms GetOptionValue works correctly"
     else
-        kk_test_pass "GetOptionValue returns correct value: $value"
+        kt_test_pass "GetOptionValue returns correct value: $value"
     fi
 else
-    kk_test_fail "GetOptionValue unexpected result: $value (expected config.ini)"
+    kt_test_fail "GetOptionValue unexpected result: $value (expected config.ini)"
 fi
 myapp.delete
 
 # Test: HasOption functionality via external script
-kk_test_start "HasOption functionality (external)"
+kt_test_start "HasOption functionality (external)"
 TCustomApplication.new myapp
 myapp.SetArgs -v file.txt
 myapp.HasOption "v" ""
@@ -136,17 +136,17 @@ if [[ "$result" == "true" ]]; then
     ' 2>/dev/null)
     
     if [[ "$external_hasoption_check" == "external_hasoption_pass" ]]; then
-        kk_test_pass "External script confirms HasOption works correctly"
+        kt_test_pass "External script confirms HasOption works correctly"
     else
-        kk_test_pass "HasOption returns true for existing option"
+        kt_test_pass "HasOption returns true for existing option"
     fi
 else
-    kk_test_fail "HasOption unexpected result: $result (expected true)"
+    kt_test_fail "HasOption unexpected result: $result (expected true)"
 fi
 myapp.delete
 
 # Test: CheckOptions functionality via external verification
-kk_test_start "CheckOptions functionality (external verification)"
+kt_test_start "CheckOptions functionality (external verification)"
 TCustomApplication.new myapp
 myapp.SetArgs -h -v file.txt
 myapp.CheckOptions "hv" "" "" "" "false"
@@ -168,17 +168,17 @@ if [[ -z "$error_msg" ]]; then
     ' 2>/dev/null)
     
     if [[ "$external_checkoptions" == "external_checkoptions_pass" ]]; then
-        kk_test_pass "External verification confirms CheckOptions works correctly"
+        kt_test_pass "External verification confirms CheckOptions works correctly"
     else
-        kk_test_pass "CheckOptions returns no error for valid options"
+        kt_test_pass "CheckOptions returns no error for valid options"
     fi
 else
-    kk_test_fail "CheckOptions unexpected error: $error_msg"
+    kt_test_fail "CheckOptions unexpected error: $error_msg"
 fi
 myapp.delete
 
 # Test: Argument storage persistence across external verification
-kk_test_start "Argument storage persistence (external verification)"
+kt_test_start "Argument storage persistence (external verification)"
 TCustomApplication.new myapp
 myapp.SetArgs -- -v -c config.ini --output file.txt
 
@@ -214,14 +214,14 @@ external_persistence=$(cd "$TCUSTOMAPPLICATION_DIR" && bash -c '
 ' 2>/dev/null)
 
 if [[ "$external_persistence" == "external_persistence_pass" && "$v_index" == "0" && "$config_value" == "config.ini" && "$output_index" == "2" ]]; then
-    kk_test_pass "External verification confirms argument storage persistence"
+    kt_test_pass "External verification confirms argument storage persistence"
 else
-    kk_test_pass "Argument storage works correctly in main context"
+    kt_test_pass "Argument storage works correctly in main context"
 fi
 myapp.delete
 
 # Test: Complex argument parsing via external script
-kk_test_start "Complex argument parsing (external)"
+kt_test_start "Complex argument parsing (external)"
 TCustomApplication.new myapp
 myapp.SetArgs -- -v --verbose -c config.ini file1.txt file2.txt -h
 
@@ -262,17 +262,17 @@ if [[ "$find_result" == "0" && "$config_value" == "config.ini" && "$has_help" ==
     ' 2>/dev/null)
     
     if [[ "$external_complex" == "external_complex_pass" ]]; then
-        kk_test_pass "External script confirms complex argument parsing works correctly"
+        kt_test_pass "External script confirms complex argument parsing works correctly"
     else
-        kk_test_pass "Complex argument parsing works: FindOptionIndex=$find_result, GetOptionValue=$config_value, HasOption=$has_help"
+        kt_test_pass "Complex argument parsing works: FindOptionIndex=$find_result, GetOptionValue=$config_value, HasOption=$has_help"
     fi
 else
-    kk_test_fail "Complex argument parsing failed: find=$find_result, config=$config_value, help=$has_help"
+    kt_test_fail "Complex argument parsing failed: find=$find_result, config=$config_value, help=$has_help"
 fi
 myapp.delete
 
 # Test: SetArgs replaces external arguments, not merges them
-kk_test_start "SetArgs replaces external arguments (not merges)"
+kt_test_start "SetArgs replaces external arguments (not merges)"
 TCustomApplication.new myapp
 
 # Simulate external program being called with arguments
@@ -297,14 +297,14 @@ myapp.HasOption "a" ""
 has_old_a=$RESULT
 
 if [[ "$new_option_index" == "0" && "$output_value" == "output.txt" && "$has_verbose" == "true" && "$has_old_a" == "false" ]]; then
-    kk_test_pass "SetArgs correctly replaces previous arguments"
+    kt_test_pass "SetArgs correctly replaces previous arguments"
 else
-    kk_test_fail "SetArgs replacement failed: index=$new_option_index, value=$output_value, verbose=$has_verbose, old_a=$has_old_a"
+    kt_test_fail "SetArgs replacement failed: index=$new_option_index, value=$output_value, verbose=$has_verbose, old_a=$has_old_a"
 fi
 myapp.delete
 
 # Test: External script receives arguments and calls SetArgs
-kk_test_start "External script receives args and calls SetArgs"
+kt_test_start "External script receives args and calls SetArgs"
 TCustomApplication.new myapp
 
 # Call the helper external app with initial arguments
@@ -316,10 +316,10 @@ output_value=$(echo "$external_setargs_output" | grep "output_value=" | cut -d'=
 has_verbose=$(echo "$external_setargs_output" | grep "has_verbose=" | cut -d'=' -f2)
 
 if [[ "$new_option_index" == "0" && "$output_value" == "output.txt" && "$has_verbose" == "true" ]]; then
-    kk_test_pass "External script successfully replaced arguments via SetArgs"
+    kt_test_pass "External script successfully replaced arguments via SetArgs"
 else
-    kk_test_fail "External script test failed: index=$new_option_index, value=$output_value, verbose=$has_verbose"
+    kt_test_fail "External script test failed: index=$new_option_index, value=$output_value, verbose=$has_verbose"
 fi
 myapp.delete
 
-kk_test_log "017_CommandLineOptionsExternal.sh completed"
+kt_test_log "017_CommandLineOptionsExternal.sh completed"

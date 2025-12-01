@@ -1,10 +1,10 @@
 #!/bin/bash
 # 014_LogFiltering.sh - Test TCustomApplication Log method with EventLogFilter
-# Auto-generated for kktests framework
+# Auto-generated for ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
 # Source tcustomapplication module
 TCUSTOMAPPLICATION_DIR="$SCRIPT_DIR/.."
@@ -12,13 +12,13 @@ source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 
 # Extract test name from filename
 TEST_NAME="$(basename "$0" .sh)"
-kk_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 
-kk_test_section "014: TCustomApplication Log with EventLogFilter"
+kt_test_section "014: TCustomApplication Log with EventLogFilter"
 
 # Test: Log with EventLogFilter set to specific types
-kk_test_start "Log with EventLogFilter set to specific types"
+kt_test_start "Log with EventLogFilter set to specific types"
 TCustomApplication.new myapp
 myapp.property EventLogFilter = "etInfo etWarning"
 myapp.Log "etInfo" "Info message - should be logged"
@@ -26,14 +26,14 @@ myapp.Log "etError" "Error message - should not be logged"
 myapp.Log "etWarning" "Warning message - should be logged"
 result=$?
 if [[ $result -eq 0 ]]; then
-    kk_test_pass "Log with EventLogFilter for specific types works"
+    kt_test_pass "Log with EventLogFilter for specific types works"
 else
-    kk_test_fail "Log with EventLogFilter for specific types failed"
+    kt_test_fail "Log with EventLogFilter for specific types failed"
 fi
 myapp.delete
 
 # Test: Log with EventLogFilter excluding all types
-kk_test_start "Log with EventLogFilter excluding all types"
+kt_test_start "Log with EventLogFilter excluding all types"
 TCustomApplication.new myapp
 myapp.property EventLogFilter = "etDebug"  # Only debug, exclude others
 myapp.Log "etInfo" "Info message - should not be logged"
@@ -42,14 +42,14 @@ myapp.Log "etError" "Error message - should not be logged"
 myapp.Log "etDebug" "Debug message - should be logged"
 result=$?
 if [[ $result -eq 0 ]]; then
-    kk_test_pass "Log with EventLogFilter excluding all types works"
+    kt_test_pass "Log with EventLogFilter excluding all types works"
 else
-    kk_test_fail "Log with EventLogFilter excluding all types failed"
+    kt_test_fail "Log with EventLogFilter excluding all types failed"
 fi
 myapp.delete
 
 # Test: Log with empty EventLogFilter (log all)
-kk_test_start "Log with empty EventLogFilter"
+kt_test_start "Log with empty EventLogFilter"
 TCustomApplication.new myapp
 myapp.property EventLogFilter = ""  # Empty means log all
 myapp.Log "etInfo" "Info message - should be logged"
@@ -58,14 +58,14 @@ myapp.Log "etError" "Error message - should be logged"
 myapp.Log "etDebug" "Debug message - should be logged"
 result=$?
 if [[ $result -eq 0 ]]; then
-    kk_test_pass "Log with empty EventLogFilter logs all"
+    kt_test_pass "Log with empty EventLogFilter logs all"
 else
-    kk_test_fail "Log with empty EventLogFilter failed"
+    kt_test_fail "Log with empty EventLogFilter failed"
 fi
 myapp.delete
 
 # Test: Log with EventLogFilter changed during execution
-kk_test_start "Log with EventLogFilter changed during execution"
+kt_test_start "Log with EventLogFilter changed during execution"
 TCustomApplication.new myapp
 myapp.property EventLogFilter = "etInfo"
 myapp.Log "etInfo" "Info before change - should be logged"
@@ -74,14 +74,14 @@ myapp.Log "etInfo" "Info after change - should not be logged"
 myapp.Log "etWarning" "Warning after change - should be logged"
 result=$?
 if [[ $result -eq 0 ]]; then
-    kk_test_pass "Log with changing EventLogFilter works"
+    kt_test_pass "Log with changing EventLogFilter works"
 else
-    kk_test_fail "Log with changing EventLogFilter failed"
+    kt_test_fail "Log with changing EventLogFilter failed"
 fi
 myapp.delete
 
 # Test: Log with EventLogFilter and formatted messages
-kk_test_start "Log with EventLogFilter and formatted messages"
+kt_test_start "Log with EventLogFilter and formatted messages"
 TCustomApplication.new myapp
 myapp.property EventLogFilter = "etError etWarning"
 myapp.Log "etError" "Error %s with code %d" "test" 42
@@ -89,14 +89,14 @@ myapp.Log "etInfo" "Info %s - should not be logged" "filtered"
 myapp.Log "etWarning" "Warning %s occurred" "situation"
 result=$?
 if [[ $result -eq 0 ]]; then
-    kk_test_pass "Log with EventLogFilter and formatting works"
+    kt_test_pass "Log with EventLogFilter and formatting works"
 else
-    kk_test_fail "Log with EventLogFilter and formatting failed"
+    kt_test_fail "Log with EventLogFilter and formatting failed"
 fi
 myapp.delete
 
 # Test: Log with EventLogFilter and long messages
-kk_test_start "Log with EventLogFilter and long messages"
+kt_test_start "Log with EventLogFilter and long messages"
 TCustomApplication.new myapp
 myapp.property EventLogFilter = "etInfo"
 long_msg="This is a very long log message that contains multiple lines and various characters to test the Log method's ability to handle complex input with EventLogFilter. It includes numbers 1234567890, special chars !@#$%^&*(), and should demonstrate proper handling of lengthy log descriptions that might be generated by applications during normal operation."
@@ -104,10 +104,10 @@ myapp.Log "etInfo" "$long_msg"
 myapp.Log "etWarning" "Warning - should not be logged due to filter"
 result=$?
 if [[ $result -eq 0 ]]; then
-    kk_test_pass "Log with EventLogFilter and long messages works"
+    kt_test_pass "Log with EventLogFilter and long messages works"
 else
-    kk_test_fail "Log with EventLogFilter and long messages failed"
+    kt_test_fail "Log with EventLogFilter and long messages failed"
 fi
 myapp.delete
 
-kk_test_log "014_LogFiltering.sh completed"
+kt_test_log "014_LogFiltering.sh completed"

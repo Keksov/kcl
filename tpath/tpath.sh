@@ -2,7 +2,7 @@
 
 # Source kklass system (don't override SCRIPT_DIR)
 TPATH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TPATH_DIR/../../kklass/kklass.sh"
+#source "$TPATH_DIR/../../kklass/kklass.sh"
 
 # Define platform-specific constants
 case "$(uname -s)" in
@@ -21,9 +21,6 @@ case "$(uname -s)" in
 esac
 
 EXTENSION_SEPARATOR_CHAR='.'
-
-# Define the tpath class with essential methods only
-#defineClass "tpath" ""
 
 # ============================================================================
 # Property accessor methods
@@ -646,4 +643,3 @@ tpath.getAttributes() {
     fi
 }
 
-#echo "tpath class created successfully"

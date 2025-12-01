@@ -1,12 +1,12 @@
 #!/bin/bash
 # SetCreationTime
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "SetCreationTime" "$SCRIPT_DIR" "$@"
+kt_test_init "SetCreationTime" "$SCRIPT_DIR" "$@"
 
 # Source tdirectory if needed
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
@@ -14,8 +14,8 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 
 
 # Test 1: SetCreationTime changes creation time
-kk_test_start "SetCreationTime - changes creation time"
-test_dir="$KK_TEST_TMPDIR/time_set_001"
+kt_test_start "SetCreationTime - changes creation time"
+test_dir="$_KT_TMPDIR/time_set_001"
 tdirectory.createDirectory "$test_dir"
 original=$(tdirectory.getCreationTime "$test_dir")
 # Set new creation time (current time)
@@ -23,51 +23,51 @@ new_time=$(date +%s)
 tdirectory.setCreationTime "$test_dir" "$new_time"
 updated=$(tdirectory.getCreationTime "$test_dir")
 if [[ -n "$updated" ]]; then
-    kk_test_pass "SetCreationTime - changes creation time"
+    kt_test_pass "SetCreationTime - changes creation time"
 else
-    kk_test_fail "SetCreationTime - changes creation time (expected: time to be set)"
+    kt_test_fail "SetCreationTime - changes creation time (expected: time to be set)"
 fi
 
 # Test 2: SetCreationTime persists
-kk_test_start "SetCreationTime - persists after operation"
-test_dir="$KK_TEST_TMPDIR/persist_time"
+kt_test_start "SetCreationTime - persists after operation"
+test_dir="$_KT_TMPDIR/persist_time"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setCreationTime "$test_dir" "$new_time"
 echo "file" > "$test_dir/file.txt"
 result=$(tdirectory.getCreationTime "$test_dir")
 if [[ -n "$result" ]]; then
-    kk_test_pass "SetCreationTime - persists after operation"
+    kt_test_pass "SetCreationTime - persists after operation"
 else
-    kk_test_fail "SetCreationTime - persists after operation (expected: time persists)"
+    kt_test_fail "SetCreationTime - persists after operation (expected: time persists)"
 fi
 
 # Test 3: SetCreationTime on nested directory
-kk_test_start "SetCreationTime - nested directory"
-test_dir="$KK_TEST_TMPDIR/nested/path"
+kt_test_start "SetCreationTime - nested directory"
+test_dir="$_KT_TMPDIR/nested/path"
 tdirectory.createDirectory "$test_dir"
 new_time=$(date +%s)
 tdirectory.setCreationTime "$test_dir" "$new_time"
 result=$(tdirectory.getCreationTime "$test_dir")
 if [[ -n "$result" ]]; then
-    kk_test_pass "SetCreationTime - nested directory"
+    kt_test_pass "SetCreationTime - nested directory"
 else
-    kk_test_fail "SetCreationTime - nested directory (expected: time to be set)"
+    kt_test_fail "SetCreationTime - nested directory (expected: time to be set)"
 fi
 
 # Test 4: SetCreationTime with various time formats
-kk_test_start "SetCreationTime - accepts datetime"
-test_dir="$KK_TEST_TMPDIR/time_format"
+kt_test_start "SetCreationTime - accepts datetime"
+test_dir="$_KT_TMPDIR/time_format"
 tdirectory.createDirectory "$test_dir"
 # Use a specific time value
 tdirectory.setCreationTime "$test_dir" "2024-01-01 12:00:00"
 result=$(tdirectory.getCreationTime "$test_dir")
 if [[ -n "$result" ]]; then
-    kk_test_pass "SetCreationTime - accepts datetime"
+    kt_test_pass "SetCreationTime - accepts datetime"
 else
-    kk_test_fail "SetCreationTime - accepts datetime (expected: time to be set)"
+    kt_test_fail "SetCreationTime - accepts datetime (expected: time to be set)"
 fi
 
-# Cleanup\nkk_fixture_teardown
+# Cleanup\nkt_fixture_teardown
 
 

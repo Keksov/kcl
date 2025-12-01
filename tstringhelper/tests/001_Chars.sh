@@ -1,12 +1,12 @@
 #!/bin/bash
 # Chars
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "Chars" "$SCRIPT_DIR" "$@"
+kt_test_init "Chars" "$SCRIPT_DIR" "$@"
 
 # Source tstringhelper if needed
 TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
@@ -14,19 +14,19 @@ TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
 
 
 # Test 1: Get char at index
-kk_test_start "Get char at index"
+kt_test_start "Get char at index"
 result=$(string.chars "hello" 0)
 if [[ "$result" == "h" ]]; then
-    kk_test_pass "Get char at index"
+    kt_test_pass "Get char at index"
 else
-    kk_test_fail "Get char at index (expected: 'h', got: '$result')"
+    kt_test_fail "Get char at index (expected: 'h', got: '$result')"
 fi
 
 # Test 2: Invalid index
-kk_test_start "Invalid index"
+kt_test_start "Invalid index"
 result=$(string.chars "hello" 10)
 if [[ "$result" == "undefined" ]]; then
-    kk_test_pass "Invalid index"
+    kt_test_pass "Invalid index"
 else
-    kk_test_fail "Invalid index (expected: 'undefined', got: '$result')"
+    kt_test_fail "Invalid index (expected: 'undefined', got: '$result')"
 fi

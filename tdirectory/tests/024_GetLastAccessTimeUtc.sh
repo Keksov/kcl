@@ -1,12 +1,12 @@
 #!/bin/bash
 # GetLastAccessTimeUtc
-# Auto-migrated to kktests framework
+# Auto-migrated to ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KKTESTS_LIB_DIR="$SCRIPT_DIR/../../../kktests"
-source "$KKTESTS_LIB_DIR/kk-test.sh"
+KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
+source "$KTESTS_LIB_DIR/ktest.sh"
 
-kk_test_init "GetLastAccessTimeUtc" "$SCRIPT_DIR" "$@"
+kt_test_init "GetLastAccessTimeUtc" "$SCRIPT_DIR" "$@"
 
 # Source tdirectory if needed
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
@@ -14,52 +14,52 @@ TDIRECTORY_DIR="$SCRIPT_DIR/.."
 
 
 # Test 1: GetLastAccessTimeUtc returns datetime
-kk_test_start "GetLastAccessTimeUtc - returns datetime value"
-test_dir="$KK_TEST_TMPDIR/utc_access_001"
+kt_test_start "GetLastAccessTimeUtc - returns datetime value"
+test_dir="$_KT_TMPDIR/utc_access_001"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTimeUtc "$test_dir")
 if [[ -n "$result" ]]; then
-    kk_test_pass "GetLastAccessTimeUtc - returns datetime value"
+    kt_test_pass "GetLastAccessTimeUtc - returns datetime value"
 else
-    kk_test_fail "GetLastAccessTimeUtc - returns datetime value (expected: non-empty datetime)"
+    kt_test_fail "GetLastAccessTimeUtc - returns datetime value (expected: non-empty datetime)"
 fi
 
 # Test 2: GetLastAccessTimeUtc on newly created directory
-kk_test_start "GetLastAccessTimeUtc - newly created directory"
-test_dir="$KK_TEST_TMPDIR/utc_access_new"
+kt_test_start "GetLastAccessTimeUtc - newly created directory"
+test_dir="$_KT_TMPDIR/utc_access_new"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTimeUtc "$test_dir")
 if [[ -n "$result" ]]; then
-    kk_test_pass "GetLastAccessTimeUtc - newly created directory"
+    kt_test_pass "GetLastAccessTimeUtc - newly created directory"
 else
-    kk_test_fail "GetLastAccessTimeUtc - newly created directory (expected: valid datetime)"
+    kt_test_fail "GetLastAccessTimeUtc - newly created directory (expected: valid datetime)"
 fi
 
 # Test 3: GetLastAccessTimeUtc consistency
-kk_test_start "GetLastAccessTimeUtc - consistent results"
-test_dir="$KK_TEST_TMPDIR/utc_access_consistent"
+kt_test_start "GetLastAccessTimeUtc - consistent results"
+test_dir="$_KT_TMPDIR/utc_access_consistent"
 tdirectory.createDirectory "$test_dir"
 result1=$(tdirectory.getLastAccessTimeUtc "$test_dir")
 # Note: do not sleep between calls - access time may be updated by filesystem
 # Just verify that immediate calls return consistent results
 result2=$(tdirectory.getLastAccessTimeUtc "$test_dir")
 if [[ "$result1" == "$result2" ]]; then
-    kk_test_pass "GetLastAccessTimeUtc - consistent results"
+    kt_test_pass "GetLastAccessTimeUtc - consistent results"
 else
-    kk_test_fail "GetLastAccessTimeUtc - consistent results (expected same time)"
+    kt_test_fail "GetLastAccessTimeUtc - consistent results (expected same time)"
 fi
 
 # Test 4: GetLastAccessTimeUtc on nested directory
-kk_test_start "GetLastAccessTimeUtc - nested directory"
-test_dir="$KK_TEST_TMPDIR/utc/access/nested/path"
+kt_test_start "GetLastAccessTimeUtc - nested directory"
+test_dir="$_KT_TMPDIR/utc/access/nested/path"
 tdirectory.createDirectory "$test_dir"
 result=$(tdirectory.getLastAccessTimeUtc "$test_dir")
 if [[ -n "$result" ]]; then
-    kk_test_pass "GetLastAccessTimeUtc - nested directory"
+    kt_test_pass "GetLastAccessTimeUtc - nested directory"
 else
-    kk_test_fail "GetLastAccessTimeUtc - nested directory (expected: valid datetime)"
+    kt_test_fail "GetLastAccessTimeUtc - nested directory (expected: valid datetime)"
 fi
 
-# Cleanup\nkk_fixture_teardown
+# Cleanup\nkt_fixture_teardown
 
 
