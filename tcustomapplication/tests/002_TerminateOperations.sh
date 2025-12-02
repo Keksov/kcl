@@ -20,9 +20,9 @@ kt_test_section "002: TCustomApplication Terminate Operations"
 # Test: Terminate without exit code
 kt_test_start "Terminate without exit code"
 TCustomApplication.new myapp
-terminated_before=$(myapp.terminated)
+terminated_before=$(myapp.Terminated)
 myapp.Terminate
-terminated_after=$(myapp.terminated)
+terminated_after=$(myapp.Terminated)
 if [[ "$terminated_before" == "false" && "$terminated_after" == "true" ]]; then
     kt_test_pass "Terminate sets terminated to true"
 else
@@ -34,7 +34,7 @@ myapp.delete
 kt_test_start "Terminate with exit code"
 TCustomApplication.new myapp
 myapp.Terminate 42
-terminated=$(myapp.terminated)
+terminated=$(myapp.Terminated)
 if [[ "$terminated" == "true" ]]; then
     kt_test_pass "Terminate with exit code sets terminated to true"
 else
@@ -46,9 +46,9 @@ myapp.delete
 kt_test_start "Multiple terminate calls"
 TCustomApplication.new myapp
 myapp.Terminate
-terminated1=$(myapp.terminated)
+terminated1=$(myapp.Terminated)
 myapp.Terminate 1
-terminated2=$(myapp.terminated)
+terminated2=$(myapp.Terminated)
 if [[ "$terminated1" == "true" && "$terminated2" == "true" ]]; then
     kt_test_pass "Multiple terminate calls work correctly"
 else
@@ -60,9 +60,9 @@ myapp.delete
 kt_test_start "Terminate on initialized application"
 TCustomApplication.new myapp
 myapp.Initialize
-terminated_before=$(myapp.terminated)
+terminated_before=$(myapp.Terminated)
 myapp.Terminate
-terminated_after=$(myapp.terminated)
+terminated_after=$(myapp.Terminated)
 if [[ "$terminated_before" == "false" && "$terminated_after" == "true" ]]; then
     kt_test_pass "Terminate works on initialized application"
 else
@@ -74,7 +74,7 @@ myapp.delete
 kt_test_start "Terminate with zero exit code"
 TCustomApplication.new myapp
 myapp.Terminate 0
-terminated=$(myapp.terminated)
+terminated=$(myapp.Terminated)
 if [[ "$terminated" == "true" ]]; then
     kt_test_pass "Terminate with zero exit code works"
 else
@@ -86,7 +86,7 @@ myapp.delete
 kt_test_start "Terminate with negative exit code"
 TCustomApplication.new myapp
 myapp.Terminate -1
-terminated=$(myapp.terminated)
+terminated=$(myapp.Terminated)
 if [[ "$terminated" == "true" ]]; then
     kt_test_pass "Terminate with negative exit code works"
 else

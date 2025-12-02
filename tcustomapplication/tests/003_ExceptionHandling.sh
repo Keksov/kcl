@@ -60,9 +60,9 @@ myapp.delete
 kt_test_start "HandleException triggering termination"
 TCustomApplication.new myapp
 # Set StopOnException to true (would be via property)
-terminated_before=$(myapp.terminated)
+terminated_before=$(myapp.Terminated)
 myapp.HandleException "mock_sender" "exception_with_stop"
-terminated_after=$(myapp.terminated)
+terminated_after=$(myapp.Terminated)
 if [[ "$terminated_before" == "false" && "$terminated_after" == "true" ]]; then
     kt_test_pass "HandleException triggered termination as expected"
 else

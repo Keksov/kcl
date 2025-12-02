@@ -20,7 +20,7 @@ kt_test_section "008: TCustomApplication Properties and Integration"
 # Test: ExeName property
 kt_test_start "ExeName property"
 TCustomApplication.new myapp
-exe_name=$(myapp.exeName)
+exe_name=$(myapp.ExeName)
 if [[ -n "$exe_name" ]]; then
     kt_test_pass "ExeName property returns executable name: $exe_name"
 else

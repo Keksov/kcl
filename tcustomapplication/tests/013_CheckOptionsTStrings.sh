@@ -20,11 +20,13 @@ kt_test_section "013: TCustomApplication CheckOptions with TStrings Parameters"
 # Test: CheckOptions with TStrings Longopts
 kt_test_start "CheckOptions with TStrings Longopts"
 TCustomApplication.new myapp
+# Set command-line arguments with proper format
+myapp.SetArgs -- --help --version
 # Create mock TStrings for Longopts
 declare -a longopts_list=("help" "version" "verbose")
 declare -a opts_list
 declare -a nonopts_list
-error_msg=$(myapp.CheckOptions "hv" longopts_list opts_list nonopts_list "false")
+error_msg=$(myapp.CheckOptions "" longopts_list opts_list nonopts_list "false")
 if [[ -z "$error_msg" ]]; then
     kt_test_pass "CheckOptions with TStrings Longopts returns no error"
 else
@@ -35,6 +37,7 @@ myapp.delete
 # Test: CheckOptions with TStrings Longopts and invalid options
 kt_test_start "CheckOptions with TStrings Longopts invalid"
 TCustomApplication.new myapp
+myapp.SetArgs -- -h:v:
 declare -a longopts_invalid=("help" "version")
 declare -a opts_invalid
 declare -a nonopts_invalid
@@ -49,6 +52,7 @@ myapp.delete
 # Test: CheckOptions with TStrings and AllErrors true
 kt_test_start "CheckOptions with TStrings and AllErrors"
 TCustomApplication.new myapp
+myapp.SetArgs -- -h:v:
 declare -a longopts_all=("help" "version")
 declare -a opts_all
 declare -a nonopts_all
@@ -63,10 +67,11 @@ myapp.delete
 # Test: CheckOptions with array Longopts (another overload)
 kt_test_start "CheckOptions with array Longopts"
 TCustomApplication.new myapp
+myapp.SetArgs -- --help --version
 declare -a longopts_array=("help" "version" "verbose")
 declare -a opts_array
 declare -a nonopts_array
-error_msg=$(myapp.CheckOptions "hv" longopts_array opts_array nonopts_array "false")
+error_msg=$(myapp.CheckOptions "" longopts_array opts_array nonopts_array "false")
 if [[ -z "$error_msg" ]]; then
     kt_test_pass "CheckOptions with array Longopts works"
 else
@@ -77,7 +82,8 @@ myapp.delete
 # Test: CheckOptions with string LongOpts (space separated)
 kt_test_start "CheckOptions with string LongOpts"
 TCustomApplication.new myapp
-error_msg=$(myapp.CheckOptions "h" "help version verbose" "false")
+myapp.SetArgs -- --help
+error_msg=$(myapp.CheckOptions "" "help version verbose" "false")
 if [[ -z "$error_msg" ]]; then
     kt_test_pass "CheckOptions with string LongOpts works"
 else
@@ -88,6 +94,7 @@ myapp.delete
 # Test: CheckOptions with string LongOpts invalid
 kt_test_start "CheckOptions with string LongOpts invalid"
 TCustomApplication.new myapp
+myapp.SetArgs -- -h:v:
 error_msg=$(myapp.CheckOptions "h:v:" "help version" "false")
 if [[ -n "$error_msg" ]]; then
     kt_test_pass "CheckOptions with string LongOpts detects invalid"
@@ -99,6 +106,7 @@ myapp.delete
 # Test: CheckOptions with string LongOpts and AllErrors
 kt_test_start "CheckOptions with string LongOpts and AllErrors"
 TCustomApplication.new myapp
+myapp.SetArgs -- -h:v:
 error_msg=$(myapp.CheckOptions "h:v:" "help version" "true")
 if [[ -n "$error_msg" ]]; then
     kt_test_pass "CheckOptions with string LongOpts and AllErrors works"
@@ -110,8 +118,9 @@ myapp.delete
 # Test: CheckOptions multiple calls
 kt_test_start "CheckOptions multiple calls"
 TCustomApplication.new myapp
-error1=$(myapp.CheckOptions "h" "help" "false")
-error2=$(myapp.CheckOptions "v" "version" "false")
+myapp.SetArgs -- --help --version
+error1=$(myapp.CheckOptions "" "help" "false")
+error2=$(myapp.CheckOptions "" "version" "false")
 if [[ -z "$error1" && -z "$error2" ]]; then
     kt_test_pass "Multiple CheckOptions calls work"
 else

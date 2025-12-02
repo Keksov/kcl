@@ -23,7 +23,7 @@ TCustomApplication.new myapp
 initial_exit_code=${EXITCODE:-0}  # Assume EXITCODE variable or default 0
 myapp.Terminate 42
 final_exit_code=${EXITCODE:-0}
-terminated=$(myapp.terminated)
+terminated=$(myapp.Terminated)
 if [[ "$terminated" == "true" && "$final_exit_code" == "42" ]]; then
     kt_test_pass "Terminate sets System.ExitCode correctly"
 else
@@ -36,7 +36,7 @@ kt_test_start "Terminate with zero exit code"
 TCustomApplication.new myapp
 myapp.Terminate 0
 exit_code_zero=${EXITCODE:-0}
-terminated_zero=$(myapp.terminated)
+terminated_zero=$(myapp.Terminated)
 if [[ "$terminated_zero" == "true" && "$exit_code_zero" == "0" ]]; then
     kt_test_pass "Terminate with zero exit code works"
 else
@@ -49,7 +49,7 @@ kt_test_start "Terminate with negative exit code"
 TCustomApplication.new myapp
 myapp.Terminate -1
 exit_code_neg=${EXITCODE:-0}
-terminated_neg=$(myapp.terminated)
+terminated_neg=$(myapp.Terminated)
 if [[ "$terminated_neg" == "true" && "$exit_code_neg" == "-1" ]]; then
     kt_test_pass "Terminate with negative exit code works"
 else
@@ -62,7 +62,7 @@ kt_test_start "Terminate without exit code"
 TCustomApplication.new myapp
 myapp.Terminate
 exit_code_default=${EXITCODE:-0}
-terminated_default=$(myapp.terminated)
+terminated_default=$(myapp.Terminated)
 if [[ "$terminated_default" == "true" ]]; then
     kt_test_pass "Terminate without exit code works"
 else
@@ -77,7 +77,7 @@ myapp.Terminate 10
 exit_code1=${EXITCODE:-0}
 myapp.Terminate 20
 exit_code2=${EXITCODE:-0}
-terminated_multi=$(myapp.terminated)
+terminated_multi=$(myapp.Terminated)
 if [[ "$terminated_multi" == "true" && "$exit_code2" == "20" ]]; then
     kt_test_pass "Multiple Terminate calls work, last exit code prevails"
 else
@@ -90,7 +90,7 @@ kt_test_start "Terminate with large exit code"
 TCustomApplication.new myapp
 myapp.Terminate 255
 exit_code_large=${EXITCODE:-0}
-terminated_large=$(myapp.terminated)
+terminated_large=$(myapp.Terminated)
 if [[ "$terminated_large" == "true" && "$exit_code_large" == "255" ]]; then
     kt_test_pass "Terminate with large exit code works"
 else
@@ -105,7 +105,7 @@ myapp.property ExceptionExitCode = 99
 # Terminate without code should not override ExceptionExitCode
 myapp.Terminate
 exit_code_exception=${EXITCODE:-0}
-terminated_exception=$(myapp.terminated)
+terminated_exception=$(myapp.Terminated)
 if [[ "$terminated_exception" == "true" ]]; then
     kt_test_pass "Terminate respects ExceptionExitCode setting"
 else

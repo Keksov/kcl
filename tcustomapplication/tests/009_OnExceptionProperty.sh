@@ -14,6 +14,18 @@ source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
+# Define mock exception handlers for testing
+mock_handler_function() {
+    return 0
+}
+
+test_exception_handler() {
+    return 0
+}
+
+prevent_show_exception() {
+    return 0
+}
 
 kt_test_section "009: TCustomApplication OnException Property"
 
@@ -73,9 +85,9 @@ myapp.delete
 kt_test_start "OnException handler prevents ShowException"
 TCustomApplication.new myapp
 myapp.property OnException = "prevent_show_exception"
-terminated_before=$(myapp.terminated)
+terminated_before=$(myapp.Terminated)
 myapp.HandleException "sender" "exception_with_handler"
-terminated_after=$(myapp.terminated)
+terminated_after=$(myapp.Terminated)
 # If OnException is set, ShowException should not be called, and termination depends on StopOnException
 if [[ "$terminated_before" == "false" ]]; then
     kt_test_pass "OnException handler integration works"

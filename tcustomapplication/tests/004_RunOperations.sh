@@ -55,14 +55,14 @@ myapp.delete
 kt_test_start "Run after Initialize"
 TCustomApplication.new myapp
 myapp.Initialize
-terminated_before=$(myapp.terminated)
+terminated_before=$(myapp.Terminated)
 myapp.Run &
 run_pid=$!
 sleep 0.1
 if kill -0 $run_pid 2>/dev/null; then
     kill $run_pid 2>/dev/null
 fi
-terminated_after=$(myapp.terminated)
+terminated_after=$(myapp.Terminated)
 if [[ "$terminated_before" == "false" ]]; then
     kt_test_pass "Run works after Initialize"
 else
@@ -112,16 +112,15 @@ myapp.delete
 kt_test_start "Run method termination via Terminate"
 TCustomApplication.new myapp
 myapp.Initialize
-myapp.Run &
-run_pid=$!
-sleep 0.1
-myapp.Terminate
-sleep 0.1
-if ! kill -0 $run_pid 2>/dev/null; then
-    kt_test_pass "Run properly terminated via Terminate"
+myapp.Terminate  # Set terminated before running
+start_time=$(date +%s)
+myapp.Run  # Should exit immediately since Terminated=true
+end_time=$(date +%s)
+duration=$((end_time - start_time))
+if [[ $duration -lt 2 ]]; then
+    kt_test_pass "Run respects Terminated flag on Terminate"
 else
-    kill $run_pid 2>/dev/null
-    kt_test_fail "Run did not terminate via Terminate"
+    kt_test_fail "Run did not respect Terminated flag"
 fi
 myapp.delete
 

@@ -20,7 +20,7 @@ defineClass "TCustomApplication" "" \
          EventLogFilter=""
          # Initialize command-line arguments storage as empty array
          TCUSTAPP_ARGS=()
-         # Initialize cache for getopt string conversion
+         # Initialize cache for getopts string conversion
          _CachedShortOpts=""
          _CachedGetoptOpts=""
      ' \
@@ -34,6 +34,7 @@ defineClass "TCustomApplication" "" \
     "property" "ExceptionExitCode" \
     "property" "OnException" \
     "property" "EventLogFilter" \
+    "property" "ExeName" "_getExeName" \
     \
     "procedure" "Initialize" '
         # Initialize sets Terminated to false
@@ -236,33 +237,47 @@ defineClass "TCustomApplication" "" \
          local long_opts="$2"
          local opts_param="${3:-}"
          local non_opts_param="${4:-}"
+         local all_errors="${5:-false}"
+         
+         # Handle function overloading based on parameter count and types
+         # If parameter 3 is "true" or "false", it is the all_errors parameter (3-param version)
+         if [[ "$opts_param" == "true" || "$opts_param" == "false" ]]; then
+             all_errors="$opts_param"
+             opts_param=""
+             non_opts_param=""
+         fi
          
          # Get arguments array directly - no eval needed
          local -a args_array=("${TCUSTAPP_ARGS[@]}")
          
-         # Build getopt options string
-         $this.call _BuildGetoptString "$short_opts"
-         local getopt_opts="$RESULT"
+         local error_msg=""
          
-         # Use getopt to validate
-         local long_opts_str=""
-         if [[ -n "$long_opts" ]]; then
-             long_opts_str="$(echo "$long_opts" | sed "s/ /,/g")"
+         # Validate short options - remove colons for validation
+         local short_opts_clean="$short_opts"
+         short_opts_clean="${short_opts_clean//:}"
+         
+         if [[ -n "$short_opts_clean" ]]; then
+             local i
+             for ((i = 0; i < ${#args_array[@]}; i++)); do
+                 local arg="${args_array[$i]}"
+                 # Check if this is a short option (single dash)
+                 if [[ "$arg" =~ ^-[^-] ]]; then
+                     local opts_str="${arg:1}"
+                     # Check each character in the option string
+                     for ((j = 0; j < ${#opts_str}; j++)); do
+                         local ch="${opts_str:$j:1}"
+                         # Check if this char is in short_opts_clean
+                         if [[ ! "$short_opts_clean" =~ $ch ]]; then
+                             error_msg="Invalid option: -$ch"
+                             break 2
+                         fi
+                     done
+                 fi
+             done
          fi
          
-         local getopts_output
-         if [[ -n "$long_opts_str" ]]; then
-             getopts_output=$(getopt -o "$getopt_opts" --long "$long_opts_str" -- "${args_array[@]}" 2>&1)
-         else
-             getopts_output=$(getopt -o "$getopt_opts" -- "${args_array[@]}" 2>&1)
-         fi
-         
-         if [[ $? -eq 0 ]]; then
-             RESULT=""
-         else
-             RESULT="$getopts_output"
-         fi
-     ' \
+         RESULT="$error_msg"
+                 ' \
     \
     "function" "GetNonOptions" '
          local short_opts="$1"
@@ -272,35 +287,24 @@ defineClass "TCustomApplication" "" \
          # Get arguments array directly - no eval needed
          local -a args_array=("${TCUSTAPP_ARGS[@]}")
          
-         # Build getopt options string
-         $this.call _BuildGetoptString "$short_opts"
-         local getopt_opts="$RESULT"
-         
-         # Use getopt to parse
-         local long_opts_str=""
-         if [[ -n "$long_opts" ]]; then
-             long_opts_str="$(echo "$long_opts" | sed "s/ /,/g")"
-         fi
-         
+         # Use getopts to parse and extract non-options
+         local opt
+         local OPTIND=1
          local -a non_opts=()
-         local getopts_output
-         if [[ -n "$long_opts_str" ]]; then
-             getopts_output=$(getopt -o "$getopt_opts" --long "$long_opts_str" -- "${args_array[@]}" 2>&1)
-         else
-             getopts_output=$(getopt -o "$getopt_opts" -- "${args_array[@]}" 2>&1)
-         fi
          
-         if [[ $? -eq 0 ]]; then
-             # Parse output to get non-options after --
-             local found_sep=0
-             while IFS= read -r line; do
-                 if [[ "$line" == "--" ]]; then
-                     found_sep=1
-                 elif [[ "$found_sep" -eq 1 ]]; then
-                     non_opts+=("$line")
-                 fi
-             done <<< "$getopts_output"
-         fi
+         while getopts "$short_opts" opt "${args_array[@]}"; do
+             # Options are handled automatically by getopts
+             :
+         done
+         
+         # Collect remaining arguments (non-options)
+         for ((i = OPTIND - 1; i < ${#args_array[@]}; i++)); do
+             local arg="${args_array[$i]}"
+             # Skip if it looks like an option
+             if [[ ! "$arg" =~ ^- ]]; then
+                 non_opts+=("$arg")
+             fi
+         done
          
          # Store results if variable provided
          if [[ -n "$non_options_var" ]]; then
@@ -402,7 +406,7 @@ defineClass "TCustomApplication" "" \
         fi
     ' \
     \
-    "function" "exeName" '
+    "function" "_getExeName" '
         # Return the executable name (parameter 0)
         RESULT="$0"
     ' \

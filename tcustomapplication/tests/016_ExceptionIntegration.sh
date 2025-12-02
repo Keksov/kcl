@@ -14,6 +14,11 @@ source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
+# Define exception handlers for tests
+integration_handler() {
+    # Handler for OnException tests
+    return 0
+}
 
 kt_test_section "016: TCustomApplication Exception Handling Integration"
 
@@ -21,9 +26,9 @@ kt_test_section "016: TCustomApplication Exception Handling Integration"
 kt_test_start "HandleException with StopOnException true"
 TCustomApplication.new myapp
 myapp.property StopOnException = "true"
-terminated_before=$(myapp.terminated)
+terminated_before=$(myapp.Terminated)
 myapp.HandleException "test_sender" "test_exception"
-terminated_after=$(myapp.terminated)
+terminated_after=$(myapp.Terminated)
 if [[ "$terminated_before" == "false" && "$terminated_after" == "true" ]]; then
     kt_test_pass "HandleException with StopOnException=true terminates"
 else
@@ -35,9 +40,9 @@ myapp.delete
 kt_test_start "HandleException with StopOnException false"
 TCustomApplication.new myapp
 myapp.property StopOnException = "false"
-terminated_before=$(myapp.terminated)
+terminated_before=$(myapp.Terminated)
 myapp.HandleException "test_sender" "test_exception"
-terminated_after=$(myapp.terminated)
+terminated_after=$(myapp.Terminated)
 if [[ "$terminated_before" == "false" && "$terminated_after" == "false" ]]; then
     kt_test_pass "HandleException with StopOnException=false does not terminate"
 else
@@ -50,9 +55,9 @@ kt_test_start "HandleException with OnException handler and StopOnException"
 TCustomApplication.new myapp
 myapp.property OnException = "integration_handler"
 myapp.property StopOnException = "true"
-terminated_before=$(myapp.terminated)
+terminated_before=$(myapp.Terminated)
 myapp.HandleException "sender" "exception_with_handler"
-terminated_after=$(myapp.terminated)
+terminated_after=$(myapp.Terminated)
 if [[ "$terminated_before" == "false" && "$terminated_after" == "true" ]]; then
     kt_test_pass "HandleException with handler and StopOnException works"
 else
@@ -78,9 +83,9 @@ kt_test_start "ExceptionExitCode used when terminating due to exception"
 TCustomApplication.new myapp
 myapp.property StopOnException = "true"
 myapp.property ExceptionExitCode = 77
-terminated_before=$(myapp.terminated)
+terminated_before=$(myapp.Terminated)
 myapp.HandleException "sender" "exception_with_exit_code"
-terminated_after=$(myapp.terminated)
+terminated_after=$(myapp.Terminated)
 exit_code=${EXITCODE:-0}
 if [[ "$terminated_before" == "false" && "$terminated_after" == "true" && "$exit_code" == "77" ]]; then
     kt_test_pass "ExceptionExitCode used correctly"
@@ -116,7 +121,7 @@ myapp.property StopOnException = "false"  # Don't terminate
 myapp.HandleException "sender1" "exception1"
 myapp.HandleException "sender2" "exception2"
 myapp.HandleException "sender3" "exception3"
-terminated=$(myapp.terminated)
+terminated=$(myapp.Terminated)
 if [[ "$terminated" == "false" ]]; then
     kt_test_pass "Multiple exceptions handled without termination"
 else
