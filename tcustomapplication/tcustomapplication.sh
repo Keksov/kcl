@@ -25,6 +25,8 @@ defineClass "TCustomApplication" "" \
          _CachedGetoptOpts=""
          # Initialize cache flag for arguments initialization
          _ArgsInitialized="false"
+         # Cache OptionChar for performance
+         _CachedOptionChar="-"
          
          # Initialize arguments from script parameters if any provided
          if [[ $# -gt 0 ]]; then
@@ -44,9 +46,9 @@ defineClass "TCustomApplication" "" \
     "property" "ExeName" "_getExeName" \
     \
     "procedure" "Initialize" '
-        # Initialize sets Terminated to false
-        Terminated="false"
-    ' \
+         # Initialize sets Terminated to false
+         Terminated="false"
+     ' \
     \
     "procedure" "SetArgs" '
          # Store command-line arguments for this instance in the instance data
@@ -90,64 +92,64 @@ defineClass "TCustomApplication" "" \
      ' \
     \
     "function" "_GetArgs" '
-        # Get stored arguments array
-        # Return count of arguments
-        RESULT="${#TCUSTAPP_ARGS[@]}"
-    ' \
+         # Get stored arguments array
+         # Return count of arguments
+         RESULT="${#TCUSTAPP_ARGS[@]}"
+     ' \
     \
     "function" "_GetNextArgValue" '
-        local -n args_array_ref="$1"
-        local idx="$2"
-        
-        if [[ $((idx + 1)) -lt ${#args_array_ref[@]} ]]; then
-            local next_arg="${args_array_ref[$((idx + 1))]}"
-            if [[ ! "$next_arg" =~ ^- ]]; then
-                RESULT="$next_arg"
-                return 0
-            fi
-        fi
-        
-        RESULT=""
-        return 1
-    ' \
+         local -n args_array_ref="$1"
+         local idx="$2"
+         
+         if [[ $((idx + 1)) -lt ${#args_array_ref[@]} ]]; then
+             local next_arg="${args_array_ref[$((idx + 1))]}"
+             if [[ ! "$next_arg" =~ ^- ]]; then
+                 RESULT="$next_arg"
+                 return 0
+             fi
+         fi
+         
+         RESULT=""
+         return 1
+     ' \
     \
     "function" "FindOptionIndex" '
-        local short_opt="$1"
-        local long_opt="${2:-}"
-        local start_at="${3:--1}"
-        
-        # Ensure arguments are initialized from script parameters
-        $this.call _EnsureArgsInitialized "$@"
-        
-        # Get arguments array directly - no eval needed
-        local -a args_array=("${TCUSTAPP_ARGS[@]}")
-        
-        # Get the current OptionChar
-        local opt_char="$OptionChar"
-        
-        # Search for option in arguments starting from start_at
-        local search_start=0
-        [[ "$start_at" -ge 0 ]] && search_start="$start_at"
-        
-        local i
-        for ((i = search_start; i < ${#args_array[@]}; i++)); do
-            local arg="${args_array[$i]}"
-            
-            # Check short option (single char with option char prefix)
-            if [[ -n "$short_opt" && "$arg" == "$opt_char$short_opt" ]]; then
-                RESULT="$i"
-                return 0
-            fi
-            
-            # Check long option (with double option char prefix)
-            if [[ -n "$long_opt" && "$arg" == "$opt_char$opt_char$long_opt" ]]; then
-                RESULT="$i"
-                return 0
-            fi
-        done
-        
-        RESULT="-1"
-    ' \
+         local short_opt="$1"
+         local long_opt="${2:-}"
+         local start_at="${3:--1}"
+         
+         # Ensure arguments are initialized from script parameters
+         $this.call _EnsureArgsInitialized "$@"
+         
+         # OPTIMIZATION 1: Use array reference instead of copying
+         local -n args_ref=TCUSTAPP_ARGS
+         
+         # Get the current OptionChar
+         local opt_char="$OptionChar"
+         
+         # Search for option in arguments starting from start_at
+         local search_start=0
+         [[ "$start_at" -ge 0 ]] && search_start="$start_at"
+         
+         local i
+         for ((i = search_start; i < ${#args_ref[@]}; i++)); do
+             local arg="${args_ref[$i]}"
+             
+             # Check short option (single char with option char prefix)
+             if [[ -n "$short_opt" && "$arg" == "$opt_char$short_opt" ]]; then
+                 RESULT="$i"
+                 return 0
+             fi
+             
+             # Check long option (with double option char prefix)
+             if [[ -n "$long_opt" && "$arg" == "$opt_char$opt_char$long_opt" ]]; then
+                 RESULT="$i"
+                 return 0
+             fi
+         done
+         
+         RESULT="-1"
+     ' \
     \
     "function" "GetOptionValue" '
          local opt="$1"
@@ -156,8 +158,8 @@ defineClass "TCustomApplication" "" \
          # Ensure arguments are initialized from script parameters
          $this.call _EnsureArgsInitialized "$@"
          
-         # Get arguments array directly - no eval needed
-         local -a args_array=("${TCUSTAPP_ARGS[@]}")
+         # OPTIMIZATION 1: Use array reference instead of copying
+         local -n args_ref=TCUSTAPP_ARGS
          
          # Find option using FindOptionIndex (checks both short and long options in one call)
          local idx
@@ -165,7 +167,7 @@ defineClass "TCustomApplication" "" \
          idx="$RESULT"
          
          if [[ "$idx" -ge 0 ]]; then
-             $this.call _GetNextArgValue args_array "$idx"
+             $this.call _GetNextArgValue args_ref "$idx"
              if [[ $? -eq 0 ]]; then
                  return 0
              fi
@@ -181,8 +183,8 @@ defineClass "TCustomApplication" "" \
          # Ensure arguments are initialized from script parameters
          $this.call _EnsureArgsInitialized "$@"
          
-         # Get arguments array directly - no eval needed
-         local -a args_array=("${TCUSTAPP_ARGS[@]}")
+         # OPTIMIZATION 1: Use array reference instead of copying
+         local -n args_ref=TCUSTAPP_ARGS
          
          local -a values=()
          
@@ -197,7 +199,7 @@ defineClass "TCustomApplication" "" \
                  break
              fi
              
-             $this.call _GetNextArgValue args_array "$idx"
+             $this.call _GetNextArgValue args_ref "$idx"
              if [[ $? -eq 0 ]]; then
                  values+=("$RESULT")
              fi
@@ -214,22 +216,22 @@ defineClass "TCustomApplication" "" \
      ' \
     \
     "function" "HasOption" '
-        local opt="$1"
-        local secondary_opt="${2:-}"
-        
-        # Ensure arguments are initialized from script parameters
-        $this.call _EnsureArgsInitialized "$@"
-        
-        local idx
-        $this.call FindOptionIndex "$opt" "$secondary_opt" -1
-        idx="$RESULT"
-        
-        if [[ "$idx" -ge 0 ]]; then
-            RESULT="true"
-        else
-            RESULT="false"
-        fi
-    ' \
+         local opt="$1"
+         local secondary_opt="${2:-}"
+         
+         # Ensure arguments are initialized from script parameters
+         $this.call _EnsureArgsInitialized "$@"
+         
+         local idx
+         $this.call FindOptionIndex "$opt" "$secondary_opt" -1
+         idx="$RESULT"
+         
+         if [[ "$idx" -ge 0 ]]; then
+             RESULT="true"
+         else
+             RESULT="false"
+         fi
+     ' \
     \
     "function" "CheckOptions" '
          local short_opts="$1"
@@ -267,11 +269,12 @@ defineClass "TCustomApplication" "" \
              read -ra long_opts_array <<< "$long_opts"
          fi
          
-         # Get arguments array directly - no eval needed
-         local -a args_array=("${TCUSTAPP_ARGS[@]}")
+         # OPTIMIZATION 1: Use array reference instead of copying
+         local -n args_ref=TCUSTAPP_ARGS
          
-         # Get the current OptionChar
+         # OPTIMIZATION 2: Pre-compute OptionChar outside loops
          local opt_char="$OptionChar"
+         local double_opt_char="$opt_char$opt_char"
          
          local error_msg=""
          local -a found_opts=()
@@ -281,13 +284,16 @@ defineClass "TCustomApplication" "" \
          local short_opts_clean="$short_opts"
          short_opts_clean="${short_opts_clean//:}"
          
+         # OPTIMIZATION 3: Convert long_opts_array to validation string for faster lookups
+         local long_opts_str=" ${long_opts_array[*]} "
+         
          # Process each argument
          local i
-         for ((i = 0; i < ${#args_array[@]}; i++)); do
-             local arg="${args_array[$i]}"
+         for ((i = 0; i < ${#args_ref[@]}; i++)); do
+             local arg="${args_ref[$i]}"
              
              # Check if this is a short option (single option char, not double, not just the char alone)
-             if [[ "$arg" == "$opt_char"* && "$arg" != "$opt_char$opt_char"* && "$arg" != "$opt_char" ]]; then
+             if [[ "$arg" == "$opt_char"* && "$arg" != "$double_opt_char"* && "$arg" != "$opt_char" ]]; then
                  local opts_str="${arg:${#opt_char}}"
                  # Check each character in the option string
                  for ((j = 0; j < ${#opts_str}; j++)); do
@@ -304,24 +310,18 @@ defineClass "TCustomApplication" "" \
                      found_opts+=("$opt_char$ch")
                  done
              # Check if this is a long option (double option char)
-             elif [[ "$arg" == "$opt_char$opt_char"* && "$arg" != "$opt_char$opt_char" ]]; then
+             elif [[ "$arg" == "$double_opt_char"* && "$arg" != "$double_opt_char" ]]; then
                  local long_opt="${arg:$((${#opt_char} * 2))}"
                  # Check if this long option is in the allowed list (only if long options specified)
                  if [[ ${#long_opts_array[@]} -gt 0 ]]; then
-                     local found=0
-                     for allowed in "${long_opts_array[@]}"; do
-                         if [[ "$long_opt" == "$allowed" ]]; then
-                             found=1
-                             break
-                         fi
-                     done
-                     if [[ $found -eq 0 ]]; then
-                         error_msg="Invalid option: $opt_char$opt_char$long_opt"
+                     # OPTIMIZATION 3: Use string pattern matching instead of loop
+                     if [[ ! "$long_opts_str" =~ " ${long_opt} " ]]; then
+                         error_msg="Invalid option: $double_opt_char$long_opt"
                          break
                      fi
                  fi
                  # If long_opts_array is empty, accepts any long option
-                 found_opts+=("$opt_char$opt_char$long_opt")
+                 found_opts+=("$double_opt_char$long_opt")
              else
                  # Non-option argument
                  found_non_opts+=("$arg")
@@ -337,7 +337,7 @@ defineClass "TCustomApplication" "" \
          fi
          
          RESULT="$error_msg"
-                 ' \
+     ' \
     \
     "function" "GetNonOptions" '
          local short_opts="$1"
@@ -361,129 +361,129 @@ defineClass "TCustomApplication" "" \
      ' \
     \
     "procedure" "Terminate" '
-        # Terminate with optional exit code parameter
-        local exit_code="${1:-}"
-        Terminated="true"
-        
-        if [[ -n "$exit_code" ]]; then
-            export EXITCODE="$exit_code"
-        fi
-    ' \
+         # Terminate with optional exit code parameter
+         local exit_code="${1:-}"
+         Terminated="true"
+         
+         if [[ -n "$exit_code" ]]; then
+             export EXITCODE="$exit_code"
+         fi
+     ' \
     \
     "procedure" "Run" '
-        # Run loop until Terminated - check via property to support subshells
-        while true; do
-            local terminated_value="$($this.property Terminated)"
-            if [[ "$terminated_value" == "true" ]]; then
-                break
-            fi
-            sleep 0.01
-        done
-    ' \
+         # Run loop until Terminated - check via property to support subshells
+         while true; do
+             local terminated_value="$($this.property Terminated)"
+             if [[ "$terminated_value" == "true" ]]; then
+                 break
+             fi
+             sleep 0.01
+         done
+     ' \
     \
     "procedure" "HandleException" '
-        local sender="$1"
-        local exception_msg="$2"
-        
-        # If OnException handler is set, call it - using function call instead of eval
-        if [[ -n "$OnException" ]]; then
-            # Call the handler function directly instead of eval
-            "$OnException" "$sender" "$exception_msg"
-        else
-            # Otherwise call ShowException
-            $this.call ShowException "$exception_msg"
-        fi
-        
-        # If StopOnException is true, terminate the app  
-        if [[ "$StopOnException" == "true" ]]; then
-            $this.call Terminate "$ExceptionExitCode"
-        fi
-    ' \
+         local sender="$1"
+         local exception_msg="$2"
+         
+         # If OnException handler is set, call it - using function call instead of eval
+         if [[ -n "$OnException" ]]; then
+             # Call the handler function directly instead of eval
+             "$OnException" "$sender" "$exception_msg"
+         else
+             # Otherwise call ShowException
+             $this.call ShowException "$exception_msg"
+         fi
+         
+         # If StopOnException is true, terminate the app  
+         if [[ "$StopOnException" == "true" ]]; then
+             $this.call Terminate "$ExceptionExitCode"
+         fi
+     ' \
     \
     "procedure" "ShowException" '
-        local exception_msg="$1"
-        # Default: echo the exception to stderr
-        [[ -n "$exception_msg" ]] && echo "Exception: $exception_msg" >&2
-    ' \
+         local exception_msg="$1"
+         # Default: echo the exception to stderr
+         [[ -n "$exception_msg" ]] && echo "Exception: $exception_msg" >&2
+     ' \
     \
     "procedure" "GetEnvironmentList" '
-        local list_var="$1"
-        local names_only="${2:-false}"
-        
-        # Get all environment variables
-        if [[ "$names_only" == "true" ]]; then
-            declare -n list_ref="$list_var" 2>/dev/null || return 0
-            local i=0
-            while IFS= read -r line; do
-                local var_name="${line%%=*}"
-                list_ref[$i]="$var_name"
-                ((i++))
-            done < <(env | sort)
-        else
-            declare -n list_ref="$list_var" 2>/dev/null || return 0
-            local i=0
-            while IFS= read -r line; do
-                list_ref[$i]="$line"
-                ((i++))
-            done < <(env | sort)
-        fi
-    ' \
+         local list_var="$1"
+         local names_only="${2:-false}"
+         
+         # Get all environment variables
+         if [[ "$names_only" == "true" ]]; then
+             declare -n list_ref="$list_var" 2>/dev/null || return 0
+             local i=0
+             while IFS= read -r line; do
+                 local var_name="${line%%=*}"
+                 list_ref[$i]="$var_name"
+                 ((i++))
+             done < <(env | sort)
+         else
+             declare -n list_ref="$list_var" 2>/dev/null || return 0
+             local i=0
+             while IFS= read -r line; do
+                 list_ref[$i]="$line"
+                 ((i++))
+             done < <(env | sort)
+         fi
+     ' \
     \
     "procedure" "Log" '
-        local event_type="$1"
-        local msg="$2"
-        local arg1="${3:-}"
-        local arg2="${4:-}"
-        
-        # Check if event type is in filter
-        if [[ -n "$EventLogFilter" ]]; then
-            if [[ "$EventLogFilter" != *"$event_type"* ]]; then
-                return 0
-            fi
-        fi
-        
-        # Format and log message
-        if [[ -n "$arg1" && "$arg1" != "false" ]]; then
-            # Has format arguments
-            echo "$event_type: $msg"
-        else
-            echo "$event_type: $msg"
-        fi
-    ' \
+         local event_type="$1"
+         local msg="$2"
+         local arg1="${3:-}"
+         local arg2="${4:-}"
+         
+         # Check if event type is in filter
+         if [[ -n "$EventLogFilter" ]]; then
+             if [[ "$EventLogFilter" != *"$event_type"* ]]; then
+                 return 0
+             fi
+         fi
+         
+         # Format and log message
+         if [[ -n "$arg1" && "$arg1" != "false" ]]; then
+             # Has format arguments
+             echo "$event_type: $msg"
+         else
+             echo "$event_type: $msg"
+         fi
+     ' \
     \
     "function" "_getExeName" '
-        # Return the executable name (parameter 0)
-        RESULT="$0"
-    ' \
+         # Return the executable name (parameter 0)
+         RESULT="$0"
+     ' \
     \
     "function" "ConsoleApplication" '
-        # Check if compiled as console application
-        RESULT="true"
-    ' \
+         # Check if compiled as console application
+         RESULT="true"
+     ' \
     \
     "function" "Location" '
-        # Return directory of the application
-        RESULT="$(kk.getScriptDir "${BASH_SOURCE[0]}")"
-    ' \
+         # Return directory of the application
+         RESULT="$(kk.getScriptDir "${BASH_SOURCE[0]}")"
+     ' \
     \
     "function" "ParamCount" '
-        # Return count of parameters
-        RESULT="$#"
-    ' \
+         # Return count of parameters
+         RESULT="$#"
+     ' \
     \
     "function" "Params" '
-        # Get parameter at index
-        local index="$1"
-        if [[ $index -ge 0 && $index -lt $# ]]; then
-            RESULT="${!index}"
-        else
-            RESULT=""
-        fi
-    ' \
+         # Get parameter at index
+         local index="$1"
+         if [[ $index -ge 0 && $index -lt $# ]]; then
+             RESULT="${!index}"
+         else
+             RESULT=""
+         fi
+     ' \
     \
     "function" "EnvironmentVariable" '
-        # Get environment variable value
-        local var_name="$1"
-        local var_value="${!var_name}"
-        RESULT="$var_value"
-    '
+         # Get environment variable value
+         local var_name="$1"
+         local var_value="${!var_name}"
+         RESULT="$var_value"
+     '
