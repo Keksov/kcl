@@ -77,17 +77,6 @@ defineClass "TCustomApplication" "" \
          _ArgsInitialized="true"
      ' \
     \
-    "procedure" "_InitializeArgsFromParams" '
-         # Initialize TCUSTAPP_ARGS from script parameters ($@)
-         # This should be called from main script with "$@"
-         TCUSTAPP_ARGS=()
-         for arg in "$@"; do
-             TCUSTAPP_ARGS+=("$arg")
-         done
-         # Mark as initialized
-         _ArgsInitialized="true"
-     ' \
-    \
     "procedure" "_EnsureArgsInitialized" '
          # Auto-initialize arguments from script parameters if not already done
          # This is called automatically from functions that need arguments
@@ -104,34 +93,6 @@ defineClass "TCustomApplication" "" \
         # Get stored arguments array
         # Return count of arguments
         RESULT="${#TCUSTAPP_ARGS[@]}"
-    ' \
-    \
-    "function" "_BuildGetoptString" '
-        local short_opts="$1"
-        
-        # Check cache first
-        if [[ "$_CachedShortOpts" == "$short_opts" && -n "$_CachedGetoptOpts" ]]; then
-            RESULT="$_CachedGetoptOpts"
-            return 0
-        fi
-        
-        local getopt_opts=""
-        for ((i = 0; i < ${#short_opts}; i++)); do
-            local ch="${short_opts:$i:1}"
-            if [[ "$ch" != ":" ]]; then
-                getopt_opts="$getopt_opts$ch"
-                if [[ $((i + 1)) -lt ${#short_opts} && "${short_opts:$((i+1)):1}" == ":" ]]; then
-                    getopt_opts="$getopt_opts:"
-                    ((i++))
-                fi
-            fi
-        done
-        
-        # Store in cache
-        _CachedShortOpts="$short_opts"
-        _CachedGetoptOpts="$getopt_opts"
-        
-        RESULT="$getopt_opts"
     ' \
     \
     "function" "_GetNextArgValue" '
@@ -195,31 +156,15 @@ defineClass "TCustomApplication" "" \
          # Get arguments array directly - no eval needed
          local -a args_array=("${TCUSTAPP_ARGS[@]}")
          
-         # Try short option first
-         if [[ -n "$opt" ]]; then
-             local idx
-             $this.call FindOptionIndex "$opt" "" -1
-             idx="$RESULT"
-             
-             if [[ "$idx" -ge 0 ]]; then
-                 $this.call _GetNextArgValue args_array "$idx"
-                 if [[ $? -eq 0 ]]; then
-                     return 0
-                 fi
-             fi
-         fi
+         # Find option using FindOptionIndex (checks both short and long options in one call)
+         local idx
+         $this.call FindOptionIndex "$opt" "$secondary_opt" -1
+         idx="$RESULT"
          
-         # Try secondary/long option
-         if [[ -n "$secondary_opt" ]]; then
-             local idx
-             $this.call FindOptionIndex "" "$secondary_opt" -1
-             idx="$RESULT"
-             
-             if [[ "$idx" -ge 0 ]]; then
-                 $this.call _GetNextArgValue args_array "$idx"
-                 if [[ $? -eq 0 ]]; then
-                     return 0
-                 fi
+         if [[ "$idx" -ge 0 ]]; then
+             $this.call _GetNextArgValue args_array "$idx"
+             if [[ $? -eq 0 ]]; then
+                 return 0
              fi
          fi
          
@@ -301,19 +246,19 @@ defineClass "TCustomApplication" "" \
              non_opts_param=""
          fi
          
+         # Check if output arrays should be filled
+         local should_fill_arrays=false
+         if [[ -n "$opts_param" && "$opts_param" != "true" && "$opts_param" != "false" ]]; then
+             should_fill_arrays=true
+         fi
+         
          # Handle array parameters for longopts and output arrays
          local -a long_opts_array=()
-         local -a opts_array=()
-         local -a non_opts_array=()
          
-         # Check if long_opts is an array name (third param that is not "true"/"false")
-         if [[ -n "$opts_param" && "$opts_param" != "true" && "$opts_param" != "false" ]]; then
-             # Treat as array references
+         if $should_fill_arrays; then
+             # Treat long_opts as array reference
              local -n long_ref="$long_opts" 2>/dev/null
-             local -n opts_ref="$opts_param" 2>/dev/null
-             local -n non_opts_ref="$non_opts_param" 2>/dev/null
              long_opts_array=("${long_ref[@]:-}")
-             # Arrays will be filled at the end
          elif [[ -n "$long_opts" && ! "$long_opts" =~ ^- ]]; then
              # String of long options (space-separated)
              read -ra long_opts_array <<< "$long_opts"
@@ -378,7 +323,7 @@ defineClass "TCustomApplication" "" \
          done
          
          # Fill output arrays if provided
-         if [[ -n "$opts_param" && "$opts_param" != "true" && "$opts_param" != "false" ]]; then
+         if $should_fill_arrays; then
              local -n opts_ref="$opts_param" 2>/dev/null
              opts_ref=("${found_opts[@]}")
              local -n non_opts_ref="$non_opts_param" 2>/dev/null
@@ -396,27 +341,9 @@ defineClass "TCustomApplication" "" \
          # Ensure arguments are initialized from script parameters
          $this.call _EnsureArgsInitialized "$@"
          
-         # Get arguments array directly - no eval needed
-         local -a args_array=("${TCUSTAPP_ARGS[@]}")
-         
-         # Use getopts to parse and extract non-options
-         local opt
-         local OPTIND=1
+         # Use CheckOptions to parse and extract non-options
          local -a non_opts=()
-         
-         while getopts "$short_opts" opt "${args_array[@]}"; do
-             # Options are handled automatically by getopts
-             :
-         done
-         
-         # Collect remaining arguments (non-options)
-         for ((i = OPTIND - 1; i < ${#args_array[@]}; i++)); do
-             local arg="${args_array[$i]}"
-             # Skip if it looks like an option
-             if [[ ! "$arg" =~ ^- ]]; then
-                 non_opts+=("$arg")
-             fi
-         done
+         $this.call CheckOptions "$short_opts" "$long_opts" "_dummy_opts" "non_opts"
          
          # Store results if variable provided
          if [[ -n "$non_options_var" ]]; then
