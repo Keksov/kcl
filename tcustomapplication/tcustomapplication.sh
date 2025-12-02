@@ -243,6 +243,69 @@ defineClass "TCustomApplication" "" \
          fi
      ' \
     \
+    "function" "_ValidateShortOptions" '
+         # Validate and process short options from argument
+         # Input: $1 = argument string (e.g. "abc"), $2 = allowed options string, $3 = opt_char
+         # Output: found_opts array populated, or error_msg set and returns 1
+         local opts_str="$1"
+         local short_opts_clean="$2"
+         local opt_char="$3"
+         
+         local j
+         for ((j = 0; j < ${#opts_str}; j++)); do
+             local ch="${opts_str:$j:1}"
+             # Skip colons (option separators)
+             if [[ "$ch" == ":" ]]; then
+                 continue
+             fi
+             # Check if this char is in short_opts_clean (only if short_opts specified)
+             if [[ -n "$short_opts_clean" && ! "$short_opts_clean" =~ $ch ]]; then
+                 RESULT="Invalid option: $opt_char$ch"
+                 return 1
+             fi
+             found_opts+=("$opt_char$ch")
+         done
+         return 0
+     ' \
+    \
+    "function" "_ValidateLongOptions" '
+         # Validate and process long option
+         # Input: $1 = long option name, $2 = allowed options string, $3 = double_opt_char
+         # Output: found_opts array populated, or RESULT set and returns 1
+         local long_opt="$1"
+         local long_opts_str="$2"
+         local double_opt_char="$3"
+         
+         # Check if long_opts_str is not empty (if empty, accepts any long option)
+         if [[ -n "$long_opts_str" ]]; then
+             if [[ ! "$long_opts_str" =~ " ${long_opt} " ]]; then
+                 RESULT="Invalid option: $double_opt_char$long_opt"
+                 return 1
+             fi
+         fi
+         found_opts+=("$double_opt_char$long_opt")
+         return 0
+     ' \
+    \
+    "function" "_ParseLongOpts" '
+         # Extract long options array from input
+         # Input: $1 = should_fill_arrays flag, $2 = long_opts (string or ref name)
+         # Output: long_opts_array populated
+         local should_fill_arrays="$1"
+         local long_opts="$2"
+         
+         long_opts_array=()
+         
+         if [[ "$should_fill_arrays" == "true" ]]; then
+             # Treat long_opts as array reference
+             local -n long_ref="$long_opts" 2>/dev/null
+             long_opts_array=("${long_ref[@]:-}")
+         elif [[ -n "$long_opts" && ! "$long_opts" =~ ^- ]]; then
+             # String of long options (space-separated)
+             read -ra long_opts_array <<< "$long_opts"
+         fi
+     ' \
+    \
     "function" "CheckOptions" '
          local short_opts="$1"
          local long_opts="$2"
@@ -267,17 +330,9 @@ defineClass "TCustomApplication" "" \
              should_fill_arrays=true
          fi
          
-         # Handle array parameters for longopts and output arrays
+         # Extract long options array
          local -a long_opts_array=()
-         
-         if $should_fill_arrays; then
-             # Treat long_opts as array reference
-             local -n long_ref="$long_opts" 2>/dev/null
-             long_opts_array=("${long_ref[@]:-}")
-         elif [[ -n "$long_opts" && ! "$long_opts" =~ ^- ]]; then
-             # String of long options (space-separated)
-             read -ra long_opts_array <<< "$long_opts"
-         fi
+         $this.call _ParseLongOpts "$should_fill_arrays" "$long_opts"
          
          # OPTIMIZATION 1: Use array reference instead of copying
          local -n args_ref=TCUSTAPP_ARGS
@@ -305,33 +360,21 @@ defineClass "TCustomApplication" "" \
              # Check if this is a short option (single option char, not double, not just the char alone)
              if [[ "$arg" == "$opt_char"* && "$arg" != "$double_opt_char"* && "$arg" != "$opt_char" ]]; then
                  local opts_str="${arg:${#opt_char}}"
-                 # Check each character in the option string
-                 for ((j = 0; j < ${#opts_str}; j++)); do
-                     local ch="${opts_str:$j:1}"
-                     # Skip colons (option separators)
-                     if [[ "$ch" == ":" ]]; then
-                         continue
-                     fi
-                     # Check if this char is in short_opts_clean (only if short_opts specified)
-                     if [[ -n "$short_opts_clean" && ! "$short_opts_clean" =~ $ch ]]; then
-                         error_msg="Invalid option: $opt_char$ch"
-                         break 2
-                     fi
-                     found_opts+=("$opt_char$ch")
-                 done
+                 # Validate short options
+                 $this.call _ValidateShortOptions "$opts_str" "$short_opts_clean" "$opt_char"
+                 if [[ $? -ne 0 ]]; then
+                     error_msg="$RESULT"
+                     break
+                 fi
              # Check if this is a long option (double option char)
              elif [[ "$arg" == "$double_opt_char"* && "$arg" != "$double_opt_char" ]]; then
                  local long_opt="${arg:$((${#opt_char} * 2))}"
-                 # Check if this long option is in the allowed list (only if long options specified)
-                 if [[ ${#long_opts_array[@]} -gt 0 ]]; then
-                     # OPTIMIZATION 3: Use string pattern matching instead of loop
-                     if [[ ! "$long_opts_str" =~ " ${long_opt} " ]]; then
-                         error_msg="Invalid option: $double_opt_char$long_opt"
-                         break
-                     fi
+                 # Validate long option
+                 $this.call _ValidateLongOptions "$long_opt" "$long_opts_str" "$double_opt_char"
+                 if [[ $? -ne 0 ]]; then
+                     error_msg="$RESULT"
+                     break
                  fi
-                 # If long_opts_array is empty, accepts any long option
-                 found_opts+=("$double_opt_char$long_opt")
              else
                  # Non-option argument
                  found_non_opts+=("$arg")
