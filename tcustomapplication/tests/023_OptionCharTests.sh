@@ -112,12 +112,13 @@ kt_test_start "Long options with ++ prefix"
 TCustomApplication.new myapp
 myapp.property OptionChar = "+"
 myapp.SetArgs -- file.txt ++verbose data.txt
+# Arguments: 0=file.txt, 1=++verbose, 2=data.txt
 myapp.FindOptionIndex "" "verbose" 0
 result=$RESULT
-if [[ "$result" == "2" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Long options work with ++ prefix"
 else
-    kt_test_fail "Long options with ++ failed: $result (expected 2)"
+    kt_test_fail "Long options with ++ failed: $result (expected 1)"
 fi
 myapp.delete
 

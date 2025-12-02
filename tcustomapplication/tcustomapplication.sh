@@ -60,13 +60,13 @@ defineClass "TCustomApplication" "" \
          fi
          
          # Handle -- separator: if first argument is --, skip it
-         local start_index=0
+         local start_index=1
          if [[ "$1" == "--" ]]; then
-             start_index=1
+             start_index=2
          fi
          
          # Store each argument without shell escaping - use a safer approach
-         for ((i = start_index + 1; i <= $#; i++)); do
+         for ((i = start_index; i <= $#; i++)); do
              # Get argument by position using indirect expansion
              local arg="${!i}"
              # Store arguments as-is, preserving their original form
@@ -122,6 +122,9 @@ defineClass "TCustomApplication" "" \
         # Get arguments array directly - no eval needed
         local -a args_array=("${TCUSTAPP_ARGS[@]}")
         
+        # Get the current OptionChar
+        local opt_char="$OptionChar"
+        
         # Search for option in arguments starting from start_at
         local search_start=0
         [[ "$start_at" -ge 0 ]] && search_start="$start_at"
@@ -130,14 +133,14 @@ defineClass "TCustomApplication" "" \
         for ((i = search_start; i < ${#args_array[@]}; i++)); do
             local arg="${args_array[$i]}"
             
-            # Check short option (single char with dash)
-            if [[ -n "$short_opt" && "$arg" == "-$short_opt" ]]; then
+            # Check short option (single char with option char prefix)
+            if [[ -n "$short_opt" && "$arg" == "$opt_char$short_opt" ]]; then
                 RESULT="$i"
                 return 0
             fi
             
-            # Check long option (with double dash)
-            if [[ -n "$long_opt" && "$arg" == "--$long_opt" ]]; then
+            # Check long option (with double option char prefix)
+            if [[ -n "$long_opt" && "$arg" == "$opt_char$opt_char$long_opt" ]]; then
                 RESULT="$i"
                 return 0
             fi
@@ -267,6 +270,9 @@ defineClass "TCustomApplication" "" \
          # Get arguments array directly - no eval needed
          local -a args_array=("${TCUSTAPP_ARGS[@]}")
          
+         # Get the current OptionChar
+         local opt_char="$OptionChar"
+         
          local error_msg=""
          local -a found_opts=()
          local -a found_non_opts=()
@@ -280,9 +286,9 @@ defineClass "TCustomApplication" "" \
          for ((i = 0; i < ${#args_array[@]}; i++)); do
              local arg="${args_array[$i]}"
              
-             # Check if this is a short option (single dash, not double dash, not just "-")
-             if [[ "$arg" =~ ^-[^-] && "$arg" != "-" ]]; then
-                 local opts_str="${arg:1}"
+             # Check if this is a short option (single option char, not double, not just the char alone)
+             if [[ "$arg" == "$opt_char"* && "$arg" != "$opt_char$opt_char"* && "$arg" != "$opt_char" ]]; then
+                 local opts_str="${arg:${#opt_char}}"
                  # Check each character in the option string
                  for ((j = 0; j < ${#opts_str}; j++)); do
                      local ch="${opts_str:$j:1}"
@@ -292,14 +298,14 @@ defineClass "TCustomApplication" "" \
                      fi
                      # Check if this char is in short_opts_clean (only if short_opts specified)
                      if [[ -n "$short_opts_clean" && ! "$short_opts_clean" =~ $ch ]]; then
-                         error_msg="Invalid option: -$ch"
+                         error_msg="Invalid option: $opt_char$ch"
                          break 2
                      fi
-                     found_opts+=("-$ch")
+                     found_opts+=("$opt_char$ch")
                  done
-             # Check if this is a long option (double dash)
-             elif [[ "$arg" =~ ^-- && "$arg" != "--" ]]; then
-                 local long_opt="${arg:2}"
+             # Check if this is a long option (double option char)
+             elif [[ "$arg" == "$opt_char$opt_char"* && "$arg" != "$opt_char$opt_char" ]]; then
+                 local long_opt="${arg:$((${#opt_char} * 2))}"
                  # Check if this long option is in the allowed list (only if long options specified)
                  if [[ ${#long_opts_array[@]} -gt 0 ]]; then
                      local found=0
@@ -310,12 +316,12 @@ defineClass "TCustomApplication" "" \
                          fi
                      done
                      if [[ $found -eq 0 ]]; then
-                         error_msg="Invalid option: --$long_opt"
+                         error_msg="Invalid option: $opt_char$opt_char$long_opt"
                          break
                      fi
                  fi
                  # If long_opts_array is empty, accepts any long option
-                 found_opts+=("--$long_opt")
+                 found_opts+=("$opt_char$opt_char$long_opt")
              else
                  # Non-option argument
                  found_non_opts+=("$arg")
