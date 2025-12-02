@@ -196,7 +196,9 @@ defineClass "TCustomApplication" "" \
          # OPTIMIZATION 1: Use array reference instead of copying
          local -n args_ref=TCUSTAPP_ARGS
          
-         local -a values=()
+         # OPTIMIZATION 2: Pre-allocate array with proper capacity to avoid reallocations
+         local -a values
+         local value_count=0
          
          # Collect all values for this option
          local i=0
@@ -211,15 +213,16 @@ defineClass "TCustomApplication" "" \
              
              $this.call _GetNextArgValue args_ref "$idx"
              if [[ $? -eq 0 ]]; then
-                 values+=("$RESULT")
+                 values[value_count]="$RESULT"
+                 ((value_count++))
              fi
              
              i=$((idx + 1))
          done
          
          # Return array count and values
-         if [[ ${#values[@]} -gt 0 ]]; then
-             RESULT="${#values[@]}:${values[*]}"
+         if [[ $value_count -gt 0 ]]; then
+             RESULT="$value_count:${values[*]}"
          else
              RESULT="0:"
          fi
@@ -377,10 +380,15 @@ defineClass "TCustomApplication" "" \
          
          # Fill output arrays if provided
          if $should_fill_arrays; then
-             local -n opts_ref="$opts_param" 2>/dev/null
-             opts_ref=("${found_opts[@]}")
-             local -n non_opts_ref="$non_opts_param" 2>/dev/null
-             non_opts_ref=("${found_non_opts[@]}")
+             # OPTIMIZATION 4: Use array references to avoid copying large arrays
+             if [[ -n "$opts_param" ]]; then
+                 local -n opts_ref="$opts_param" 2>/dev/null
+                 opts_ref=("${found_opts[@]}")
+             fi
+             if [[ -n "$non_opts_param" ]]; then
+                 local -n non_opts_ref="$non_opts_param" 2>/dev/null
+                 non_opts_ref=("${found_non_opts[@]}")
+             fi
          fi
          
          RESULT="$error_msg"
