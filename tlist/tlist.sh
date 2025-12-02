@@ -23,8 +23,10 @@ defineClass TList "" \
          local current_count="$count"
          declare -n items_ref="$items_var"
          if (( new_capacity < current_count )); then
-             # Truncate items to new capacity
-             items_ref=("${items_ref[@]:0:$new_capacity}")
+             # Truncate items to new capacity using unset instead of array copy
+             for (( i = new_capacity; i < current_count; i++ )); do
+                 unset "items_ref[$i]"
+             done
              count="$new_capacity"
          fi
          capacity="$new_capacity"
@@ -42,8 +44,10 @@ defineClass TList "" \
          local current_capacity="$capacity"
          declare -n items_ref="$items_var"
          if (( new_count < current_count )); then
-             # Truncate items
-             items_ref=("${items_ref[@]:0:$new_count}")
+             # Truncate items using unset instead of array copy
+             for (( i = new_count; i < current_count; i++ )); do
+                 unset "items_ref[$i]"
+             done
          elif (( new_count > current_count )); then
              # Ensure capacity is sufficient
              if (( new_count > current_capacity )); then
@@ -195,17 +199,26 @@ defineClass TList "" \
     method Pack '{
         local items_var="${__inst__}_items"
         declare -n items_ref="$items_var"
-        local packed_items=()
         local new_count=0
         local current_count=$count
+        local write_index=0
+        
+        # In-place filtering: move non-empty items to beginning
         for (( i = 0; i < current_count; i++ )); do
             local item="${items_ref[$i]}"
             if [[ -n "$item" ]]; then
-                packed_items[$new_count]="$item"
-                ((new_count++))
+                items_ref[$write_index]="$item"
+                ((write_index++))
             fi
         done
-        items_ref=("${packed_items[@]}")
+        
+        new_count=$write_index
+        
+        # Clear removed indices
+        for (( i = new_count; i < current_count; i++ )); do
+            unset "items_ref[$i]"
+        done
+        
         $__inst__.property count = "$new_count"
         local current_capacity="$capacity"
         if (( current_capacity > new_count * 2 )); then
