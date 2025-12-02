@@ -12,13 +12,31 @@ TCUSTOMAPPLICATION_DIR="$SCRIPT_DIR/.."
 source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 
 # Extract test name from filename
-TEST_NAME="$(basename "$0" .sh)"
+# Use BASH_SOURCE[0] instead of $0 for better reliability in threaded environments
+TEST_NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 # Helper script creator for testing specific functionality  
 create_test_app() {
     local app_name="$1"
     local app_code="$2"
+    
+    # Verify _KT_TMPDIR is set and accessible
+    if [[ -z "$_KT_TMPDIR" ]]; then
+        kt_test_fail "Internal error: _KT_TMPDIR is not set"
+        return 1
+    fi
+    
+    # Create directory if it doesn't exist
+    if ! mkdir -p "$_KT_TMPDIR" 2>/dev/null; then
+        kt_test_fail "Internal error: Failed to create _KT_TMPDIR: $_KT_TMPDIR (errno: $?)"
+        return 1
+    fi
+    
+    if [[ ! -d "$_KT_TMPDIR" ]]; then
+        kt_test_fail "Internal error: _KT_TMPDIR directory does not exist: $_KT_TMPDIR"
+        return 1
+    fi
     
     # Create inline test application
     cat > "${_KT_TMPDIR}/${app_name}.sh" << TESTAPP
@@ -37,7 +55,25 @@ app.SetArgs -- "\$@"
 $app_code
 TESTAPP
     
-    chmod +x "${_KT_TMPDIR}/${app_name}.sh"
+    # Verify file was created
+    if [[ ! -f "${_KT_TMPDIR}/${app_name}.sh" ]]; then
+        kt_test_fail "Internal error: Failed to create test app: ${_KT_TMPDIR}/${app_name}.sh"
+        return 1
+    fi
+    
+    # Make executable
+    chmod +x "${_KT_TMPDIR}/${app_name}.sh" || {
+        kt_test_fail "Internal error: Failed to make executable: ${_KT_TMPDIR}/${app_name}.sh"
+        return 1
+    }
+    
+    # Verify it's executable
+    if [[ ! -x "${_KT_TMPDIR}/${app_name}.sh" ]]; then
+        kt_test_fail "Internal error: File is not executable: ${_KT_TMPDIR}/${app_name}.sh"
+        return 1
+    fi
+    
+
 }
 
 kt_test_section "021: TCustomApplication Command Line Options via External Scripts"
