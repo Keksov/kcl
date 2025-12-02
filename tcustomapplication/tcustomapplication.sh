@@ -243,47 +243,41 @@ defineClass "TCustomApplication" "" \
          fi
      ' \
     \
-    "function" "_ValidateShortOptions" '
-         # Validate and process short options from argument
-         # Input: $1 = argument string (e.g. "abc"), $2 = allowed options string, $3 = opt_char
-         # Output: found_opts array populated, or error_msg set and returns 1
-         local opts_str="$1"
-         local short_opts_clean="$2"
-         local opt_char="$3"
-         
-         local j
-         for ((j = 0; j < ${#opts_str}; j++)); do
-             local ch="${opts_str:$j:1}"
-             # Skip colons (option separators)
-             if [[ "$ch" == ":" ]]; then
-                 continue
-             fi
-             # Check if this char is in short_opts_clean (only if short_opts specified)
-             if [[ -n "$short_opts_clean" && ! "$short_opts_clean" =~ $ch ]]; then
-                 RESULT="Invalid option: $opt_char$ch"
-                 return 1
-             fi
-             found_opts+=("$opt_char$ch")
-         done
-         return 0
-     ' \
-    \
-    "function" "_ValidateLongOptions" '
-         # Validate and process long option
-         # Input: $1 = long option name, $2 = allowed options string, $3 = double_opt_char
+    "function" "_ValidateOption" '
+         # Validate and process option(s) - works for both short and long options
+         # Input: $1 = option(s) to validate, $2 = option type ("short" or "long")
+         #        $3 = allowed options (string for short, space-separated for long)
+         #        $4 = option prefix(es) (single char for short, double for long)
          # Output: found_opts array populated, or RESULT set and returns 1
-         local long_opt="$1"
-         local long_opts_str="$2"
-         local double_opt_char="$3"
+         local option="$1"
+         local option_type="$2"
+         local allowed="$3"
+         local prefix="$4"
          
-         # Check if long_opts_str is not empty (if empty, accepts any long option)
-         if [[ -n "$long_opts_str" ]]; then
-             if [[ ! "$long_opts_str" =~ " ${long_opt} " ]]; then
-                 RESULT="Invalid option: $double_opt_char$long_opt"
+         if [[ "$option_type" == "short" ]]; then
+             # Process short options: iterate through each character
+             local j
+             for ((j = 0; j < ${#option}; j++)); do
+                 local ch="${option:$j:1}"
+                 # Skip colons (option separators)
+                 if [[ "$ch" == ":" ]]; then
+                     continue
+                 fi
+                 # Check if this char is in allowed options (only if allowed specified)
+                 if [[ -n "$allowed" && ! "$allowed" =~ $ch ]]; then
+                     RESULT="Invalid option: $prefix$ch"
+                     return 1
+                 fi
+                 found_opts+=("$prefix$ch")
+             done
+         else
+             # Process long option: single option validation
+             if [[ -n "$allowed" && ! "$allowed" =~ " ${option} " ]]; then
+                 RESULT="Invalid option: $prefix$option"
                  return 1
              fi
+             found_opts+=("$prefix$option")
          fi
-         found_opts+=("$double_opt_char$long_opt")
          return 0
      ' \
     \
@@ -361,7 +355,7 @@ defineClass "TCustomApplication" "" \
              if [[ "$arg" == "$opt_char"* && "$arg" != "$double_opt_char"* && "$arg" != "$opt_char" ]]; then
                  local opts_str="${arg:${#opt_char}}"
                  # Validate short options
-                 $this.call _ValidateShortOptions "$opts_str" "$short_opts_clean" "$opt_char"
+                 $this.call _ValidateOption "$opts_str" "short" "$short_opts_clean" "$opt_char"
                  if [[ $? -ne 0 ]]; then
                      error_msg="$RESULT"
                      break
@@ -370,7 +364,7 @@ defineClass "TCustomApplication" "" \
              elif [[ "$arg" == "$double_opt_char"* && "$arg" != "$double_opt_char" ]]; then
                  local long_opt="${arg:$((${#opt_char} * 2))}"
                  # Validate long option
-                 $this.call _ValidateLongOptions "$long_opt" "$long_opts_str" "$double_opt_char"
+                 $this.call _ValidateOption "$long_opt" "long" "$long_opts_str" "$double_opt_char"
                  if [[ $? -ne 0 ]]; then
                      error_msg="$RESULT"
                      break
