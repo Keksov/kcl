@@ -91,6 +91,16 @@ defineClass "TCustomApplication" "" \
          fi
      ' \
     \
+    "procedure" "_PrepareArguments" '
+         # Internal helper: Initialize arguments and setup common variables
+         # This consolidates the repetitive initialization logic
+         $this.call _EnsureArgsInitialized "$@"
+         
+         # Pre-compute commonly used values to avoid redundant lookups
+         OptionChar_Cache="$OptionChar"
+         DoubleOptionChar_Cache="$OptionChar_Cache$OptionChar_Cache"
+     ' \
+    \
     "function" "_GetArgs" '
          # Get stored arguments array
          # Return count of arguments
@@ -118,14 +128,14 @@ defineClass "TCustomApplication" "" \
          local long_opt="${2:-}"
          local start_at="${3:--1}"
          
-         # Ensure arguments are initialized from script parameters
-         $this.call _EnsureArgsInitialized "$@"
+         # Prepare arguments and common variables
+         $this.call _PrepareArguments "$@"
          
          # OPTIMIZATION 1: Use array reference instead of copying
          local -n args_ref=TCUSTAPP_ARGS
          
          # Get the current OptionChar
-         local opt_char="$OptionChar"
+         local opt_char="$OptionChar_Cache"
          
          # Search for option in arguments starting from start_at
          local search_start=0
@@ -155,8 +165,8 @@ defineClass "TCustomApplication" "" \
          local opt="$1"
          local secondary_opt="${2:-}"
          
-         # Ensure arguments are initialized from script parameters
-         $this.call _EnsureArgsInitialized "$@"
+         # Prepare arguments and common variables
+         $this.call _PrepareArguments "$@"
          
          # OPTIMIZATION 1: Use array reference instead of copying
          local -n args_ref=TCUSTAPP_ARGS
@@ -180,8 +190,8 @@ defineClass "TCustomApplication" "" \
          local short_opt="$1"
          local long_opt="${2:-}"
          
-         # Ensure arguments are initialized from script parameters
-         $this.call _EnsureArgsInitialized "$@"
+         # Prepare arguments and common variables
+         $this.call _PrepareArguments "$@"
          
          # OPTIMIZATION 1: Use array reference instead of copying
          local -n args_ref=TCUSTAPP_ARGS
@@ -219,8 +229,8 @@ defineClass "TCustomApplication" "" \
          local opt="$1"
          local secondary_opt="${2:-}"
          
-         # Ensure arguments are initialized from script parameters
-         $this.call _EnsureArgsInitialized "$@"
+         # Prepare arguments and common variables
+         $this.call _PrepareArguments "$@"
          
          local idx
          $this.call FindOptionIndex "$opt" "$secondary_opt" -1
@@ -240,8 +250,8 @@ defineClass "TCustomApplication" "" \
          local non_opts_param="${4:-}"
          local all_errors="${5:-false}"
          
-         # Ensure arguments are initialized from script parameters
-         $this.call _EnsureArgsInitialized "$@"
+         # Prepare arguments and common variables
+         $this.call _PrepareArguments "$@"
          
          # Handle function overloading based on parameter count and types
          # If parameter 3 is "true" or "false", it is the all_errors parameter (3-param version)
@@ -272,9 +282,9 @@ defineClass "TCustomApplication" "" \
          # OPTIMIZATION 1: Use array reference instead of copying
          local -n args_ref=TCUSTAPP_ARGS
          
-         # OPTIMIZATION 2: Pre-compute OptionChar outside loops
-         local opt_char="$OptionChar"
-         local double_opt_char="$opt_char$opt_char"
+         # OPTIMIZATION 2: Use pre-computed cached values
+         local opt_char="$OptionChar_Cache"
+         local double_opt_char="$DoubleOptionChar_Cache"
          
          local error_msg=""
          local -a found_opts=()
@@ -344,8 +354,8 @@ defineClass "TCustomApplication" "" \
          local long_opts="$2"
          local non_options_var="${3:-}"
          
-         # Ensure arguments are initialized from script parameters
-         $this.call _EnsureArgsInitialized "$@"
+         # Prepare arguments and common variables
+         $this.call _PrepareArguments "$@"
          
          # Use CheckOptions to parse and extract non-options
          local -a non_opts=()
