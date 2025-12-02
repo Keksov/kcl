@@ -18,11 +18,26 @@ defineClass "TCustomApplication" "" \
          ExceptionExitCode="1"
          OnException=""
          EventLogFilter=""
-         # Initialize command-line arguments storage as empty array
+         
+         # Initialize arguments and cache variables
          TCUSTAPP_ARGS=()
-         # Initialize cache for getopts string conversion
          _CachedShortOpts=""
          _CachedGetoptOpts=""
+         
+         # If parameters provided, initialize arguments
+         if [[ $# -gt 0 ]]; then
+             local start_index=0
+             if [[ "$1" == "--" ]]; then
+                 start_index=1
+             fi
+             for ((i = start_index + 1; i <= $#; i++)); do
+                 local arg="${!i}"
+                 TCUSTAPP_ARGS+=("$arg")
+             done
+             _ArgsInitialized="true"
+         else
+             _ArgsInitialized="false"
+         fi
      ' \
     \
     "property" "Terminated" \
@@ -59,6 +74,32 @@ defineClass "TCustomApplication" "" \
              # Store arguments as-is, preserving their original form
              TCUSTAPP_ARGS+=("$arg")
          done
+         
+         # Mark arguments as initialized
+         _ArgsInitialized="true"
+     ' \
+    \
+    "procedure" "_InitializeArgsFromParams" '
+         # Initialize TCUSTAPP_ARGS from script parameters ($@)
+         # This should be called from main script with "$@"
+         TCUSTAPP_ARGS=()
+         for arg in "$@"; do
+             TCUSTAPP_ARGS+=("$arg")
+         done
+         # Mark as initialized
+         _ArgsInitialized="true"
+     ' \
+    \
+    "procedure" "_EnsureArgsInitialized" '
+         # Auto-initialize arguments from script parameters if not already done
+         # This is called automatically from functions that need arguments
+         if [[ "$_ArgsInitialized" == "false" ]]; then
+             TCUSTAPP_ARGS=()
+             for arg in "$@"; do
+                 TCUSTAPP_ARGS+=("$arg")
+             done
+             _ArgsInitialized="true"
+         fi
      ' \
     \
     "function" "_GetArgs" '
@@ -116,6 +157,9 @@ defineClass "TCustomApplication" "" \
         local long_opt="${2:-}"
         local start_at="${3:--1}"
         
+        # Ensure arguments are initialized from script parameters
+        $this.call _EnsureArgsInitialized "$@"
+        
         # Get arguments array directly - no eval needed
         local -a args_array=("${TCUSTAPP_ARGS[@]}")
         
@@ -146,6 +190,9 @@ defineClass "TCustomApplication" "" \
     "function" "GetOptionValue" '
          local opt="$1"
          local secondary_opt="${2:-}"
+         
+         # Ensure arguments are initialized from script parameters
+         $this.call _EnsureArgsInitialized "$@"
          
          # Get arguments array directly - no eval needed
          local -a args_array=("${TCUSTAPP_ARGS[@]}")
@@ -185,6 +232,9 @@ defineClass "TCustomApplication" "" \
          local short_opt="$1"
          local long_opt="${2:-}"
          
+         # Ensure arguments are initialized from script parameters
+         $this.call _EnsureArgsInitialized "$@"
+         
          # Get arguments array directly - no eval needed
          local -a args_array=("${TCUSTAPP_ARGS[@]}")
          
@@ -221,6 +271,9 @@ defineClass "TCustomApplication" "" \
         local opt="$1"
         local secondary_opt="${2:-}"
         
+        # Ensure arguments are initialized from script parameters
+        $this.call _EnsureArgsInitialized "$@"
+        
         local idx
         $this.call FindOptionIndex "$opt" "$secondary_opt" -1
         idx="$RESULT"
@@ -239,6 +292,9 @@ defineClass "TCustomApplication" "" \
          local non_opts_param="${4:-}"
          local all_errors="${5:-false}"
          
+         # Ensure arguments are initialized from script parameters
+         $this.call _EnsureArgsInitialized "$@"
+         
          # Handle function overloading based on parameter count and types
          # If parameter 3 is "true" or "false", it is the all_errors parameter (3-param version)
          if [[ "$opts_param" == "true" || "$opts_param" == "false" ]]; then
@@ -247,33 +303,88 @@ defineClass "TCustomApplication" "" \
              non_opts_param=""
          fi
          
+         # Handle array parameters for longopts and output arrays
+         local -a long_opts_array=()
+         local -a opts_array=()
+         local -a non_opts_array=()
+         
+         # Check if long_opts is an array name (third param that is not "true"/"false")
+         if [[ -n "$opts_param" && "$opts_param" != "true" && "$opts_param" != "false" ]]; then
+             # Treat as array references
+             local -n long_ref="$long_opts" 2>/dev/null
+             local -n opts_ref="$opts_param" 2>/dev/null
+             local -n non_opts_ref="$non_opts_param" 2>/dev/null
+             long_opts_array=("${long_ref[@]:-}")
+             # Arrays will be filled at the end
+         elif [[ -n "$long_opts" && ! "$long_opts" =~ ^- ]]; then
+             # String of long options (space-separated)
+             read -ra long_opts_array <<< "$long_opts"
+         fi
+         
          # Get arguments array directly - no eval needed
          local -a args_array=("${TCUSTAPP_ARGS[@]}")
          
          local error_msg=""
+         local -a found_opts=()
+         local -a found_non_opts=()
          
          # Validate short options - remove colons for validation
          local short_opts_clean="$short_opts"
          short_opts_clean="${short_opts_clean//:}"
          
-         if [[ -n "$short_opts_clean" ]]; then
-             local i
-             for ((i = 0; i < ${#args_array[@]}; i++)); do
-                 local arg="${args_array[$i]}"
-                 # Check if this is a short option (single dash)
-                 if [[ "$arg" =~ ^-[^-] ]]; then
-                     local opts_str="${arg:1}"
-                     # Check each character in the option string
-                     for ((j = 0; j < ${#opts_str}; j++)); do
-                         local ch="${opts_str:$j:1}"
-                         # Check if this char is in short_opts_clean
-                         if [[ ! "$short_opts_clean" =~ $ch ]]; then
-                             error_msg="Invalid option: -$ch"
-                             break 2
+         # Process each argument
+         local i
+         for ((i = 0; i < ${#args_array[@]}; i++)); do
+             local arg="${args_array[$i]}"
+             
+             # Check if this is a short option (single dash, not double dash, not just "-")
+             if [[ "$arg" =~ ^-[^-] && "$arg" != "-" ]]; then
+                 local opts_str="${arg:1}"
+                 # Check each character in the option string
+                 for ((j = 0; j < ${#opts_str}; j++)); do
+                     local ch="${opts_str:$j:1}"
+                     # Skip colons (option separators)
+                     if [[ "$ch" == ":" ]]; then
+                         continue
+                     fi
+                     # Check if this char is in short_opts_clean (only if short_opts specified)
+                     if [[ -n "$short_opts_clean" && ! "$short_opts_clean" =~ $ch ]]; then
+                         error_msg="Invalid option: -$ch"
+                         break 2
+                     fi
+                     found_opts+=("-$ch")
+                 done
+             # Check if this is a long option (double dash)
+             elif [[ "$arg" =~ ^-- && "$arg" != "--" ]]; then
+                 local long_opt="${arg:2}"
+                 # Check if this long option is in the allowed list (only if long options specified)
+                 if [[ ${#long_opts_array[@]} -gt 0 ]]; then
+                     local found=0
+                     for allowed in "${long_opts_array[@]}"; do
+                         if [[ "$long_opt" == "$allowed" ]]; then
+                             found=1
+                             break
                          fi
                      done
+                     if [[ $found -eq 0 ]]; then
+                         error_msg="Invalid option: --$long_opt"
+                         break
+                     fi
                  fi
-             done
+                 # If long_opts_array is empty, accepts any long option
+                 found_opts+=("--$long_opt")
+             else
+                 # Non-option argument
+                 found_non_opts+=("$arg")
+             fi
+         done
+         
+         # Fill output arrays if provided
+         if [[ -n "$opts_param" && "$opts_param" != "true" && "$opts_param" != "false" ]]; then
+             local -n opts_ref="$opts_param" 2>/dev/null
+             opts_ref=("${found_opts[@]}")
+             local -n non_opts_ref="$non_opts_param" 2>/dev/null
+             non_opts_ref=("${found_non_opts[@]}")
          fi
          
          RESULT="$error_msg"
@@ -283,6 +394,9 @@ defineClass "TCustomApplication" "" \
          local short_opts="$1"
          local long_opts="$2"
          local non_options_var="${3:-}"
+         
+         # Ensure arguments are initialized from script parameters
+         $this.call _EnsureArgsInitialized "$@"
          
          # Get arguments array directly - no eval needed
          local -a args_array=("${TCUSTAPP_ARGS[@]}")
