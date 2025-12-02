@@ -15,22 +15,25 @@ source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
-# Helper script creator for testing specific functionality
+# Helper script creator for testing specific functionality  
 create_test_app() {
     local app_name="$1"
     local app_code="$2"
     
-    # Create inline test application with proper code insertion
+    # Create inline test application
     cat > "${_KT_TMPDIR}/${app_name}.sh" << TESTAPP
 #!/bin/bash
 TCUSTOMAPPLICATION_DIR="c:/projects/kkbot/kbool/kcl/tcustomapplication"
-[[ ! -d "\$TCUSTOMAPPLICATION_DIR" ]] && TCUSTOMAPPLICATION_DIR="\${SCRIPT_DIR}/.."
+[[ ! -d "\$TCUSTOMAPPLICATION_DIR" ]] && TCUSTOMAPPLICATION_DIR="c:/projects/kkbot/kbool/kcl/tcustomapplication"
 source "\$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 
-# Constructor automatically initializes arguments from script parameters
-TCustomApplication.new app "\$@"
+# Create app instance
+TCustomApplication.new app
 
-# Code will execute with command-line parameters already initialized
+# Initialize arguments from real parameters
+app.SetArgs -- "\$@"
+
+# Execute app code
 $app_code
 TESTAPP
     

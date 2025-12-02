@@ -18,25 +18,17 @@ defineClass "TCustomApplication" "" \
          ExceptionExitCode="1"
          OnException=""
          EventLogFilter=""
-         
-         # Initialize arguments and cache variables
+         # Initialize command-line arguments storage as empty array
          TCUSTAPP_ARGS=()
+         # Initialize cache for getopts string conversion
          _CachedShortOpts=""
          _CachedGetoptOpts=""
+         # Initialize cache flag for arguments initialization
+         _ArgsInitialized="false"
          
-         # If parameters provided, initialize arguments
+         # Initialize arguments from script parameters if any provided
          if [[ $# -gt 0 ]]; then
-             local start_index=0
-             if [[ "$1" == "--" ]]; then
-                 start_index=1
-             fi
-             for ((i = start_index + 1; i <= $#; i++)); do
-                 local arg="${!i}"
-                 TCUSTAPP_ARGS+=("$arg")
-             done
-             _ArgsInitialized="true"
-         else
-             _ArgsInitialized="false"
+             $this.SetArgs "$@"
          fi
      ' \
     \
@@ -60,6 +52,12 @@ defineClass "TCustomApplication" "" \
          # Store command-line arguments for this instance in the instance data
          # Clear existing arguments first
          TCUSTAPP_ARGS=()
+         
+         # Initialize cache variables if not already done
+         if [[ -z "$_CachedShortOpts" ]]; then
+             _CachedShortOpts=""
+             _CachedGetoptOpts=""
+         fi
          
          # Handle -- separator: if first argument is --, skip it
          local start_index=0
