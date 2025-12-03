@@ -107,9 +107,9 @@ defineClass TList "" \
         items_ref[$current_count]="$item"
         local new_count=$((current_count + 1))
         #$__inst__.property count = "$new_count"
-        $__inst__.property count = "$new_count"
+        $__inst__.property count = "$new_count" >/dev/null
         RESULT="$new_count"
-    }' \
+        }' \
     method Insert '{
         local index="$1"
         local item="$2"

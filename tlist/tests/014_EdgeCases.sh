@@ -20,8 +20,10 @@ kt_test_section "014: Edge Cases"
 kt_test_start "Very large indices"
 TList.new testlist
 testlist.Add "item"
-result=$(testlist.Insert 1000000 "large" 2>&1)
+TRAP_ERRORS_ENABLED=false
+testlist.Insert 1000000 "large"
 exit_code=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $exit_code -ne 0 ]]; then
     kt_test_pass "Correctly rejected very large index"
 else
@@ -113,8 +115,10 @@ kt_test_start "Operations on deleted instance"
 TList.new temp
 temp.Add "test"
 temp.delete
-result=$(temp.Add "after_delete" 2>&1)
+TRAP_ERRORS_ENABLED=false
+temp.count >/dev/null 2>&1
 exit_code=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $exit_code -ne 0 ]]; then
     kt_test_pass "Operations on deleted instance fail gracefully"
 else

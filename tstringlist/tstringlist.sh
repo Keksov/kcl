@@ -5,6 +5,7 @@ TSTRINGLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TSTRINGLIST_DIR/../../kklass/kklass.sh"
 source "$TSTRINGLIST_DIR/../tlist/tlist.sh"
 
+
 # Define TStringList class inheriting from TList
 defineClass TStringList TList \
     property case_sensitive \
@@ -29,7 +30,7 @@ defineClass TStringList TList \
         local items_var="${__inst__}_items"
         declare -n items_ref="$items_var"
         RESULT="${items_ref[$index]}"
-    }' \
+        }' \
     function IndexOf '{
          local item="$1"
          local items_var="${__inst__}_items"
@@ -46,7 +47,7 @@ defineClass TStringList TList \
          if (( i >= current_count )); then
              RESULT="-1"
          fi
-     }' \
+         }' \
     method Sort '{
         local items_var="${this}_items"
         declare -n items_ref="$items_var"
@@ -95,45 +96,45 @@ defineClass TStringList TList \
         done
         # Return insertion point (negative)
         RESULT=$(( -left - 1 ))
-    }' \
-    procedure Assign '{
-        local source="$1"
-        $this.Clear
-        # Get source count by accessing the _count variable 
-        # Use typeset to list all vars matching the pattern and extract count
-        local i=0
-        while true; do
-            local source_items_var="${source}_items"
-            local current_item_var="${source_items_var}[$i]"
-            # We cannot use indirect expansion in procedure context
-            # So we will use a workaround - iterate until we hit an empty slot
-            # by trying to access via eval in command substitution
-            local item
-            item=$(echo "${!current_item_var}" 2>/dev/null || echo "")
-            if [[ -z "$item" ]]; then
-                break
-            fi
-            $this.Add "$item"
-            ((i++))
-        done
         }' \
-    procedure AddStrings '{
+    method Assign '{
          local source="$1"
-         if [[ -z "$source" ]]; then
-             return 0
+         local source_count=$($source.count)
+         
+         # Handle self-assignment: copy to temporary first
+         if [[ "$source" == "$this" ]]; then
+             # Create temporary variable name to hold copy
+             eval "local __assign_temp=( \"\${${source}_items[@]}\" )"
+             $this.Clear
+             # Restore from temporary
+             eval "${this}_items=( \"\${__assign_temp[@]}\" )"
+         else
+             $this.Clear
+             # Copy source array directly to destination
+             eval "${this}_items=( \"\${${source}_items[@]}\" )"
          fi
-         local add_i=0
-         while true; do
-            local add_source_items_var="${source}_items"
-            declare -n add_items_ref="$add_source_items_var" 2>/dev/null || break
-            if [[ -z "${add_items_ref[$add_i]}" ]]; then
-                break
-            fi
-            local add_item="${add_items_ref[$add_i]}"
-            $this.Add "$add_item"
-            ((add_i++))
-         done
-        }' \
+         
+         # Set destination count
+         $this.property count = "$source_count"
+         }' \
+     method AddStrings '{
+          local source="$1"
+          if [[ -z "$source" ]]; then
+              return 0
+          fi
+          local source_count=$($source.count)
+          if (( source_count == 0 )); then
+              return 0
+          fi
+          
+          # Add each item from source using eval to access array element directly
+           local idx
+           for (( idx = 0; idx < source_count; idx++ )); do
+               local item_to_add
+               eval "item_to_add=\"\${${source}_items[$idx]}\""
+               $this.Add "$item_to_add"
+           done
+         }' \
     method Put '{
          local index="$1"
          local item="$2"

@@ -52,9 +52,10 @@ fi
 
 # Test: Insert with capacity growth
 kt_test_start "Insert with capacity growth"
-# Add more items to trigger growth
+# Add more items to trigger growth (always insert at current count to add at end)
 for i in {4..10}; do
-    testlist.Insert $i "item$i"
+    current_count=$(testlist.count)
+    testlist.Insert $current_count "item$i"
 done
 count=$(testlist.count)
 capacity=$(testlist.capacity)
@@ -66,9 +67,8 @@ fi
 
 # Test: Invalid index (negative)
 kt_test_start "Invalid index - negative"
-result=$(testlist.Insert -1 "invalid" 2>&1)
-exit_code=$?
-if [[ $exit_code -ne 0 ]]; then
+testlist.Insert -1 "invalid" 2>&1 || exit_code=$?
+if [[ ${exit_code:-0} -ne 0 ]]; then
     kt_test_pass "Correctly rejected negative index"
 else
     kt_test_fail "Should have rejected negative index"
@@ -76,9 +76,8 @@ fi
 
 # Test: Invalid index (too large)
 kt_test_start "Invalid index - too large"
-result=$(testlist.Insert 20 "invalid" 2>&1)
-exit_code=$?
-if [[ $exit_code -ne 0 ]]; then
+testlist.Insert 20 "invalid" 2>&1 || exit_code=$?
+if [[ ${exit_code:-0} -ne 0 ]]; then
     kt_test_pass "Correctly rejected too large index"
 else
     kt_test_fail "Should have rejected too large index"

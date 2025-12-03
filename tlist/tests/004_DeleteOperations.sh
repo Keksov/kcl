@@ -68,9 +68,11 @@ fi
 kt_test_start "Invalid index - negative"
 # Add items back
 testlist.Add "test"
-result=$(testlist.Delete -1 2>&1)
-exit_code=$?
-if [[ $exit_code -ne 0 ]]; then
+TRAP_ERRORS_ENABLED=false
+testlist.Delete -1
+result=$?
+TRAP_ERRORS_ENABLED=true
+if [[ $result -ne 0 ]]; then
     kt_test_pass "Correctly rejected negative index"
 else
     kt_test_fail "Should have rejected negative index"
@@ -78,9 +80,11 @@ fi
 
 # Test: Invalid index (out of bounds)
 kt_test_start "Invalid index - out of bounds"
-result=$(testlist.Delete 10 2>&1)
-exit_code=$?
-if [[ $exit_code -ne 0 ]]; then
+TRAP_ERRORS_ENABLED=false
+testlist.Delete 10
+result=$?
+TRAP_ERRORS_ENABLED=true
+if [[ $result -ne 0 ]]; then
     kt_test_pass "Correctly rejected out of bounds index"
 else
     kt_test_fail "Should have rejected out of bounds index"

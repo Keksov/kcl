@@ -98,8 +98,10 @@ fi
 
 # Test: Invalid BatchInsert index
 kt_test_start "Invalid BatchInsert index"
-result=$(testlist.BatchInsert -1 "invalid" 2>&1)
+TRAP_ERRORS_ENABLED=false
+testlist.BatchInsert -1 "invalid"
 exit_code=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $exit_code -ne 0 ]]; then
     kt_test_pass "BatchInsert rejected invalid index"
 else

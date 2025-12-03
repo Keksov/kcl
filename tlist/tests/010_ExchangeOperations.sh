@@ -53,8 +53,10 @@ fi
 
 # Test: Invalid index (negative)
 kt_test_start "Invalid index - negative"
-result=$(testlist.Exchange -1 0 2>&1)
+TRAP_ERRORS_ENABLED=false
+testlist.Exchange -1 0 2>/dev/null
 exit_code=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $exit_code -ne 0 ]]; then
     kt_test_pass "Correctly rejected negative index"
 else
@@ -63,8 +65,10 @@ fi
 
 # Test: Invalid index (out of bounds)
 kt_test_start "Invalid index - out of bounds"
-result=$(testlist.Exchange 0 10 2>&1)
+TRAP_ERRORS_ENABLED=false
+testlist.Exchange 0 10 2>/dev/null
 exit_code=$?
+TRAP_ERRORS_ENABLED=true
 if [[ $exit_code -ne 0 ]]; then
     kt_test_pass "Correctly rejected out of bounds index"
 else
