@@ -4,6 +4,7 @@
 TLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TLIST_DIR/../../kklass/kklass.sh"
 source "$TLIST_DIR/../../kkore/klib.sh"
+source "$TLIST_DIR/../../kkore/kerr.sh"
 
 # Define TList class
 defineClass TList "" \

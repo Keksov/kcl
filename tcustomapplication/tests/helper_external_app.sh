@@ -3,7 +3,7 @@
 # This simulates an external program that receives arguments and then calls SetArgs
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TCUSTOMAPPLICATION_DIR="$SCRIPT_DIR/.."
+TCUSTOMAPPLICATION_DIR="${TCUSTOMAPPLICATION_DIR:-$SCRIPT_DIR/..}"
 source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 
 # Create application instance

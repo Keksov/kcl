@@ -3,6 +3,7 @@
 # Auto-generated for ktests framework
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEST_SCRIPT_DIR="$SCRIPT_DIR"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
 source "$KTESTS_LIB_DIR/ktest.sh"
 
@@ -308,7 +309,7 @@ kt_test_start "External script receives args and calls SetArgs"
 TCustomApplication.new myapp
 
 # Call the helper external app with initial arguments
-external_setargs_output=$(cd "$SCRIPT_DIR" && bash helper_external_app.sh -x test1 -y test2 2>/dev/null)
+external_setargs_output=$(TCUSTOMAPPLICATION_DIR="$TCUSTOMAPPLICATION_DIR" bash "$TEST_SCRIPT_DIR/helper_external_app.sh" -x test1 -y test2)
 
 # Parse the output
 new_option_index=$(echo "$external_setargs_output" | grep "new_option_index=" | cut -d'=' -f2)
