@@ -38,7 +38,7 @@ defineClass TStringList TList \
          declare -n items_ref="$items_var"
          for (( i = 0; i < current_count; i++ )); do
              local current_item="${items_ref[$i]}"
-             $this.CompareStrings "$current_item" "$item"
+             $this.CompareStrings "$current_item" "$item" >/dev/null
              if (( RESULT == 0 )); then
                  RESULT="$i"
                  break
@@ -58,7 +58,7 @@ defineClass TStringList TList \
             for (( j = 0; j < count - i - 1; j++ )); do
                 local item1="${items_ref[$j]}"
                 local item2="${items_ref[$((j+1))]}"
-                $this.CompareStrings "$item1" "$item2"
+                $this.CompareStrings "$item1" "$item2" >/dev/null
                 if (( RESULT == 2 )); then  # item1 > item2, swap
                     items_ref[$j]="$item2"
                     items_ref[$((j+1))]="$item1"
@@ -81,13 +81,13 @@ defineClass TStringList TList \
         while (( left <= right )); do
             local mid=$(( (left + right) / 2 ))
             local mid_item
-            $this.Get "$mid"
+            $this.Get "$mid" >/dev/null
             mid_item=$RESULT
-            $this.CompareStrings "$mid_item" "$item"
+            $this.CompareStrings "$mid_item" "$item" >/dev/null
             local cmp_result="$RESULT"
             if (( cmp_result == 0 )); then
                 RESULT="$mid"
-                return 0
+                break
             elif (( cmp_result == 1 )); then  # mid_item < item, search right
                 left=$((mid + 1))
             else  # mid_item > item, search left
@@ -95,24 +95,29 @@ defineClass TStringList TList \
             fi
         done
         # Return insertion point (negative)
-        RESULT=$(( -left - 1 ))
+        if (( left > right )); then
+            RESULT=$(( -left - 1 ))
+        fi
         }' \
     method Assign '{
          local source="$1"
          local source_count=$($source.count)
-         
-         # Handle self-assignment: copy to temporary first
-         if [[ "$source" == "$this" ]]; then
-             # Create temporary variable name to hold copy
-             eval "local __assign_temp=( \"\${${source}_items[@]}\" )"
-             $this.Clear
-             # Restore from temporary
-             eval "${this}_items=( \"\${__assign_temp[@]}\" )"
-         else
-             $this.Clear
-             # Copy source array directly to destination
-             eval "${this}_items=( \"\${${source}_items[@]}\" )"
-         fi
+
+         local source_items_var="${source}_items"
+         local items_var="${__inst__}_items"
+         declare -n source_items_ref="$source_items_var"
+         local assign_temp=()
+         local idx
+         for (( idx = 0; idx < source_count; idx++ )); do
+             assign_temp[$idx]="${source_items_ref[$idx]}"
+         done
+
+         $this.Clear
+
+         declare -n items_ref="$items_var"
+         for (( idx = 0; idx < source_count; idx++ )); do
+             items_ref[$idx]="${assign_temp[$idx]}"
+         done
          
          # Set destination count
          $this.property count = "$source_count"
@@ -126,13 +131,38 @@ defineClass TStringList TList \
           if (( source_count == 0 )); then
               return 0
           fi
-          
-          # Add each item from source using eval to access array element directly
+
+          local source_items_var="${source}_items"
+          local items_var="${__inst__}_items"
+          declare -n source_items_ref="$source_items_var"
+          declare -n items_ref="$items_var"
+
+          if [[ "$sorted" != "true" && "$duplicates" == "dupAccept" ]]; then
+              local current_count="$count"
+              local new_count=$((current_count + source_count))
+              if (( new_count > capacity )); then
+                  $__inst__.property capacity = "$new_count" >/dev/null
+              fi
+
+              local copied_items=()
+              local idx
+              for (( idx = 0; idx < source_count; idx++ )); do
+                  copied_items[$idx]="${source_items_ref[$idx]}"
+              done
+              for (( idx = 0; idx < source_count; idx++ )); do
+                  items_ref[$((current_count + idx))]="${copied_items[$idx]}"
+              done
+
+              $__inst__.property count = "$new_count" >/dev/null
+              return 0
+          fi
+
+          # Add each item through Add when sorting or duplicate policy must be enforced
            local idx
            for (( idx = 0; idx < source_count; idx++ )); do
                local item_to_add
-               eval "item_to_add=\"\${${source}_items[$idx]}\""
-               $this.Add "$item_to_add"
+               item_to_add="${source_items_ref[$idx]}"
+               $this.Add "$item_to_add" >/dev/null
            done
          }' \
     method Put '{
@@ -150,7 +180,7 @@ defineClass TStringList TList \
      function Remove '{
          local item="$1"
          local index
-         $this.IndexOf "$item"
+         $this.IndexOf "$item" >/dev/null
          index=$RESULT
          if [[ "$index" != "-1" ]]; then
              local current_count=$count
@@ -179,14 +209,14 @@ defineClass TStringList TList \
          
          # Check for duplicates
          local dup_index
-         $__inst__.call IndexOf "$item"
+         $__inst__.call IndexOf "$item" >/dev/null
          dup_index=$RESULT
          
          if [[ "$dup_index" != "-1" ]]; then
              # Found duplicate
              if [[ "$duplicates" == "dupIgnore" ]]; then
                  RESULT="$dup_index"
-                 return 0
+                 return
              elif [[ "$duplicates" == "dupError" ]]; then
                  [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Duplicate item not allowed" >&2
                  return 1
@@ -210,7 +240,7 @@ defineClass TStringList TList \
              while (( left < right )); do
                  local mid=$(( (left + right) / 2 ))
                  local mid_item="${items_ref[$mid]}"
-                 $__inst__.call CompareStrings "$mid_item" "$item"
+                 $__inst__.call CompareStrings "$mid_item" "$item" >/dev/null
                  if (( RESULT == 2 )); then  # mid_item > item, search left
                      right=$mid
                  else  # mid_item <= item, search right
@@ -237,9 +267,9 @@ defineClass TStringList TList \
              return 1
          fi
          # Call parent Insert for unsorted lists
-         $__inst__.call Insert "$index" "$item"
+         $this.parent Insert "$index" "$item"
      }' \
-     procedure CompareStrings '{
+     function CompareStrings '{
          local str1="$1"
          local str2="$2"
          local cmp_str1 cmp_str2

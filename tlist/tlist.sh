@@ -262,17 +262,17 @@ defineClass TList "" \
         local current_count="$count"
         # OPTIMIZATION: Use nameref instead of eval in loop (significant perf gain)
         declare -n items_ref="$items_var"
+        RESULT="-1"
         for (( i = 0; i < current_count; i++ )); do
             if [[ "${items_ref[$i]}" == "$item" ]]; then
                 RESULT="$i"
-                return 0
+                break
             fi
         done
-        RESULT="-1"
     }' \
     function Remove '{
         local item="$1"
-        $this.IndexOf "$item"
+        $this.IndexOf "$item" >/dev/null
         local index="$RESULT"
         if [[ "$index" != "-1" ]]; then
             local current_count=$count
