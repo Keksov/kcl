@@ -34,10 +34,10 @@ fi
 # Test 3: No delimiter found
 kt_test_start "LastDelimiter - no delimiter"
 result=$(string.lastDelimiter "hello" ",")
-if [[ "$result" == "0" || "$result" == "-1" ]]; then
+if [[ "$result" == "-1" ]]; then
     kt_test_pass "LastDelimiter - no delimiter"
 else
-    kt_test_fail "LastDelimiter - no delimiter (expected: 0 or -1, got: '$result')"
+    kt_test_fail "LastDelimiter - no delimiter (expected: -1, got: '$result')"
 fi
 
 # Test 4: Delimiter at end
@@ -115,8 +115,8 @@ fi
 # Test 12: Empty delimiter set
 kt_test_start "LastDelimiter - empty delimiter"
 result=$(string.lastDelimiter "hello" "")
-if [[ "$result" == "0" || "$result" == "-1" ]]; then
+if [[ "$result" == "-1" ]]; then
     kt_test_pass "LastDelimiter - empty delimiter"
 else
-    kt_test_fail "LastDelimiter - empty delimiter (expected: 0 or -1, got: '$result')"
+    kt_test_fail "LastDelimiter - empty delimiter (expected: -1, got: '$result')"
 fi

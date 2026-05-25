@@ -20,10 +20,13 @@ kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 # Test 1: Decrypt encrypted file
 kt_test_start "Decrypt encrypted file"
 echo "content" > "$_KT_TMPDIR/encrypt.tmp"
-tfile.encrypt "$_KT_TMPDIR/encrypt.tmp"  # Assume this works
-result=$(tfile.decrypt "$_KT_TMPDIR/encrypt.tmp")
-if [[ $? -eq 0 ]]; then
+tfile.encrypt "$_KT_TMPDIR/encrypt.tmp" "test-password"  # Assume this works
+if result=$(tfile.decrypt "$_KT_TMPDIR/encrypt.tmp" "test-password"); then
+    if [[ "$(cat "$_KT_TMPDIR/encrypt.tmp")" == "content" ]]; then
     kt_test_pass "Decrypt encrypted file"
+    else
+        kt_test_fail "Decrypt encrypted file (content was not restored)"
+    fi
 else
     kt_test_fail "Decrypt encrypted file"
 fi
@@ -31,16 +34,40 @@ fi
 # Test 2: Decrypt non-encrypted file
 kt_test_start "Decrypt non-encrypted file"
 echo "plain" > "$_KT_TMPDIR/plain.tmp"
-result=$(tfile.decrypt "$_KT_TMPDIR/plain.tmp")
+result=$(tfile.decrypt "$_KT_TMPDIR/plain.tmp" "test-password")
 if [[ $? -ne 0 ]]; then
 kt_test_pass "Decrypt non-encrypted file"
 else
 kt_test_fail "Decrypt non-encrypted file"
 fi
 
-# Test 3: Decrypt non-existing file
+# Test 3: Decrypt without password
+kt_test_start "Decrypt without password"
+echo "content" > "$_KT_TMPDIR/no_password_decrypt.tmp"
+tfile.encrypt "$_KT_TMPDIR/no_password_decrypt.tmp" "test-password"
+if ! result=$(tfile.decrypt "$_KT_TMPDIR/no_password_decrypt.tmp" 2>&1); then
+    kt_test_pass "Decrypt without password (correctly failed)"
+else
+    kt_test_fail "Decrypt without password (should have failed)"
+fi
+
+# Test 4: Decrypt with wrong password
+kt_test_start "Decrypt with wrong password"
+echo "secret" > "$_KT_TMPDIR/wrong_password.tmp"
+tfile.encrypt "$_KT_TMPDIR/wrong_password.tmp" "right-password"
+if ! result=$(tfile.decrypt "$_KT_TMPDIR/wrong_password.tmp" "wrong-password" 2>&1); then
+    if [[ "$(cat "$_KT_TMPDIR/wrong_password.tmp")" != "secret" ]]; then
+        kt_test_pass "Decrypt with wrong password (correctly failed)"
+    else
+        kt_test_fail "Decrypt with wrong password restored plaintext"
+    fi
+else
+    kt_test_fail "Decrypt with wrong password (should have failed)"
+fi
+
+# Test 5: Decrypt non-existing file
 kt_test_start "Decrypt non-existing file"
-if ! result=$(tfile.decrypt "$_KT_TMPDIR/nonexist.tmp" 2>&1); then
+if ! result=$(tfile.decrypt "$_KT_TMPDIR/nonexist.tmp" "test-password" 2>&1); then
     kt_test_pass "Decrypt non-existing file (correctly failed)"
 else
     kt_test_fail "Decrypt non-existing file (should have failed)"

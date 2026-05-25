@@ -2,12 +2,15 @@
 
 # Source kklass system (don't override SCRIPT_DIR)
 TPATH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-#source "$TPATH_DIR/../../kklass/kklass.sh"
+source "$TPATH_DIR/../../kklass/kklass.sh"
+
+# Public tpath.* functions are registered as kklass static methods at the end
+# of this file, after all implementations have been defined.
 
 # Define platform-specific constants
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
-        DIRECTORY_SEPARATOR_CHAR='\\'
+        DIRECTORY_SEPARATOR_CHAR=$'\\'
         ALT_DIRECTORY_SEPARATOR_CHAR='/'
         PATH_SEPARATOR=';'
         VOLUME_SEPARATOR_CHAR=':'
@@ -642,4 +645,21 @@ tpath.getAttributes() {
         fi
     fi
 }
+
+tpath._register_kklass_class() {
+    local -a tpath_methods=(
+        getAltDirectorySeparatorChar getDirectorySeparatorChar getExtensionSeparatorChar
+        getPathSeparator getVolumeSeparatorChar combine getFileName getDirectoryName
+        getExtension getFileNameWithoutExtension changeExtension hasExtension getPathRoot
+        isPathRooted isRelativePath getFullPath isUNCPath isUNCRooted isDriveRooted
+        isExtendedPrefixed driveExists getTempPath getHomePath getDocumentsPath
+        getDownloadsPath getTempFileName getGUIDFileName getRandomFileName
+        isValidFileNameChar isValidPathChar hasValidFileNameChars hasValidPathChars
+        matchesPattern getAttributes
+    )
+    kk.register_static_methods "tpath" "tpath" "TPath" "${tpath_methods[@]}"
+}
+
+tpath._register_kklass_class
+unset -f tpath._register_kklass_class
 

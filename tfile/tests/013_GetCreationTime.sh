@@ -22,10 +22,10 @@ kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 kt_test_start "Get creation time of existing file"
 echo "content" > "$_KT_TMPDIR/creation.tmp"
 result=$(tfile.getCreationTime "$_KT_TMPDIR/creation.tmp")
-if [[ -n "$result" ]]; then
+if [[ "$result" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
     kt_test_pass "Get creation time of existing file"
 else
-    kt_test_fail "Get creation time of existing file"
+    kt_test_fail "Get creation time of existing file (invalid timestamp: $result)"
 fi
 
 # Test 2: Get creation time of non-existing file
@@ -40,8 +40,8 @@ fi
 kt_test_start "Get creation time of directory"
 mkdir -p "$_KT_TMPDIR/creation_dir"
 result=$(tfile.getCreationTime "$_KT_TMPDIR/creation_dir")
-if [[ -n "$result" ]]; then
+if [[ "$result" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
     kt_test_pass "Get creation time of directory"
 else
-    kt_test_fail "Get creation time of directory"
+    kt_test_fail "Get creation time of directory (invalid timestamp: $result)"
 fi

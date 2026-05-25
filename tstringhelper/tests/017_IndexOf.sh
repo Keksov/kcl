@@ -88,10 +88,10 @@ fi
 # Test 9: Empty string search
 kt_test_start "IndexOf - empty search string"
 result=$(string.indexOf "hello" "")
-if [[ "$result" == "0" || "$result" == "-1" ]]; then
+if [[ "$result" == "0" ]]; then
     kt_test_pass "IndexOf - empty search string"
 else
-    kt_test_fail "IndexOf - empty search string (expected: 0 or -1, got: '$result')"
+    kt_test_fail "IndexOf - empty search string (expected: 0, got: '$result')"
 fi
 
 # Test 10: Case sensitive search
@@ -124,13 +124,10 @@ fi
 # Test 13: Negative start index
 kt_test_start "IndexOf - negative start index"
 result=$(string.indexOf "hello world" "o" -3)
-# Since "hello world" has 'o' at positions 4 and 7, and -3 means 8 positions from end (length 11, so 11-3=8)
-# But with negative index, we need to check what the actual behavior is
-# For now, let's accept whatever result we get and document it
-if [[ "$result" == "4" || "$result" == "7" || "$result" == "-1" ]]; then
-    kt_test_pass "IndexOf - negative start index (result: '$result')"
+if [[ "$result" == "4" ]]; then
+    kt_test_pass "IndexOf - negative start index"
 else
-    kt_test_fail "IndexOf - negative start index (unexpected result: '$result')"
+    kt_test_fail "IndexOf - negative start index (expected: 4, got: '$result')"
 fi
 
 # Test 14: Unicode character search
@@ -163,10 +160,10 @@ fi
 # Test 17: Null/empty search string edge case
 kt_test_start "IndexOf - null search string handling"
 result=$(string.indexOf "hello" "")
-if [[ "$result" == "0" || "$result" == "-1" ]]; then
+if [[ "$result" == "0" ]]; then
     kt_test_pass "IndexOf - null search string handling"
 else
-    kt_test_fail "IndexOf - null search string handling (expected: 0 or -1, got: '$result')"
+    kt_test_fail "IndexOf - null search string handling (expected: 0, got: '$result')"
 fi
 
 # Test 18: Very long string search

@@ -102,3 +102,12 @@ if [[ "$result" == "ID: 12345" ]]; then
 else
     kt_test_fail "Format - numeric string parameter (expected: 'ID: 12345', got: '$result')"
 fi
+
+# Test 11: Format string beginning with dash
+kt_test_start "Format - leading dash literal"
+result=$(string.format "-%s" "x" 2>/dev/null)
+if [[ "$result" == "-x" ]]; then
+    kt_test_pass "Format - leading dash literal"
+else
+    kt_test_fail "Format - leading dash literal (expected: '-x', got: '$result')"
+fi

@@ -15,7 +15,7 @@ TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
 
 # Test 1: To extended
 kt_test_start "To extended"
-result=$(string.toDouble "3.14")  # reusing
+result=$(string.toExtended "3.14")
 if [[ "$result" == "3.14" ]]; then
     kt_test_pass "To extended"
 else

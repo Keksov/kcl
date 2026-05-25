@@ -30,8 +30,17 @@ fi
 # Test 2: Convert positive integer to attributes
 kt_test_start "Convert positive integer to attributes"
 result=$(tfile.integerToFileAttributes 1)
-if [[ -n "$result" ]]; then
+if [[ "$result" == "[ReadOnly]" ]]; then
     kt_test_pass "Convert positive integer to attributes"
 else
-    kt_test_fail "Convert positive integer to attributes"
+    kt_test_fail "Convert positive integer to attributes (expected: [ReadOnly], got: $result)"
+fi
+
+# Test 3: Convert combined integer to attributes
+kt_test_start "Convert combined integer to attributes"
+result=$(tfile.integerToFileAttributes 3)
+if [[ "$result" == "[ReadOnly, Hidden]" ]]; then
+    kt_test_pass "Convert combined integer to attributes"
+else
+    kt_test_fail "Convert combined integer to attributes (expected: [ReadOnly, Hidden], got: $result)"
 fi

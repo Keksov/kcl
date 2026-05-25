@@ -22,10 +22,10 @@ kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 kt_test_start "Get last access time UTC of existing file"
 echo "content" > "$_KT_TMPDIR/access_utc.tmp"
 result=$(tfile.getLastAccessTimeUtc "$_KT_TMPDIR/access_utc.tmp")
-if [[ -n "$result" ]]; then
+if [[ "$result" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ && "$result" != "2023-10-01 12:00:00" ]]; then
     kt_test_pass "Get last access time UTC of existing file"
 else
-    kt_test_fail "Get last access time UTC of existing file"
+    kt_test_fail "Get last access time UTC of existing file (invalid timestamp: $result)"
 fi
 
 # Test 2: Get last access time UTC of non-existing file

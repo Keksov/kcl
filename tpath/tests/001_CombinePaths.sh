@@ -15,7 +15,7 @@ TPATH_DIR="$SCRIPT_DIR/.."
 
 # Test 1: Basic path combination
 kt_test_start "Combine two relative paths"
-result=$(tpath.combine "path1" "path2" | xargs)
+result=$(tpath.combine "path1" "path2")
 # Should combine with separator
 expected="path1\\path2"
 if [[ "$result" == "$expected" ]]; then
@@ -53,7 +53,7 @@ fi
 
 # Test 5: Path1 with trailing separator
 kt_test_start "Combine path1 with trailing separator"
-result=$(tpath.combine "path1/" "path2" | xargs)
+result=$(tpath.combine "path1/" "path2")
 expected="path1\\path2"
 if [[ "$result" == "$expected" ]]; then
     kt_test_pass "Combine path1 with trailing separator"
@@ -63,7 +63,7 @@ fi
 
 # Test 6: Complex path combination
 kt_test_start "Combine complex paths"
-result=$(tpath.combine "/home/user" "documents/file.txt" | xargs)
+result=$(tpath.combine "/home/user" "documents/file.txt")
 expected="/home/user\\documents/file.txt"
 if [[ "$result" == "$expected" ]]; then
     kt_test_pass "Combine complex paths"

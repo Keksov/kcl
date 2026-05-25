@@ -4,8 +4,8 @@
 tstringhelper_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$tstringhelper_DIR/../../kklass/kklass.sh"
 
-# Define the string class with methods from TStringHelper
-defineClass "string" ""
+# Public string.* functions are registered as kklass static methods at the end
+# of this file, after all implementations have been defined.
 
 string.equals() {
     local str1="$1"
@@ -66,24 +66,70 @@ string.split() {
     echo "${parts[*]}"
 }
 
+string._replace_literal() {
+    local str="$1"
+    local old="$2"
+    local new="$3"
+    local replace_all="$4"
+    local ignore_case="$5"
+
+    if [[ -z "$old" ]]; then
+        echo "$str"
+        return
+    fi
+
+    local old_length=${#old}
+    local result=""
+    local offset=0
+    local remaining remaining_cmp old_cmp match_index search_index
+
+    old_cmp="$old"
+    if [[ "$ignore_case" == "true" ]]; then
+        old_cmp="${old,,}"
+    fi
+
+    while (( offset <= ${#str} )); do
+        remaining="${str:offset}"
+        remaining_cmp="$remaining"
+        if [[ "$ignore_case" == "true" ]]; then
+            remaining_cmp="${remaining,,}"
+        fi
+
+        match_index=-1
+        for (( search_index = 0; search_index + old_length <= ${#remaining_cmp}; search_index++ )); do
+            if [[ "${remaining_cmp:search_index:old_length}" == "$old_cmp" ]]; then
+                match_index=$search_index
+                break
+            fi
+        done
+
+        if (( match_index < 0 )); then
+            result+="$remaining"
+            break
+        fi
+
+        result+="${remaining:0:match_index}$new"
+        offset=$((offset + match_index + old_length))
+
+        if [[ "$replace_all" != "true" ]]; then
+            result+="${str:offset}"
+            break
+        fi
+    done
+
+    echo "$result"
+}
+
 string.replace() {
     local str="$1"
     local old="$2"
     local new="$3"
     local flags="$4"
-    if [[ "$flags" == *"rfReplaceAll"* ]]; then
-        if [[ "$flags" == *"rfIgnoreCase"* ]]; then
-            echo "$str" | sed "s/$old/$new/gi"
-        else
-            echo "${str//$old/$new}"
-        fi
-    else
-        if [[ "$flags" == *"rfIgnoreCase"* ]]; then
-            echo "$str" | sed "s/$old/$new/i"
-        else
-            echo "${str/$old/$new}"
-        fi
-    fi
+    local replace_all=false
+    local ignore_case=false
+    [[ "$flags" == *"rfReplaceAll"* ]] && replace_all=true
+    [[ "$flags" == *"rfIgnoreCase"* ]] && ignore_case=true
+    string._replace_literal "$str" "$old" "$new" "$replace_all" "$ignore_case"
 }
 
 string.remove() {
@@ -389,7 +435,7 @@ string.lastIndexOfAny() {
 string.format() {
     local format="$1"
     shift
-    printf "$format" "$@"
+    printf -- "$format" "$@"
 }
 
 string.lowerCase() {
@@ -466,7 +512,32 @@ string.copy() {
 }
 
 string.copyTo() {
-    echo "Not implemented"
+    local self="$1"
+    local source_index="$2"
+    local destination_name="$3"
+    local destination_index="$4"
+    local count="$5"
+
+    if [[ ! "$source_index" =~ ^[0-9]+$ || ! "$destination_index" =~ ^[0-9]+$ || ! "$count" =~ ^[0-9]+$ ]]; then
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: CopyTo indexes and count must be non-negative integers" >&2
+        return 1
+    fi
+
+    if [[ ! "$destination_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: CopyTo destination must be a valid array variable name" >&2
+        return 1
+    fi
+
+    if (( source_index + count > ${#self} )); then
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: CopyTo source range is out of bounds" >&2
+        return 1
+    fi
+
+    declare -n destination_ref="$destination_name"
+    local char_index
+    for (( char_index = 0; char_index < count; char_index++ )); do
+        destination_ref[$((destination_index + char_index))]="${self:source_index + char_index:1}"
+    done
 }
 
 string.countChar() {
@@ -543,13 +614,41 @@ string.toBoolean() {
 
 string.toCharArray() {
     local self="$1"
-    # Simple, echo each char
-    for ((i=0; i<${#self}; i++)); do
-        echo "${self:i:1}"
+    local start_index="${2:-0}"
+    local length="${3:-}"
+
+    if [[ ! "$start_index" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+
+    if [[ -z "$length" ]]; then
+        length=$((${#self} - start_index))
+    elif [[ ! "$length" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+
+    if (( start_index > ${#self} )); then
+        return 1
+    fi
+
+    local end_index=$((start_index + length))
+    if (( end_index > ${#self} )); then
+        end_index=${#self}
+    fi
+
+    local char_index
+    for (( char_index = start_index; char_index < end_index; char_index++ )); do
+        echo "${self:char_index:1}"
     done
 }
 
 string.toDouble() {
+    local self="$1"
+    local num="${self%% *}"
+    echo "$num"
+}
+
+string.toExtended() {
     local self="$1"
     local num="${self%% *}"
     echo "$num"
@@ -648,3 +747,20 @@ string.endsWith() {
         fi
     fi
 }
+
+string._register_kklass_class() {
+    local -a tstringhelper_methods=(
+        equals trimStart trimEnd startsText split replace remove quotedString parse
+        padLeft padRight join isNullOrWhiteSpace isNullOrEmpty isEmpty isDelimiter
+        insert indexOfAnyUnquoted indexOfAny indexOf getHashCode lastDelimiter
+        lastIndexOf lastIndexOfAny format lowerCase compare compareOrdinal compareText
+        compareTo contains copy copyTo countChar create deQuotedString endsText
+        startsWith substring toBoolean toCharArray toDouble toExtended toInt64
+        toInteger toLower toLowerInvariant toSingle toUpper toUpperInvariant trim
+        trimLeft trimRight upperCase length chars endsWith
+    )
+    kk.register_static_methods "string" "string" "TStringHelper" "${tstringhelper_methods[@]}"
+}
+
+string._register_kklass_class
+unset -f string._register_kklass_class

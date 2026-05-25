@@ -30,17 +30,26 @@ fi
 # Test 2: Convert single attribute
 kt_test_start "Convert single attribute"
 result=$(tfile.fileAttributesToInteger "[ReadOnly]")
-if [[ $result -gt 0 ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Convert single attribute"
 else
-    kt_test_fail "Convert single attribute"
+    kt_test_fail "Convert single attribute (expected: 1, got: $result)"
 fi
 
 # Test 3: Convert multiple attributes
 kt_test_start "Convert multiple attributes"
 result=$(tfile.fileAttributesToInteger "[ReadOnly, Hidden]")
-if [[ $result -gt 0 ]]; then
+if [[ "$result" == "3" ]]; then
     kt_test_pass "Convert multiple attributes"
 else
-    kt_test_fail "Convert multiple attributes"
+    kt_test_fail "Convert multiple attributes (expected: 3, got: $result)"
+fi
+
+# Test 4: Convert fa-prefixed attributes
+kt_test_start "Convert fa-prefixed attributes"
+result=$(tfile.fileAttributesToInteger "[faReadOnly, faHidden]")
+if [[ "$result" == "3" ]]; then
+    kt_test_pass "Convert fa-prefixed attributes"
+else
+    kt_test_fail "Convert fa-prefixed attributes (expected: 3, got: $result)"
 fi

@@ -49,9 +49,26 @@ fi
 # Test 4: Open non-existing file for read
 kt_test_start "Open non-existing file for read"
 rm -f "$_KT_TMPDIR/nonexistent.tmp"
-stream=$(tfile.open "$_KT_TMPDIR/nonexistent.tmp" "fmOpenRead" 2>/dev/null)
-if [[ -z "$stream" ]]; then
+if ! stream=$(tfile.open "$_KT_TMPDIR/nonexistent.tmp" "fmOpenRead" 2>/dev/null); then
     kt_test_pass "Open non-existing file for read (correctly failed)"
 else
     kt_test_fail "Open non-existing file for read (should have failed)"
+fi
+
+# Test 5: Open non-existing file for read/write
+kt_test_start "Open non-existing file for read/write"
+rm -f "$_KT_TMPDIR/nonexistent_rw.tmp"
+if ! stream=$(tfile.open "$_KT_TMPDIR/nonexistent_rw.tmp" "fmOpenReadWrite" 2>/dev/null); then
+    kt_test_pass "Open non-existing file for read/write (correctly failed)"
+else
+    kt_test_fail "Open non-existing file for read/write (should have failed)"
+fi
+
+# Test 6: Open with unsupported mode
+kt_test_start "Open with unsupported mode"
+echo "content" > "$_KT_TMPDIR/open_unknown.tmp"
+if ! stream=$(tfile.open "$_KT_TMPDIR/open_unknown.tmp" "fmUnknown" 2>/dev/null); then
+    kt_test_pass "Open with unsupported mode (correctly failed)"
+else
+    kt_test_fail "Open with unsupported mode (should have failed)"
 fi

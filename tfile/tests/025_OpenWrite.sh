@@ -35,3 +35,11 @@ if [[ -f "$_KT_TMPDIR/openwrite_new.tmp" ]]; then
 else
     kt_test_fail "Open non-existing file for write"
 fi
+
+# Test 3: Open invalid path for write
+kt_test_start "Open invalid path for write"
+if ! stream=$(tfile.openWrite "/invalid/path/openwrite.tmp" 2>/dev/null); then
+    kt_test_pass "Open invalid path for write (correctly failed)"
+else
+    kt_test_fail "Open invalid path for write (should have failed)"
+fi

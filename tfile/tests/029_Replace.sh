@@ -41,8 +41,14 @@ fi
 
 # Test 3: Replace non-existing source
 kt_test_start "Replace with non-existing source"
-if ! result=$(tfile.replace "$_KT_TMPDIR/nonexist.tmp" "$_KT_TMPDIR/replace_dest.tmp" "$_KT_TMPDIR/backup.tmp" 2>&1); then
+echo "stable destination" > "$_KT_TMPDIR/replace_stable_dest.tmp"
+rm -f "$_KT_TMPDIR/replace_stable_backup.tmp"
+if ! result=$(tfile.replace "$_KT_TMPDIR/nonexist.tmp" "$_KT_TMPDIR/replace_stable_dest.tmp" "$_KT_TMPDIR/replace_stable_backup.tmp" 2>&1); then
+    if [[ "$(cat "$_KT_TMPDIR/replace_stable_dest.tmp")" == "stable destination" && ! -e "$_KT_TMPDIR/replace_stable_backup.tmp" ]]; then
     kt_test_pass "Replace with non-existing source (correctly failed)"
+    else
+        kt_test_fail "Replace with non-existing source mutated destination or backup"
+    fi
 else
     kt_test_fail "Replace with non-existing source (should have failed)"
 fi

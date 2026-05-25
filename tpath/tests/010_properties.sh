@@ -18,7 +18,7 @@ kt_test_start "DirectorySeparatorChar property"
 result=$(tpath.getDirectorySeparatorChar | tr -d '\r\n')
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
-        expected='\\'
+    expected=$'\\'
         ;;
 *)
 expected="/"
