@@ -165,67 +165,73 @@ tdirectory.getLogicalDrives() {
 }
 
 # Helper function for recursive directory listing
-get_dirs_recursive() {
+tdirectory._get_dirs_recursive() {
     local dir="$1"
     local pattern="$2"
     local old_extglob
     old_extglob=$(shopt -p extglob)
     shopt -s extglob
-    for d in "$dir"/*/; do
-        if [[ -d "$d" ]]; then
+    local directory_path
+    for directory_path in "$dir"/*/; do
+        if [[ -d "$directory_path" ]]; then
             local base
-            base=$(basename "$d")
+            base=$(basename "$directory_path")
             if [[ "$base" == $pattern ]]; then
-                echo "${d%/}"
+                echo "${directory_path%/}"
             fi
-            get_dirs_recursive "${d%/}" "$pattern"
+            tdirectory._get_dirs_recursive "${directory_path%/}" "$pattern"
         fi
     done
     eval "$old_extglob"
 }
 
 # Helper function for recursive file listing
-get_files_recursive() {
+tdirectory._get_files_recursive() {
     local dir="$1"
     local pattern="$2"
     local old_extglob
     old_extglob=$(shopt -p extglob)
     shopt -s extglob
-    for f in "$dir"/*; do
-        if [[ -f "$f" ]]; then
+    local file_path
+    for file_path in "$dir"/*; do
+        if [[ -f "$file_path" ]]; then
             local base
-            base=$(basename "$f")
+            base=$(basename "$file_path")
             if [[ "$base" == $pattern ]]; then
-                echo "$f"
+                echo "$file_path"
             fi
-        elif [[ -d "$f" ]]; then
-            get_files_recursive "${f%/}" "$pattern"
+        elif [[ -d "$file_path" ]]; then
+            tdirectory._get_files_recursive "${file_path%/}" "$pattern"
         fi
     done
     eval "$old_extglob"
 }
 
 # Helper function for recursive filesystem entries listing
-get_entries_recursive() {
+tdirectory._get_entries_recursive() {
     local dir="$1"
     local pattern="$2"
     local old_extglob
     old_extglob=$(shopt -p extglob)
     shopt -s extglob
-    for e in "$dir"/*; do
-        if [[ -f "$e" || -d "$e" ]]; then
+    local entry_path
+    for entry_path in "$dir"/*; do
+        if [[ -f "$entry_path" || -d "$entry_path" ]]; then
             local base
-            base=$(basename "$e")
+            base=$(basename "$entry_path")
             if [[ "$base" == $pattern ]]; then
-                echo "$e"
+                echo "$entry_path"
             fi
         fi
-        if [[ -d "$e" ]]; then
-            get_entries_recursive "${e%/}" "$pattern"
+        if [[ -d "$entry_path" ]]; then
+            tdirectory._get_entries_recursive "${entry_path%/}" "$pattern"
         fi
     done
     eval "$old_extglob"
 }
+
+# Remove helper names leaked by older sourced versions of this module.
+unset -f get_dirs_recursive get_files_recursive get_entries_recursive 2>/dev/null || true
 
 # Define tdirectory.getDirectories function
 tdirectory.getDirectories() {
@@ -250,19 +256,20 @@ tdirectory.getDirectories() {
 
     if [[ "$search_option" == "TopDirectoryOnly" ]]; then
         # Top level only
-        for d in "$dir_path"/*/; do
-            if [[ -d "$d" ]]; then
+        local directory_path
+        for directory_path in "$dir_path"/*/; do
+            if [[ -d "$directory_path" ]]; then
                 local base
-                base=$(basename "$d")
+                base=$(basename "$directory_path")
                 # Pattern match
                 if [[ "$base" == $pattern ]]; then
-                    echo "${d%/}"
+                    echo "${directory_path%/}"
                 fi
             fi
         done
     else
         # Recursive
-        get_dirs_recursive "$dir_path" "$pattern"
+        tdirectory._get_dirs_recursive "$dir_path" "$pattern"
     fi
 
     # Restore extglob
@@ -292,19 +299,20 @@ tdirectory.getFiles() {
 
     if [[ "$search_option" == "TopDirectoryOnly" ]]; then
         # Top level only
-        for f in "$dir_path"/*; do
-            if [[ -f "$f" ]]; then
+        local file_path
+        for file_path in "$dir_path"/*; do
+            if [[ -f "$file_path" ]]; then
                 local base
-                base=$(basename "$f")
+                base=$(basename "$file_path")
                 # Pattern match
                 if [[ "$base" == $pattern ]]; then
-                    echo "$f"
+                    echo "$file_path"
                 fi
             fi
         done
     else
         # Recursive
-        get_files_recursive "$dir_path" "$pattern"
+        tdirectory._get_files_recursive "$dir_path" "$pattern"
     fi
 
     # Restore extglob
@@ -334,19 +342,20 @@ tdirectory.getFileSystemEntries() {
 
     if [[ "$search_option" == "TopDirectoryOnly" ]]; then
         # Top level only
-        for e in "$dir_path"/*; do
-            if [[ -e "$e" ]]; then
+        local entry_path
+        for entry_path in "$dir_path"/*; do
+            if [[ -e "$entry_path" ]]; then
                 local base
-                base=$(basename "$e")
+                base=$(basename "$entry_path")
                 # Pattern match
                 if [[ "$base" == $pattern ]]; then
-                    echo "$e"
+                    echo "$entry_path"
                 fi
             fi
         done
     else
         # Recursive
-        get_entries_recursive "$dir_path" "$pattern"
+        tdirectory._get_entries_recursive "$dir_path" "$pattern"
     fi
 
     # Restore extglob
@@ -364,150 +373,154 @@ tdirectory.getAttributes() {
 tdirectory.setAttributes() {
     local path="$1"
     local attributes="$2"
-    # Stub: not implemented
-    echo "setAttributes not implemented"
+
+    if [[ ! -d "$path" ]]; then
+        return 1
+    fi
+
+    if [[ "$attributes" == *"faReadOnly"* ]]; then
+        chmod a-w "$path" 2>/dev/null || return 1
+    else
+        chmod u+w "$path" 2>/dev/null || return 1
+    fi
+}
+
+tdirectory._format_time() {
+    local path="$1"
+    local stat_field="$2"
+    local utc="${3:-false}"
+    local epoch date_arg
+
+    [[ -d "$path" ]] || return 1
+    epoch=$(stat -c "$stat_field" "$path" 2>/dev/null) || return 1
+    if [[ "$stat_field" == "%W" && "$epoch" == "-1" ]]; then
+        epoch=$(stat -c "%Y" "$path" 2>/dev/null) || return 1
+    fi
+    [[ "$epoch" =~ ^-?[0-9]+$ ]] || return 1
+
+    if [[ "$utc" == "true" ]]; then
+        date_arg="-u"
+    else
+        date_arg=""
+    fi
+
+    date $date_arg -d "@$epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || return 1
+}
+
+tdirectory._touch_time() {
+    local path="$1"
+    local time_value="$2"
+    local touch_flag="$3"
+    local utc="${4:-false}"
+    local date_arg timestamp
+
+    [[ -d "$path" ]] || return 1
+    [[ -n "$time_value" ]] || return 1
+
+    if [[ "$utc" == "true" ]]; then
+        date_arg="-u"
+    else
+        date_arg=""
+    fi
+
+    if [[ "$time_value" =~ ^[0-9]+$ ]]; then
+        timestamp=$(date $date_arg -d "@$time_value" +%Y%m%d%H%M.%S 2>/dev/null) || return 1
+    else
+        timestamp=$(date $date_arg -d "$time_value" +%Y%m%d%H%M.%S 2>/dev/null) || return 1
+    fi
+
+    touch "$touch_flag" -t "$timestamp" "$path" 2>/dev/null
 }
 
 # Define tdirectory.getCreationTime function
 tdirectory.getCreationTime() {
     local path="$1"
-    # Use modification time as proxy for creation time
-    if command -v stat >/dev/null 2>&1; then
-        local mtime
-        mtime=$(stat -c %Y "$path" 2>/dev/null)
-        if [[ -n "$mtime" ]]; then
-            date -d "@$mtime"
-        else
-            date
-        fi
-    else
-        date
-    fi
+    tdirectory._format_time "$path" "%W" false
 }
 
 # Define tdirectory.setCreationTime function
 tdirectory.setCreationTime() {
     local path="$1"
     local time="$2"
-    # Use touch to set modification time
-    touch -t "$(date -d "$time" +%Y%m%d%H%M.%S 2>/dev/null || date +%Y%m%d%H%M.%S)" "$path" 2>/dev/null || true
+    tdirectory._touch_time "$path" "$time" "-m" false
 }
 
 # Define tdirectory.getCreationTimeUtc function
 tdirectory.getCreationTimeUtc() {
     local path="$1"
-    # Use modification time as proxy
-    if command -v stat >/dev/null 2>&1; then
-        local mtime
-        mtime=$(stat -c %Y "$path" 2>/dev/null)
-        if [[ -n "$mtime" ]]; then
-            date -u -d "@$mtime"
-        else
-            date -u
-        fi
-    else
-        date -u
-    fi
+    tdirectory._format_time "$path" "%W" true
 }
 
 # Define tdirectory.setCreationTimeUtc function
 tdirectory.setCreationTimeUtc() {
     local path="$1"
     local time="$2"
-    # Same as setCreationTime
-    tdirectory.setCreationTime "$path" "$time"
+    tdirectory._touch_time "$path" "$time" "-m" true
 }
 
 # Define tdirectory.getLastAccessTime function
 tdirectory.getLastAccessTime() {
     local path="$1"
-    if command -v stat >/dev/null 2>&1; then
-        local atime
-        atime=$(stat -c %X "$path" 2>/dev/null)
-        if [[ -n "$atime" ]]; then
-            date -d "@$atime"
-        else
-            date
-        fi
-    else
-        date
-    fi
+    tdirectory._format_time "$path" "%X" false
 }
 
 # Define tdirectory.setLastAccessTime function
 tdirectory.setLastAccessTime() {
     local path="$1"
     local time="$2"
-    touch -a -t "$(date -d "$time" +%Y%m%d%H%M.%S 2>/dev/null || date +%Y%m%d%H%M.%S)" "$path" 2>/dev/null || true
+    tdirectory._touch_time "$path" "$time" "-a" false
 }
 
 # Define tdirectory.getLastAccessTimeUtc function
 tdirectory.getLastAccessTimeUtc() {
     local path="$1"
-    if command -v stat >/dev/null 2>&1; then
-        local atime
-        atime=$(stat -c %X "$path" 2>/dev/null)
-        if [[ -n "$atime" ]]; then
-            date -u -d "@$atime"
-        else
-            date -u
-        fi
-    else
-        date -u
-    fi
+    tdirectory._format_time "$path" "%X" true
 }
 
 # Define tdirectory.setLastAccessTimeUtc function
 tdirectory.setLastAccessTimeUtc() {
     local path="$1"
     local time="$2"
-    tdirectory.setLastAccessTime "$path" "$time"
+    tdirectory._touch_time "$path" "$time" "-a" true
 }
 
 # Define tdirectory.getLastWriteTime function
 tdirectory.getLastWriteTime() {
     local path="$1"
-    if command -v stat >/dev/null 2>&1; then
-        local mtime
-        mtime=$(stat -c %Y "$path" 2>/dev/null)
-        if [[ -n "$mtime" ]]; then
-            date -d "@$mtime"
-        else
-            date
-        fi
-    else
-        date
-    fi
+    tdirectory._format_time "$path" "%Y" false
 }
 
 # Define tdirectory.setLastWriteTime function
 tdirectory.setLastWriteTime() {
     local path="$1"
     local time="$2"
-    touch -t "$(date -d "$time" +%Y%m%d%H%M.%S 2>/dev/null || date +%Y%m%d%H%M.%S)" "$path" 2>/dev/null || true
+    tdirectory._touch_time "$path" "$time" "-m" false
 }
 
 # Define tdirectory.getLastWriteTimeUtc function
 tdirectory.getLastWriteTimeUtc() {
     local path="$1"
-    if command -v stat >/dev/null 2>&1; then
-        local mtime
-        mtime=$(stat -c %Y "$path" 2>/dev/null)
-        if [[ -n "$mtime" ]]; then
-            date -u -d "@$mtime"
-        else
-            date -u
-        fi
-    else
-        date -u
-    fi
+    tdirectory._format_time "$path" "%Y" true
 }
 
 # Define tdirectory.setLastWriteTimeUtc function
 tdirectory.setLastWriteTimeUtc() {
     local path="$1"
     local time="$2"
-    tdirectory.setLastWriteTime "$path" "$time"
+    tdirectory._touch_time "$path" "$time" "-m" true
 }
 
-#echo "tdirectory class created successfully"
+tdirectory._register_kklass_class() {
+    local -a tdirectory_methods=(
+        createDirectory delete exists copy isEmpty move isRelativePath getDirectoryRoot
+        getParent getCurrentDirectory setCurrentDirectory getLogicalDrives getDirectories
+        getFiles getFileSystemEntries getAttributes setAttributes getCreationTime
+        setCreationTime getCreationTimeUtc setCreationTimeUtc getLastAccessTime
+        setLastAccessTime getLastAccessTimeUtc setLastAccessTimeUtc getLastWriteTime
+        setLastWriteTime getLastWriteTimeUtc setLastWriteTimeUtc
+    )
+    kk.register_static_methods "tdirectory" "tdirectory" "TDirectory" "${tdirectory_methods[@]}"
+}
+
+tdirectory._register_kklass_class
+unset -f tdirectory._register_kklass_class
