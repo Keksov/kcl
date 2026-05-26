@@ -168,6 +168,8 @@ tdirectory.getLogicalDrives() {
 tdirectory._get_dirs_recursive() {
     local dir="$1"
     local pattern="$2"
+    local LC_ALL=
+    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
     local old_extglob
     old_extglob=$(shopt -p extglob)
     shopt -s extglob
@@ -189,6 +191,8 @@ tdirectory._get_dirs_recursive() {
 tdirectory._get_files_recursive() {
     local dir="$1"
     local pattern="$2"
+    local LC_ALL=
+    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
     local old_extglob
     old_extglob=$(shopt -p extglob)
     shopt -s extglob
@@ -211,6 +215,8 @@ tdirectory._get_files_recursive() {
 tdirectory._get_entries_recursive() {
     local dir="$1"
     local pattern="$2"
+    local LC_ALL=
+    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
     local old_extglob
     old_extglob=$(shopt -p extglob)
     shopt -s extglob
@@ -238,6 +244,8 @@ tdirectory.getDirectories() {
     local dir_path="$1"
     local pattern="${2:-*}"
     local search_option="${3:-TopDirectoryOnly}"
+    local LC_ALL=
+    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
 
     if [[ -z "$dir_path" ]]; then
         echo "Error: Directory path cannot be empty" >&2
@@ -281,6 +289,8 @@ tdirectory.getFiles() {
     local dir_path="$1"
     local pattern="${2:-*}"
     local search_option="${3:-TopDirectoryOnly}"
+    local LC_ALL=
+    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
 
     if [[ -z "$dir_path" ]]; then
         echo "Error: Directory path cannot be empty" >&2
@@ -324,6 +334,8 @@ tdirectory.getFileSystemEntries() {
     local dir_path="$1"
     local pattern="${2:-*}"
     local search_option="${3:-TopDirectoryOnly}"
+    local LC_ALL=
+    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
 
     if [[ -z "$dir_path" ]]; then
         echo "Error: Directory path cannot be empty" >&2
@@ -412,7 +424,7 @@ tdirectory._touch_time() {
     local time_value="$2"
     local touch_flag="$3"
     local utc="${4:-false}"
-    local date_arg timestamp
+    local date_arg timestamp touch_cmd
 
     [[ -d "$path" ]] || return 1
     [[ -n "$time_value" ]] || return 1
@@ -429,7 +441,13 @@ tdirectory._touch_time() {
         timestamp=$(date $date_arg -d "$time_value" +%Y%m%d%H%M.%S 2>/dev/null) || return 1
     fi
 
-    touch "$touch_flag" -t "$timestamp" "$path" 2>/dev/null
+    # Prefer POSIX/GNU touch to avoid PATH collisions with vendor touch binaries on Windows.
+    touch_cmd="/usr/bin/touch"
+    if [[ ! -x "$touch_cmd" ]]; then
+        touch_cmd="$(command -v touch 2>/dev/null)" || return 1
+    fi
+
+    "$touch_cmd" "$touch_flag" -t "$timestamp" "$path" 2>/dev/null
 }
 
 # Define tdirectory.getCreationTime function

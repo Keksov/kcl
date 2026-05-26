@@ -312,9 +312,16 @@ TCustomApplication.new myapp
 external_setargs_output=$(TCUSTOMAPPLICATION_DIR="$TCUSTOMAPPLICATION_DIR" bash "$TEST_SCRIPT_DIR/helper_external_app.sh" -x test1 -y test2)
 
 # Parse the output
-new_option_index=$(echo "$external_setargs_output" | grep "new_option_index=" | cut -d'=' -f2)
-output_value=$(echo "$external_setargs_output" | grep "output_value=" | cut -d'=' -f2)
-has_verbose=$(echo "$external_setargs_output" | grep "has_verbose=" | cut -d'=' -f2)
+new_option_index=""
+output_value=""
+has_verbose=""
+while IFS='=' read -r key value; do
+    case "$key" in
+        new_option_index) new_option_index="$value" ;;
+        output_value) output_value="$value" ;;
+        has_verbose) has_verbose="$value" ;;
+    esac
+done <<< "$external_setargs_output"
 
 if [[ "$new_option_index" == "0" && "$output_value" == "output.txt" && "$has_verbose" == "true" ]]; then
     kt_test_pass "External script successfully replaced arguments via SetArgs"

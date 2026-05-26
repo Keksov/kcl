@@ -4,6 +4,7 @@
 TCUSTOMAPPLICATION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TCUSTOMAPPLICATION_DIR/../../kklass/kklass.sh"
 source "$TCUSTOMAPPLICATION_DIR/../../kkore/kuse.sh"
+unset -f tcustomapplication._call_silent 2>/dev/null || true
 
 # Define TCustomApplication class
 defineClass "TCustomApplication" "" \
@@ -19,14 +20,15 @@ defineClass "TCustomApplication" "" \
          OnException=""
          EventLogFilter=""
          # Initialize command-line arguments storage as empty array
-         TCUSTAPP_ARGS=()
+         state["_TCUSTAPP_ARGS_COUNT"]="0"
          # Initialize cache for getopts string conversion
-         _CachedShortOpts=""
-         _CachedGetoptOpts=""
+         state["_CachedShortOpts"]=""
+         state["_CachedGetoptOpts"]=""
          # Initialize cache flag for arguments initialization
-         _ArgsInitialized="false"
+         state["_ArgsInitialized"]="false"
          # Cache OptionChar for performance
-         _CachedOptionChar="-"
+         state["_OptionCharCache"]="-"
+         state["_DoubleOptionCharCache"]="--"
          
          # Initialize arguments from script parameters if any provided
          if [[ $# -gt 0 ]]; then
@@ -53,12 +55,17 @@ defineClass "TCustomApplication" "" \
     "procedure" "SetArgs" '
          # Store command-line arguments for this instance in the instance data
          # Clear existing arguments first
-         TCUSTAPP_ARGS=()
+         local old_count="${state[_TCUSTAPP_ARGS_COUNT]:-0}"
+         local i
+         for ((i = 0; i < old_count; i++)); do
+             unset "state[_TCUSTAPP_ARG_$i]"
+         done
+         state["_TCUSTAPP_ARGS_COUNT"]="0"
          
          # Initialize cache variables if not already done
-         if [[ -z "$_CachedShortOpts" ]]; then
-             _CachedShortOpts=""
-             _CachedGetoptOpts=""
+         if [[ -z "${state[_CachedShortOpts]:-}" ]]; then
+             state["_CachedShortOpts"]=""
+             state["_CachedGetoptOpts"]=""
          fi
          
          # Handle -- separator: if first argument is --, skip it
@@ -68,26 +75,37 @@ defineClass "TCustomApplication" "" \
          fi
          
          # Store each argument without shell escaping - use a safer approach
+         local arg_index=0
          for ((i = start_index; i <= $#; i++)); do
              # Get argument by position using indirect expansion
              local arg="${!i}"
              # Store arguments as-is, preserving their original form
-             TCUSTAPP_ARGS+=("$arg")
+             state["_TCUSTAPP_ARG_$arg_index"]="$arg"
+             ((arg_index++))
          done
+         state["_TCUSTAPP_ARGS_COUNT"]="$arg_index"
          
          # Mark arguments as initialized
-         _ArgsInitialized="true"
+         state["_ArgsInitialized"]="true"
      ' \
     \
     "procedure" "_EnsureArgsInitialized" '
          # Auto-initialize arguments from script parameters if not already done
          # This is called automatically from functions that need arguments
-         if [[ "$_ArgsInitialized" == "false" ]]; then
-             TCUSTAPP_ARGS=()
-             for arg in "$@"; do
-                 TCUSTAPP_ARGS+=("$arg")
+         if [[ "${state[_ArgsInitialized]:-false}" == "false" ]]; then
+             local old_count="${state[_TCUSTAPP_ARGS_COUNT]:-0}"
+             local i
+             for ((i = 0; i < old_count; i++)); do
+                 unset "state[_TCUSTAPP_ARG_$i]"
              done
-             _ArgsInitialized="true"
+
+             local arg_index=0
+             for arg in "$@"; do
+                 state["_TCUSTAPP_ARG_$arg_index"]="$arg"
+                 ((arg_index++))
+             done
+             state["_TCUSTAPP_ARGS_COUNT"]="$arg_index"
+             state["_ArgsInitialized"]="true"
          fi
      ' \
     \
@@ -97,29 +115,31 @@ defineClass "TCustomApplication" "" \
          $this.call _EnsureArgsInitialized "$@"
          
          # Pre-compute commonly used values to avoid redundant lookups
-         OptionChar_Cache="$OptionChar"
-         DoubleOptionChar_Cache="$OptionChar_Cache$OptionChar_Cache"
+            state["_OptionCharCache"]="$OptionChar"
+            state["_DoubleOptionCharCache"]="$OptionChar$OptionChar"
      ' \
     \
     "function" "_GetArgs" '
          # Get stored arguments array
          # Return count of arguments
-         RESULT="${#TCUSTAPP_ARGS[@]}"
+            RESULT="${state[_TCUSTAPP_ARGS_COUNT]:-0}"
      ' \
     \
     "function" "_GetNextArgValue" '
-         local -n args_array_ref="$1"
-         local idx="$2"
+         local idx="$1"
+         local args_count="${state[_TCUSTAPP_ARGS_COUNT]:-0}"
          
-         if [[ $((idx + 1)) -lt ${#args_array_ref[@]} ]]; then
-             local next_arg="${args_array_ref[$((idx + 1))]}"
+         if [[ $((idx + 1)) -lt $args_count ]]; then
+             local next_arg="${state[_TCUSTAPP_ARG_$((idx + 1))]}"
              if [[ ! "$next_arg" =~ ^- ]]; then
                  RESULT="$next_arg"
+                 kk._return "$RESULT"
                  return 0
              fi
          fi
          
          RESULT=""
+         kk._return "$RESULT"
          return 1
      ' \
     \
@@ -131,29 +151,29 @@ defineClass "TCustomApplication" "" \
          # Prepare arguments and common variables
          $this.call _PrepareArguments "$@"
          
-         # OPTIMIZATION 1: Use array reference instead of copying
-         local -n args_ref=TCUSTAPP_ARGS
-         
          # Get the current OptionChar
-         local opt_char="$OptionChar_Cache"
+         local opt_char="${state[_OptionCharCache]:-$OptionChar}"
+         local args_count="${state[_TCUSTAPP_ARGS_COUNT]:-0}"
          
          # Search for option in arguments starting from start_at
          local search_start=0
          [[ "$start_at" -ge 0 ]] && search_start="$start_at"
          
          local i
-         for ((i = search_start; i < ${#args_ref[@]}; i++)); do
-             local arg="${args_ref[$i]}"
+         for ((i = search_start; i < args_count; i++)); do
+             local arg="${state[_TCUSTAPP_ARG_$i]}"
              
              # Check short option (single char with option char prefix)
              if [[ -n "$short_opt" && "$arg" == "$opt_char$short_opt" ]]; then
                  RESULT="$i"
+                 kk._return "$RESULT"
                  return 0
              fi
              
              # Check long option (with double option char prefix)
              if [[ -n "$long_opt" && "$arg" == "$opt_char$opt_char$long_opt" ]]; then
                  RESULT="$i"
+                 kk._return "$RESULT"
                  return 0
              fi
          done
@@ -168,17 +188,15 @@ defineClass "TCustomApplication" "" \
          # Prepare arguments and common variables
          $this.call _PrepareArguments "$@"
          
-         # OPTIMIZATION 1: Use array reference instead of copying
-         local -n args_ref=TCUSTAPP_ARGS
-         
          # Find option using FindOptionIndex (checks both short and long options in one call)
          local idx
-         $this.call FindOptionIndex "$opt" "$secondary_opt" -1
+         kk.call_silent "$this" FindOptionIndex "$opt" "$secondary_opt" -1
          idx="$RESULT"
          
          if [[ "$idx" -ge 0 ]]; then
-             $this.call _GetNextArgValue args_ref "$idx"
+             kk.call_silent "$this" _GetNextArgValue "$idx"
              if [[ $? -eq 0 ]]; then
+                 kk._return "$RESULT"
                  return 0
              fi
          fi
@@ -193,25 +211,22 @@ defineClass "TCustomApplication" "" \
          # Prepare arguments and common variables
          $this.call _PrepareArguments "$@"
          
-         # OPTIMIZATION 1: Use array reference instead of copying
-         local -n args_ref=TCUSTAPP_ARGS
-         
          # OPTIMIZATION 2: Pre-allocate array with proper capacity to avoid reallocations
          local -a values
          local value_count=0
          
          # Collect all values for this option
          local i=0
-         while true; do
+            while true; do
              local idx
-             $this.call FindOptionIndex "$short_opt" "$long_opt" "$i"
+             kk.call_silent "$this" FindOptionIndex "$short_opt" "$long_opt" "$i"
              idx="$RESULT"
              
              if [[ "$idx" -lt 0 ]]; then
                  break
              fi
              
-             $this.call _GetNextArgValue args_ref "$idx"
+             kk.call_silent "$this" _GetNextArgValue "$idx"
              if [[ $? -eq 0 ]]; then
                  values[value_count]="$RESULT"
                  ((value_count++))
@@ -236,7 +251,7 @@ defineClass "TCustomApplication" "" \
          $this.call _PrepareArguments "$@"
          
          local idx
-         $this.call FindOptionIndex "$opt" "$secondary_opt" -1
+         kk.call_silent "$this" FindOptionIndex "$opt" "$secondary_opt" -1
          idx="$RESULT"
          
          if [[ "$idx" -ge 0 ]]; then
@@ -269,6 +284,7 @@ defineClass "TCustomApplication" "" \
                  # Check if this char is in allowed options (only if allowed specified)
                  if [[ -n "$allowed" && ! "$allowed" =~ $ch ]]; then
                      RESULT="Invalid option: $prefix$ch"
+                     kk._return "$RESULT"
                      return 1
                  fi
                  found_opts+=("$prefix$ch")
@@ -277,10 +293,13 @@ defineClass "TCustomApplication" "" \
              # Process long option: single option validation
              if [[ -n "$allowed" && ! "$allowed" =~ " ${option} " ]]; then
                  RESULT="Invalid option: $prefix$option"
+                 kk._return "$RESULT"
                  return 1
              fi
              found_opts+=("$prefix$option")
          fi
+         RESULT=""
+         kk._return "$RESULT"
          return 0
      ' \
     \
@@ -293,9 +312,9 @@ defineClass "TCustomApplication" "" \
          
          long_opts_array=()
          
-         if [[ "$should_fill_arrays" == "true" ]]; then
+         if [[ "$should_fill_arrays" == "true" && "$long_opts" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] && declare -p "$long_opts" &>/dev/null; then
              # Treat long_opts as array reference
-             local -n long_ref="$long_opts" 2>/dev/null
+             local -n long_ref="$long_opts"
              long_opts_array=("${long_ref[@]:-}")
          elif [[ -n "$long_opts" && ! "$long_opts" =~ ^- ]]; then
              # String of long options (space-separated)
@@ -329,14 +348,12 @@ defineClass "TCustomApplication" "" \
          
          # Extract long options array
          local -a long_opts_array=()
-         $this.call _ParseLongOpts "$should_fill_arrays" "$long_opts"
-         
-         # OPTIMIZATION 1: Use array reference instead of copying
-         local -n args_ref=TCUSTAPP_ARGS
+         kk.call_silent "$this" _ParseLongOpts "$should_fill_arrays" "$long_opts"
          
          # OPTIMIZATION 2: Use pre-computed cached values
-         local opt_char="$OptionChar_Cache"
-         local double_opt_char="$DoubleOptionChar_Cache"
+         local opt_char="${state[_OptionCharCache]:-$OptionChar}"
+         local double_opt_char="${state[_DoubleOptionCharCache]:-$OptionChar$OptionChar}"
+         local args_count="${state[_TCUSTAPP_ARGS_COUNT]:-0}"
          
          local error_msg=""
          local -a found_opts=()
@@ -351,14 +368,14 @@ defineClass "TCustomApplication" "" \
          
          # Process each argument
          local i
-         for ((i = 0; i < ${#args_ref[@]}; i++)); do
-             local arg="${args_ref[$i]}"
+         for ((i = 0; i < args_count; i++)); do
+             local arg="${state[_TCUSTAPP_ARG_$i]}"
              
              # Check if this is a short option (single option char, not double, not just the char alone)
              if [[ "$arg" == "$opt_char"* && "$arg" != "$double_opt_char"* && "$arg" != "$opt_char" ]]; then
                  local opts_str="${arg:${#opt_char}}"
                  # Validate short options
-                 $this.call _ValidateOption "$opts_str" "short" "$short_opts_clean" "$opt_char"
+                 kk.call_silent "$this" _ValidateOption "$opts_str" "short" "$short_opts_clean" "$opt_char"
                  if [[ $? -ne 0 ]]; then
                      error_msg="$RESULT"
                      break
@@ -367,7 +384,7 @@ defineClass "TCustomApplication" "" \
              elif [[ "$arg" == "$double_opt_char"* && "$arg" != "$double_opt_char" ]]; then
                  local long_opt="${arg:$((${#opt_char} * 2))}"
                  # Validate long option
-                 $this.call _ValidateOption "$long_opt" "long" "$long_opts_str" "$double_opt_char"
+                 kk.call_silent "$this" _ValidateOption "$long_opt" "long" "$long_opts_str" "$double_opt_char"
                  if [[ $? -ne 0 ]]; then
                      error_msg="$RESULT"
                      break
@@ -404,7 +421,7 @@ defineClass "TCustomApplication" "" \
          
          # Use CheckOptions to parse and extract non-options
          local -a non_opts=()
-         $this.call CheckOptions "$short_opts" "$long_opts" "_dummy_opts" "non_opts"
+         kk.call_silent "$this" CheckOptions "$short_opts" "$long_opts" "_dummy_opts" "non_opts"
          
          # Store results if variable provided
          if [[ -n "$non_options_var" ]]; then
@@ -458,7 +475,10 @@ defineClass "TCustomApplication" "" \
     "procedure" "ShowException" '
          local exception_msg="$1"
          # Default: echo the exception to stderr
-         [[ -n "$exception_msg" ]] && echo "Exception: $exception_msg" >&2
+         if [[ -n "$exception_msg" ]]; then
+             echo "Exception: $exception_msg" >&2
+         fi
+         return 0
      ' \
     \
     "procedure" "GetEnvironmentList" '
