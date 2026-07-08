@@ -31,12 +31,8 @@ defineClass TList "" \
              count="$new_capacity"
          fi
          capacity="$new_capacity"
-         # Resize the array if needed
-         local len=${#items_ref[@]}
-         while (( len < new_capacity )); do
-             items_ref[$len]=""
-             ((len++))
-         done
+         # No physical pre-fill: capacity is a logical reservation; the sparse
+         # bash array grows on demand as elements are actually added.
      }' \
     method _setCount '{
          local new_count="$1"
@@ -84,14 +80,10 @@ defineClass TList "" \
              new_capacity=$((current_capacity + current_capacity / 2))
          fi
          
+         # Capacity is a logical reservation tracked by the property; bash arrays
+         # are sparse and grow on demand, so there is no need to physically
+         # pre-fill new_capacity empty slots (that was O(capacity) writes per Grow).
          $__inst__.property capacity = "$new_capacity"
-         local items_var="${__inst__}_items"
-         declare -n items_ref="$items_var"
-         local len=${#items_ref[@]}
-         while (( len < new_capacity )); do
-             items_ref[$len]=""
-             ((len++))
-         done
      }' \
     method Expand '{
         $this.Grow

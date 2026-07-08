@@ -81,11 +81,15 @@ REPLY="$password"
 
 tfile._crypt_file() {
 local mode="$1" file="$2" password_arg="$3"
-local password tmp_file
+local password tmp_file dir
 [[ -f "$file" ]] || return 1
 tfile._crypto_password "$password_arg" || return 1
 password="$REPLY"
-tmp_file="${file}.tmp.$$"
+# Unpredictable temp file in the SAME directory (so the final mv is atomic on
+# the same filesystem). The old "${file}.tmp.$$" name was predictable and
+# racy: an attacker could pre-create/symlink it before openssl wrote.
+dir="${file%/*}"; [[ "$dir" == "$file" ]] && dir="."
+tmp_file=$(mktemp "$dir/.tfile_crypt.XXXXXXXX") || return 1
 if TFILE_CRYPTO_PASSWORD="$password" openssl enc $mode -aes-256-cbc -salt -pbkdf2 -in "$file" -out "$tmp_file" -pass env:TFILE_CRYPTO_PASSWORD 2>/dev/null; then
     mv "$tmp_file" "$file"
 else

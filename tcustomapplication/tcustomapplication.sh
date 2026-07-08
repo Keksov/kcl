@@ -110,11 +110,15 @@ defineClass "TCustomApplication" "" \
      ' \
     \
     "procedure" "_PrepareArguments" '
-         # Internal helper: Initialize arguments and setup common variables
-         # This consolidates the repetitive initialization logic
-         $this.call _EnsureArgsInitialized "$@"
-         
-         # Pre-compute commonly used values to avoid redundant lookups
+         # Internal helper: Initialize arguments and setup common variables.
+         # Skip the _EnsureArgsInitialized method dispatch once args are already
+         # initialized (the common case after SetArgs) — this is what made
+         # GetOptionValues O(n*k) as it loops FindOptionIndex. The OptionChar
+         # caches are recomputed cheaply so a mutated OptionChar stays correct.
+         if [[ "${state[_ArgsInitialized]:-false}" != "true" ]]; then
+             $this.call _EnsureArgsInitialized "$@"
+         fi
+
             state["_OptionCharCache"]="$OptionChar"
             state["_DoubleOptionCharCache"]="$OptionChar$OptionChar"
      ' \
@@ -281,8 +285,10 @@ defineClass "TCustomApplication" "" \
                  if [[ "$ch" == ":" ]]; then
                      continue
                  fi
-                 # Check if this char is in allowed options (only if allowed specified)
-                 if [[ -n "$allowed" && ! "$allowed" =~ $ch ]]; then
+                 # Check if this char is in allowed options (only if allowed specified).
+                 # Literal glob substring (quoted $ch), not =~ regex — otherwise an
+                 # option char like '.' would match any character in $allowed.
+                 if [[ -n "$allowed" && "$allowed" != *"$ch"* ]]; then
                      RESULT="Invalid option: $prefix$ch"
                      kk._return "$RESULT"
                      return 1
@@ -290,8 +296,10 @@ defineClass "TCustomApplication" "" \
                  found_opts+=("$prefix$ch")
              done
          else
-             # Process long option: single option validation
-             if [[ -n "$allowed" && ! "$allowed" =~ " ${option} " ]]; then
+             # Process long option: single option validation.
+             # Literal glob substring, not =~ regex, so an option name containing
+             # a regex metacharacter is matched as itself.
+             if [[ -n "$allowed" && "$allowed" != *" ${option} "* ]]; then
                  RESULT="Invalid option: $prefix$option"
                  kk._return "$RESULT"
                  return 1

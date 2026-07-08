@@ -356,10 +356,12 @@ string.getHashCode() {
     local str="$1"
     local hash=0
     local i=0
+    local ord
     while [[ $i -lt ${#str} ]]; do
-        local char="${str:i:1}"
-        hash=$((hash + $(printf '%d' "'$char")))
-        hash=$((hash * 31))
+        # printf -v (no subshell) instead of $(printf ...) per character —
+        # the old form forked a process for every character in the string.
+        printf -v ord '%d' "'${str:i:1}"
+        hash=$(( (hash + ord) * 31 ))
         ((i++))
     done
     echo "$hash"
@@ -432,6 +434,10 @@ string.lastIndexOfAny() {
     echo "$last_index"
 }
 
+# SECURITY / trust boundary: $format is a caller-supplied printf format string
+# (Pascal Format semantics). Do NOT pass untrusted input as the format — it is
+# interpreted for directives/width. Bash printf has no %n, so this cannot corrupt
+# memory, but an untrusted format can still mis-format or spin on a huge width.
 string.format() {
     local format="$1"
     shift
@@ -655,13 +661,31 @@ string.toExtended() {
 }
 
 string.toInt64() {
-    local self="$1"
-    echo "$(( ${self%%.*} ))"
+    string._parse_int "$1"
 }
 
 string.toInteger() {
+    string._parse_int "$1"
+}
+
+# Parse the integer part of a decimal string safely.
+# SECURITY: never feed raw input to $(( )) — bash evaluates array subscripts
+# there, so input like 'a[$(cmd)]' would execute cmd (RCE). Validate as a
+# decimal integer FIRST, then normalize via base-10 arithmetic on digits only.
+string._parse_int() {
     local self="$1"
-    echo "$(( ${self%%.*} ))"
+    local int_part="${self%%.*}"
+    # Trim surrounding whitespace.
+    int_part="${int_part#"${int_part%%[![:space:]]*}"}"
+    int_part="${int_part%"${int_part##*[![:space:]]}"}"
+    if [[ "$int_part" =~ ^([+-]?)([0-9]+)$ ]]; then
+        local sign="${BASH_REMATCH[1]}"
+        [[ "$sign" == "+" ]] && sign=""
+        echo "$(( ${sign}10#${BASH_REMATCH[2]} ))"
+        return 0
+    fi
+    echo 0
+    return 1
 }
 
 string.toLower() {

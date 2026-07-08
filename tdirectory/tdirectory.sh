@@ -170,21 +170,20 @@ tdirectory._get_dirs_recursive() {
     local pattern="$2"
     local LC_ALL=
     local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
-    local old_extglob
-    old_extglob=$(shopt -p extglob)
+    local had_extglob=1
+    shopt -q extglob || had_extglob=0
     shopt -s extglob
-    local directory_path
+    local directory_path base
     for directory_path in "$dir"/*/; do
         if [[ -d "$directory_path" ]]; then
-            local base
-            base=$(basename "$directory_path")
+            base="${directory_path%/}"; base="${base##*/}"
             if [[ "$base" == $pattern ]]; then
                 echo "${directory_path%/}"
             fi
             tdirectory._get_dirs_recursive "${directory_path%/}" "$pattern"
         fi
     done
-    eval "$old_extglob"
+    (( had_extglob )) || shopt -u extglob
 }
 
 # Helper function for recursive file listing
@@ -193,14 +192,13 @@ tdirectory._get_files_recursive() {
     local pattern="$2"
     local LC_ALL=
     local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
-    local old_extglob
-    old_extglob=$(shopt -p extglob)
+    local had_extglob=1
+    shopt -q extglob || had_extglob=0
     shopt -s extglob
-    local file_path
+    local file_path base
     for file_path in "$dir"/*; do
         if [[ -f "$file_path" ]]; then
-            local base
-            base=$(basename "$file_path")
+            base="${file_path##*/}"
             if [[ "$base" == $pattern ]]; then
                 echo "$file_path"
             fi
@@ -208,7 +206,7 @@ tdirectory._get_files_recursive() {
             tdirectory._get_files_recursive "${file_path%/}" "$pattern"
         fi
     done
-    eval "$old_extglob"
+    (( had_extglob )) || shopt -u extglob
 }
 
 # Helper function for recursive filesystem entries listing
@@ -217,14 +215,13 @@ tdirectory._get_entries_recursive() {
     local pattern="$2"
     local LC_ALL=
     local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
-    local old_extglob
-    old_extglob=$(shopt -p extglob)
+    local had_extglob=1
+    shopt -q extglob || had_extglob=0
     shopt -s extglob
-    local entry_path
+    local entry_path base
     for entry_path in "$dir"/*; do
         if [[ -f "$entry_path" || -d "$entry_path" ]]; then
-            local base
-            base=$(basename "$entry_path")
+            base="${entry_path##*/}"
             if [[ "$base" == $pattern ]]; then
                 echo "$entry_path"
             fi
@@ -233,7 +230,7 @@ tdirectory._get_entries_recursive() {
             tdirectory._get_entries_recursive "${entry_path%/}" "$pattern"
         fi
     done
-    eval "$old_extglob"
+    (( had_extglob )) || shopt -u extglob
 }
 
 # Remove helper names leaked by older sourced versions of this module.
@@ -258,17 +255,16 @@ tdirectory.getDirectories() {
     fi
 
     # Enable extglob for pattern matching
-    local old_extglob
-    old_extglob=$(shopt -p extglob)
+    local had_extglob=1
+    shopt -q extglob || had_extglob=0
     shopt -s extglob
 
     if [[ "$search_option" == "TopDirectoryOnly" ]]; then
         # Top level only
-        local directory_path
+        local directory_path base
         for directory_path in "$dir_path"/*/; do
             if [[ -d "$directory_path" ]]; then
-                local base
-                base=$(basename "$directory_path")
+                base="${directory_path%/}"; base="${base##*/}"
                 # Pattern match
                 if [[ "$base" == $pattern ]]; then
                     echo "${directory_path%/}"
@@ -281,7 +277,7 @@ tdirectory.getDirectories() {
     fi
 
     # Restore extglob
-    eval "$old_extglob"
+    (( had_extglob )) || shopt -u extglob
 }
 
 # Define tdirectory.getFiles function
@@ -303,17 +299,16 @@ tdirectory.getFiles() {
     fi
 
     # Enable extglob for pattern matching
-    local old_extglob
-    old_extglob=$(shopt -p extglob)
+    local had_extglob=1
+    shopt -q extglob || had_extglob=0
     shopt -s extglob
 
     if [[ "$search_option" == "TopDirectoryOnly" ]]; then
         # Top level only
-        local file_path
+        local file_path base
         for file_path in "$dir_path"/*; do
             if [[ -f "$file_path" ]]; then
-                local base
-                base=$(basename "$file_path")
+                base="${file_path##*/}"
                 # Pattern match
                 if [[ "$base" == $pattern ]]; then
                     echo "$file_path"
@@ -326,7 +321,7 @@ tdirectory.getFiles() {
     fi
 
     # Restore extglob
-    eval "$old_extglob"
+    (( had_extglob )) || shopt -u extglob
 }
 
 # Define tdirectory.getFileSystemEntries function
@@ -348,17 +343,16 @@ tdirectory.getFileSystemEntries() {
     fi
 
     # Enable extglob for pattern matching
-    local old_extglob
-    old_extglob=$(shopt -p extglob)
+    local had_extglob=1
+    shopt -q extglob || had_extglob=0
     shopt -s extglob
 
     if [[ "$search_option" == "TopDirectoryOnly" ]]; then
         # Top level only
-        local entry_path
+        local entry_path base
         for entry_path in "$dir_path"/*; do
             if [[ -e "$entry_path" ]]; then
-                local base
-                base=$(basename "$entry_path")
+                base="${entry_path##*/}"
                 # Pattern match
                 if [[ "$base" == $pattern ]]; then
                     echo "$entry_path"
@@ -371,7 +365,7 @@ tdirectory.getFileSystemEntries() {
     fi
 
     # Restore extglob
-    eval "$old_extglob"
+    (( had_extglob )) || shopt -u extglob
 }
 
 # Define tdirectory.getAttributes function
