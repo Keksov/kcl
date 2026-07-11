@@ -1,0 +1,447 @@
+{
+  "schema_version": 1,
+  "project": "kcl/math — port of FPC Math to bash (kklass Pascal DSL static class)",
+  "created": "2026-07-11",
+  "updated": "2026-07-11",
+  "status": "COMPLETE — all phases P0-P8 done (2026-07-11). Hybrid: pure-bash exact core (Tier A) + persistent awk co-process float engine (Tier B; awk -f temp file + probe/fallback); FPU/precision out of scope (Tier C). 123 public methods; math suite 81/81 on bash 5.2, functional on 5.3; full kcl+kklass sweep 1819/0 (no regression); Tier-A integer core 0.04-0.12ms/call zero-fork, engine 0.13-0.18ms round-trip. FPC parity (tmath1 div/mod, tround banker's Round). Deliverables in kcl/math/: math.sh, README.md, PLAN.md, docs/Math.md, bench.sh, TEST_COVERAGE_NOTES.md, math_ledger.json, tests/001-012 + tests.sh + _mathtest.sh. Baseline protected (kcl 1512 + kklass 226 pre-math). COMMITS GATED (all uncommitted).",
+  "owner": "keksov",
+  "notes": "Single source of truth for the math implementation. Plan: kcl/math/PLAN.md. Source: C:/projects/KKMindWave/VendorsCore/fpc/sources/main/rtl/objpas/math.pp (4083 lines; ~100 distinct public function names, ~587 declarations counting Single/Double/Extended overloads). Update task.status as work proceeds. The kcl+kklass baseline below must NEVER regress; every phase ends with a full sweep on bash 5.2 and a spot-check on 5.3.",
+  "conventions": {
+    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
+    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
+    "severity_values": ["critical", "high", "medium", "low"],
+    "tier_values": ["A-pure-bash-exact", "B-engine-tolerance", "C-not-applicable"]
+  },
+  "baseline": {
+    "measured": "2026-07-11",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2) — thin static dispatch path (no funsub)",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64) — funsub available",
+    "suites_green": {
+      "kklass": 226,
+      "kcl_total": 1512,
+      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123",
+      "examples": "48/48",
+      "_note": "kcl_total 1512 = the post-dateutils figure from dateutils_ledger.json P7 (kcl 1389 pre-dateutils + dateutils 123). Re-measure at the start of math P0 to confirm no drift before adding the math suite on top."
+    },
+    "regression_rule": "math work must keep all of the above green; the new math suite adds on top."
+  },
+  "design_decisions": {
+    "model": "HYBRID. Tier A (integer/decimal core): everything bash computes exactly and fork-free stays pure bash (Min/Max/Sign/InRange/EnsureRange/DivMod/Ceil/Floor/RoundTo/SimpleRoundTo/CompareValue/IfThen/SumInt/RandomRange/RandomFrom, integer **). Tier B (transcendental): delegated to a persistent awk co-process (the float engine). Tier C (FPU/precision control): wontfix.",
+    "float_engine": "One awk co-process (bash `coproc`), spawned LAZILY on first transcendental call, kept alive for the process lifetime; each call is a pipe round-trip (write `op args`, read one `%.17g` line), no fork per call. awk computes in C doubles == IEEE-754 binary64 == FPC Double on the x86-64 targets, so results match FPC to ~1-2 ulps. Prelude defines every derived function from awk primitives (sin cos atan2 exp log sqrt int ^) and runs a dispatch loop with fflush() after each answer. pid/fds in plain globals __MATH_FE_* (class stays static-var-free). No awk on PATH -> engine calls return 1 (debug msg); Tier-A core still works. Zero-fork guarantee is SCOPED to the Tier-A core (pinned by a thin-dispatch test like tfile 038). HARDENED in P7: the program is fed via `awk -f <tempfile>` (NOT a command-line argument -- cygwin/bash-5.3 truncates a >~8KB arg, and the program is now 8.4KB); _fe_start writes the temp file, PROBES the co-process, and falls back TMPDIR->MATH_DIR->/tmp because some setups resolve /tmp differently for bash vs the native awk (MATH_DIR is a real path both agree on). Temp file removed in _fe_stop.",
+    "representation": "Integers = plain bash integers. Reals = decimal strings (3.14159, -2.5, 1e-9, inf, -inf, nan), echoed via %.17g from the engine. Arrays = the argument list (FPC `array of T` and `PT+N` overloads both collapse to remaining args). Pure-bash decimal comparator _dec_cmp keeps Sign/CompareValue/InRange/Min/Max fork-free on decimals.",
+    "class_shape": "Pascal DSL static utility class `math` (like dateutils/tpath/tfile): static proc members, real bash function bodies, `build math`. NO static vars -> thin capture-free dispatcher. Constants + engine pid/fds are top-level globals prefixed __MATH_*, readonly where constant, behind a _MATH_SOURCED re-source guard.",
+    "naming": "FPC names in lowerCamelCase: ArcTan2 -> math.arcTan2, RoundTo -> math.roundTo. Overload folding: Min(a,b) over all types -> one math.min; array reducers keep distinct names (math.minValue / math.minIntValue).",
+    "returns": "numbers echoed as tokens; booleans echo true/false; Sign & CompareValue echo -1/0/1; multi-out (SinCos, DivMod, Frexp, SumsAndSquares, MomentSkewKurtosis) echo space-separated fields; NaN/Inf as literal nan/inf/-inf; errors (EInvalidArgument) return 1 (stderr only under VERBOSE_KKLASS=debug).",
+    "rounding": "RoundTo = Round(AValue/10^Digits)*10^Digits = BANKER'S rounding (half-to-even). SimpleRoundTo = Int(AValue*RV +/- 0.5)/RV, RV=10^(-Digits) = ARITHMETIC rounding (half away from zero), default Digits=-2. Both honored, deliberately different.",
+    "convenience_extras": "math.sin/cos/sqrt/exp/ln/arcTan are NOT in math.pp (they are System-unit elementaries) but are exposed via the engine because a bash math library is expected to have them; documented as System-sourced."
+  },
+  "goals": [
+    "Faithful FPC Math semantics: exact for the integer/decimal core; tolerance-parity (~1e-12 relative) for the transcendental engine functions, values captured verbatim from FPC.",
+    "Scoped zero-fork: the integer/decimal core never forks and stays <= ~0.3 ms/call; the engine costs exactly one fork per process (lazy co-process), sub-ms per call thereafter.",
+    "Full ktest coverage with fixture tables for rounding half-way cases, negative-arg Ceil/Floor/DivMod, angle roundtrips, a transcendental reference grid, sample-vs-population statistics, financial annuities, NaN/Inf tokens.",
+    "Never regress the kcl/kklass baseline."
+  ],
+  "test_basis": {
+    "seed_primary": "C:/projects/KKMindWave/VendorsCore/fpc/sources/main/tests/test/tmath1.pp — integer div/mod truncation semantics (-10 div 5 = -2; byte/word/longint ranges) -> P2 DivMod parity.",
+    "seed_additional": [
+      "tests/test/units/math/troundm.pp — FPU-rounding-mode-dependent int->float bit patterns; CONFIRMS mode-dependent rounding is out of scope (Tier C).",
+      "tests/test/units/system/tround.pp — Round half-to-even reference -> P2 RoundTo.",
+      "tests/webtbs/tw16018.pp, tw3005.pp, tw3900.pp, tw8633.pp, tw10540.pp, tw30299.pp, tw37397.pp, tw37398.pp, tw12214.pp — mine for per-function assertions (Power/Log/Ceil/Floor/Sign/statistics) at implementation time."
+    ],
+    "parity_model": {
+      "tier_A_exact": "Integer/decimal core compared byte-for-byte against FPC values.",
+      "tier_B_tolerance": "Engine functions compared with kt_assert_near expected actual [reltol=1e-12]. FPC Double ~15-16 sig digits; 1e-12 relative catches real errors while absorbing last-ulp libm differences and the FPC-Extended-vs-awk-Double gap. Reference values captured verbatim from FPC, never 'improved'."
+    },
+    "new_coverage_protocol": "Every test case NOT traceable to an FPC test file gets a row in kcl/math/TEST_COVERAGE_NOTES.md: id (file+label), functions, concrete case, why FPC lacks it (boundary / bash-convention / representation-specific / cross-check), and the basis for the expected value (FPC source reading, independent calculation, identity, or awk/FPC capture). Same protocol as the dateutils effort."
+  },
+  "out_of_scope": [
+    { "item": "GetRoundMode/SetRoundMode, GetPrecisionMode/SetPrecisionMode, GetExceptionMask/SetExceptionMask, ClearExceptions + TFPU* types", "status": "wontfix", "reason": "FPU control-word access has no bash/awk equivalent. Provided as stubs: getters report the default mode, setters return 1." },
+    { "item": "Rounding-mode-dependent int->float conversion (seed troundm.pp)", "status": "wontfix", "reason": "Bit patterns depend on the FPU rounding mode; N/A once the FPU is out of scope." },
+    { "item": "Single / Extended precision distinct from Double", "status": "wontfix", "reason": "Bash has one numeric domain; the engine works in Double. Single/Extended overloads fold into the Double method; tolerance parity covers the Extended-only last digits." },
+    { "item": "PSingle/PDouble/PExtended + N pointer overloads", "status": "wontfix", "reason": "Bash has no pointers; the `array of T` form (arg list) is the single surviving shape." },
+    { "item": "IEEE range constants (MinSingle/MaxDouble/MinExtended/...) as operational limits", "status": "wontfix", "reason": "Exposed as INFORMATIONAL string constants via getters; bash cannot overflow/denormalise like a native float, so they carry no runtime effect." },
+    { "item": "generic RandomFrom<T>", "status": "wontfix", "reason": "Generics have no bash meaning; concrete RandomFrom (arg list) covers it." }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Scaffolding, float engine, decimal helpers",
+      "goal": "Class skeleton + the awk float-engine co-process + pure-bash decimal helpers + constants. The foundation every later phase builds on.",
+      "status": "done",
+      "result": "math.sh: class skeleton (13 P0 static procs), __MATH_* readonly constants (Pi/E to Extended precision, IEEE range tokens, NaN/Inf), the awk float-engine co-process (_fe_start/_fe/_fe_stop; lazy `coproc`; fflush protocol; graceful no-awk degradation), pure-bash decimal helpers (_dec_cmp/_mag_cmp/_dec_split/_is_int/_trunc/_frac/_abs). Engine VALIDATED on bash 5.2.37 + gawk 5.0.0: lazy (0 awk at load), correct sin/sqrt/atan2/pi/log/pow/hypot to Double, EXACTLY ONE co-process reused across $() (subshell fd inheritance), deadlock-free (300 calls), ~145us/call, clean teardown (no stray awk, no coproc warnings). Tests: 001_Core.sh (14) + 002_FpcParity.sh skeleton (1) = 15/15 on 5.2; functional spot-check ALL-OK on 5.3. Full sweep 1753/0 (baseline 1738 + math 15 — no regression). kt_assert_near tolerance helper (tests/_mathtest.sh); TEST_COVERAGE_NOTES.md seeded (14 rows).",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "Directory, class skeleton, tests runner",
+          "component": "kcl/math",
+          "category": "infra",
+          "severity": "high",
+          "status": "done",
+          "files": ["kcl/math/math.sh", "kcl/math/tests/tests.sh"],
+          "fix": "class math ... end + build via kklass_pascal.sh; ktests runner mirroring other kcl suites; header comment documenting the hybrid model and the no-static-var perf rule.",
+          "acceptance": "source math.sh succeeds on 5.2 and 5.3; dispatchers are thin (no capture); empty suite runs green.",
+          "depends_on": []
+        },
+        {
+          "id": "P0.2",
+          "title": "Float engine — persistent awk co-process",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["_fe_start", "_fe", "_fe_stop", "feActive", "feStop"],
+          "fix": "coproc MATH_FE spawning awk with a prelude that defines derived functions from primitives (sin cos atan2 exp log sqrt int ^): tan cotan asin acos sinh cosh tanh + arc*/ar* hyperbolics, log2 log10 logn power hypot fmod ldexp frexp + financial kernels; dispatch loop reads `op args`, prints %.17g, fflush() after each answer. Lazy spawn guarded by __MATH_FE_UP; pid/fds in plain globals. Graceful degradation when no awk on PATH.",
+          "acceptance": "Engine round-trips sin(pi/6)=0.5, sqrt(2), atan2(1,1)=pi/4 to Double precision; EXACTLY ONE awk process, spawned only on first use (not at source time); many sequential calls deadlock-free (fflush verified); feActive false before first use, true after; no-awk PATH -> engine returns 1, core unaffected. Verify coproc on bash 5.2 AND 5.3.",
+          "depends_on": ["P0.1"]
+        },
+        {
+          "id": "P0.3",
+          "title": "Pure-bash decimal helpers",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": ["_dec_cmp", "_dec_split", "_is_int", "_trunc", "_frac", "_abs"],
+          "fix": "_dec_cmp a b -> -1/0/1 by splitting sign/integer/fraction, padding fraction, comparing as integers; _dec_split -> sign intpart fracpart; _trunc/_frac integer and fractional parts of a decimal string. All pure bash, no forks.",
+          "acceptance": "_dec_cmp correct for: equal, integer vs decimal, unequal precision (1.5 vs 1.50), negatives, cross-sign, and 0 vs -0; _trunc(-2.9)=-2, _frac(-2.9)=-0.9; zero forks.",
+          "depends_on": ["P0.1"]
+        },
+        {
+          "id": "P0.4",
+          "title": "Constants + public getters",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "medium",
+          "status": "done",
+          "functions": ["pi", "e", "infinity", "nan", "negInfinity", "minDouble", "maxDouble", "minSingle", "maxSingle", "minExtended", "maxExtended"],
+          "note": "Getters are static procs (class stays static-var-free -> thin dispatch) echoing __MATH_* readonly globals. Pi/E from the FPC source values; IEEE range constants are informational (see out_of_scope).",
+          "acceptance": "math.pi = 3.1415926535897932; math.e = 2.718281828459045; infinity/nan/negInfinity echo inf/nan/-inf; range constants match the math.pp literals.",
+          "depends_on": ["P0.1"]
+        },
+        {
+          "id": "P0.5",
+          "title": "Test scaffolding: parity seed + coverage notes + kt_assert_near",
+          "component": "kcl/math",
+          "category": "test-coverage",
+          "severity": "high",
+          "status": "done",
+          "files": ["kcl/math/tests/00X_FpcParity.sh", "kcl/math/TEST_COVERAGE_NOTES.md"],
+          "fix": "Create the FPC-parity test file seeded from tmath1.pp/tround.pp (assertions land per phase), the TEST_COVERAGE_NOTES.md stub with the row format, and a kt_assert_near expected actual [reltol] helper for tolerance parity. Every non-FPC test case adds its row in the same change.",
+          "acceptance": "Parity file skeleton runs green; kt_assert_near passes on 0.1+0.2==0.3 within 1e-12 and fails on a gross mismatch; TEST_COVERAGE_NOTES.md exists with the format header.",
+          "depends_on": ["P0.1"]
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Integer/decimal core",
+      "goal": "Min/Max/Sign/ranges/compare/ifThen — pure-bash, exact, zero-fork.",
+      "status": "done",
+      "result": "13 functions: min/max (2-arg; ties->2nd operand per FPC a<b?a:b), minValue/maxValue (arg-list, verbatim winner), minIntValue/maxIntValue (pure integer), sign (-1/0/1), inRange (closed [min,max]), ensureRange (clamp), compareValue (-1/0/1 + optional delta tolerance), ifThen (true/1 ternary, default iffalse=0), isZero, sameValue. Internal _num_cmp routes plain integers/decimals to pure-bash _dec_cmp (zero-fork) and exotic operands (exponent/inf/nan) to the engine. PLAN REFINEMENT (logged in TEST_COVERAGE_NOTES corrections): isZero/sameValue are inherently FLOAT — FPC default eps 1e-12 (isZero) and Max(Min(|a|,|b|)*1e-12,1e-12) (sameValue) — so they are Tier B (engine), not the Tier-A-zero-fork the P1 heading implied; isZero keeps a fork-free integer+default-eps fast path, and compareValue's delta form is engine-backed too. awk prelude ops added: cmp/cmpd/iszero/samev. Tests: 003_MinMaxSign.sh (6) + 004_RangeCompare.sh (8) = 14 new-coverage checks; math suite 29/29 on bash 5.2, functional ALL-OK on 5.3; full sweep 1767/0 (baseline 1738 + math 29, no regression). Boundary note (faithful to FPC): sameValue at exactly the scaled-epsilon boundary (100 vs 100+1e-10) returns false — the binary diff rounds just above eps. TEST_COVERAGE_NOTES +14 rows.",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "Min/Max + array reducers",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": ["min", "max", "minValue", "maxValue", "minIntValue", "maxIntValue"],
+          "acceptance": "min/max on integer AND decimal pairs (via _dec_cmp); minValue/maxValue over an arg list; minIntValue/maxIntValue integer-only; single-element and negative fixtures; zero forks (empty-PATH check).",
+          "depends_on": ["P0"]
+        },
+        {
+          "id": "P1.2",
+          "title": "Sign, ranges, compare, ifThen",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": ["sign", "inRange", "ensureRange", "isZero", "sameValue", "compareValue", "ifThen"],
+          "acceptance": "sign -> -1/0/1 (incl. -0.0 -> 0); inRange closed interval; ensureRange clamps to [min,max]; compareValue -> -1/0/1 with the delta tolerance form; isZero/sameValue with default and explicit epsilon; ifThen ternary with true/false or 1/0 condition; zero forks.",
+          "depends_on": ["P1.1"]
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Rounding & number conversion",
+      "goal": "Ceil/Floor/RoundTo/SimpleRoundTo/DivMod/FMod + integer power.",
+      "status": "done",
+      "result": "9 functions: ceil/ceil64/floor/floor64 (pure-bash via _trunc/_frac: Trunc(x)+ord(Frac>0) / Trunc(x)-ord(Frac<0)), divMod (pure-bash; truncation toward zero, remainder sign = dividend sign; echoes 'quot rem'; /0 -> status 1), roundTo, simpleRoundTo (default digits -2), fmod, intPower (integer base + exp>=0 exact pure-bash via $((**)); float base or negative exp -> engine repeated-squaring). PLAN REFINEMENT (TEST_COVERAGE_NOTES corrections): roundTo/simpleRoundTo/fmod are Tier B (engine), NOT the pure-bash-decimal that P2.2 framed — routing through awk gives EXACT FPC-Double parity (awk sprintf %.0f is round-half-to-even == FPC Round), whereas pure-bash decimal rounding would DIVERGE from FPC at binary-hazard values; engine is the more faithful choice. Integer ** operator folded into intPower. awk prelude: _ipow() helper + ceil/floor/roundto/sround/fmod/ipow ops. FIRST FPC PARITY FIXTURES LIVE: tmath1.pp div/mod (divMod) + tround.pp banker's Round (roundTo). Tests: 005_Rounding.sh (9) + 002 parity block (2) = 11 checks; math suite 39/39 on bash 5.2, functional ALL-OK on 5.3; full sweep 1777/0 (baseline 1738 + math 39, no regression). Documented FPC-Double edges (faithful, not bugs): roundTo(1.25,-1)=1.2000000000000002, simpleRoundTo(1.005,-2)=1.00. TEST_COVERAGE_NOTES +10 rows.",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "Ceil/Floor + trunc/frac",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": ["ceil", "ceil64", "floor", "floor64"],
+          "acceptance": "ceil/floor toward +inf/-inf on decimal strings incl. negatives (ceil(-2.1)=-2, floor(-2.1)=-3) and exact integers (ceil(3)=3); Ceil64/Floor64 kept as names; integer output.",
+          "depends_on": ["P1"]
+        },
+        {
+          "id": "P2.2",
+          "title": "RoundTo (banker's) + SimpleRoundTo (arithmetic)",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "high",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["roundTo", "simpleRoundTo"],
+          "acceptance": "roundTo half-to-even: Round(2.5)=2, Round(3.5)=4, roundTo(2.5,0)=2, roundTo(1.25,-1)=1.2; simpleRoundTo half-away: simpleRoundTo(2.5,0)=3, simpleRoundTo(-2.5,0)=-3, default Digits=-2; documented note on the rare binary-vs-decimal half-way divergence from FPC Double (e.g. 2.675@-2). Seed: tround.pp.",
+          "depends_on": ["P2.1"]
+        },
+        {
+          "id": "P2.3",
+          "title": "DivMod, FMod, integer power",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "medium",
+          "status": "done",
+          "functions": ["divMod", "fmod", "intPower", "power_int_operator"],
+          "note": "divMod + integer intPower/** are Tier A (pure bash); fmod (float modulo) is Tier B (engine).",
+          "acceptance": "divMod echoes `quotient remainder` with FPC truncation semantics (seed tmath1.pp: -10 div 5 = -2, -20 div 10 = -2, 64000 div 2 = 32000); integer ** (2**10=1024, (-2)**3=-8); fmod(5.3,2)=1.3 within tolerance (engine).",
+          "depends_on": ["P2.2"]
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Angle conversions",
+      "goal": "deg/rad/grad/cycle interconversions + DegNormalize (engine).",
+      "status": "done",
+      "result": "13 functions (all engine): degToRad/radToDeg (pi/180), gradToRad/radToGrad (pi/200), degToGrad/gradToDeg (200/180 rational), cycleToDeg/degToCycle (x360 / x(1/360)), cycleToGrad/gradToCycle (x400 / x(1/400)), cycleToRad/radToCycle (x2pi / x(1/(2pi))), degNormalize (Deg-Int(Deg/360)*360, +360 if <0 -> wraps into [0,360)). Exact FPC multiplicative forms mirrored (x*(1/k) reciprocal where FPC uses it). awk prelude ops: d2r/r2d/g2r/r2g/d2g/g2d/c2d/d2c/c2g/g2c/c2r/r2c/dnorm. Tests: 006_Angles.sh (6) incl. round-trips + degNormalize wrap (-90->270, 450->90, 720->0, -730->350). math suite 45/45 on bash 5.2, functional ALL-OK on 5.3. Full sweep 1783/0 (baseline 1738 + math 45, no regression). TEST_COVERAGE_NOTES +6 rows.",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "Angle conversion family",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "medium",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["degToRad", "radToDeg", "gradToRad", "radToGrad", "degToGrad", "gradToDeg", "cycleToDeg", "degToCycle", "cycleToGrad", "gradToCycle", "cycleToRad", "radToCycle", "degNormalize"],
+          "acceptance": "degToRad(180)=pi, radToDeg(pi)=180, gradToDeg(200)=180, cycleToDeg(1)=360, deg/grad/cycle roundtrips within 1e-12; degNormalize(-90)=270, degNormalize(450)=90, degNormalize into [0,360).",
+          "depends_on": ["P0"]
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Trig, inverse, hyperbolic, area",
+      "goal": "All circular + hyperbolic + inverse functions (engine).",
+      "status": "done",
+      "result": "32 functions (all engine): circular tan/cotan/cot/sinCos/sec/csc/secant/cosecant; inverse arcSin/arcCos/arcTan2 (arcSin/arcCos use the numerically-stable sqrt((1-x)(1+x)) form); hyperbolic cosh/sinh/tanh/secH/cscH/cotH (tanh is FPC's robust large-x form: |x|>10 -> sign(x), else (1-/+ e^-/+2x)/(1+e^-/+2x)); area arcCosH/arcSinH/arcTanH + FK spellings arCosH/arSinH/arTanH; arcSec/arcCsc/arcCot (arcCot(0)=pi/2 special case) + arcSecH/arcCscH/arcCotH. Convenience System-unit elementaries sin/cos/arcTan exposed (not in math.pp). Faithful FPC formulas: arcSinH sign-preserving, arcCosH=ln(x+sqrt((x-1)(x+1))), arcSec=arccos(1/x), etc. awk prelude: 8 helper fns (_cosh/_sinh/_tnh/_asin/_acos/_arsinh/_arcosh/_artanh) + 21 new ops. Tests: 007_Trig.sh (6) + 008_Hyperbolic.sh (7) = 13, incl. identities (tan=sin/cos, cosh^2-sinh^2=1) and round-trips (arcSinH(sinh(x))=x, arcCosH(cosh(x))=x, arcTanH(tanh(x))=x). math suite 58/58 on bash 5.2, functional ALL-OK on 5.3. Full sweep 1796/0 (baseline 1738 + math 58, no regression). TEST_COVERAGE_NOTES +13 rows.",
+      "tasks": [
+        {
+          "id": "P4.1",
+          "title": "Circular + inverse trig",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "high",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["tan", "cotan", "cot", "sinCos", "secant", "cosecant", "sec", "csc", "arcCos", "arcSin", "arcTan2", "sin", "cos", "arcTan"],
+          "acceptance": "tolerance parity vs FPC grid: tan(pi/4)=1, sinCos(pi/6) echoes `0.5 0.8660...`, arcTan2(1,1)=pi/4, arcSin(1)=pi/2, arcCos(0)=pi/2; identity tan==sin/cos; sin/cos/arcTan convenience present (System-sourced).",
+          "depends_on": ["P3"]
+        },
+        {
+          "id": "P4.2",
+          "title": "Hyperbolic + area (inverse hyperbolic)",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "medium",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["cosh", "sinh", "tanh", "secH", "cscH", "cotH", "arcCosH", "arcSinH", "arcTanH", "arCosH", "arSinH", "arTanH", "arcSec", "arcCsc", "arcCot", "arcSecH", "arcCscH", "arcCotH"],
+          "acceptance": "cosh(0)=1, sinh(0)=0, tanh(0)=0, cosh^2-sinh^2=1 to tolerance; arcSinH(sinh(x))=x roundtrip; both Delphi (arc*H) and FK (ar*H) spellings present and equal.",
+          "depends_on": ["P4.1"]
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "name": "Logs, exponentials, powers, misc",
+      "goal": "Log/exp/power family + Hypot + Frexp/Ldexp (engine; integer ** stays pure).",
+      "status": "done",
+      "result": "12 functions (engine): log10/log2/logN (ln(x)/ln(n)), lnXP1 (FPC's accurate log1p refinement), expM1 (accurate exp(x)-1 near 0 via (u-1)*x/ln(u)), power (integer exp -> intPower exact, else exp(e*ln(b)); base=0/exp=0 special cases), hypot (overflow-safe scaling), frexp (mantissa in [0.5,1); echoes 'mantissa exponent'), ldexp (x*2^p), + convenience System elementaries sqrt/exp/ln. NOTE: intPower already delivered in P2 (integer exact + engine); the float ** operator maps to power. VERIFIED accuracy near 0: lnXP1(1e-9)=9.9999999950e-10 and expM1(1e-9)=1.0000000005e-9 (naive ln(1+x)/exp(x)-1 give the wrong 1.0000000822e-9); hypot(1e200,1e200)=1.414e200 (naive sqrt(x^2+y^2) would overflow). awk prelude: 4 helper fns (_lnxp1/_expm1/_power/_frexp) + 6 ops. Tests: 009_LogExp.sh (7) incl. near-0 accuracy and frexp/ldexp round-trip. math suite 65/65 on bash 5.2, functional ALL-OK on 5.3. Full sweep 1803/0 (baseline 1738 + math 65, no regression). TEST_COVERAGE_NOTES +7 rows.",
+      "tasks": [
+        {
+          "id": "P5.1",
+          "title": "Logarithms",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "medium",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["log10", "log2", "logN", "lnXP1", "expM1", "ln"],
+          "acceptance": "log10(1000)=3, log2(1024)=10, logN(2,8)=3, lnXP1(1e-9) and expM1(1e-9) accurate near zero (vs naive ln(1+x)/exp(x)-1), ln convenience present.",
+          "depends_on": ["P4"]
+        },
+        {
+          "id": "P5.2",
+          "title": "Exponentials, powers, Hypot",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "medium",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["power", "intPower", "power_float_operator", "hypot", "exp", "sqrt"],
+          "acceptance": "power(2,10)=1024, power(2,0.5)=sqrt(2), intPower(1.5,3)=3.375, hypot(3,4)=5, hypot overflow-safe for large args, exp/sqrt convenience present.",
+          "depends_on": ["P5.1"]
+        },
+        {
+          "id": "P5.3",
+          "title": "Frexp / Ldexp",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "low",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["frexp", "ldexp"],
+          "acceptance": "frexp echoes `mantissa exponent` with mantissa in [0.5,1); ldexp(mantissa,exp)=original; frexp(8)=`0.5 4`, ldexp(0.5,4)=8.",
+          "depends_on": ["P5.2"]
+        }
+      ]
+    },
+    {
+      "id": "P6",
+      "name": "Statistics",
+      "goal": "Sums, means, variance/stddev family, norm, RandG.",
+      "status": "done",
+      "result": "14 functions: sum/mean/sumOfSquares/sumsAndSquares; variance (sample, N-1)/totalVariance (Sum((x-mean)^2))/popnVariance (N); stdDev/popnStdDev/meanAndStdDev; momentSkewKurtosis (6 fields: m1=mean, m2/m3/m4=(1/N)Sum((x-mean)^k), skew=m3/m2^1.5, kurtosis=m4/m2^2 raw); norm (sqrt(sumOfSquares)); randG (Marsaglia polar). Arrays passed as the arg list; the engine computes each statistic in ONE awk pass (the op receives the whole array). sumInt is Tier-A pure-bash integer (exact, zero-fork). Variance N=1 guard -> 0. randG seeds via awk srand() in the prelude BEGIN; semantic (distribution) parity only (bash/awk RNG != FPC Mersenne). Verified against hand-computed dataset [2,4,4,4,5,5,7,9]: mean 5, popnVar 4, sampleVar 32/7, moments [5,4,5.25,44.5,0.65625,2.78125]. awk prelude: 4 array helper fns (_asum/_amean/_asumsq/_atotvar) + 13 ops. Tests: 010_Stats.sh (7) incl. sample-vs-popn split, moments, sumInt zero-fork, randG empirical mean/stddev of 400 N(10,2) draws. NOTE: an array passes through the request pipe as one line (fine for hundreds of elements; a very large array would need chunking). math suite 72/72 on bash 5.2, functional ALL-OK on 5.3. Full sweep 1810/0 (baseline 1738 + math 72, no regression). TEST_COVERAGE_NOTES +7 rows.",
+      "tasks": [
+        {
+          "id": "P6.1",
+          "title": "Sums & means",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "medium",
+          "status": "done",
+          "functions": ["sum", "sumInt", "mean", "sumOfSquares", "sumsAndSquares"],
+          "note": "sumInt is Tier A (pure-bash integer); sum/mean/sumOfSquares/sumsAndSquares are Tier B (engine, decimal).",
+          "acceptance": "sumInt(1..10)=55 exact; mean(1,2,3,4)=2.5; sumOfSquares(1,2,3)=14; sumsAndSquares echoes `sum sumOfSquares`.",
+          "depends_on": ["P5"]
+        },
+        {
+          "id": "P6.2",
+          "title": "Variance / StdDev family",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "medium",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["variance", "totalVariance", "popnVariance", "stdDev", "popnStdDev", "meanAndStdDev", "momentSkewKurtosis"],
+          "acceptance": "sample variance uses n-1 (Variance/StdDev), population uses n (PopnVariance/PopnStdDev); on a known dataset match FPC to tolerance; TotalVariance = sum of squared deviations; meanAndStdDev echoes `mean stddev`; momentSkewKurtosis echoes 6 fields (m1..m4, skew, kurtosis).",
+          "depends_on": ["P6.1"]
+        },
+        {
+          "id": "P6.3",
+          "title": "Norm, RandG",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "low",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["norm", "randG"],
+          "acceptance": "norm(3,4)=5 (euclidean L2); randG(mean,stddev) distribution sanity — empirical mean/stddev over N draws within tolerance (semantic parity only; RNG differs from FPC).",
+          "depends_on": ["P6.2"]
+        }
+      ]
+    },
+    {
+      "id": "P7",
+      "name": "Financial, RNG, IEEE predicates, FPU wontfix",
+      "goal": "Annuity functions, random helpers, NaN/Inf predicates, FPU-control stubs.",
+      "status": "done",
+      "result": "16 functions. Financial (engine): futureValue/presentValue/payment (q=1+rate, qn=q^n via intPower, factor=(qn-1)/(q-1), *q if start-of-period; rate=0 linear forms), interestRate (Newton: guess 0.05, DELTA 0.001, EPS 1e-9, MAXIT 20, reuses _fv), numberOfPeriods (ln(x1/x2)/ln(q); -> inf on degenerate x2=0 or negative-log-arg). APaymentTime = 0/1 flag (0=ptEndOfPeriod default, 1=ptStartOfPeriod). RNG (pure-bash, zero-fork): randomRange ([min,max) upper-exclusive, 30-bit via two $RANDOM), randomFrom (random arg). IEEE predicates (pure-bash, zero-fork): isNan/isInfinite (regex on nan/±inf tokens; catch engine sqrt(-1)=nan and degenerate nper=inf). FPU control WONTFIX stubs: getRoundMode->rmNearest, getPrecisionMode->pmDouble, getExceptionMask->informational, setters return 1, clearExceptions no-op. Verified financial self-consistency: payment(0.05,10,1000,0)=-129.50 -> presentValue recovers 1000, interestRate recovers 0.05, numberOfPeriods recovers 10; ptype=start FV = end FV*1.05. ENGINE HARDENING (plan risk #1 materialized): switched the co-process to `awk -f <tempfile>` with a probe + TMPDIR/MATH_DIR/tmp fallback (see design_decisions.float_engine) after cygwin bash 5.3 truncated the now-8.4KB program passed as an argument. Two bash-syntax traps hit+fixed: `}#comment` glued (missing space -> group never closes) and an unquoted (a|b) regex in [[ =~ ]] (parsed as grouping) -> both now use variables/spaces. awk prelude: 5 financial helper fns + 5 ops. Tests: 011_Financial.sh (4) + 012_RngIeee.sh (5) = 9. math suite 81/81 on bash 5.2, functional ALL-OK on 5.3 (engine falls back to MATH_DIR there). Full sweep 1819/0 (baseline 1738 + math 81, no regression). TEST_COVERAGE_NOTES +9 rows.",
+      "tasks": [
+        {
+          "id": "P7.1",
+          "title": "Financial (annuity) functions",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "medium",
+          "tier": "B-engine-tolerance",
+          "status": "done",
+          "functions": ["futureValue", "interestRate", "numberOfPeriods", "payment", "presentValue"],
+          "acceptance": "APaymentTime given as a 0/1 flag (ptEndOfPeriod/ptStartOfPeriod); cross-check FutureValue/Payment/PresentValue against FPC on a worked annuity (e.g. rate 0.05, 10 periods) to tolerance; the five functions are mutually consistent (solve-for-x roundtrips).",
+          "depends_on": ["P6"]
+        },
+        {
+          "id": "P7.2",
+          "title": "RNG helpers",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "low",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": ["randomRange", "randomFrom"],
+          "acceptance": "randomRange(from,to) in [min,max) upper-exclusive (semantic parity; FPC Random(Abs(from-to))+Min); randomFrom returns one of its arguments; large-sample coverage of the range. RNG from bash $RANDOM / /dev/urandom.",
+          "depends_on": ["P7.1"]
+        },
+        {
+          "id": "P7.3",
+          "title": "IEEE predicates + FPU-control stubs (wontfix)",
+          "component": "kcl/math",
+          "category": "feature",
+          "severity": "low",
+          "status": "done",
+          "functions": ["isNan", "isInfinite", "getRoundMode", "setRoundMode", "getPrecisionMode", "setPrecisionMode", "getExceptionMask", "setExceptionMask", "clearExceptions"],
+          "acceptance": "isNan nan=true, isNan 1.0=false; isInfinite inf=true, isInfinite -inf=true; FPU getters echo the default mode string, setters return 1 (wontfix, documented in out_of_scope).",
+          "depends_on": ["P7.2"]
+        }
+      ]
+    },
+    {
+      "id": "P8",
+      "name": "Docs, README, bench, closeout",
+      "goal": "Upstream API docs, bash-side README, performance proof, final sweep.",
+      "status": "done",
+      "result": "docs/Math.md (966 lines, 123/123 methods, 18 groups, DocWiki-style upstream FPC Math reference with kcl mapping + tier labels; generated via subagent + QA'd: signatures verbatim from math.pp, pi documented as System's Pi / e as kcl convenience (FPC Math has neither as a constant), 7 FPU stubs marked wontfix). README.md (bash-side API by group + hybrid/engine contract + conventions + quickstart). bench.sh: Tier-A integer core 0.04-0.12ms/call after a bench-driven INTEGER FAST-PATH added to _num_cmp (arithmetic compare for 64-bit ints, ~2-4x faster than the decimal split -> got inRange/ensureRange under the 0.3ms target); decimal-operand comparison ~0.2-0.4ms fork-free; engine 0.13-0.18ms round-trip; zero-fork + single-awk-process verified. TEST_COVERAGE_NOTES.md finalized (80 new-coverage rows + FPC parity, surface/tier split, perf, notes-for-analysis). FINAL: math suite 81/81 on bash 5.2, functional on 5.3; full sweep 1819/0 (baseline 1738 + math 81, no regression); no repo pollution. PROJECT COMPLETE.",
+      "tasks": [
+        {
+          "id": "P8.1",
+          "title": "docs/Math.md — upstream FPC Math API reference",
+          "component": "kcl/math",
+          "category": "docs",
+          "severity": "medium",
+          "status": "done",
+          "files": ["kcl/math/docs/Math.md"],
+          "fix": "Upstream FPC Math API reference in the same DocWiki-style as the other kcl units' docs/ (per-function: Pascal signature block, description, parameters, notes), grouped by category, WITH the bash-port method mapping and freepascal.org reference links. Covers the full unit surface incl. out-of-scope items (marked).",
+          "acceptance": "Every public function has a section; groups match the plan; wontfix items clearly marked; renders cleanly; consistent with dateutils/docs/DateUtils.md (back-filled in the same style).",
+          "depends_on": ["P7"]
+        },
+        {
+          "id": "P8.2",
+          "title": "README.md + finalize TEST_COVERAGE_NOTES.md",
+          "component": "kcl/math",
+          "category": "docs",
+          "severity": "medium",
+          "status": "done",
+          "files": ["kcl/math/README.md", "kcl/math/TEST_COVERAGE_NOTES.md"],
+          "acceptance": "README: bash-side API by group, the hybrid/engine contract (Tier A/B/C, the co-process, graceful degradation), conventions table, quickstart; link from PLAN.md. TEST_COVERAGE_NOTES.md reviewed for completeness with summary stats.",
+          "depends_on": ["P8.1"]
+        },
+        {
+          "id": "P8.3",
+          "title": "Micro-benchmark + final sweep",
+          "component": "kcl/math",
+          "category": "performance",
+          "severity": "medium",
+          "status": "done",
+          "files": ["kcl/math/bench.sh"],
+          "acceptance": "bench: Tier-A core (min/max/sign/ceil/floor/roundTo) <= ~0.3 ms/call on bash 5.2, zero forks (empty-PATH); Tier-B engine round-trip latency measured + a single-awk-process assertion; full kcl+kklass sweep green on 5.2; math suite green on 5.3; thin-dispatch shape pinned by a test (no static vars); ledger statuses closed.",
+          "depends_on": ["P8.2"]
+        }
+      ]
+    }
+  ]
+}
