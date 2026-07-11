@@ -1,0 +1,374 @@
+{
+  "schema_version": 1,
+  "project": "kcl/dateutils — port of FPC DateUtils to bash (kklass Pascal DSL static class)",
+  "created": "2026-07-11",
+  "updated": "2026-07-11",
+  "status": "COMPLETE — all phases P0-P7 done. 185 public methods; dateutils suite 123/123 on bash 5.2, functional on 5.3; full kcl+kklass sweep 1738/0; hot paths <=0.3ms/call, zero forks; tw16040 parity file complete (17/17). 3 plan inaccuracies corrected (TEST_COVERAGE_NOTES.md).",
+  "owner": "keksov",
+  "notes": "Single source of truth for the dateutils implementation. Plan: kcl/dateutils/PLAN.md. Source: C:/projects/KKMindWave/VendorsCore/fpc/sources/main/packages/rtl-objpas/src/inc/dateutil.inc (3857 lines, 195 functions, ~160 public). Update task.status as work proceeds. The kcl+kklass baseline below must NEVER regress; every phase ends with a full sweep on bash 5.2 and a spot-check on 5.3.",
+  "conventions": {
+    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
+    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
+    "severity_values": ["critical", "high", "medium", "low"]
+  },
+  "baseline": {
+    "measured": "2026-07-11",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2) — thin static dispatch path (no funsub)",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64) — funsub available; EPOCHREALTIME verified on both",
+    "suites_green": {
+      "kklass": 226,
+      "kcl_total": 1389,
+      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155",
+      "examples": "48/48",
+      "_note": "kcl_total corrected from an erroneous 1584 (never matched the per-suite breakdown); per-suite re-measured on bash 5.2 at the end of P0 (2026-07-11) and all green. tfile 120 & tpath 112 include the +4 constant-hardening pins from the prior session."
+    },
+    "regression_rule": "dateutils work must keep all of the above green; new suite adds on top (P0: +20 -> kcl_total 1409)."
+  },
+  "design_decisions": {
+    "representation": "KDT = integer milliseconds since 1970-01-01 00:00:00, naive (no zone), proleptic Gregorian. Negative = before 1970. Bash 64-bit integer arithmetic only; no floats anywhere.",
+    "calendar_math": "Hinnant days_from_civil / civil_from_days in pure bash integers; ISO-8601 week rules; zero `date` forks (EPOCHREALTIME for wall clock, printf %(%z)T for local offset).",
+    "class_shape": "Pascal DSL static utility class `dateutils` (like tpath/tfile): static proc members, bodies as real bash functions, `build dateutils`. NO static vars — must stay on the thin capture-free dispatcher. Constants are top-level variables; bash has NO file scope, so they are process-wide globals — hence prefixed __KDT_* and declared readonly (behind a re-source guard) to prevent collisions/overwrites.",
+    "naming": "FPC names in lowerCamelCase: YearOf -> dateutils.yearOf.",
+    "returns": "results echoed; booleans echo true/false; multi-out echoes space-separated fields; Try* echo result + return status; Span* echo fixed-point 6dp strings; errors return 1 (stderr only under VERBOSE_KKLASS=debug).",
+    "recode_sentinel": "literal '-' argument = RecodeLeaveFieldAsIs",
+    "approx_constants_ms": {
+      "second": 1000,
+      "minute": 60000,
+      "hour": 3600000,
+      "day": 86400000,
+      "week": 604800000,
+      "approx_month_30.4375d": 2629800000,
+      "approx_year_365.25d": 31557600000
+    }
+  },
+  "goals": [
+    "Faithful FPC DateUtils semantics (ISO weeks, approximate vs exact Between, month-end clamping, periodBetween borrow logic) on pure-bash integers.",
+    "Zero-fork hot paths; extraction/arithmetic <= ~0.3 ms/call via the thin static dispatcher.",
+    "Full ktest coverage with fixture tables for every boundary family (ISO week edges, leap centuries, pre-1970, month ends).",
+    "Never regress the kcl/kklass baseline."
+  ],
+  "test_basis": {
+    "seed_primary": "C:/projects/KKMindWave/VendorsCore/fpc/sources/main/tests/webtbs/tw16040.pp (17 assertions) — ported 1:1 into tests/00X_FpcParity_*.sh, values verbatim, built up incrementally per phase, complete at P7 (scanDateTime).",
+    "seed_additional": [
+      "tests/test/units/dateutil/tunitdt1.pp — far-future Unix roundtrips (15796372693 -> 2470-07-26 09:18:13; 2345-12-12 04:45:49 encode->unix->decode) -> P6",
+      "tests/webtbs/tw25170.pp — mine at implementation time",
+      "tests/webtbs/tw40121.pp — mine at implementation time",
+      "tests/webtbf/tw35866.pp — must-FAIL test; error-path fixtures"
+    ],
+    "parity_assertions_by_phase": {
+      "P1": "EncodeDateTime anchors (2010-03-22, 2010-03-23, 2011-03-26 19:15:30.555), EncodeDate(2011,1,1), IsInLeapYear(2011)=false",
+      "P2": "YearOf/MonthOf/DayOf/HourOf+HourOfTheDay/MinuteOf+MinuteOfTheHour/SecondOf+SecondOfTheMinute/MilliSecondOf+MilliSecondOfTheSecond on 2011-03-26 19:15:30.555; IsPM=true",
+      "P3": "StartOfTheYear(2011-03-26)=2011-01-01 00:00:00.000; EndOfTheYear=2011-12-31 23:59:59.999",
+      "P6": "JulianDateToDateTime(2455277.5)=2010-03-22 00:00; DateTimeToJulianDate roundtrip; MJD roundtrip; tunitdt1 far-future Unix fixtures",
+      "P7": "scanDateTime 'YYYY.MM.DD HH:NN:SS:ZZZ' '2011.03.29 16:46:56:777' -> 2011-03-29 16:46:56.777"
+    },
+    "new_coverage_protocol": "Every test case NOT traceable to an FPC test file gets a row in kcl/dateutils/TEST_COVERAGE_NOTES.md: id (file+label), functions, concrete case, why FPC lacks it (boundary / bash-specific convention / representation-specific / cross-check), and the basis for the expected value (FPC source reading, independent calculation, ISO citation, GNU date output). That document is the review artifact for further analysis and potential upstreaming."
+  },
+  "out_of_scope": [
+    { "item": "DateTimeToMac / MacToDateTime / MacTimeStampToUnix / UnixTimeStampToMac", "status": "wontfix", "reason": "Mac OS classic timestamps — no bash use case." },
+    { "item": "DateTimeToDosDateTime / DosDateTimeToDateTime", "status": "wontfix", "reason": "16-bit DOS packed format — no bash use case." },
+    { "item": "DateTimeToNumber / NumberToDateTime as Double emulation", "status": "wontfix", "reason": "KDT already IS the number; dateTimeDiff provided as signed ms." },
+    { "item": "TDateTimeHelper / TTimeZone / TLocalTimeZone", "status": "wontfix", "reason": "FPC type-helper/class sugar over the same free functions." },
+    { "item": "Full ScanDateTime pattern language", "status": "wontfix", "reason": "P7.1 decision gate resolved: the practical subset (yyyy/mm/dd/hh/nn/ss/zzz + literals + elastic whitespace) covers the tw16040 assertion and real use; the full FPC matcher (month/day names, ampm, [] optionals, T/date-format tokens) is not needed." }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Scaffolding & core representation",
+      "goal": "Class skeleton + civil-calendar core + ISO parse/format + wall clock; the foundation every later phase builds on.",
+      "status": "done",
+      "result": "dateutils.sh (class skeleton, __KDT_* readonly constants behind a re-source guard, Hinnant civil helpers, ISO fmt/parse, EPOCHREALTIME+%(%z)T wall clock, 9 constant getters); tests/001_Core.sh 20/20 on bash 5.2 and functional on 5.3 (thin dispatch confirmed on both; %(%z)T=+0300, EPOCHREALTIME present); tests/002_FpcParity.sh skeleton green; TEST_COVERAGE_NOTES.md seeded (19 P0 rows). Anchors verified: KDT 0=1970-01-01 Thu, KDT -1=1969-12-31 23:59:59.999, 1899-12-30=-2209161600000. Full kcl+kklass sweep green (no regression).",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "Directory, class skeleton, tests runner",
+          "component": "kcl/dateutils",
+          "category": "infra",
+          "severity": "high",
+          "status": "done",
+          "files": ["kcl/dateutils/dateutils.sh", "kcl/dateutils/tests/tests.sh"],
+          "fix": "class dateutils ... end + build via kklass_pascal.sh; ktests runner mirroring other kcl suites; header comment documenting KDT and the no-static-var perf rule.",
+          "acceptance": "source dateutils.sh succeeds on 5.2 and 5.3; dispatchers are thin (no capture); empty suite runs green.",
+          "depends_on": []
+        },
+        {
+          "id": "P0.2",
+          "title": "Civil-calendar helpers (pure integer)",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "critical",
+          "status": "done",
+          "functions": ["_days_from_civil", "_civil_from_days", "_weekday_iso", "_split_kdt", "_join_kdt"],
+          "fix": "Hinnant algorithms in bash $(( )); _split_kdt: KDT -> Y M D h m s ms with floor-division for negatives; _join_kdt inverse.",
+          "acceptance": "Roundtrip grid: every (year in {1899,1900,1970,1999,2000,2004,2100,2400}) x (month 1..12) x (day 1,28,29,30,31 valid) x sample times; anchor: KDT 0 == 1970-01-01 Thu; negative KDT correct.",
+          "depends_on": ["P0.1"]
+        },
+        {
+          "id": "P0.3",
+          "title": "ISO 8601 format/parse helpers",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "high",
+          "status": "done",
+          "functions": ["_fmt_date", "_fmt_time", "_fmt_datetime", "_parse_iso"],
+          "fix": "printf -v formatting; parse via bash regex: YYYY-MM-DD, hh:mm[:ss[.zzz]], date[T| ]time, optional Z/±hh[:]mm captured for P6.",
+          "acceptance": "format(parse(s)) == normalize(s) for a fixture list incl. ms and T-separator forms; malformed inputs return 1 echoing nothing.",
+          "depends_on": ["P0.2"]
+        },
+        {
+          "id": "P0.4",
+          "title": "Wall clock + trivial constructors + public constant getters",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "high",
+          "status": "done",
+          "functions": ["now", "nowUTC", "today", "yesterday", "tomorrow", "dateOf", "timeOf", "msPerSecond", "msPerMinute", "msPerHour", "msPerDay", "msPerWeek", "approxMsPerMonth", "approxMsPerYear", "approxDaysPerMonth", "approxDaysPerYear"],
+          "note": "Constant getters are static procs (class stays static-var-free -> thin dispatch); they echo the __KDT_* readonly globals. Rationale in PLAN.md ('Why not a TDateUtils class with static var constants').",
+          "fix": "EPOCHREALTIME -> ms; local offset via printf '%(%z)T' cached per process (P0 verifies the builtin on MSYS2 5.2 and cygwin 5.3; fallback to a single cached `date +%z` fork only if broken).",
+          "acceptance": "now within 2s of EPOCHREALTIME; nowUTC - now == -offset; today == dateOf(now); zero forks in the default path (verified by disabling PATH).",
+          "depends_on": ["P0.3"]
+        },
+        {
+          "id": "P0.5",
+          "title": "Test basis scaffolding: FPC parity seed file + TEST_COVERAGE_NOTES.md",
+          "component": "kcl/dateutils",
+          "category": "test-coverage",
+          "severity": "high",
+          "status": "done",
+          "files": ["kcl/dateutils/tests/002_FpcParity.sh", "kcl/dateutils/TEST_COVERAGE_NOTES.md"],
+          "fix": "Create the FPC-parity test file seeded from tw16040.pp (assertions land per phase as their functions appear; values verbatim, never 'improved') and the TEST_COVERAGE_NOTES.md stub with the row format from PLAN.md. Every subsequently added non-FPC test case MUST add its row in the same change.",
+          "acceptance": "Parity file skeleton runs green (0 checks initially is fine); TEST_COVERAGE_NOTES.md exists with format header; the per-phase acceptance blocks below reference their tw16040 assertions.",
+          "depends_on": ["P0.1"]
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Encode/Decode & validity",
+      "goal": "Constructors, deconstructors and validity checks.",
+      "status": "done",
+      "result": "24 functions: encode/tryEncode/decode Date/Time/DateTime + encodeDateDay/decodeDateDay; isValid Date/Time/DateTime/DateDay/DateWeek/DateMonthWeek; isInLeapYear(date); daysInAMonth/daysInMonth/daysInAYear/daysInYear; weeksInAYear/weeksInYear. Internal helpers _is_leap/_days_in_month/_weeks_in_year/_valid_date/_valid_time/_debug. FPC quirks honored: IsValidTime accepts 24:00:00.000 (whole-day marker); IsInLeapYear takes a date; WeeksInAYear ISO rule verified (2004/2009/2015/2020/2026=53, 2005/2021=52). encode* return 1 on invalid (FPC raises). Tests: 003_EncodeDecode.sh (8), 004_Validity.sh (10), 002_FpcParity.sh P1 block (5 tw16040 anchors incl. IsInLeapYear=false). dateutils suite 43/43 on 5.2, functional on 5.3. Full sweep 1658/0 (kcl 1432 incl. dateutils 43, kklass 226) — no regression. TEST_COVERAGE_NOTES.md +18 rows.",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "encode*/decode* + try* variants",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "high",
+          "status": "done",
+          "functions": ["encodeDate", "encodeTime", "encodeDateTime", "tryEncodeDate", "tryEncodeTime", "tryEncodeDateTime", "decodeDate", "decodeTime", "decodeDateTime", "encodeDateDay", "tryEncodeDateDay", "decodeDateDay"],
+          "acceptance": "encode(decode(x)) == x on the P0 grid; invalid inputs -> status 1 (try*) / status 1 + debug msg (encode*); decode echoes space-separated fields readable with read -r. FPC parity (tw16040): EncodeDateTime anchors 2010-03-22, 2010-03-23, 2011-03-26 19:15:30.555 and EncodeDate(2011,1,1) land in the parity file.",
+          "depends_on": ["P0"]
+        },
+        {
+          "id": "P1.2",
+          "title": "Validity + calendar size functions",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "high",
+          "status": "done",
+          "functions": ["isValidDate", "isValidTime", "isValidDateTime", "isValidDateDay", "isValidDateWeek", "isValidDateMonthWeek", "isInLeapYear", "daysInAMonth", "daysInMonth", "daysInAYear", "daysInYear", "weeksInAYear", "weeksInYear"],
+          "acceptance": "Leap fixtures: 1900 false, 2000 true, 2004 true, 2100 false; Feb lengths; weeksInAYear in {52,53} with ISO fixtures (2004->53, 2005->52, 2009->53). FPC parity (tw16040): IsInLeapYear(2011-03-26)=false.",
+          "depends_on": ["P1.1"]
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Extraction",
+      "goal": "All xxOf and xxOfTheYyy field extractors.",
+      "status": "done",
+      "result": "40 functions: yearOf..milliSecondOf, weekOf, dayOfTheWeek(ISO Mon=1..Sun=7)/dayOfTheMonth/dayOfTheYear, monthOfTheYear, weekOfTheYear/weekOfTheMonth (ISO-8601), isAM/isPM, the full hourOfThe*/minuteOfThe*/secondOfThe*/milliSecondOfThe* families, nthDayOfWeek, decodeDayOfWeekInMonth. Internal recursive ISO decoders _decode_date_week/_decode_date_month_week (faithful FPC DecodeDateWeek/DecodeDateMonthWeek ports, reused by P5). Tests: 005_Extraction.sh (7), 006_OfTheFamilies.sh (5), 002_FpcParity.sh P2 block (2: full tw16040 extraction set + IsPM). dateutils 57/57 on 5.2, functional on 5.3. Full sweep 1672/0 (kcl 1446 incl. dateutils 57, kklass 226). PLAN CORRECTION: plan's ISO week of 2004-01-01 (W53/2003) was wrong -> W01/2004 (Thursday is always in its own year's week); FPC-ported algo agrees, logged in TEST_COVERAGE_NOTES.md corrections table. +12 coverage rows.",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "Simple field extractors",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "high",
+          "status": "done",
+          "functions": ["yearOf", "monthOf", "weekOf", "dayOf", "hourOf", "minuteOf", "secondOf", "milliSecondOf", "dayOfTheWeek", "dayOfTheMonth", "dayOfTheYear", "monthOfTheYear", "weekOfTheYear", "weekOfTheMonth", "isAM", "isPM"],
+          "acceptance": "dayOfTheWeek ISO Mon=1..Sun=7 (1970-01-01 -> 4); ISO week fixtures: 2004-01-01 -> W53(2003), 2005-01-01 -> W53(2004), 2008-12-29 -> W1(2009), 2010-01-03 -> W53(2009). FPC parity (tw16040): full extraction set on 2011-03-26 19:15:30.555 (YearOf..MilliSecondOf + HourOfTheDay/MinuteOfTheHour/SecondOfTheMinute/MilliSecondOfTheSecond twins) and IsPM=true.",
+          "depends_on": ["P1"]
+        },
+        {
+          "id": "P2.2",
+          "title": "OfThe* families + week-in-month helpers",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "medium",
+          "status": "done",
+          "functions": ["hourOfTheDay", "hourOfTheWeek", "hourOfTheMonth", "hourOfTheYear", "minuteOfTheHour", "minuteOfTheDay", "minuteOfTheWeek", "minuteOfTheMonth", "minuteOfTheYear", "secondOfTheMinute", "secondOfTheHour", "secondOfTheDay", "secondOfTheWeek", "secondOfTheMonth", "secondOfTheYear", "milliSecondOfTheSecond", "milliSecondOfTheMinute", "milliSecondOfTheHour", "milliSecondOfTheDay", "milliSecondOfTheWeek", "milliSecondOfTheMonth", "milliSecondOfTheYear", "nthDayOfWeek", "decodeDayOfWeekInMonth"],
+          "acceptance": "Cross-consistency: milliSecondOfTheDay == ((hourOf*60+minuteOf)*60+secondOf)*1000+milliSecondOf; boundary spot checks at year/week starts.",
+          "depends_on": ["P2.1"]
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Start/End & day predicates",
+      "goal": "Period boundaries and same-day family.",
+      "status": "done",
+      "result": "20 functions: startOf/endOf The/A Year/Month/Week/Day (20 incl. twins), isToday, isSameDay, isSameMonth, previousDayOfWeek. startOfADay/endOfADay overload on arg count ((y,m,d) vs (year,dayOfYear)). startOfAWeek/endOfAWeek use the P3-ported internal _encode_date_week (FPC TryEncodeDateWeek; reused by P5). FPC quirks: isSameDay truncates only the basis; previousDayOfWeek takes a weekday NUMBER (1..7) not a date. Verified invariant endOfTheX == startOfNext(X) - 1ms for day/month/year/week. Tests: 007_StartEnd.sh (6), 008_Predicates.sh (5), 002 P3 block (2: StartOfTheYear/EndOfTheYear tw16040). dateutils 70/70 on 5.2, functional on 5.3. Full sweep 1685/0 (kcl 1459 incl. dateutils 70, kklass 226). +11 coverage rows.",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "startOf*/endOf* + predicates",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "medium",
+          "status": "done",
+          "functions": ["startOfTheYear", "startOfAYear", "endOfTheYear", "endOfAYear", "startOfTheMonth", "startOfAMonth", "endOfTheMonth", "endOfAMonth", "startOfTheWeek", "startOfAWeek", "endOfTheWeek", "endOfAWeek", "startOfTheDay", "startOfADay", "endOfTheDay", "endOfADay", "isToday", "isSameDay", "isSameMonth", "previousDayOfWeek"],
+          "acceptance": "endOfTheX == startOfNextX - 1ms; week boundaries ISO (Mon..Sun); endOfTheMonth Feb leap fixtures; The/A twins agree on the same inputs. FPC parity (tw16040): StartOfTheYear(2011-03-26)=2011-01-01, EndOfTheYear=2011-12-31 23:59:59.999.",
+          "depends_on": ["P2"]
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Arithmetic, spans, comparison",
+      "goal": "Inc*, *Between (approx + exact), periodBetween, *Span, withinPast*, compare/same, ranges.",
+      "status": "done",
+      "result": "43 functions: incYear/Month/Week/Day/Hour/Minute/Second/MilliSecond (incMonth+incYear day-clamp); yearsBetween..milliSecondsBetween (years/months approx by default + exact flag via periodBetween); periodBetween (FPC borrow logic); dateTimeDiff (signed ms); yearSpan..milliSecondSpan (6dp); withinPast* (8); compareDateTime/Date/Time (-1/0/1); sameDateTime/Date/Time; dateInRange/timeInRange(overnight wrap)/dateTimeInRange. Integer KDT collapses FPC's float DateTimeToNumber/HalfMilliSecond machinery: *Between = |now-then|/unit, compare = sign(a-b). Span overflow (plan risk #3) AVOIDED via whole/remainder split. Internal helpers _period_between, _span_fixed. Tests: 009_Increment.sh (5), 010_BetweenSpan.sh (6), 011_CompareRange.sh (6). dateutils 87/87 on 5.2, functional on 5.3. Full sweep 1702/0 (kcl 1476 incl. dateutils 87, kklass 226). SECOND PLAN CORRECTION: periodBetween(2004-02-29,2005-02-28) is 0y11m28d not the plan's 30d (FPC algorithm traced); logged in TEST_COVERAGE_NOTES.md corrections table. +17 coverage rows.",
+      "tasks": [
+        {
+          "id": "P4.1",
+          "title": "Inc* family",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "high",
+          "status": "done",
+          "functions": ["incYear", "incMonth", "incWeek", "incDay", "incHour", "incMinute", "incSecond", "incMilliSecond"],
+          "acceptance": "incMonth clamps: 2004-01-31 +1m -> 2004-02-29, 2005-01-31 +1m -> 2005-02-28; incYear on Feb 29 -> Feb 28 next non-leap; negative deltas symmetric; time-of-day preserved.",
+          "depends_on": ["P3"]
+        },
+        {
+          "id": "P4.2",
+          "title": "*Between + periodBetween + *Span",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "high",
+          "status": "done",
+          "functions": ["yearsBetween", "monthsBetween", "weeksBetween", "daysBetween", "hoursBetween", "minutesBetween", "secondsBetween", "milliSecondsBetween", "periodBetween", "yearSpan", "monthSpan", "weekSpan", "daySpan", "hourSpan", "minuteSpan", "secondSpan", "milliSecondSpan", "dateTimeDiff"],
+          "acceptance": "FPC parity: approx constants for years/months (365.25/30.4375 days) with abs(diff) truncation; exact flag switches to periodBetween; periodBetween borrow fixtures (2004-02-29 -> 2005-02-28 = 0y 11m 30d per FPC algorithm — port the algorithm and pin actual FPC values); Span outputs 6dp fixed-point.",
+          "depends_on": ["P4.1"]
+        },
+        {
+          "id": "P4.3",
+          "title": "withinPast*, compare/same, ranges",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "medium",
+          "status": "done",
+          "functions": ["withinPastYears", "withinPastMonths", "withinPastWeeks", "withinPastDays", "withinPastHours", "withinPastMinutes", "withinPastSeconds", "withinPastMilliSeconds", "compareDateTime", "compareDate", "compareTime", "sameDateTime", "sameDate", "sameTime", "dateInRange", "timeInRange", "dateTimeInRange"],
+          "acceptance": "compare* echo -1/0/1; ranges honor inclusive flag (dateInRange default true per FPC); withinPast == (between <= range).",
+          "depends_on": ["P4.2"]
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "name": "Recode & week/day encodings",
+      "goal": "Field surgery + ISO week-date and day-of-week-in-month encodings.",
+      "status": "done",
+      "result": "19 functions: recodeYear/Month/Day/Hour/Minute/Second/MilliSecond, recodeDate/Time/DateTime, tryRecodeDateTime ('-' = leave field), encodeDateWeek/tryEncodeDateWeek/decodeDateWeek, encodeDateMonthWeek/tryEncodeDateMonthWeek/decodeDateMonthWeek, encodeDayOfWeekInMonth/tryEncodeDayOfWeekInMonth. New internal helpers _recode, _encode_date_month_week, _encode_dow_in_month (reuse P2/P3 _decode_date_week/_encode_date_week/_decode_date_month_week). Tests: 012_Recode.sh (5), 013_WeekDayEncodings.sh (5). dateutils 97/97 on 5.2, functional on 5.3. Full sweep 1712/0 (kcl 1486 incl. dateutils 97, kklass 226). THIRD PLAN NOTE: encodeDayOfWeekInMonth has NO negative-Nth/'last' form in FPC (ANthDayOfWeek is Word); plan's P5.2 'negative Nth' acceptance is not an FPC feature — logged in corrections table. +10 coverage rows.",
+      "tasks": [
+        {
+          "id": "P5.1",
+          "title": "recode* family",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "medium",
+          "status": "done",
+          "functions": ["recodeYear", "recodeMonth", "recodeDay", "recodeHour", "recodeMinute", "recodeSecond", "recodeMilliSecond", "recodeDate", "recodeTime", "recodeDateTime", "tryRecodeDateTime"],
+          "acceptance": "'-' keeps a field; invalid recombination (e.g. recodeMonth of Jan-31 to Feb) fails with status 1 exactly like FPC raises; tryRecodeDateTime status-only.",
+          "depends_on": ["P4"]
+        },
+        {
+          "id": "P5.2",
+          "title": "Week-date and day-of-week encodings",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "medium",
+          "status": "done",
+          "functions": ["encodeDateWeek", "tryEncodeDateWeek", "decodeDateWeek", "encodeDateMonthWeek", "tryEncodeDateMonthWeek", "decodeDateMonthWeek", "encodeDayOfWeekInMonth", "tryEncodeDayOfWeekInMonth"],
+          "acceptance": "decode(encode) roundtrip on the ISO fixture table incl. W53/W1 boundaries; encodeDayOfWeekInMonth with negative Nth (last Friday) parity with FPC.",
+          "depends_on": ["P5.1"]
+        }
+      ]
+    },
+    {
+      "id": "P6",
+      "name": "Conversions & timezones",
+      "goal": "Unix, ISO 8601 with zones, Julian, local<->UTC, time intervals.",
+      "status": "done",
+      "result": "21 functions: dateTimeToUnix/unixToDateTime, dateTimeToJulianDate/julianDateToDateTime/tryJulian, dateTimeToModifiedJulianDate/modifiedJulian/tryModifiedJulian, localTimeToUniversal/universalTimeToLocal, encodeTimeInterval/tryEncodeTimeInterval, dateToISO8601/iso8601ToDate/iso8601ToDateDef/tryISO8601ToDate, tryISOStrToDate/Time/DateTime, isoTZStrToTZOffset/tryISOTZStrToTZOffset. KDT makes JD trivial: JD = 2440587.5 + KDT/86400000 (1970-01-01 = JD 2440587.5), exact integer-numerator math; Unix = KDT/1000. FPC sign conventions matched per-function (isoTZStrToTZOffset negates '+03:00'->-180; universalTimeToLocal uses minutes-east). Internal helpers _jd_str_to_ms, _normalize_offset_min_east. Tests: 014_UnixJulian.sh (8), 015_ISO8601.sh (8), 002 P6 block (5: tw16040 Julian/MJD + tunitdt1 far-future Unix). NOTE: JD 6-dp output has ~86ms resolution (documented); midnight/noon exact, intraday within 87ms. dateutils 117/117 on 5.2, functional on 5.3. Full sweep 1732/0 (kcl 1506 incl. dateutils 117, kklass 226). tw16040 parity now complete except scanDateTime (P7). +15 coverage rows.",
+      "tasks": [
+        {
+          "id": "P6.1",
+          "title": "Unix + ISO 8601 conversions",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "high",
+          "status": "done",
+          "functions": ["dateTimeToUnix", "unixToDateTime", "dateToISO8601", "iso8601ToDate", "iso8601ToDateDef", "tryISO8601ToDate", "tryISOStrToDate", "tryISOStrToTime", "tryISOStrToDateTime", "isoTZStrToTZOffset", "tryISOTZStrToTZOffset"],
+          "acceptance": "unix anchors (0, 86400, negative); ISO with Z/±hh:mm offsets converts per FPC aUTC flag semantics; cross-check 100 random epochs against GNU date -u when available (skipped-not-failed if absent).",
+          "depends_on": ["P5"]
+        },
+        {
+          "id": "P6.2",
+          "title": "Local<->UTC + Julian + time intervals",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "medium",
+          "status": "done",
+          "functions": ["localTimeToUniversal", "universalTimeToLocal", "dateTimeToJulianDate", "julianDateToDateTime", "tryJulianDateToDateTime", "dateTimeToModifiedJulianDate", "modifiedJulianDateToDateTime", "tryModifiedJulianDateToDateTime", "encodeTimeInterval", "tryEncodeTimeInterval"],
+          "acceptance": "JD anchors: 2000-01-01 12:00 UTC == JD 2451545.0; MJD == JD - 2400000.5; offset param form ±minutes and ±hh:mm both accepted; interval hours may exceed 24. FPC parity: tw16040 JD 2455277.5<->2010-03-22 and 2455278.5<->2010-03-23 both directions + MJD roundtrips; tunitdt1 far-future Unix (15796372693 -> 2470-07-26 09:18:13; 2345-12-12 04:45:49 roundtrip).",
+          "depends_on": ["P6.1"]
+        }
+      ]
+    },
+    {
+      "id": "P7",
+      "name": "scanDateTime, docs, bench, closeout",
+      "goal": "Practical parser subset, API docs, performance proof, final sweep.",
+      "status": "done",
+      "result": "scanDateTime practical subset (yyyy/yy/mm/dd/hh/nn/ss/zzz tokens, NN=minute, quoted literals, elastic whitespace, 2-digit-year pivot 50, epoch defaults) — completes the tw16040 parity file (all 17 assertions). Decision gate P7.1: subset sufficient, full FPC matcher (names/ampm/[]) stays out of scope. README.md written (185-method API reference by group + KDT contract + conventions). TEST_COVERAGE_NOTES.md finalized (~107 non-FPC rows, 3-file spot-audit, 3 plan corrections, final class stats). bench.sh: all hot paths <= 0.3ms/call on 5.2 AND 5.3 (yearOf 0.125, incDay 0.041, incMonth 0.221, weekOfTheYear 0.250ms), zero forks (empty-PATH verified). Tests: 016_ScanDateTime.sh (5), 002 P7 assertion. FINAL: dateutils 123/123 on 5.2, functional on 5.3; full sweep 1738/0 (kcl 1512 incl. dateutils 123, kklass 226). PROJECT COMPLETE.",
+      "tasks": [
+        {
+          "id": "P7.1",
+          "title": "scanDateTime practical subset (decision gate)",
+          "component": "kcl/dateutils",
+          "category": "feature",
+          "severity": "low",
+          "status": "done",
+          "functions": ["scanDateTime"],
+          "fix": "Patterns: yyyy yy mm dd hh nn ss zzz + quoted/plain literals + whitespace elasticity. Gate: review whether ampm/timezone/[] optionals are actually needed downstream before extending.",
+          "acceptance": "Fixture table of pattern/input/expected; malformed -> status 1. FPC parity (tw16040, final assertion): scanDateTime 'YYYY.MM.DD HH:NN:SS:ZZZ' '2011.03.29 16:46:56:777' == encodeDateTime 2011 3 29 16 46 56 777 — completes the parity file.",
+          "depends_on": ["P6"]
+        },
+        {
+          "id": "P7.2",
+          "title": "README.md API reference + finalize TEST_COVERAGE_NOTES.md",
+          "component": "kcl/dateutils",
+          "category": "docs",
+          "severity": "medium",
+          "status": "done",
+          "files": ["kcl/dateutils/README.md", "kcl/dateutils/TEST_COVERAGE_NOTES.md"],
+          "acceptance": "Every public function listed with signature, echo format and one example; KDT contract and conventions section; link from PLAN.md. TEST_COVERAGE_NOTES.md reviewed for completeness: every non-FPC test case has its row (spot-audit 3 random test files), summary stats (N cases: X boundary / Y bash-convention / Z representation / W cross-check) added for the analysis pass.",
+          "depends_on": ["P7.1"]
+        },
+        {
+          "id": "P7.3",
+          "title": "Micro-benchmark + final sweep",
+          "component": "kcl/dateutils",
+          "category": "performance",
+          "severity": "medium",
+          "status": "done",
+          "acceptance": "Bench: yearOf/incDay/daysBetween <= ~0.3 ms/call on bash 5.2 (thin dispatch, zero forks); full kcl+kklass sweep green on 5.2; dateutils suite green on 5.3; thin-dispatch shape pinned by a test (no static vars crept in); ledger statuses closed.",
+          "depends_on": ["P7.2"]
+        }
+      ]
+    }
+  ]
+}
