@@ -1,52 +1,131 @@
 #!/bin/bash
 
-# Source kklass system (don't override SCRIPT_DIR)
+# Re-source guard: constants below are readonly, and the class only needs to
+# be built once per process.
+if [[ -n "$_TPATH_SOURCED" ]]; then
+    return
+fi
+declare -g _TPATH_SOURCED=1
+
+# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
 TPATH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TPATH_DIR/../../kklass/kklass.sh"
+source "$TPATH_DIR/../../kklass/kklass_pascal.sh"
 
-# Public tpath.* functions are registered as kklass static methods at the end
-# of this file, after all implementations have been defined.
-
-# Define platform-specific constants
+# Define platform-specific constants.
+# NOTE: these are deliberately top-level variables, NOT `static var`s: a class
+# with static variables gets the capturing static dispatcher (funsub on bash
+# 5.3, scratch file on 5.2); a class WITHOUT them gets the thin, zero-overhead
+# dispatcher on every bash. Bash has no file scope, so top-level variables are
+# process-wide globals — hence the __TPATH_ prefix and `readonly` below; the
+# public way to read them is the tpath.get*() methods.
 case "$(uname -s)" in
     MINGW*|CYGWIN*|MSYS*)
-        DIRECTORY_SEPARATOR_CHAR=$'\\'
-        ALT_DIRECTORY_SEPARATOR_CHAR='/'
-        PATH_SEPARATOR=';'
-        VOLUME_SEPARATOR_CHAR=':'
+        __TPATH_DIRECTORY_SEPARATOR_CHAR=$'\\'
+        __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR='/'
+        __TPATH_PATH_SEPARATOR=';'
+        __TPATH_VOLUME_SEPARATOR_CHAR=':'
         ;;
     *)
-        DIRECTORY_SEPARATOR_CHAR='/'
-        ALT_DIRECTORY_SEPARATOR_CHAR='/'
-        PATH_SEPARATOR=':'
-        VOLUME_SEPARATOR_CHAR='/'
+        __TPATH_DIRECTORY_SEPARATOR_CHAR='/'
+        __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR='/'
+        __TPATH_PATH_SEPARATOR=':'
+        __TPATH_VOLUME_SEPARATOR_CHAR='/'
         ;;
 esac
 
-EXTENSION_SEPARATOR_CHAR='.'
+__TPATH_EXTENSION_SEPARATOR_CHAR='.'
+
+readonly __TPATH_DIRECTORY_SEPARATOR_CHAR __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR \
+         __TPATH_PATH_SEPARATOR __TPATH_VOLUME_SEPARATOR_CHAR \
+         __TPATH_EXTENSION_SEPARATOR_CHAR
+
+# ---------------------------------------------------------------------------
+# TPath: a static utility namespace (Free Pascal's TPath / .NET System.IO.Path).
+#
+# Pascal DSL form: the class STRUCTURE (interface) is declared first, the method
+# BODIES follow as real bash functions, and `build tpath` finalizes the class.
+# Every member is `static` — there is no per-instance state — so all methods are
+# called as `tpath.<Method>` (the public API, unchanged from before).
+#
+# `proc`, not `func`: these helpers return their result by `echo`ing it (the
+# established tpath.* convention), not via RESULT. Methods may also cross-call
+# each other with `$(tpath.getFileName ...)` — after build those names are the
+# generated dispatchers, so the calls resolve normally.
+#
+# The class declares NO static variables, so every method gets the thin,
+# capture-free dispatcher — as fast as the previous kk.register_static_methods
+# wrappers on bash 5.2 and 5.3 alike.
+# ---------------------------------------------------------------------------
+class tpath
+    public
+        # separator/property accessors
+        static proc getAltDirectorySeparatorChar
+        static proc getDirectorySeparatorChar
+        static proc getExtensionSeparatorChar
+        static proc getPathSeparator
+        static proc getVolumeSeparatorChar
+        # path combination and analysis
+        static proc combine
+        static proc getFileName
+        static proc getDirectoryName
+        static proc getExtension
+        static proc getFileNameWithoutExtension
+        static proc changeExtension
+        static proc hasExtension
+        # root / rooted / relative
+        static proc getPathRoot
+        static proc isPathRooted
+        static proc isRelativePath
+        static proc getFullPath
+        # path type detection
+        static proc isUNCPath
+        static proc isUNCRooted
+        static proc isDriveRooted
+        static proc isExtendedPrefixed
+        static proc driveExists
+        # system paths
+        static proc getTempPath
+        static proc getHomePath
+        static proc getDocumentsPath
+        static proc getDownloadsPath
+        # temporary and random file names
+        static proc getTempFileName
+        static proc getGUIDFileName
+        static proc getRandomFileName
+        # character and path validation
+        static proc isValidFileNameChar
+        static proc isValidPathChar
+        static proc hasValidFileNameChars
+        static proc hasValidPathChars
+        static proc matchesPattern
+        # file attributes
+        static proc getAttributes
+end
+
+# ---- method bodies (real bash functions; extracted by `build`) --------------
 
 # ============================================================================
 # Property accessor methods
 # ============================================================================
 
 tpath.getAltDirectorySeparatorChar() {
-    echo "$ALT_DIRECTORY_SEPARATOR_CHAR"
+    echo "$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR"
 }
 
 tpath.getDirectorySeparatorChar() {
-    echo "$DIRECTORY_SEPARATOR_CHAR"
+    echo "$__TPATH_DIRECTORY_SEPARATOR_CHAR"
 }
 
 tpath.getExtensionSeparatorChar() {
-    echo "$EXTENSION_SEPARATOR_CHAR"
+    echo "$__TPATH_EXTENSION_SEPARATOR_CHAR"
 }
 
 tpath.getPathSeparator() {
-    echo "$PATH_SEPARATOR"
+    echo "$__TPATH_PATH_SEPARATOR"
 }
 
 tpath.getVolumeSeparatorChar() {
-    echo "$VOLUME_SEPARATOR_CHAR"
+    echo "$__TPATH_VOLUME_SEPARATOR_CHAR"
 }
 
 # ============================================================================
@@ -67,9 +146,9 @@ tpath.combine() {
     elif [[ -z "$path2" ]]; then
         echo "$path1"
     else
-        path1="${path1%$DIRECTORY_SEPARATOR_CHAR}"
-        path1="${path1%$ALT_DIRECTORY_SEPARATOR_CHAR}"
-        echo "${path1}${DIRECTORY_SEPARATOR_CHAR}${path2}"
+        path1="${path1%$__TPATH_DIRECTORY_SEPARATOR_CHAR}"
+        path1="${path1%$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR}"
+        echo "${path1}${__TPATH_DIRECTORY_SEPARATOR_CHAR}${path2}"
     fi
 }
 
@@ -81,7 +160,7 @@ tpath.getFileName() {
         return 0
     fi
 
-    local filename="${path##*[$DIRECTORY_SEPARATOR_CHAR$ALT_DIRECTORY_SEPARATOR_CHAR]}"
+    local filename="${path##*[$__TPATH_DIRECTORY_SEPARATOR_CHAR$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR]}"
     echo "$filename"
 }
 
@@ -118,7 +197,7 @@ tpath.getExtension() {
         return 0
     fi
 
-    local filename="${path##*[$DIRECTORY_SEPARATOR_CHAR$ALT_DIRECTORY_SEPARATOR_CHAR]}"
+    local filename="${path##*[$__TPATH_DIRECTORY_SEPARATOR_CHAR$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR]}"
     local extension="${filename##*.}"
 
     if [[ "$extension" == "$filename" ]]; then
@@ -206,7 +285,7 @@ tpath.getPathRoot() {
 
     if [[ "$path" =~ ^[/\\\\][/\\\\] ]]; then
         local rest="${path#??}"
-        local server_part="${rest%%[$DIRECTORY_SEPARATOR_CHAR$ALT_DIRECTORY_SEPARATOR_CHAR]*}"
+        local server_part="${rest%%[$__TPATH_DIRECTORY_SEPARATOR_CHAR$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR]*}"
         echo "//$server_part"
         return 0
     fi
@@ -646,20 +725,9 @@ tpath.getAttributes() {
     fi
 }
 
-tpath._register_kklass_class() {
-    local -a tpath_methods=(
-        getAltDirectorySeparatorChar getDirectorySeparatorChar getExtensionSeparatorChar
-        getPathSeparator getVolumeSeparatorChar combine getFileName getDirectoryName
-        getExtension getFileNameWithoutExtension changeExtension hasExtension getPathRoot
-        isPathRooted isRelativePath getFullPath isUNCPath isUNCRooted isDriveRooted
-        isExtendedPrefixed driveExists getTempPath getHomePath getDocumentsPath
-        getDownloadsPath getTempFileName getGUIDFileName getRandomFileName
-        isValidFileNameChar isValidPathChar hasValidFileNameChars hasValidPathChars
-        matchesPattern getAttributes
-    )
-    kk.register_static_methods "tpath" "tpath" "TPath" "${tpath_methods[@]}"
-}
-
-tpath._register_kklass_class
-unset -f tpath._register_kklass_class
+# Finalize: extract the bodies above into the `tpath` class and generate the
+# thin static dispatchers (see the header note). The class is named `tpath`,
+# so the public API stays `tpath.<Method>` and the kklass metadata array
+# `tpath_class_static_methods` is populated as before.
+build tpath
 

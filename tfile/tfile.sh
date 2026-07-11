@@ -1,22 +1,90 @@
 #!/bin/bash
 
-# Source kklass system (don't override SCRIPT_DIR)
+# Re-source guard: the constant below is readonly, and the class only needs to
+# be built once per process.
+if [[ -n "$_TFILE_SOURCED" ]]; then
+    return
+fi
+declare -g _TFILE_SOURCED=1
+
+# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
 TFILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TFILE_DIR/../../kklass/kklass.sh"
+source "$TFILE_DIR/../../kklass/kklass_pascal.sh"
 
-# Public tfile.* functions are registered as kklass static methods at the end
-# of this file, after all implementations have been defined.
-
-
-
-# Check for cp command availability
+# Check for cp command availability.
+# NOTE: a top-level (process-wide) global, NOT a `static var` — a class without
+# static variables gets the thin, capture-free dispatcher on every bash (see
+# tpath.sh). readonly: computed once, never mutated.
 if command -v cp >/dev/null 2>&1; then
     TFILE_USE_CP=true
 else
     TFILE_USE_CP=false
 fi
+readonly TFILE_USE_CP
 
-# Define tfile functions
+# ---------------------------------------------------------------------------
+# TFile: a static utility namespace (Free Pascal's TFile / .NET System.IO.File).
+#
+# Pascal DSL form: the class STRUCTURE (interface) first, then the method BODIES
+# as real bash functions, then `build tfile`. Every member is `static` — there
+# is no per-instance state — so the public API stays `tfile.<Method>`.
+#
+# `proc`, not `func`: results are returned by `echo` and/or the exit status
+# (the established tfile.* convention), never via RESULT. The thin dispatcher
+# preserves both stdout and the body's return status.
+#
+# Internal helpers tfile._crypto_password / tfile._crypt_file / tfile._format_time
+# are NOT class members — they stay plain functions used by the methods.
+# ---------------------------------------------------------------------------
+class tfile
+    public
+        # writing / creation
+        static proc appendAllText
+        static proc appendText
+        static proc create
+        static proc createSymLink
+        static proc createText
+        static proc writeAllBytes
+        # existence / lifecycle
+        static proc exists
+        static proc delete
+        static proc copy
+        static proc move
+        static proc replace
+        # encryption
+        static proc encrypt
+        static proc decrypt
+        # attributes
+        static proc fileAttributesToInteger
+        static proc integerToFileAttributes
+        static proc getAttributes
+        static proc setAttributes
+        # timestamps
+        static proc getCreationTime
+        static proc getCreationTimeUtc
+        static proc getLastAccessTime
+        static proc getLastAccessTimeUtc
+        static proc getLastWriteTime
+        static proc getLastWriteTimeUtc
+        static proc setCreationTime
+        static proc setCreationTimeUtc
+        static proc setLastAccessTime
+        static proc setLastAccessTimeUtc
+        static proc setLastWriteTime
+        static proc setLastWriteTimeUtc
+        # links
+        static proc getSymLinkTarget
+        # opening / reading
+        static proc open
+        static proc openRead
+        static proc openText
+        static proc openWrite
+        static proc readAllBytes
+        static proc readAllLines
+        static proc readAllText
+end
+
+# ---- method bodies (real bash functions; extracted by `build`) --------------
 tfile.appendAllText() {
 local file="$1"
 local text="$2"
@@ -206,21 +274,8 @@ tfile.setLastWriteTimeUtc() { if [[ ! -e "$1" ]]; then return 1; fi; : ; }
 tfile.writeAllBytes() { printf "%s" "$2" > "$1" ; }
 
 
-tfile._register_kklass_class() {
-    local -a tfile_methods=(
-        appendAllText appendText exists delete copy move create createSymLink createText
-        encrypt decrypt fileAttributesToInteger getAttributes getCreationTime
-        getCreationTimeUtc getLastAccessTime getLastAccessTimeUtc getLastWriteTime
-        getLastWriteTimeUtc getSymLinkTarget integerToFileAttributes open openRead
-        openText openWrite readAllBytes readAllLines readAllText replace setAttributes
-        setCreationTime setCreationTimeUtc setLastAccessTime setLastAccessTimeUtc
-        setLastWriteTime setLastWriteTimeUtc writeAllBytes
-    )
-    kk.register_static_methods "tfile" "tfile" "TFile" "${tfile_methods[@]}"
-}
-
-tfile._register_kklass_class
-unset -f tfile._register_kklass_class
-
-
-#echo "tfile class created successfully"
+# Finalize: extract the bodies above into the `tfile` class and generate the
+# thin static dispatchers (see the header note). The class is named `tfile`,
+# so the public API stays `tfile.<Method>` and the kklass metadata array
+# `tfile_class_static_methods` is populated as before.
+build tfile

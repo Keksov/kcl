@@ -1,14 +1,70 @@
 #!/bin/bash
 
-# Source kklass system (don't override SCRIPT_DIR)
+# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
 TDIRECTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TDIRECTORY_DIR/../../kklass/kklass.sh"
+source "$TDIRECTORY_DIR/../../kklass/kklass_pascal.sh"
 
 # Source tpath module (required by several tdirectory functions)
 source "$TDIRECTORY_DIR/../tpath/tpath.sh"
 
-# Define the tdirectory class
-#defineClass "tdirectory" ""
+# ---------------------------------------------------------------------------
+# TDirectory: a static utility namespace (Free Pascal's TDirectory).
+#
+# Pascal DSL form: the class STRUCTURE (interface) first, then the method
+# BODIES as real bash functions, then `build tdirectory`. Every member is
+# `static` — no per-instance state — so the public API stays
+# `tdirectory.<Method>` and results are returned by `echo` / exit status
+# (hence `proc`, not `func`; see tpath.sh for the convention notes).
+#
+# The class declares NO static variables, so every method gets the thin,
+# capture-free dispatcher — fast on bash 5.2 and 5.3 alike. This also means
+# `setCurrentDirectory` still runs its `cd` in the CALLER's shell when invoked
+# bare (the body is inlined into the dispatcher, not run in a subshell).
+#
+# Internal helpers (_get_dirs_recursive, _get_files_recursive,
+# _get_entries_recursive, _format_time, _touch_time) are NOT class members —
+# they stay plain functions used by the methods.
+# ---------------------------------------------------------------------------
+class tdirectory
+    public
+        # lifecycle
+        static proc createDirectory
+        static proc delete
+        static proc exists
+        static proc copy
+        static proc isEmpty
+        static proc move
+        # path analysis (delegates to tpath)
+        static proc isRelativePath
+        static proc getDirectoryRoot
+        static proc getParent
+        # current directory / drives
+        static proc getCurrentDirectory
+        static proc setCurrentDirectory
+        static proc getLogicalDrives
+        # listing
+        static proc getDirectories
+        static proc getFiles
+        static proc getFileSystemEntries
+        # attributes
+        static proc getAttributes
+        static proc setAttributes
+        # timestamps
+        static proc getCreationTime
+        static proc setCreationTime
+        static proc getCreationTimeUtc
+        static proc setCreationTimeUtc
+        static proc getLastAccessTime
+        static proc setLastAccessTime
+        static proc getLastAccessTimeUtc
+        static proc setLastAccessTimeUtc
+        static proc getLastWriteTime
+        static proc setLastWriteTime
+        static proc getLastWriteTimeUtc
+        static proc setLastWriteTimeUtc
+end
+
+# ---- method bodies (real bash functions; extracted by `build`) --------------
 
 # Define tdirectory.createDirectory function
 tdirectory.createDirectory() {
@@ -522,17 +578,8 @@ tdirectory.setLastWriteTimeUtc() {
     tdirectory._touch_time "$path" "$time" "-m" true
 }
 
-tdirectory._register_kklass_class() {
-    local -a tdirectory_methods=(
-        createDirectory delete exists copy isEmpty move isRelativePath getDirectoryRoot
-        getParent getCurrentDirectory setCurrentDirectory getLogicalDrives getDirectories
-        getFiles getFileSystemEntries getAttributes setAttributes getCreationTime
-        setCreationTime getCreationTimeUtc setCreationTimeUtc getLastAccessTime
-        setLastAccessTime getLastAccessTimeUtc setLastAccessTimeUtc getLastWriteTime
-        setLastWriteTime getLastWriteTimeUtc setLastWriteTimeUtc
-    )
-    kk.register_static_methods "tdirectory" "tdirectory" "TDirectory" "${tdirectory_methods[@]}"
-}
-
-tdirectory._register_kklass_class
-unset -f tdirectory._register_kklass_class
+# Finalize: extract the bodies above into the `tdirectory` class and generate
+# the thin static dispatchers (see the header note). The class is named
+# `tdirectory`, so the public API stays `tdirectory.<Method>` and the kklass
+# metadata array `tdirectory_class_static_methods` is populated as before.
+build tdirectory

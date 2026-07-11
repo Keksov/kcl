@@ -1,11 +1,99 @@
 #!/bin/bash
 
-# Source kklass system (don't override SCRIPT_DIR)
+# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
 tstringhelper_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$tstringhelper_DIR/../../kklass/kklass.sh"
+source "$tstringhelper_DIR/../../kklass/kklass_pascal.sh"
 
-# Public string.* functions are registered as kklass static methods at the end
-# of this file, after all implementations have been defined.
+# ---------------------------------------------------------------------------
+# TStringHelper: a static utility namespace (Free Pascal's TStringHelper).
+#
+# Pascal DSL form: declare the class STRUCTURE (interface) first, then the
+# method BODIES as real bash functions below, then `build string` finalizes it.
+# Every member is `static` — there is no per-instance state — so all methods are
+# called as `string.<Method>` (the public API, unchanged from before).
+#
+# Why `proc` and not `func`: these helpers return their result by `echo`ing it
+# (the long-standing string.* convention every caller and test depends on), NOT
+# via RESULT. `func` would append `kk._return "$RESULT"` (which is empty here);
+# `proc` appends nothing, so it is the faithful verb for an echo-style body.
+#
+# Because the class declares NO static variables, `build` gives each method a
+# thin, capture-free dispatcher (no funsub, no scratch file) — the same
+# zero-overhead dispatch as the previous kk.register_static_methods wrappers,
+# fast on bash 5.2 and 5.3 alike.
+# ---------------------------------------------------------------------------
+class string
+    public
+        # comparison / equality
+        static proc equals
+        static proc compare
+        static proc compareOrdinal
+        static proc compareText
+        static proc compareTo
+        static proc contains
+        # searching / indexing
+        static proc indexOf
+        static proc indexOfAny
+        static proc indexOfAnyUnquoted
+        static proc lastIndexOf
+        static proc lastIndexOfAny
+        static proc lastDelimiter
+        static proc isDelimiter
+        # trimming / padding
+        static proc trim
+        static proc trimLeft
+        static proc trimRight
+        static proc trimStart
+        static proc trimEnd
+        static proc padLeft
+        static proc padRight
+        # case conversion
+        static proc toLower
+        static proc toLowerInvariant
+        static proc toUpper
+        static proc toUpperInvariant
+        static proc lowerCase
+        static proc upperCase
+        # predicates
+        static proc isEmpty
+        static proc isNullOrEmpty
+        static proc isNullOrWhiteSpace
+        static proc startsWith
+        static proc startsText
+        static proc endsWith
+        static proc endsText
+        # editing / building
+        static proc replace
+        static proc remove
+        static proc insert
+        static proc split
+        static proc join
+        static proc substring
+        static proc copy
+        static proc copyTo
+        static proc quotedString
+        static proc deQuotedString
+        static proc create
+        static proc countChar
+        # conversion
+        static proc toBoolean
+        static proc toCharArray
+        static proc toDouble
+        static proc toExtended
+        static proc toInt64
+        static proc toInteger
+        static proc toSingle
+        static proc parse
+        # misc
+        static proc length
+        static proc chars
+        static proc getHashCode
+        static proc format
+end
+
+# ---- method bodies (real bash functions; extracted by `build`) -------------
+# Internal helpers string._replace_literal / string._parse_int are NOT declared
+# in the class above — they stay as plain functions used by the methods.
 
 string.equals() {
     local str1="$1"
@@ -772,19 +860,8 @@ string.endsWith() {
     fi
 }
 
-string._register_kklass_class() {
-    local -a tstringhelper_methods=(
-        equals trimStart trimEnd startsText split replace remove quotedString parse
-        padLeft padRight join isNullOrWhiteSpace isNullOrEmpty isEmpty isDelimiter
-        insert indexOfAnyUnquoted indexOfAny indexOf getHashCode lastDelimiter
-        lastIndexOf lastIndexOfAny format lowerCase compare compareOrdinal compareText
-        compareTo contains copy copyTo countChar create deQuotedString endsText
-        startsWith substring toBoolean toCharArray toDouble toExtended toInt64
-        toInteger toLower toLowerInvariant toSingle toUpper toUpperInvariant trim
-        trimLeft trimRight upperCase length chars endsWith
-    )
-    kk.register_static_methods "string" "string" "TStringHelper" "${tstringhelper_methods[@]}"
-}
-
-string._register_kklass_class
-unset -f string._register_kklass_class
+# Finalize: extract the bodies above into the `string` class and generate the
+# static dispatchers (thin, capture-free — see the header note). The class is
+# named `string`, so the public API stays `string.<Method>` and the kklass
+# metadata array `string_class_static_methods` is populated as before.
+build string
