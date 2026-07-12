@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tstopwatch — port of Delphi System.Diagnostics.TStopwatch to bash (kklass instantiable class)",
+  "created": "2026-07-12",
+  "updated": "2026-07-12",
+  "status": "COMPLETE (P0+P1+P2 done). Full state machine + 7 getters + getTimeStamp; suite 34/34 on 5.2.37 AND true 5.3.9; README + docs/TStopwatch.md + bench.sh (numbers recorded) + TEST_COVERAGE_NOTES finalized; final master sweep 14/14 suites, 0 failed. Roadmap position 1/7 DONE (order: tstopwatch, tregex, tarray, tinifile, tqueuestack, thashset, fpjson). Next roadmap unit: tregex. Commits still gated (nothing committed).",
+  "owner": "keksov",
+  "roadmap": {
+    "priority": 1,
+    "of": 7,
+    "order": ["tstopwatch", "tregex", "tarray", "tinifile", "tqueuestack", "thashset", "fpjson"]
+  },
+  "notes": "Single source of truth for tstopwatch status. Plan: kcl/tstopwatch/PLAN.md. Source of truth for the API: Delphi System.Diagnostics.TStopwatch (DocWiki; no FPC RTL equivalent — same Delphi-spec situation as tfile/tpath/tdirectory/tstringhelper); .NET Stopwatch semantics break ties. Clock = EPOCHREALTIME builtin (bash >= 5.0). Entirely Tier A: pure bash, zero forks, integer microsecond arithmetic. Workflow: phase -> dual-bash tests -> master sweep -> STOP -> 'go'; commits gated; never edit the unit while a master sweep is in flight.",
+  "conventions": {
+    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
+    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
+    "severity_values": ["critical", "high", "medium", "low"],
+    "tier_values": ["A-pure-bash-exact"]
+  },
+  "baseline": {
+    "measured": "2026-07-12 — planning baseline CONFIRMED at P0: full master sweep run BEFORE the tstopwatch runner existed = 13 suites passed / 0 failed (planning totals unchanged — tstopwatch is the first roadmap unit to build). After adding the suite: 14 suites / 0 failed (2481 + 11 = 2492 total).",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2)",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64)",
+    "suites_green": {
+      "kklass": 226,
+      "kcl_total": 1723,
+      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130",
+      "protected_core": "kcl 1723 + kklass 226 = 1949",
+      "master_full": "2481/0 across 13 suites (adds kkore 232 + ktests 300 on top of the protected core)"
+    },
+    "regression_rule": "tstopwatch work must keep all of the above green; the new tstopwatch suite adds on top."
+  },
+  "design_decisions": {
+    "clock": "EPOCHREALTIME builtin: microseconds, fork-free, present on both target bashes. Locale trap pinned: decimal separator may be '.' or ',' -> parse with ${er%[.,]*} / 10#${er##*[.,]}; read the variable ONCE per stamp. Wall-clock honesty: NTP/manual clock steps can affect a running measurement (no monotonic builtin in bash) — documented, wontfix.",
+    "state_model": "Three per-instance fields: _accum (us accumulated over completed segments), _t0 (segment start stamp), _running (0/1). Elapsed while running = _accum + (now - _t0); reads are pure (no state writes).",
+    "ticks_mapping": "1 tick := 1 microsecond; frequency := 1000000 (constant); isHighResolution := true. Ratio-compatible with Delphi code that divides ticks by frequency; documented as the bash mapping (no 10MHz QPC emulation).",
+    "edge_semantics": ".NET-aligned (Delphi mirrors .NET Stopwatch): Start while running = no-op; Stop while stopped = no-op; Reset stops AND zeroes; Restart = zero + start atomically; ElapsedMilliseconds TRUNCATES (Int64 div). Final pin at P0.",
+    "overhead_positioning": "kklass dispatch ~0.5 ms/call (tdictionary bench) dwarfs the us clock: TStopwatch is for structuring multi-millisecond measurements. Tight loops use TStopwatch.getTimeStamp (plain function, no dispatch) or raw EPOCHREALTIME. bench.sh publishes self-overhead numbers; README states this positioning."
+  },
+  "goals": [
+    "Faithful Delphi/.NET TStopwatch state machine: stopped-on-Create, StartNew ctor token, accumulate across Start/Stop cycles, no-op double transitions, Reset/Restart, truncating ms getter.",
+    "Zero forks in every operation (PATH='' lifecycle test); pure 64-bit integer us arithmetic.",
+    "Timing tests that cannot flake: exact state-machine assertions wherever possible, generous tolerance windows for the few real-time checks, builtin waits (no external sleep).",
+    "Honest overhead documentation with measured numbers.",
+    "Never regress the kcl/kklass baseline."
+  ],
+  "test_basis": {
+    "seed_primary": "None (no FPC tests exist — Delphi-only API). Basis: DocWiki TStopwatch member semantics + .NET Stopwatch spec as tiebreaker.",
+    "parity_model": {
+      "tier_A_exact": "State machine, edge no-ops, truncation, frequency/isHighResolution constants — exact. Real-time durations — tolerance windows (wide upper bounds; lower bounds only where guaranteed by construction)."
+    },
+    "new_coverage_protocol": "Every case is non-FPC by construction -> every test gets a TEST_COVERAGE_NOTES.md row citing the DocWiki/.NET basis or the invariant."
+  },
+  "out_of_scope": [
+    { "item": "Elapsed: TTimeSpan property", "status": "wontfix", "reason": "kcl has no TTimeSpan; numeric getters (us/ms/s/ticks) cover the use cases. Revisit only if a ttimespan port lands." },
+    { "item": "Record value semantics (copy-on-assign)", "status": "wontfix", "reason": "bash port is a kklass instance; no value-type analog." },
+    { "item": "Monotonic-clock guarantee (QPC)", "status": "wontfix", "reason": "EPOCHREALTIME is wall-clock; bash has no monotonic builtin. Documented honestly in README." },
+    { "item": "Thread-affinity caveats", "status": "wontfix", "reason": "No threads in bash." }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Probes + skeleton",
+      "goal": "Pin the clock idioms and ctor form; class skeleton; baseline re-measure.",
+      "status": "done",
+      "probe_results": {
+        "epochrealtime_locale": "5.2.37 under LC_ALL=de_DE/ru_RU emits COMMA ('1783855237,987393'); 5.3.9 under the same locales emits DOT (bash 5.3 formats EPOCHREALTIME locale-independently). The [.,] guard is REQUIRED on 5.2, harmless on 5.3. Fraction is 6 digits on both. Parse idiom verified under comma locale: ${er%[.,]*} * 1000000 + 10#${er##*[.,]}.",
+        "wait_idiom": "PINNED: arithmetic busy-loop on the same EPOCHREALTIME clock (20 ms target achieved 20000 us on 5.2 / 20003 us on 5.3 — lower bound guaranteed by construction, zero forks, CPU burn fine for tens-of-ms test waits). REJECTED: read -t on a procsub-backed rw fd (exec 9<> <(:)) — returns rc=1 on EOF, not timeout, on MSYS2/Cygwin pipes: 25 ms on 5.2 but 14 ms (EARLY!) on 5.3 for a 20 ms request. Unusable for lower-bound assertions.",
+        "ctor_token": "TStopwatch.new sw startnew — exact lowercase token, TObjectDictionary token style. Unknown token -> rc=1 SILENT (message under VERBOSE_KKLASS=debug only); fields are initialized BEFORE validation so the instance stays a valid stopped watch. Plain 'return 1' in a constructor is safe (TObjectDictionary precedent — the kk._return trap is func-specific, ctors are exempt).",
+        "field_storage": "kklass var storage confirmed: ${inst}_data[_accum|_t0|_running] assoc (namerefs injected into method scope). Tests white-box these until P1 getters land.",
+        "dual_bash_invocation": "HOUSE FINDING: ktests/ktest_runner.sh:409 spawns each test file via a bare 'bash -c' word -> PATH resolution -> a naive '/c/bin/msys64/usr/bin/bash suite.sh' runs the RUNNER on 5.3.9 but every per-test child on 5.2.37 (inherited PATH points at the primary MSYS2). Honest 5.3.9 run = PATH=\"/c/bin/msys64/usr/bin:$PATH\" /c/bin/msys64/usr/bin/bash <suite>. Pinned for all future dual-bash validation (verified: inner bash then reports 5.3.9)."
+      },
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "EPOCHREALTIME probes (format/locale on 5.2.37 AND 5.3.9), fork-free wait idiom pick (read -t vs busy-loop), ctor startnew token form",
+          "category": "infra",
+          "severity": "high",
+          "status": "done",
+          "acceptance": "Probe script output recorded in this ledger; idioms pinned in PLAN §2.3/§4; both bashes agree."
+        },
+        {
+          "id": "P0.2",
+          "title": "Class skeleton (Create [startnew] / Destroy / fields) + tests runner + baseline re-measure via master suite BEFORE the runner exists",
+          "category": "infra",
+          "severity": "high",
+          "status": "done",
+          "acceptance": "source tstopwatch.sh green on both bashes; baseline numbers recorded here.",
+          "result": "tstopwatch.sh (class TStopwatch: Create[startnew]/Destroy + _accum/_t0/_running + file-level TStopwatch._nowUs helper) + tests/001_CreationAndDestruction.sh (11 cases: S1 stopped-create, S2 startnew t0-in-window exact-by-construction, bad/wrong-case token, silence contract, independence, delete/recreate, PATH='' lifecycle) + tests/tests.sh runner + TEST_COVERAGE_NOTES.md (9 rows). 11/11 on 5.2.37 AND true 5.3.9; master 14/14."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Full implementation + tests",
+      "goal": "Start/Stop/Reset/Restart/isRunning + elapsed getters + getTimeStamp; complete suite.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "State machine + getters (S1-S8 semantics from PLAN section 3)",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "acceptance": "State-machine tests exact-green; timing tests tolerance-green; paused-watch-frozen test exact; zero-fork lifecycle under PATH=''; dual-bash; full master sweep gate.",
+          "result": "Start/Stop/Reset/Restart (S3/S4/S5 edges exact via white-box _t0/_accum no-op checks) + getters isRunning/elapsedTicks/elapsedMicroseconds/elapsedMilliseconds/elapsedSeconds/frequency/isHighResolution (S6 truncation proven by SEEDING _accum — timing-free; S7 purity by state-triple comparison) + TStopwatch.getTimeStamp (S8, RESULT-only in all contexts) + internal TStopwatch._elapsedUs (dynamic-scope helper: method-body namerefs visible in callee — single elapsed computation shared by 4 getters, no $this re-dispatch). Tests 002 (14 exact state-machine cases) / 003 (7 timing cases, busy-loop lower bounds guaranteed by construction, +10s wide uppers) / 004 (zero-fork full API under PATH='' + call contract). Suite 34/34 both bashes; master 14/14. CONTRACT PIN discovered mid-phase: kklass kk._return echoes ONLY in subshell context (BASH_SUBSHELL>0) — direct func call is SILENT + RESULT, $() capture echoes; 004 initially asserted direct-call echo and was fixed to test the real contract."
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Docs, bench, closeout",
+      "goal": "README + docs/TStopwatch.md + bench.sh + coverage notes + final sweep.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "README.md (positioning + overhead numbers) + docs/TStopwatch.md (Delphi upstream reference per kcl docs convention)",
+          "category": "docs",
+          "severity": "medium",
+          "status": "done",
+          "acceptance": "Every public member documented in both files; wontfix members listed with reasons.",
+          "result": "README.md (bash API table, three read-paths cost table, honest-positioning numbers, wontfix list) + docs/TStopwatch.md (upstream Delphi reference per kcl docs convention: every member with kcl mapping, wontfix summary). The kklass property-read fork cost is documented prominently in both."
+        },
+        {
+          "id": "P2.2",
+          "title": "bench.sh (getter self-overhead, getTimeStamp cost, dispatch-vs-raw delta) + TEST_COVERAGE_NOTES.md finalization + final master sweep, ledger COMPLETE",
+          "category": "performance",
+          "severity": "medium",
+          "status": "done",
+          "acceptance": "Numbers recorded here and in README; final sweep green on 5.2, functional on 5.3.",
+          "result": "bench.sh dog-foods getTimeStamp to time itself; splits FUNC-form getters (fork-free, ~0.5 ms) from PROPERTY-form reads (subshell fork, ~17 ms — kklass_decl.sh:261, house-wide). Measured (5.2.37 / 5.3.9): raw parse 9.1/7.9 us, getTimeStamp 17.7/12.4 us, func getter 544/535 us, Start+Stop pair 1015/896 us, property getter 17.7/17.4 ms, empty-bracket bias 654/595 us. Zero-fork check passes under PATH=''. TEST_COVERAGE_NOTES finalized (23 rows, all non-FPC). Final master sweep 14/14 suites 0 failed on 5.2.37."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-07-12",
+      "batch": "integration",
+      "summary": "Post-completion dedup (owner-requested, separate small task): the three hand-rolled `_now_us()` copies in dateutils/math/tdictionary bench.sh replaced with `source ../tstopwatch/tstopwatch.sh` + `TStopwatch.getTimeStamp; x=$RESULT` (fork-free, one tested locale-safe clock). Double-source of kklass (bench already sources its own unit -> kklass; +tstopwatch = 2nd source + 2nd `build`) verified SAFE on both bashes for all three sourcing chains (dateutils / math+awk-engine / tdictionary+tlist). All three benches re-run on 5.2.37 AND true 5.3.9: numbers in prior ranges, internal zero-fork / O(1)-flat / single-engine-process checks still pass. Convention locked into the bench task of all 6 future roadmap ledgers (tregex/tarray/tinifile/tqueuestack/thashset/fpjson): bench.sh times via TStopwatch.getTimeStamp, no hand-rolled _now_us. Master sweep unaffected (benches are not run by tests/tests.sh). kcl working tree now: M dateutils/bench.sh, M math/bench.sh, M tdictionary/bench.sh, ?? tstopwatch/. Still uncommitted (commits gated)."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P2",
+      "summary": "P2 complete on owner 'go' — UNIT COMPLETE. bench.sh written (dog-foods getTimeStamp) + run on both bashes; key finding surfaced by the bench: kklass method-backed PROPERTY reads fork a subshell (RESULT=\"$($__inst__.call Getter)\", kklass_decl.sh:261) ~17 ms, while the FUNC forms (GetXxx + $RESULT) are fork-free ~0.5 ms — bench + README + docs all steer callers to the func forms, and this is flagged as a house-wide kklass cost (tdictionary d.count pays it too), not unit-specific. Numbers 5.2.37/5.3.9: raw parse 9.1/7.9us, getTimeStamp 17.7/12.4us, func getter 544/535us, Start+Stop 1015/896us, property getter 17.7/17.4ms, empty-bracket bias 654/595us. README.md (API + 3-path cost table + positioning) + docs/TStopwatch.md (Delphi upstream ref) + TEST_COVERAGE_NOTES finalized (23 rows). Final master sweep 14/14 (0 failed). Nothing committed (commits gated). tstopwatch DONE; next roadmap unit tregex awaits 'go'."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P1",
+      "summary": "P1 complete on owner 'go'. Full state machine (Start resumes / Stop folds segment into _accum / Reset stops+zeroes / Restart atomic) + 7 getters + TStopwatch.getTimeStamp. Implementation detail: TStopwatch._elapsedUs file-level helper reuses the CALLER's injected namerefs via bash dynamic scoping — one elapsed computation for 4 getters without $this re-dispatch cost. Tests: 002 state machine (14 cases, all EXACT/timing-free — S6 truncation via _accum seeding, S4 no-ops via white-box t0/accum stability, S7 purity via state-triple equality), 003 timing (7 cases — busy-loop windows: lower bounds guaranteed by construction, +10s uppers catch only unit confusion), 004 zero-fork (full API under PATH='' + kklass call contract). One test premise fixed mid-phase: kk._return echoes only when BASH_SUBSHELL>0, so direct calls are silent+RESULT — 004 originally expected direct-call echo (failed 33/34), rewritten to assert the REAL contract (direct=silent+RESULT, $()=echo), then 34/34 on 5.2.37 and true 5.3.9. Master sweep 14/14 (2481+34=2515). Unit header updated with the precise call contract. Nothing committed. Next: P2 (README/docs/bench/closeout) on 'go'."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P0",
+      "summary": "P0 complete on owner 'go'. Probes: (1) EPOCHREALTIME comma-separator CONFIRMED REAL on 5.2 under de_DE/ru_RU (5.3 always dots — formats locale-independently); (2) wait idiom = busy-loop PINNED (read -t over procsub rw-fd DISQUALIFIED: EOF-driven early return on MSYS2 — 14 ms for a 20 ms request on 5.3); (3) ctor token = exact 'startnew', fields-before-validation, plain return 1 (ctors exempt from the kk._return trap per TObjectDictionary precedent). Skeleton + 001 suite (11 cases) green on 5.2.37 and TRUE 5.3.9 — new invocation pin: PATH=\"/c/bin/msys64/usr/bin:$PATH\" prefix required, else ktest_runner's bare 'bash -c' children resolve to 5.2.37. Sweeps: 13/13 before runner (baseline intact), 14/14 after. Nothing committed (commits gated). Next: P1 on 'go'."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "planning",
+      "summary": "Roadmap created (7 units, owner priority order). tstopwatch PLAN.md + ledger written; folders kcl/tstopwatch/{docs,tests} created. No implementation. Key pins at planning time: EPOCHREALTIME clock with locale-safe parse, ticks:=us / frequency:=1e6 mapping, .NET-aligned edge semantics, honest dispatch-overhead positioning (~0.5 ms/call dwarfs us precision — getTimeStamp is the tight-loop path)."
+    }
+  ]
+}
