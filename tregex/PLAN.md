@@ -123,12 +123,20 @@ Nothing to precompile: bash caches compiled regexes keyed by pattern string inte
 
 ## 4. Parity & test model
 
-No FPC/fpcunit seeds exist. Basis: DocWiki examples for TRegEx members + .NET Regex
-documented behavior where Delphi defers, ERE-divergence table rows as EXPLICIT pinned
-tests (the delta IS the spec), plus kcl torture conventions: exotic subjects (newlines,
-globs, quotes, `$(...)`, unicode), exotic replacements, empty strings everywhere,
-zero-fork PATH='' on all entry points, dual-bash (S10 especially). Every test gets a
-TEST_COVERAGE_NOTES.md row (all non-FPC by construction).
+**An FPC seed exists** (corrected 2026-07-12 — the original "no seeds" claim was
+wrong/unverified): FPC `packages/vcl-compat` ships `system.regularexpressions.pp`
+(a Delphi-compatible `TRegEx`) with fpcunit tests `utcregexapi.pas` (the TRegEx API)
+and `utcregex.pas` (the `TPerlRegEx` engine). Its engine is **PCRE2, not POSIX ERE**,
+so it is not a drop-in oracle — but the dialect-compatible subset is adopted in
+`tests/008_FpcParity.sh` (fixture `'xyz abba abbba abbbba zyx'` / `'a(b*)a'`), adjusting
+FPC's **1-based** `Match.Index` to our 0-based and translating PCRE `\s`→`[[:space:]]`.
+The rest is invented: DocWiki examples for TRegEx members + .NET Regex documented
+behavior where Delphi defers, ERE-divergence rows as EXPLICIT pinned tests (the delta IS
+the spec), plus kcl torture conventions: exotic subjects (newlines, globs, quotes,
+`$(...)`, unicode), exotic replacements, empty strings everywhere, zero-fork PATH='' on
+all entry points, dual-bash (S10 especially). Every invented test gets a
+TEST_COVERAGE_NOTES.md row; the 008 cases are FPC-traceable. The PCRE↔ERE deltas the
+FPC suite exposes are catalogued in `docs/ERE-vs-PCRE.md`.
 
 ## 5. Phases
 

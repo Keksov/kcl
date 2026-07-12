@@ -3,7 +3,7 @@
   "project": "kcl/tregex — TRegEx-shaped regex API for bash over the [[ =~ ]] ERE engine (kklass static class)",
   "created": "2026-07-12",
   "updated": "2026-07-12",
-  "status": "PLANNED — plan + ledger only, no implementation yet. Roadmap position 2/7.",
+  "status": "COMPLETE (P0-P4) 2026-07-12, awaiting owner review, UNCOMMITTED (commits gated). Full TRegEx-shaped API over bash [[ =~ ]] ERE: isMatch/match/matches/split/replace/replaceCb/escape; RESULT-globals contract (static proc); i-flag; $-replacement grammar; maxCount on split+replace; FPC cross-check seed (008, over PCRE2, dialect-adjusted) + dialect report docs/ERE-vs-PCRE.md. Suite 001-009 = 190/190 on 5.2.37 AND true 5.3.9; final master sweep 15/15 (see P4 log). Deliverables: tregex.sh, tests/001-009+tests.sh, README.md, docs/TRegEx.md, docs/ERE-vs-PCRE.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, ledger. Roadmap 2/7 -- next unit tarray. Phases: P0 (probes+static-proc contract+baseline), P1 (isMatch/match/escape 110), P2 (matches/split 144), P3 (replace/replaceCb + FPC integration 190), P4 (docs/bench).",
   "owner": "keksov",
   "roadmap": {
     "priority": 2,
@@ -48,11 +48,12 @@
     "Never regress the (re-measured) baseline."
   ],
   "test_basis": {
-    "seed_primary": "None (no FPC tests for this API). Basis: DocWiki TRegEx member examples, .NET Regex documented behavior (Split/Replace/empty-match rules), ERE spec (POSIX) for engine behavior.",
+    "seed_primary": "CORRECTED 2026-07-12: an FPC seed DOES exist (the earlier 'no FPC tests for this API' was wrong and unverified). FPC ships packages/vcl-compat/src/system.regularexpressions.pp = a Delphi-compatible TRegEx, with fpcunit tests packages/vcl-compat/tests/utcregexapi.pas (the TRegEx API) and utcregex.pas (the TPerlRegEx engine). CAVEAT: that engine is PCRE2 (unit says 'this unit uses PCRE2'), NOT POSIX ERE — so it is NOT a drop-in oracle; a large fraction of its cases exercise PCRE-only features this port wontfixes (named groups, lazy, lookaround, \\d, \\1-in-replacement). The DIALECT-COMPATIBLE subset IS adopted as a cross-check seed in tests/008_FpcParity.sh (fixture TestStr='xyz abba abbba abbbba zyx', TestExpr='a(b*)a'), with two adjustments: FPC Match.Index is 1-based -> mine 0-based (my=fpc-1); PCRE \\s -> POSIX [[:space:]]. Basis for the rest: DocWiki TRegEx examples, .NET Regex behavior (Split/Replace/empty-match), POSIX ERE.",
     "parity_model": {
-      "tier_A_exact": "Everything the ERE engine supports: byte-exact matches, group contents, offsets (unanchored), replacement assembly, split pieces, escape output, rc codes. Divergences from PCRE are pinned AS divergence tests."
+      "tier_A_exact": "Everything the ERE engine supports: byte-exact matches, group contents, offsets (unanchored), replacement assembly, split pieces, escape output, rc codes. Divergences from PCRE are pinned AS divergence tests.",
+      "tier_FPC_crosscheck": "008_FpcParity.sh — the dialect-compatible subset of utcregexapi.pas/utcregex.pas, adapted for 0-based index and POSIX classes. Cases that do NOT port (named groups, \\1-replacement, split-limit before it was added, per-group offsets, Escape wildcard mode) are catalogued as deltas in docs/ERE-vs-PCRE.md."
     },
-    "new_coverage_protocol": "All tests are non-FPC by construction -> every test gets a TEST_COVERAGE_NOTES.md row (basis: DocWiki/.NET/POSIX reading or probe result)."
+    "new_coverage_protocol": "Most tests are invented (DocWiki/.NET/POSIX/probe basis) and get a TEST_COVERAGE_NOTES.md row; the 008_FpcParity.sh cases are FPC-TRACEABLE (cite the utcregex*.pas procedure). The PCRE-vs-ERE deltas the FPC suite exposes are reported in docs/ERE-vs-PCRE.md."
   },
   "out_of_scope": [
     { "item": "Lazy quantifiers, lookaround, named groups, pattern backrefs, inline modifiers (?i)(?x), roExplicitCapture/roIgnorePatternSpace/roCompiled/roNotEmpty", "status": "wontfix", "reason": "Not in POSIX ERE; silent emulation would lie about the engine. Documented in the README delta table." },
@@ -66,14 +67,14 @@
       "id": "P0",
       "name": "Probe matrix + design pin + skeleton",
       "goal": "Answer S1-S12 (PLAN section 3) on BOTH bashes; finalize offsets/flags/replacement grammar; skeleton + runner; baseline re-measure.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P0.1",
           "title": "Probe matrix S1-S12 on 5.2.37 AND 5.3.9 (dot-newline, empty pattern, rc=2, nocasematch scope, offset recovery exact/anchored, \\b availability, leftmost-longest, locale, unset groups, split semantics)",
           "category": "infra",
           "severity": "critical",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Probe results recorded in this ledger; PLAN section 2/3 wording finalized from data, not assumptions."
         },
         {
@@ -81,7 +82,7 @@
           "title": "Static class skeleton + tests runner + baseline re-measure (master suite before the runner exists)",
           "category": "infra",
           "severity": "high",
-          "status": "todo",
+          "status": "done",
           "acceptance": "source tregex.sh green on both bashes; baseline recorded."
         }
       ]
@@ -90,7 +91,7 @@
       "id": "P1",
       "name": "isMatch / match / escape",
       "goal": "Single-match core + RESULT contract + groups + escape.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P1.1",
@@ -98,7 +99,7 @@
           "category": "feature",
           "severity": "critical",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Torture subjects (newlines/globs/quotes/unicode/empty), offset adversarial set green, zero-fork PATH='', dual-bash, master sweep gate."
         }
       ]
@@ -107,7 +108,7 @@
       "id": "P2",
       "name": "matches / split",
       "goal": "Global scan loop + empty-match rule + nameref fills.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P2.1",
@@ -115,7 +116,7 @@
           "category": "feature",
           "severity": "high",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Empty-match advance-by-one pinned; overlapping-candidate cases; N-occurrence scaling sanity; dual-bash; sweep gate."
         }
       ]
@@ -124,7 +125,7 @@
       "id": "P3",
       "name": "replace / replaceCb",
       "goal": "Replacement assembler + callback form.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P3.1",
@@ -132,7 +133,7 @@
           "category": "feature",
           "severity": "high",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Grammar edge cases (unknown $x, $$, groups beyond count), sed-metachar-literal pins, callback rc handling, dual-bash, sweep gate."
         }
       ]
@@ -141,14 +142,14 @@
       "id": "P4",
       "name": "Docs, bench, closeout",
       "goal": "README + delta table, docs/TRegEx.md, bench, coverage notes, final sweep.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P4.1",
           "title": "README.md (API + ERE-vs-PCRE delta table) + docs/TRegEx.md (upstream Delphi reference per kcl docs convention)",
           "category": "docs",
           "severity": "medium",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Every public member + every wontfix delta documented."
         },
         {
@@ -156,7 +157,7 @@
           "title": "bench.sh (dispatch vs raw =~, matches scaling, replace throughput), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
           "category": "performance",
           "severity": "medium",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Numbers recorded; final master sweep green."
         }
       ]
@@ -167,6 +168,88 @@
       "date": "2026-07-12",
       "batch": "planning",
       "summary": "tregex PLAN.md + ledger written; folders created. No implementation. Load-bearing decision recorded: TRegEx API shape over the bash ERE engine with a documented-and-tested delta table (never silent emulation); pattern-via-variable idiom mandatory; offset recovery via prefix-strip with anchored-pattern caveat to be probed at P0."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P0 — probe matrix + skeleton",
+      "summary": "P0.1 + P0.2 executed. PROBE MATRIX S1-S12 run on GNU bash 5.2.37 AND 5.3.9 (secondary via PATH='/c/bin/msys64/usr/bin:$PATH' /c/bin/msys64/usr/bin/bash). HEADLINE: the two bashes are SEMANTICALLY IDENTICAL on every probe — same rc, matched text, offsets, group participation, word boundaries, alternation. The ONLY cross-bash difference: 5.3.9 prints a diagnostic to STDERR on an invalid/empty pattern (rc=2 on BOTH); 5.2.37 is silent. Load-bearing consequence: every user-pattern match uses `[[ $text =~ $__re ]] 2>/dev/null` — probed to (a) suppress the 5.3 stderr, (b) preserve rc=2, (c) stay FORK-FREE (redirect on the [[ ]] keyword does not spawn a subshell; verified by in-function var mutation surviving). Skeleton + runner GREEN 7/7 on both bashes.",
+      "probe_results": {
+        "S1_dot_matches_newline": "YES on both — '.' matches \\n (subject is one string). DELTA vs PCRE/.NET default (where . excludes \\n). Pin.",
+        "S2_empty_pattern": "rc=2 (INVALID) on both — bash rejects '' as 'empty (sub)expression'; NOT match-all. DECISION: preserve rc=2 (honest engine behavior, no emulation); documented delta vs .NET (which matches empty everywhere). Owner may override at P0 review.",
+        "S3_invalid_pattern_rc": "rc=2 on both for '[' '(' 'a{2,1}' '*' trailing-'\\'. Distinct from rc=1 no-match. 5.3.9 leaks a stderr diagnostic -> suppressed via 2>/dev/null.",
+        "S4_nocasematch": "affects =~ AND == on both; default case-sensitive; `shopt -q nocasematch` is a FORK-FREE state query (rc reflects state). i-flag idiom confirmed.",
+        "S5_offset_unanchored": "EXACT on both. prefix-strip ${t%%\"$m\"*} gives 2 for ('xxabcabc','abc'), 0 for ('aaa','aa'), 0 for empty match ('zzz','a*').",
+        "S6_offset_anchored_CAVEAT": "CONFIRMED caveat: re='abc$' on 'abcXabc' matches the trailing 'abc' (TRUE offset 4) but prefix-strip finds the FIRST 'abc' -> reports 0. '^xx' reports 0 = TRUE 0 (start-anchored is safe). Documented: exact for unanchored; ^ $ \\b \\< \\> with a recurring match-text can under-report. Scan CORRECTNESS unaffected (advance by string ops).",
+        "S7_word_boundaries": "\\b \\< \\> ALL work on both bashes (GNU/glibc). Documented as GNU-glibc-specific, not POSIX-portable.",
+        "S8_alternation": "leftmost-LONGEST on both: (a|ab) AND (ab|a) on 'ab' -> 'ab'. DELTA vs PCRE leftmost-FIRST. Pinned divergence test in P1/P2.",
+        "S9_locale_offsets": "offsets/lengths are `${#...}` in the AMBIENT locale. ASCII exact. Multibyte: under empty/C locale on MSYS2 `${#}` BYTE-counts (2-byte é -> 2) while glibc regex CHAR-counts ('.' matches é as len 1) -> they DISAGREE; a full UTF-8 locale (C.UTF-8/en_US.UTF-8) makes both char-count (é -> 1). Documented; scan correctness locale-independent. nocasematch does NOT fold non-ASCII (É=~é -> no match) in this locale.",
+        "S10_nonparticipating_groups": "IDENTICAL on 5.2 and 5.3 (plan flagged as a risk — it is NOT). (a)|(b) on 'b' -> BASH_REMATCH=([0]=b [1]='' [2]=b), dense array, non-participating group = EMPTY STRING (indistinguishable from an empty match; documented). Copy to RESULT_GROUPS immediately.",
+        "S11_replacement_grammar": "design/DocWiki pin deferred to P3 (not a bash probe).",
+        "S12_split_semantics": ".NET pin deferred to P2 (not a bash probe).",
+        "ADJ_bash_rematch_cleared_on_fail": "a FAILED [[ =~ ]] CLEARS BASH_REMATCH (nelem 0) on BOTH bashes -> copy groups immediately after a successful match, before any other match.",
+        "ADJ_no_multiline": "^ and $ anchor only at string start/end, never at \\n (^y on 'x\\ny' and x$ on 'x\\ny' both rc=1). Confirms roMultiLine wontfix.",
+        "ADJ_quantified_group": "(.)+ on 'abc' leaves the LAST iteration ('c') in group 1 (POSIX; matches PCRE)."
+      },
+      "contract_pin": "MEMBER TYPE = `static proc` for ALL members (was tentatively `static func` in the skeleton). Probed on both bashes: for a kklass STATIC class, `static func` ECHOES $RESULT on EVERY call (direct too, not just under $()) — pollutes stdout for rc-drivers like `if TRegEx.isMatch ...` and can carry only ONE of match's four return values. `static proc` is SILENT and sets the RESULT* globals. NB this is NOT the tstopwatch instance-`func` contract (which echoes only under $()) — static func != instance func on the echo axis. tregex contract: CALL DIRECTLY, read RESULT/RESULT_INDEX/RESULT_LENGTH/RESULT_GROUPS; NO $() capture (subshell loses the globals). OPEN for owner at P0 review: whether escape/replace/match should additionally body-echo their scalar for $() ergonomics (math-style) — default shipped is uniform-silent.",
+      "skeleton": "kcl/tregex/tregex.sh (re-source guard + kklass_pascal front-end + class TRegEx with 7 static-proc members + P0 stubs setting RESULT*/returning 0) + tests/tests.sh runner + tests/001_Skeleton.sh (7 cases: source+build, all-7-dispatch, direct-sets-RESULT, direct-silent, $()-no-leak, RESULT_*-shaped, PATH='' zero-fork). 7/7 on 5.2.37 AND true 5.3.9.",
+      "baseline_remeasured": "Master sweep on 5.2.37 GREEN: 15/15 suites, 0 failed (was 14 suites pre-tregex); 'All test suites passed.' tregex suite included at 7/7. Grand total 2528 tests = kcl 1764 (tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130, tstopwatch 34, tregex 7) + kklass 232 + kkore 232 + ktests 300. No regression possible-by-construction: tregex only ADDS a suite; no existing unit or kklass file was touched in P0."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P1 — isMatch / match / escape",
+      "summary": "Owner 'go P1' with both P0 decisions accepted (empty pattern -> rc2; escape/replace/replaceCb body-echo for $() ergonomics). Implemented the single-match core. Suite grew 7 -> 110 tests (001-005), 110/110 on 5.2.37 AND true 5.3.9.",
+      "implemented": {
+        "_match1": "internal core (plain fn, dynamic-scope OUT params __tre_rc/__tre_m/__tre_g). Pattern via local __re; `[[ $1 =~ $__re ]] 2>/dev/null` (suppress 5.3 stderr, keep rc, fork-free). BASH_REMATCH copied IMMEDIATELY. i-flag: FORCE nocasematch on/off per the flag (deterministic — ambient shopt does NOT leak in), then restore caller's ambient state; no $().",
+        "isMatch": "pure predicate: rc 0/1/2, writes NO RESULT* globals. Silent.",
+        "match": "rc0 -> RESULT=matched, RESULT_INDEX=prefix-strip offset (S5 exact / S6 caveat), RESULT_LENGTH=${#matched} (ambient locale, S9), RESULT_GROUPS=BASH_REMATCH[1..] (non-participating='' S10). rc1/rc2 -> reset ''/-1/0/(). Silent (4 values, call direct).",
+        "escape": "backslash-quotes ERE metaset \\.^$*+?()[]{}| via a fork-free char loop (no sed); non-metas untouched; RESULT set AND body-echoes (owner P1) so `$(TRegEx.escape ...)` works.",
+        "_invalid": "debug-only (VERBOSE_KKLASS=debug) note on rc2; bash's own stderr always suppressed."
+      },
+      "tests": "001 wiring+contract (silent/no-$()-leak/escape-echo/pending-stubs/zero-fork); 002 isMatch (rc 0/1/2, anchors, POSIX classes, alternation, \\b \\< \\>, i-flag, torture: newlines/globs/quotes/$(...)/backticks/unicode/empty/leading-dash, pattern-via-variable); 003 match (RESULT* tuple, S5 exact offset, S6 anchored-caveat pinned, empty match, S8 longest, S1 dot-newline, groups incl. non-participating S10, quantified-group last-iter ADJ3, no-match/invalid reset, BASH_REMATCH-copy safety, i-flag original-case); 004 escape (each metachar, no-meta untouched, all-metas, round-trip via isMatch/match, no-over-match, $()==RESULT, newline torture); 005 i-flag+fork-free (flag determinism vs ambient nocasematch, ambient restore on match/invalid paths, no-subshell proof, PATH='' on all 3 entry points, unrelated-shopt intact).",
+      "test_fix": "unicode length assertion in 003 was locale-dependent (S9: `${#é}`=2 bytes under empty/C locale on MSYS2, =1 char under UTF-8) — changed to assert text+offset (ASCII-robust) and RESULT_LENGTH==${#RESULT} (self-consistent) instead of hard-coding 1-vs-2.",
+      "decisions_pending_owner": "i-flag DETERMINISM: case sensitivity is decided SOLELY by the flag — a call WITHOUT 'i' FORCES case-sensitive matching even if the caller has `shopt -s nocasematch` globally (then restores it). Faithful to Delphi per-call roIgnoreCase and makes TRegEx deterministic regardless of shell state. Flagged for owner in case they prefer inheriting the ambient shopt.",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 15/15 suites, 0 failed, 'All test suites passed.' Grand total 2631 tests = kcl 1867 (tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130, tstopwatch 34, tregex 110) + kklass 232 + kkore 232 + ktests 300. tregex 7 -> 110 (P0 skeleton -> P1 full). No regression: no existing unit or kklass file touched."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P2 — matches / split",
+      "summary": "Owner 'go p2'. Implemented the global-scan pair. Design VALIDATED by a standalone prototype on both bashes before wiring: matches scan (remainder + empty-match advance-by-one) and split ASSEMBLED BY ABSOLUTE POSITION text[prevEnd:matchStart] — gives .NET Regex.Split parity incl. empty-match patterns, captured-group interleave, and kept leading/trailing/consecutive empties. Suite 110 -> 144 (006 matches, 007 split; 001 pending-stub list trimmed to replace/replaceCb). 144/144 on 5.2.37 AND true 5.3.9.",
+      "implemented": {
+        "matches": "matches text pattern outTexts [outOffsets|-] [flags]. Leftmost-longest scan on the remainder via _match1; RESULT=count; fills outTexts nameref (lossless) and optional outOffsets (absolute prefix-strip offsets). EMPTY match advances by ONE char (.NET parity: e.g. matches('abc','x*')=4 empty pieces). rc 0(>=1)/1(none)/2(invalid). Silent -> call direct ($() discards fills). Flags-without-offsets via '-' placeholder in arg 4.",
+        "split": "split text pattern outArr [flags]. Emits pieces BETWEEN matches assembled by absolute position; captured groups (BASH_REMATCH[1..]) INTERLEAVED (S12); leading/trailing/consecutive empties KEPT; no-match -> whole text as one piece; RESULT=piece count; rc 0/2. Silent.",
+        "anchor_caveat": "matches/split scan the REMAINDER, so ^ $ \\b \\< \\> re-anchor per remainder (bash cannot \\G-anchor). Unanchored patterns exact; anchored ones documented + PINNED by a test (matches('abc','^.')=[a,b,c])."
+      },
+      "reserved_names": "output arrays must not be named __trx_texts / __trx_offs / __trx_out (nameref self-reference). Documented in tregex.sh headers.",
+      "tests": "006 matches (count+array, offsets, empty-match .NET parity, greedy, no-match/invalid rc, i-flag via '-' placeholder, anchor caveat pin, $()-no-fill, torture: newlines/quotes/unicode/empty subject, zero-fork); 007 split (core .NET semantics, captured-group interleave, empties kept, no-match whole, empty-match char-split, multichar/regex/whitespace delimiters, i-flag, rc 0/2, $()-no-fill, round-trip join, torture: newline/unicode/quotes, zero-fork).",
+      "harness_note": "the standalone SMOKE harness (not the ktest suite) initially showed 3 false 'FAIL's — `((pass++))` returns rc1 when pass==0, and a couple of $?/expectation slips — all harness bugs, implementation was correct; the ktest suite (which counts correctly) is 144/144.",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 15/15 suites, 0 failed, 'All test suites passed.' Grand total 2665 tests = kcl 1901 (tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130, tstopwatch 34, tregex 144) + kklass 232 + kkore 232 + ktests 300. tregex 110 -> 144 (P1 -> P2). No regression: no existing unit or kklass file touched. NB the first P2-gate attempt reported rc1 with empty output — the Bash tool cwd had drifted to kcl/tregex/tests so the RELATIVE 'tests/tests.sh' was not found (127); re-run with the ABSOLUTE master path /c/projects/kkbot/kbool/tests/tests.sh."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P3 + FPC cross-check integration + retro P1/P2",
+      "summary": "Owner 'go P3', then asked whether the FPC test corpus was used -> it was NOT and the plan's 'no FPC seed' premise was WRONG (unverified). Found FPC packages/vcl-compat: system.regularexpressions.pp = Delphi-compatible TRegEx over PCRE2, tests utcregexapi.pas (TRegEx API) + utcregex.pas (TPerlRegEx). Owner directed: fold FPC cross-check into P3, retro-check P1/P2, verify, then write a dialect report. All done. Suite 144 -> 190; 190/190 on 5.2.37 AND true 5.3.9.",
+      "implemented_P3": {
+        "replace": "replace text pattern replacement [maxCount|-] [flags]. Replace-ALL default; maxCount caps REPLACEMENTS. $-grammar via TRegEx._expandRepl: $$->$, $&/$0->whole, $1..$9->group(single digit), ${n}->group n(any width), out-of-range/unknown $x kept LITERAL, sed & backslash LITERAL (only $ special). Sets RESULT + BODY-ECHOES (owner P0). Invalid pattern -> text unchanged, rc2.",
+        "replaceCb": "replaceCb text pattern cbName [maxCount|-] [flags]. Callback invoked as cbName '<wholeMatch>' '<g1>' '<g2>' ... and MUST set REPLY to the replacement (fork-free; no echo). Shares TRegEx._replaceScan with replace (mode repl|cb).",
+        "empty_match": "insertion works: replace('abc','x*','-') -> '-a-b-c-'."
+      },
+      "fpc_integration": {
+        "factual_fix": "ledger test_basis + PLAN.md section 4 corrected: an FPC TRegEx seed EXISTS (over PCRE2, not a drop-in oracle). Was wrongly 'no FPC seed'.",
+        "seed_file": "tests/008_FpcParity.sh -- the dialect-compatible subset of utcregexapi.pas/utcregex.pas on FPC's fixture. Adjustments: FPC Match.Index 1-based -> ours 0-based (my=fpc-1); PCRE \\s -> POSIX [[:space:]]. 15 FPC-traceable cases green -> confirms P1/P2/P3 match the FPC oracle where dialects agree.",
+        "gap_closed": "split gained maxCount/limit (Delphi Split(count) parity) -- FPC TestSplitLimit exposed the gap.",
+        "dialect_report": "docs/ERE-vs-PCRE.md -- full PCRE2-vs-POSIX-ERE difference catalogue grounded in the FPC tests; owner-requested for documentation."
+      },
+      "tests": "009_Replace.sh (26 invented: $-grammar, maxCount, i-flag, empty-match insert, anchor-caveat ^ per-remainder pinned, torture, invalid rc2, $() body-echo, replaceCb REPLY contract/groups/maxCount/empty-REPLY); 008 extended with 6 FPC replace/replaceCb cross-checks; 001 pending-stub test replaced (no stubs remain).",
+      "test_fixes": "two test-EXPECTATION slips (not impl bugs), fixed: (1) replace('abc','^','>') expected '>abc' but ^ re-anchors per remainder -> '>a>b>c>' (kept as a pinned anchor-caveat delta); (2) replaceCb '(.)(.)' on 'ab cd' -> '.' matches the space -> switched subject to 'abcd' -> 'badc'.",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 15/15 suites, 0 failed, 'All test suites passed.' Grand total 2711 tests = kcl 1947 (tregex now 190; +46 vs P2) + kklass 232 + kkore 232 + ktests 300. FLAKE NOTE: the FIRST sweep attempt showed tdirectory 196/197 (1 fail); tdirectory passes 197/197 in isolation AND the re-run master was fully 15/15 -> transient (tdirectory does real NTFS timestamp/dir I/O — Get/Set CreationTime/LastWriteTime tests 018-029 flake under full-sweep load; not touched by tregex, tests run as separate processes). No regression from tregex."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P4 -- docs, bench, closeout",
+      "summary": "Owner 'go P4'. Unit closed out. Deliverables: README.md (overview, RESULT contract, API table, ERE-vs-PCRE summary + link, FPC-parity note, measured positioning, tests), docs/TRegEx.md (upstream Delphi per-member reference with kcl mapping + wontfix reasons; cites FPC test procs), docs/ERE-vs-PCRE.md (written earlier this session; full dialect catalogue), bench.sh (dog-foods TStopwatch.getTimeStamp per the house bench-clock convention). TEST_COVERAGE_NOTES finalized.",
+      "bench": "bash bench.sh on MSYS2, both bashes (5.2.37 / 5.3.9), all fork-free: raw [[ =~ ]] ~7us; TRegEx.isMatch ~80-90us (+ static-proc dispatch); match ~95-120us (+ offset+group copy); escape(43ch) ~0.4ms; matches ~115us/occurrence (linear, verified 10 vs 100); replace-all/split ~0.12-0.17ms/occurrence. Dispatch wrapper ~80us over the raw builtin. zero-fork check GREEN on every entry point. (Fixed a bench display bug: the per-occurrence summary was 10x inflated -- report line was per-call; corrected to tot/NS/count.)",
+      "bench_note": "bench.sh is NOT run by the master sweep (tests/tests.sh discovers only tests/tests.sh); validated by running on both bashes -- numbers sane + zero-fork check green.",
+      "status_final": "tregex COMPLETE (P0-P4). Suite 001-009 = 190/190 on 5.2.37 AND true 5.3.9. Deliverables all present: tregex.sh, tests/001-009 + tests.sh, README.md, docs/TRegEx.md, docs/ERE-vs-PCRE.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, tregex_ledger.json. UNCOMMITTED (commits gated). FINAL MASTER SWEEP (5.2.37, absolute path): 15/15 suites, 0 failed, 'All test suites passed.', 2711 tests -- clean, no flake this run."
     }
   ]
 }
