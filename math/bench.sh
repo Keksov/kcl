@@ -7,16 +7,18 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/math.sh"
+source "$DIR/../tstopwatch/tstopwatch.sh"   # shared, tested µs clock (fork-free)
 
 N=${1:-3000}
-_now_us() { local er=$EPOCHREALTIME; echo $(( ${er%[.,]*} * 1000000 + 10#${er##*[.,]} )); }
+# Timing primitive: TStopwatch.getTimeStamp (kcl/tstopwatch) — one tested,
+# locale-safe µs clock shared by every kcl bench; RESULT-only, no fork.
 
 bench() {  # label  command...
     local label=$1; shift
     local t0 t1 i
-    t0=$(_now_us)
+    TStopwatch.getTimeStamp; t0=$RESULT
     for (( i=0; i<N; i++ )); do "$@" >/dev/null; done
-    t1=$(_now_us)
+    TStopwatch.getTimeStamp; t1=$RESULT
     local us_per=$(( (t1 - t0) / N ))
     printf '  %-22s %6d us/call  (%d.%03d ms)\n' "$label" "$us_per" "$(( us_per/1000 ))" "$(( us_per%1000 ))"
     (( us_per <= 300 )) || echo "    WARNING: above the 0.3 ms/call target"
@@ -25,9 +27,9 @@ bench() {  # label  command...
 benchE() {  # label  op args...   (Tier-B engine, no $() capture)
     local label=$1; shift
     local t0 t1 i
-    t0=$(_now_us)
+    TStopwatch.getTimeStamp; t0=$RESULT
     for (( i=0; i<N; i++ )); do math._fe "$@" >/dev/null; done
-    t1=$(_now_us)
+    TStopwatch.getTimeStamp; t1=$RESULT
     local us_per=$(( (t1 - t0) / N ))
     printf '  %-22s %6d us/call  (%d.%03d ms)\n' "$label" "$us_per" "$(( us_per/1000 ))" "$(( us_per%1000 ))"
 }
@@ -37,9 +39,9 @@ echo
 benchI() {  # informational (no 0.3 ms warning)
     local label=$1; shift
     local t0 t1 i
-    t0=$(_now_us)
+    TStopwatch.getTimeStamp; t0=$RESULT
     for (( i=0; i<N; i++ )); do "$@" >/dev/null; done
-    t1=$(_now_us)
+    TStopwatch.getTimeStamp; t1=$RESULT
     local us_per=$(( (t1 - t0) / N ))
     printf '  %-22s %6d us/call  (%d.%03d ms)\n' "$label" "$us_per" "$(( us_per/1000 ))" "$(( us_per%1000 ))"
 }

@@ -9,10 +9,12 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tdictionary.sh"
-source "$DIR/../tlist/tlist.sh"   # reference point for instance-dispatch cost
+source "$DIR/../tlist/tlist.sh"             # reference point for instance-dispatch cost
+source "$DIR/../tstopwatch/tstopwatch.sh"   # shared, tested µs clock (fork-free)
 
 N=${1:-300}
-_now_us() { local er=$EPOCHREALTIME; echo $(( ${er%[.,]*} * 1000000 + 10#${er##*[.,]} )); }
+# Timing primitive: TStopwatch.getTimeStamp (kcl/tstopwatch) — one tested,
+# locale-safe µs clock shared by every kcl bench; RESULT-only, no fork.
 report() {  # label total_us iters
     local us_per=$(( $2 / $3 ))
     printf '  %-28s %6d us/call  (%d.%03d ms)\n' "$1" "$us_per" $(( us_per/1000 )) $(( us_per%1000 ))
@@ -24,35 +26,35 @@ echo
 echo "Core ops (fresh dict, unique keys; instance dispatch included):"
 TDictionary.new d
 
-t0=$(_now_us); for (( i=0; i<N; i++ )); do d.Add "k$i" "v$i"; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do d.Add "k$i" "v$i"; done; TStopwatch.getTimeStamp; t1=$RESULT
 report "Add (insert)" $(( t1-t0 )) "$N"
 
-t0=$(_now_us); for (( i=0; i<N; i++ )); do d.TryGetValue "k$i" >/dev/null; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do d.TryGetValue "k$i" >/dev/null; done; TStopwatch.getTimeStamp; t1=$RESULT
 report "TryGetValue (hit)" $(( t1-t0 )) "$N"
 
-t0=$(_now_us); for (( i=0; i<N; i++ )); do d.GetItem "k$i" >/dev/null; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do d.GetItem "k$i" >/dev/null; done; TStopwatch.getTimeStamp; t1=$RESULT
 report "GetItem (direct call)" $(( t1-t0 )) "$N"
 
-t0=$(_now_us); for (( i=0; i<N; i++ )); do d.ContainsKey "k$i"; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do d.ContainsKey "k$i"; done; TStopwatch.getTimeStamp; t1=$RESULT
 report "ContainsKey (hit)" $(( t1-t0 )) "$N"
 
-t0=$(_now_us); for (( i=0; i<N; i++ )); do d.ContainsKey "missing$i"; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do d.ContainsKey "missing$i"; done; TStopwatch.getTimeStamp; t1=$RESULT
 report "ContainsKey (miss)" $(( t1-t0 )) "$N"
 
-t0=$(_now_us); for (( i=0; i<N; i++ )); do d.AddOrSetValue "k5" "w$i"; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do d.AddOrSetValue "k5" "w$i"; done; TStopwatch.getTimeStamp; t1=$RESULT
 report "AddOrSetValue (overwrite)" $(( t1-t0 )) "$N"
 
-t0=$(_now_us); for (( i=0; i<N; i++ )); do d.SetItem "k5" "u$i"; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do d.SetItem "k5" "u$i"; done; TStopwatch.getTimeStamp; t1=$RESULT
 report "SetItem (update)" $(( t1-t0 )) "$N"
 
-t0=$(_now_us); for (( i=0; i<N; i++ )); do d.Remove "k$i"; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do d.Remove "k$i"; done; TStopwatch.getTimeStamp; t1=$RESULT
 report "Remove" $(( t1-t0 )) "$N"
 d.delete
 
 echo
 echo "  informational — \$() capture adds a subshell fork per call:"
 TDictionary.new dcap; dcap.Add x y
-t0=$(_now_us); for (( i=0; i<N; i++ )); do v=$(dcap.GetItem x); done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do v=$(dcap.GetItem x); done; TStopwatch.getTimeStamp; t1=$RESULT
 report "GetItem via \$()" $(( t1-t0 )) "$N"
 dcap.delete
 
@@ -61,7 +63,7 @@ echo "ForEach (1000 pairs, no-op callback):"
 TDictionary.new fe
 for (( i=0; i<1000; i++ )); do fe_items["kx$i"]="v$i"; done   # direct seed (setup only)
 _noop() { :; }
-t0=$(_now_us); fe.ForEach _noop; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; fe.ForEach _noop; TStopwatch.getTimeStamp; t1=$RESULT
 report "ForEach per pair" $(( t1-t0 )) 1000
 fe.delete
 
@@ -69,10 +71,10 @@ echo
 echo "O(1) scaling check — same op at 1k vs 10k pairs (must be flat):"
 TDictionary.new s1k;  for (( i=0; i<1000;  i++ )); do s1k_items["kx$i"]="v";  done
 TDictionary.new s10k; for (( i=0; i<10000; i++ )); do s10k_items["kx$i"]="v"; done
-t0=$(_now_us); for (( i=0; i<N; i++ )); do s1k.TryGetValue "kx$(( i % 1000 ))" >/dev/null; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do s1k.TryGetValue "kx$(( i % 1000 ))" >/dev/null; done; TStopwatch.getTimeStamp; t1=$RESULT
 p1k=$(( (t1-t0) / N ))
 report "TryGetValue @ 1k pairs" $(( t1-t0 )) "$N"
-t0=$(_now_us); for (( i=0; i<N; i++ )); do s10k.TryGetValue "kx$(( i % 10000 ))" >/dev/null; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do s10k.TryGetValue "kx$(( i % 10000 ))" >/dev/null; done; TStopwatch.getTimeStamp; t1=$RESULT
 p10k=$(( (t1-t0) / N ))
 report "TryGetValue @ 10k pairs" $(( t1-t0 )) "$N"
 if (( p10k <= p1k * 2 + 50 )); then
@@ -103,6 +105,6 @@ zf.delete
 echo
 echo "reference point — tlist instance dispatch (same kklass machinery):"
 TList.new reflist
-t0=$(_now_us); for (( i=0; i<N; i++ )); do reflist.Add "item$i" >/dev/null; done; t1=$(_now_us)
+TStopwatch.getTimeStamp; t0=$RESULT; for (( i=0; i<N; i++ )); do reflist.Add "item$i" >/dev/null; done; TStopwatch.getTimeStamp; t1=$RESULT
 report "tlist.Add" $(( t1-t0 )) "$N"
 reflist.delete
