@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tinifile — port of FPC fcl-base TIniFile/TMemIniFile to bash (kklass instantiable classes, TMemIniFile : TIniFile)",
+  "created": "2026-07-12",
+  "updated": "2026-07-12",
+  "status": "PLANNED — plan + ledger only, no implementation yet. Roadmap position 4/7.",
+  "owner": "keksov",
+  "roadmap": {
+    "priority": 4,
+    "of": 7,
+    "order": ["tstopwatch", "tregex", "tarray", "tinifile", "tqueuestack", "thashset", "fpjson"]
+  },
+  "notes": "Single source of truth for tinifile status. Plan: kcl/tinifile/PLAN.md. Source: packages/fcl-base/src/inifiles.pp (TCustomIniFile :159-218 folded into bash TIniFile; TIniFile :222-259 = eager persist, CacheUpdates=false; TMemIniFile :261-269 = cached until UpdateFile; TIniFileOption :143-152; format constants :279-283). INI'S SPEC IS THE FPC READER — P0 pins every format rule (S1-S12) from FillSectionList/UpdateFile before any code. Line-oriented format -> perfect bash fit: fork-free while-read parse, assoc storage, default-based Read* API (missing key -> caller default, rc=0 always). Entirely Tier A. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated.",
+  "conventions": {
+    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
+    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
+    "severity_values": ["critical", "high", "medium", "low"],
+    "tier_values": ["A-pure-bash-exact"]
+  },
+  "baseline": {
+    "measured": "2026-07-12 — at roadmap planning time (post-tdictionary). RE-MEASURE at P0: roadmap units 1-3 will have raised the totals.",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2)",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64)",
+    "suites_green": {
+      "kklass": 226,
+      "kcl_total": 1723,
+      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130",
+      "protected_core": "kcl 1723 + kklass 226 = 1949",
+      "master_full": "2481/0 across 13 suites"
+    },
+    "regression_rule": "tinifile work must keep the (re-measured) baseline green; the new tinifile suite adds on top."
+  },
+  "design_decisions": {
+    "class_split": "Mirrors FPC exactly: both classes memory-backed; TIniFile flushes per Write* (CacheUpdates=false), TMemIniFile : TIniFile caches until UpdateFile. TCustomIniFile abstract base FOLDED into TIniFile (an abstract bash class is pure dispatch tax; mapping documented in docs).",
+    "storage": "${inst}_kv assoc keyed \"secKey\\x1fidKey\" (lookup-normalized names); ${inst}_secorder indexed (sections, first-appearance order, original case); ${inst}_keyorder assoc (per-section \\x1f-joined ident list) -> UpdateFile preserves section/key ORDER exactly. \\x1f (US) is the single reserved char in section/ident names (validated rc=1 at every public entry). Subscripts never empty by construction (no k-prefix needed — pinned by torture test). Comment/blank-line preservation model decided at P0 from FPC reader behavior.",
+    "case_rule": "FPC default = case-INSENSITIVE lookups; ${var,,} normalization for the kv key, original first-appearance case kept for write-back; ifoCaseSensitive flips. Beyond-ASCII lowercasing is locale-dependent (documented). Exact FPC rewrite-case rule pinned at P0.",
+    "file_io": "Read: while IFS= read -r || [[ -n $line ]]; strip one trailing \\r per line (CRLF tolerance); strip UTF-8 BOM on first line. Write: compose in memory -> printf to tmp in SAME dir -> mv over target (mv = the only fork, UpdateFile-only). LF written (CRLF not preserved — divergence row if FPC differs).",
+    "float_policy": "ReadFloat/WriteFloat are STRING-PRESERVING: shape-validated, byte-lossless passthrough; NO float engine dependency (kcl/math is the arithmetic tool). Documented divergence: FPC canonicalizes through Double, we do not. Same no-parity-theater philosophy as tdictionary API v2.",
+    "error_convention": "Read* never fails (default-based). Structural failures only (bad args, \\x1f in names, unwritable target): rc=1 + debug-only msg; eager-write failure keeps memory state (FPC raises EInOutError — divergence documented)."
+  },
+  "goals": [
+    "Faithful FPC INI dialect: every format rule (comments, duplicates, whitespace, quotes, sections) pinned from FillSectionList at P0 and enforced by tests — no folklore INI behavior.",
+    "Round-trip fidelity: load -> UpdateFile preserves section/key order (and comments if FPC does); write->read closure for every typed accessor.",
+    "Default-based Read API with the empty-value-vs-absent-key distinction intact.",
+    "Fork-free everything except the single mv in UpdateFile; PATH='' tests on in-memory paths.",
+    "TIniFile eager vs TMemIniFile cached persistence split proven by tests.",
+    "Never regress the (re-measured) baseline."
+  ],
+  "test_basis": {
+    "seed_primary": "packages/fcl-base/tests checked for inifile fpcunit coverage at P0 (mined if present). Primary basis: S1-S12 source pins + round-trip/closure properties.",
+    "parity_model": {
+      "tier_A_exact": "Parse results, typed conversions (S5/S6 rules), order preservation, persistence timing (eager vs cached), silent-miss semantics — byte-for-byte vs source-pinned behavior."
+    },
+    "new_coverage_protocol": "Non-FPC cases (CRLF/BOM/no-final-NL torture, \\x1f rejects, zero-fork, string-preserving floats) -> TEST_COVERAGE_NOTES.md rows."
+  },
+  "out_of_scope": [
+    { "item": "TEncoding machinery, BOM writing, WriteBOM, non-UTF8 encodings", "status": "wontfix", "reason": "bash strings are bytes; UTF-8 BOM tolerated+stripped on read, never written. Documented." },
+    { "item": "ReadDate/ReadDateTime/ReadTime/WriteDate family + FormatSettings + ifoFormatSettingsActive", "status": "wontfix", "reason": "Locale-datetime machinery out of v1; a dateutils bridge is a possible later extra (noted, not promised)." },
+    { "item": "ReadBinaryStream/WriteBinaryStream", "status": "wontfix", "reason": "TStream + NUL bytes — impossible in bash strings." },
+    { "item": "TIniFileSection/TIniFileKeyList object model", "status": "wontfix", "reason": "Internal representation; replaced by kv+order storage (design_decisions.storage)." },
+    { "item": "ifoEscapeLineFeeds line continuation", "status": "todo", "reason": "P0 DECISION: port if it is a simple join-on-read in FPC; wontfix v1 if it entangles the writer. Resolved at P0.1." },
+    { "item": "NUL bytes anywhere", "status": "wontfix", "reason": "bash language limit." }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Reader-semantics pinning + storage freeze + skeleton",
+      "goal": "Fill the S1-S12 table from inifiles.pp impl; freeze storage incl. comment model; ctor token grammar; skeleton + runner; baseline re-measure.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "Read FillSectionList/UpdateFile/typed accessors; resolve S1-S12 + ifoEscapeLineFeeds decision + comment-preservation model; record answers here with line refs",
+          "category": "infra",
+          "severity": "critical",
+          "status": "todo",
+          "acceptance": "Every S-row resolved; storage model final; fcl-base tests checked for mineable seeds."
+        },
+        {
+          "id": "P0.2",
+          "title": "Skeleton (both classes, ctor tokens, fields) + storage torture (exotic names/values, \\x1f rejects, never-empty subscripts) + runner + baseline re-measure",
+          "category": "infra",
+          "severity": "high",
+          "status": "todo",
+          "acceptance": "source tinifile.sh green on both bashes; torture green; baseline recorded."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Load + read core",
+      "goal": "Parse (CRLF/BOM/no-final-NL) + ReadString/SectionExists/ValueExists/ReadSection(s)/ReadSectionValues.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "File parse per S-pins + read family (nameref fills + echo twins) + case-insensitivity matrix",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Fixture files (incl. CRLF, BOM, no-final-NL, comments, duplicates, whitespace torture) parse to pinned results; empty-value-vs-absent distinction proven; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Write core + persistence split",
+      "goal": "WriteString/DeleteKey/EraseSection/UpdateFile + eager-vs-cached + TMemIniFile extras.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "Write family + order-preserving UpdateFile (tmp+mv) + TIniFile eager flush vs TMemIniFile cached + Clear/GetStrings/SetStrings/Rename",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Round-trip idempotence; order preservation proof; eager/cached split proven via file content between ops; Rename matrix (S11); silent-miss deletes (S7); dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Typed accessors + options",
+      "goal": "Integer/Int64/Bool/Float + options subset.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "ReadInteger/ReadInt64 (S5 hex rules), ReadBool/WriteBool (S6 + BoolTrue/FalseStrings + ifoStringBoolean), ReadFloat/WriteFloat string-preserving, options behavior (CaseSensitive/StripComments/StripInvalid/StripQuotes[/EscapeLineFeeds])",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Typed write->read closure; malformed-value -> default (never error); option matrix green; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Docs, bench, closeout",
+      "goal": "README + docs/TIniFile.md + bench + coverage notes + final sweep.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P4.1",
+          "title": "README.md (bash API, THE PINNED FORMAT RULES, divergences) + docs/TIniFile.md (upstream FPC reference per kcl docs convention, TCustomIniFile->TIniFile->TMemIniFile chain)",
+          "category": "docs",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Every public member + wontfix documented; format rules published as the contract."
+        },
+        {
+          "id": "P4.2",
+          "title": "bench.sh (load 1k keys, ReadString/WriteString hot, UpdateFile cost), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
+          "category": "performance",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Numbers recorded; final master sweep green."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-07-12",
+      "batch": "planning",
+      "summary": "tinifile PLAN.md + ledger written; folders created. No implementation. Key decisions recorded: FPC reader IS the format spec (S1-S12 pin table drives P0); TCustomIniFile folded, TIniFile eager / TMemIniFile cached split kept verbatim; \\x1f-composite kv storage + explicit order arrays for round-trip fidelity; case-insensitive default with original-case write-back; string-preserving floats (no parity theater); tmp+mv single-fork writes."
+    }
+  ]
+}

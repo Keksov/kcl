@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tarray — port of FPC rtl-generics TArrayHelper (Sort/BinarySearch/scan helpers) to bash (kklass static class over caller-named arrays)",
+  "created": "2026-07-12",
+  "updated": "2026-07-12",
+  "status": "PLANNED — plan + ledger only, no implementation yet. Roadmap position 3/7.",
+  "owner": "keksov",
+  "roadmap": {
+    "priority": 3,
+    "of": 7,
+    "order": ["tstopwatch", "tregex", "tarray", "tinifile", "tqueuestack", "thashset", "fpjson"]
+  },
+  "notes": "Single source of truth for tarray status. Plan: kcl/tarray/PLAN.md. Source: generics.collections.pas TCustomArrayHelper :73-102 (+TBinarySearchResult :68-71), TArrayHelper :106-138; impl introsort ~:990-1220, BinarySearch :1225-1310/:1457-1520. Positioning: NOT a speed contest with /usr/bin/sort — the wins are zero forks + lossless arbitrary-string elements (newline-safe, where line-based sort corrupts) + binary search; niche n <= ~5k. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated.",
+  "conventions": {
+    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
+    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
+    "severity_values": ["critical", "high", "medium", "low"],
+    "tier_values": ["A-pure-bash-exact"]
+  },
+  "baseline": {
+    "measured": "2026-07-12 — at roadmap planning time (post-tdictionary). RE-MEASURE at P0: roadmap units 1-2 will have raised the totals.",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2)",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64)",
+    "suites_green": {
+      "kklass": 226,
+      "kcl_total": 1723,
+      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130",
+      "protected_core": "kcl 1723 + kklass 226 = 1949",
+      "master_full": "2481/0 across 13 suites"
+    },
+    "regression_rule": "tarray work must keep the (re-measured) baseline green; the new tarray suite adds on top."
+  },
+  "design_decisions": {
+    "by_name_dense": "Static methods over caller INDEXED array names via declare -n (__ta_ local prefix; __ta_* caller names rejected). Density contract 0..n-1 (FPC data model); sparse input NOT silently compacted — explicit TArray.compact; density check only under VERBOSE_KKLASS=debug. Assoc arrays rejected via ${arr@a} (rc=1).",
+    "default_comparators": "String mode = BYTE order under scoped LC_ALL=C (deterministic across machines; locale collation is a documented non-goal). Numeric mode (-n) = 64-bit integer via (( )); non-integer element -> rc=1, NO silent lexicographic fallback. 10# guards against octal.",
+    "custom_comparator": "Plain bash function (NOT a kklass method — 0.5 ms dispatch x n log n would be catastrophic). Protocol: cmpFn a b -> return code 0 (a<b) / 1 (equal) / 2 (a>b); no stdout (echo would force a $() fork per comparison). Built-in modes are INLINED in the merge loop.",
+    "algorithm": "Bottom-up iterative MERGESORT: no recursion, O(n log n) worst case (matches introsort's goal), STABLE. Parity: FPC introsort's equal-element order is UNSPECIFIED, so stability is a strictly stronger documented guarantee (bash-side improvement row). O(n) scratch is fine at target sizes.",
+    "binary_search_shape": "One call yields both FPC overload shapes: rc 0/1 + RESULT=FoundIndex(-1 miss) + RESULT_CANDIDATE + RESULT_COMPARE (TBinarySearchResult :68-71 flattened to RESULT_* convention). Empty array -> (-1,-1,0,rc1) verbatim :1231-1237. Sorted-under-same-comparator precondition (GIGO like FPC, documented)."
+  },
+  "goals": [
+    "Faithful TArrayHelper surface: sort (3 forms), binarySearch (both result shapes), indexOf/firstIndexOf/lastIndexOf, contains, min/max (aDefault), copy (2 forms), reverse (copy-into-target), concat; extras reverseInPlace/compact documented as bash-convention.",
+    "Zero forks everywhere incl. the comparator hot path (rc-protocol); PATH='' tests.",
+    "Lossless arbitrary-string elements: '', newlines, globs, unicode — the correctness edge over line-based sort.",
+    "Determinism: byte-order default, no locale drift, stable sort.",
+    "Never regress the (re-measured) baseline."
+  ],
+  "test_basis": {
+    "seed_primary": "rtl-generics/tests checked for array-helper fpcunit coverage at P0 (mined if present). Primary basis: implementation-source reading (line refs in PLAN) + linear-scan oracles.",
+    "parity_model": {
+      "tier_A_exact": "Sorted output, search indices/candidates, scan indices, min/max picks, copy/reverse/concat contents — byte-for-byte vs source-pinned semantics and oracles."
+    },
+    "new_coverage_protocol": "Non-FPC cases (torture elements, stability proof, sparse/assoc rejects, zero-fork) -> TEST_COVERAGE_NOTES.md rows."
+  },
+  "out_of_scope": [
+    { "item": "IComparer<T> interface machinery / comparer objects", "status": "wontfix", "reason": "Comparator is a plain bash function with an rc protocol; object protocol is dispatch overhead with no gain." },
+    { "item": "Introsort internals (QSort/Median/HeapSort, depth budget)", "status": "wontfix", "reason": "The algorithm is not the contract; the sorted result is. Bottom-up mergesort delivers the same O(n log n) bound plus stability." },
+    { "item": "Pointer/open-array forms (PT, slices)", "status": "wontfix", "reason": "No pointers in bash." },
+    { "item": "Typed generic elements (floats etc.)", "status": "wontfix", "reason": "Elements are bash strings; -n covers int64; float ordering routes through kcl/math in user comparators (README example), not here." },
+    { "item": "NUL bytes in elements", "status": "wontfix", "reason": "bash language limit." }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Semantics pin + design freeze + skeleton",
+      "goal": "Read impl for the S2-S7 open pins; freeze comparator protocol, LC_ALL=C scoping idiom (probe both bashes!), density contract; skeleton + runner; baseline re-measure.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "Pin S2-S7 from generics.collections.pas impl (binarySearch tie/candidate, IndexOf==First?, Reverse-into-target, Min/Max ties+default, Copy bounds/self, Concat edges); record here",
+          "category": "infra",
+          "severity": "critical",
+          "status": "todo",
+          "acceptance": "Every S-row in PLAN section 3 resolved with line refs; tests derive from these pins."
+        },
+        {
+          "id": "P0.2",
+          "title": "LC_ALL=C scoping probe on BOTH bashes + comparator rc-protocol freeze + skeleton + runner + baseline re-measure",
+          "category": "infra",
+          "severity": "high",
+          "status": "todo",
+          "acceptance": "Byte-order compare idiom proven identical on 5.2.37/5.3.9; skeleton sources green; baseline recorded."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "sort",
+      "goal": "Bottom-up merge core; string/numeric/custom modes; range form; stability.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "TArray.sort (default byte / -n numeric / cmpFn / range form) + stability proof + torture matrix",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "sorted/reverse/random/all-equal/single/empty x exotic elements green; stability proven with tagged duplicates; -n rejects non-integers atomically; range leaves outside untouched; zero-fork; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "binarySearch + scan family",
+      "goal": "Search (both shapes) + indexOf family + contains + min/max.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "binarySearch (RESULT/RESULT_CANDIDATE/RESULT_COMPARE, oracle cross-check) + indexOf/firstIndexOf/lastIndexOf/contains + min/max (aDefault)",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Hit/miss/duplicate/boundary matrix vs linear oracle; sort+search closure (every element findable); empty-array contracts exact; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "copy / reverse / concat / compact",
+      "goal": "Remaining helpers with source-pinned semantics.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "copy (2 forms, bounds per S6), reverse (into-target per S4) + reverseInPlace extra, concat (varargs), compact",
+          "category": "feature",
+          "severity": "medium",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "S4/S6/S7 pins green; self-copy/self-concat edges; lossless exotic elements; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Docs, bench, closeout",
+      "goal": "README + docs/TArray.md + bench + coverage notes + final sweep.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P4.1",
+          "title": "README.md (positioning vs external sort, comparator contract + worked example) + docs/TArray.md (upstream FPC reference per kcl docs convention)",
+          "category": "docs",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Every public member + wontfix items documented with reasons."
+        },
+        {
+          "id": "P4.2",
+          "title": "bench.sh (per-element cost n=100/1k/5k; default vs cmpFn; binarySearch; informational /usr/bin/sort comparison), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
+          "category": "performance",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Numbers recorded here and in README; final master sweep green."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-07-12",
+      "batch": "planning",
+      "summary": "tarray PLAN.md + ledger written; folders created. No implementation. Key decisions recorded: bottom-up stable mergesort (vs FPC introsort — equal-order unspecified there, so stability is parity-compatible and stronger), comparator = plain function with rc 0/1/2 protocol (fork-free, dispatch-free), byte-order default under scoped LC_ALL=C, dense-array contract with explicit compact, TBinarySearchResult flattened to RESULT_* in one call."
+    }
+  ]
+}

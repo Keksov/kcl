@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tregex — TRegEx-shaped regex API for bash over the [[ =~ ]] ERE engine (kklass static class)",
+  "created": "2026-07-12",
+  "updated": "2026-07-12",
+  "status": "PLANNED — plan + ledger only, no implementation yet. Roadmap position 2/7.",
+  "owner": "keksov",
+  "roadmap": {
+    "priority": 2,
+    "of": 7,
+    "order": ["tstopwatch", "tregex", "tarray", "tinifile", "tqueuestack", "thashset", "fpjson"]
+  },
+  "notes": "Single source of truth for tregex status. Plan: kcl/tregex/PLAN.md. API spec: Delphi System.RegularExpressions.TRegEx (DocWiki; .NET Regex behavior breaks ties). ENGINE: bash [[ =~ ]] POSIX ERE + BASH_REMATCH — NOT PCRE; every dialect delta is documented and pinned by tests, never silently emulated. FPC packages/regexpr (TRegExpr) is reference-only, its engine is not ported. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated.",
+  "conventions": {
+    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
+    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
+    "severity_values": ["critical", "high", "medium", "low"],
+    "tier_values": ["A-pure-bash-exact"]
+  },
+  "baseline": {
+    "measured": "2026-07-12 — at roadmap planning time (post-tdictionary). RE-MEASURE at P0: roadmap unit 1 (tstopwatch) will have raised the totals by the time tregex starts.",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2)",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64)",
+    "suites_green": {
+      "kklass": 226,
+      "kcl_total": 1723,
+      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130",
+      "protected_core": "kcl 1723 + kklass 226 = 1949",
+      "master_full": "2481/0 across 13 suites"
+    },
+    "regression_rule": "tregex work must keep the (re-measured) baseline green; the new tregex suite adds on top."
+  },
+  "design_decisions": {
+    "engine": "bash [[ =~ ]] (POSIX ERE, C-speed, fork-free, internally cached compiled patterns). A bash-implemented engine would be ~100x slower and thousands of lines — rejected. The dialect delta vs PCRE is the documented price: no lazy quantifiers, no lookaround, no named groups, no pattern backrefs, POSIX classes instead of \\d\\w\\s guarantees, leftmost-LONGEST alternation. Each delta gets a README table row AND a pinning test.",
+    "pattern_via_variable": "Patterns are ALWAYS matched through a local variable (local __re=\"$2\"; [[ $text =~ $__re ]]) — quoted RHS goes literal, inline (a|b) is a bash parse error (math P7 incident, pinned kcl idiom).",
+    "offsets": "=~ gives no positions. Recovery: __pre=${text%%\"${BASH_REMATCH[0]}\"*}; RESULT_INDEX=${#__pre}. Exact for unanchored patterns (context-free substring matching); documented caveat for ^ $ \\b anchored patterns (P0 probe matrix). Global scans iterate on the remainder with absolute-offset accounting.",
+    "flags": "Single optional flags argument; v1 functional flag: 'i' (scoped nocasematch with fork-free save/restore on every return path). roMultiLine wontfix (no per-line anchors in =~); '.' matches newline by default (S1 probe).",
+    "global_scan": "matches/replace/split loop on the remainder; EMPTY MATCH advances scan by one char (PCRE/.NET convention, pinned by test); maxCount optional bound on replace (bash extra).",
+    "replacement_grammar": "$0..$9 groups, $$ literal dollar, unknown $x literal (DocWiki/.NET pin at P0). Pure-bash assembly from BASH_REMATCH — sed metachars (& \\) are LITERAL in replacements (documented delta vs sed expectations).",
+    "errors": "No match -> rc=1. INVALID PATTERN -> rc=2 (bash-native =~ signal, preserved and documented; debug msg under VERBOSE_KKLASS=debug).",
+    "static_class": "No instances, no compiled-pattern objects: TRegEx.Create form is wontfix (bash caches compilation internally; an object adds dispatch cost and nothing else)."
+  },
+  "goals": [
+    "TRegEx-shaped API (isMatch/match/matches/replace/split/escape + replaceCb extra) with RESULT/RESULT_INDEX/RESULT_LENGTH/RESULT_GROUPS contract and lossless nameref array fills.",
+    "Zero forks on every path incl. the i-flag save/restore; PATH='' tests.",
+    "The ERE-vs-PCRE delta table is part of the deliverable: every divergence documented AND pinned by a test (the delta is the spec).",
+    "Offset recovery exact for unanchored patterns, honestly-documented caveat for anchored ones (P0 probe matrix drives the wording).",
+    "Never regress the (re-measured) baseline."
+  ],
+  "test_basis": {
+    "seed_primary": "None (no FPC tests for this API). Basis: DocWiki TRegEx member examples, .NET Regex documented behavior (Split/Replace/empty-match rules), ERE spec (POSIX) for engine behavior.",
+    "parity_model": {
+      "tier_A_exact": "Everything the ERE engine supports: byte-exact matches, group contents, offsets (unanchored), replacement assembly, split pieces, escape output, rc codes. Divergences from PCRE are pinned AS divergence tests."
+    },
+    "new_coverage_protocol": "All tests are non-FPC by construction -> every test gets a TEST_COVERAGE_NOTES.md row (basis: DocWiki/.NET/POSIX reading or probe result)."
+  },
+  "out_of_scope": [
+    { "item": "Lazy quantifiers, lookaround, named groups, pattern backrefs, inline modifiers (?i)(?x), roExplicitCapture/roIgnorePatternSpace/roCompiled/roNotEmpty", "status": "wontfix", "reason": "Not in POSIX ERE; silent emulation would lie about the engine. Documented in the README delta table." },
+    { "item": "roMultiLine (per-line ^ $)", "status": "wontfix", "reason": "bash =~ has no multiline mode; split lines first (kcl has the tools)." },
+    { "item": "PCRE leftmost-first alternation", "status": "wontfix", "reason": "ERE is leftmost-longest; pinned by an explicit divergence test." },
+    { "item": "TMatch/TGroup/TMatchCollection objects, NextMatch, instance TRegEx.Create", "status": "wontfix", "reason": "Replaced by RESULT_* + nameref fills (kcl house style); object protocol is pure dispatch overhead; bash caches compiled patterns internally." },
+    { "item": "NUL bytes in subject/pattern/replacement", "status": "wontfix", "reason": "bash language limit." }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Probe matrix + design pin + skeleton",
+      "goal": "Answer S1-S12 (PLAN section 3) on BOTH bashes; finalize offsets/flags/replacement grammar; skeleton + runner; baseline re-measure.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "Probe matrix S1-S12 on 5.2.37 AND 5.3.9 (dot-newline, empty pattern, rc=2, nocasematch scope, offset recovery exact/anchored, \\b availability, leftmost-longest, locale, unset groups, split semantics)",
+          "category": "infra",
+          "severity": "critical",
+          "status": "todo",
+          "acceptance": "Probe results recorded in this ledger; PLAN section 2/3 wording finalized from data, not assumptions."
+        },
+        {
+          "id": "P0.2",
+          "title": "Static class skeleton + tests runner + baseline re-measure (master suite before the runner exists)",
+          "category": "infra",
+          "severity": "high",
+          "status": "todo",
+          "acceptance": "source tregex.sh green on both bashes; baseline recorded."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "isMatch / match / escape",
+      "goal": "Single-match core + RESULT contract + groups + escape.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "isMatch/match with RESULT, RESULT_INDEX, RESULT_LENGTH, RESULT_GROUPS; escape() full metachar set; i-flag",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Torture subjects (newlines/globs/quotes/unicode/empty), offset adversarial set green, zero-fork PATH='', dual-bash, master sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "matches / split",
+      "goal": "Global scan loop + empty-match rule + nameref fills.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "matches (texts+offsets fills, RESULT=count) and split (S12 semantics: captures/empties per .NET pin)",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Empty-match advance-by-one pinned; overlapping-candidate cases; N-occurrence scaling sanity; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "replace / replaceCb",
+      "goal": "Replacement assembler + callback form.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "replace ($0..$9/$$ grammar, maxCount, replace-ALL default) + replaceCb (callback contract)",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Grammar edge cases (unknown $x, $$, groups beyond count), sed-metachar-literal pins, callback rc handling, dual-bash, sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Docs, bench, closeout",
+      "goal": "README + delta table, docs/TRegEx.md, bench, coverage notes, final sweep.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P4.1",
+          "title": "README.md (API + ERE-vs-PCRE delta table) + docs/TRegEx.md (upstream Delphi reference per kcl docs convention)",
+          "category": "docs",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Every public member + every wontfix delta documented."
+        },
+        {
+          "id": "P4.2",
+          "title": "bench.sh (dispatch vs raw =~, matches scaling, replace throughput), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
+          "category": "performance",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Numbers recorded; final master sweep green."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-07-12",
+      "batch": "planning",
+      "summary": "tregex PLAN.md + ledger written; folders created. No implementation. Load-bearing decision recorded: TRegEx API shape over the bash ERE engine with a documented-and-tested delta table (never silent emulation); pattern-via-variable idiom mandatory; offset recovery via prefix-strip with anchored-pattern caveat to be probed at P0."
+    }
+  ]
+}

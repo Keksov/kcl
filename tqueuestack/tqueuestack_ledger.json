@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tqueuestack — port of FPC rtl-generics TQueue/TStack + TObjectQueue/TObjectStack to bash (kklass instantiable classes; one owner-defined block = one unit)",
+  "created": "2026-07-12",
+  "updated": "2026-07-12",
+  "status": "PLANNED — plan + ledger only, no implementation yet. Roadmap position 5/7.",
+  "owner": "keksov",
+  "roadmap": {
+    "priority": 5,
+    "of": 7,
+    "order": ["tstopwatch", "tregex", "tarray", "tinifile", "tqueuestack", "thashset", "fpjson"]
+  },
+  "notes": "Single source of truth for tqueuestack status. Plan: kcl/tqueuestack/PLAN.md. Source: generics.collections.pas — TQueue :386-433 (Enqueue :2521, Dequeue :2530, Extract :2535, Peek :2540, Clear :2548), TStack :434-460 (Clear :2608, Push :2622, Pop :2631, Peek :2636, Extract :2644), TObjectQueue :477-490 (Notify :2696, procedure Dequeue :2726), TObjectStack :492-505 (Notify :2733, function Pop :2763), TCustomList base :197-226 (OnNotify, virtual Notify :213, DoRemove :1645). Architecture = tdictionary clones: computed count, single-event seam + _notifyHook, ownership frees on removed only, RESULT discipline. Entirely Tier A. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated.",
+  "conventions": {
+    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
+    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
+    "severity_values": ["critical", "high", "medium", "low"],
+    "tier_values": ["A-pure-bash-exact"]
+  },
+  "baseline": {
+    "measured": "2026-07-12 — at roadmap planning time (post-tdictionary). RE-MEASURE at P0: roadmap units 1-4 will have raised the totals.",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2)",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64)",
+    "suites_green": {
+      "kklass": 226,
+      "kcl_total": 1723,
+      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130",
+      "protected_core": "kcl 1723 + kklass 226 = 1949",
+      "master_full": "2481/0 across 13 suites"
+    },
+    "regression_rule": "tqueuestack work must keep the (re-measured) baseline green; the new suite adds on top."
+  },
+  "design_decisions": {
+    "storage": "${__inst__}_items indexed array per instance. Stack: push/pop keep 0..n-1 dense, top = count-1, O(1). Queue: _head index (FLow analog); Enqueue appends (items+=() lands after the highest index), Dequeue reads+unsets items[_head] and increments — consumed slots become holes.",
+    "computed_count": "count = ${#items[@]} — set-elements-only counting makes holes invisible: live count with zero bookkeeping (tdictionary computed-count principle on an indexed array).",
+    "head_compaction": "Internal amortization (NOT an API): when _head >= threshold (e.g. 64) AND >= live count -> items=(\"${items[@]}\"); _head=0. O(live) occasionally = amortized O(1); bench proves flat per-op over a 10k drain. Replaces FPC MoveToFront/capacity halving (allocator internals).",
+    "events": "Single onNotify stored property + public virtual Notify seam + _notifyHook guard (tdictionary P5/P6 clone). Fire AFTER the physical mutation, value passed (DoRemove :1645 tail). Clear event order: FIFO for queue (Dequeue-loop :2548), LIFO for stack (Pop-loop :2608) — pinned by sequence tests; NOTE this differs from tdictionary's empty-first-then-notify (different FPC base classes — honest difference).",
+    "empty_errors": "Dequeue/Pop/Extract/Peek on empty -> EArgumentOutOfRangeException in FPC -> rc=1 + kk._return '' + debug-only msg. TryDequeue/TryPop extras: silent rc=1 (an answer, not an error — Try* house pattern).",
+    "ownership": "TObjectQueue : TQueue, TObjectStack : TStack; override Notify = inherited first, then free on action==removed ONLY (:2696/:2733); _free liveness = declare -F \"$1.delete\". FPC ctor default AOwnsObjects=TRUE is KEPT (FPC's own signature; 'TObjectQueue.new q false' disables) — documented loudly since tdictionary used explicit tokens. ownsObjects is a read/write property (mid-life flip test).",
+    "quirks_preserved": "TObjectQueue.Dequeue is a PROCEDURE (returns nothing, even when not owning) :2726; TObjectStack.Pop RETURNS the handle of the just-freed instance (FPC dangling pointer -> bash dead-name string, safe) :2763. Both preserved verbatim with README warning boxes + 'use Extract' guidance. Parity over ergonomics."
+  },
+  "goals": [
+    "Faithful FIFO/LIFO data semantics incl. event orders (FIFO/LIFO Clear), empty-op errors, extract-vs-remove distinction.",
+    "O(1) amortized queue ops with hole-based head and provably-flat drain bench.",
+    "Ownership matrix exact incl. the two preserved FPC quirks (procedure Dequeue, dangling Pop).",
+    "Zero forks everywhere; PATH='' lifecycle tests; RESULT lossless for exotic values.",
+    "Never regress the (re-measured) baseline."
+  ],
+  "test_basis": {
+    "seed_primary": "rtl-generics/tests scanned at P0 (tests.generics.stdcollections.pas is the likely queue/stack host — mined if present).",
+    "parity_model": {
+      "tier_A_exact": "Orderings, RESULT contents, rc codes, event sequences, ownership frees — byte-for-byte vs source-pinned semantics (S1-S10 in PLAN section 3)."
+    },
+    "new_coverage_protocol": "Non-FPC cases (Try* sugar, ToArray fills, compaction invisibility, torture values, zero-fork) -> TEST_COVERAGE_NOTES.md rows."
+  },
+  "out_of_scope": [
+    { "item": "Capacity family (Capacity/SetCapacity/TrimExcess, growth policy :195, MoveToFront-as-API)", "status": "wontfix", "reason": "tdictionary API-v2 precedent: allocator knobs controlling nothing in bash. Head compaction is an internal amortization policy, not an API." },
+    { "item": "Enumerator objects, GetEnumerator, pointer enumerators, List raw-buffer property", "status": "wontfix", "reason": "Replaced by ToArray nameref fills; the raw buffer would expose consumed head slots (meaningless layout)." },
+    { "item": "Create(ACollection) ctor family", "status": "wontfix", "reason": "Explicit Enqueue/Push loops; an Assign-style extra only if usage demands later." },
+    { "item": "cnAdding/cnDeleting/cnExtracting pre-notifications", "status": "wontfix", "reason": "FPC list classes fire only the past-tense trio on these paths (verified at P0); port added/removed/extracted like tdictionary." },
+    { "item": "NUL bytes in items", "status": "wontfix", "reason": "bash language limit." }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Pins + skeleton + storage probes",
+      "goal": "Resolve S2/S5/S6/S9 verify-rows; freeze compaction threshold; skeletons + runner; probes; baseline re-measure.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "Verify Notify tail position in DoRemove, Destroy->Clear, no pre-events, ToArray orders; freeze compaction policy; scan stdcollections tests for seeds",
+          "category": "infra",
+          "severity": "critical",
+          "status": "todo",
+          "acceptance": "S-table complete with line refs; seeds list recorded."
+        },
+        {
+          "id": "P0.2",
+          "title": "Skeletons (TQueue/TStack ctor/dtor/fields; TObject* declared) + sparse-count/head-hole/append-after-hole probes on both bashes + runner + baseline re-measure",
+          "category": "infra",
+          "severity": "high",
+          "status": "todo",
+          "acceptance": "Probes green on 5.2.37 AND 5.3.9; baseline recorded."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "TQueue core",
+      "goal": "Enqueue/Dequeue/Extract/Peek/Clear/count + TryDequeue + ToArray + compaction.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "Queue ops with FIFO matrices (interleaved wrap cases), empty errors, compaction invisibility",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "FIFO order proven across compaction threshold; RESULT lossless; zero-fork; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "TStack core",
+      "goal": "Push/Pop/Extract/Peek/Clear/count + TryPop + ToArray.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "Stack ops with LIFO matrices, empty errors, density invariant",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "LIFO order proven; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Events",
+      "goal": "onNotify + Notify seam + _notifyHook on both classes; sequence parity.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "Event plumbing + recorder-callback sequence tests (S1/S2/S4: added-after-write, removed/extracted-after-removal, FIFO/LIFO Clear orders, delete fires removals) + dangling-cb/rc-ignored edges",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Exact sequences green on both bashes; hook-less instances pay one string test; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "TObjectQueue / TObjectStack",
+      "goal": "Inheritance + overrides + ownership matrix + preserved quirks.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P4.1",
+          "title": "Ctors (owns default TRUE per FPC, 'false' arg disables) + Notify overrides + _free + ownership matrix (Dequeue/Pop/Extract/Clear/delete) + S8 quirks (procedure Dequeue, dangling Pop) + mid-life ownsObjects flip",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Matrix green with live kklass instances; Extract hands back; user callback sees instance alive before free; leak scan clean; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "name": "Docs, bench, closeout",
+      "goal": "README + docs/TQueue.md + docs/TStack.md + bench + coverage notes + final sweep.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P5.1",
+          "title": "README.md (both classes, quirk warning boxes, Try* guidance) + docs/TQueue.md + docs/TStack.md (upstream FPC references per kcl docs convention)",
+          "category": "docs",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Every public member of all four classes + wontfix documented."
+        },
+        {
+          "id": "P5.2",
+          "title": "bench.sh (per-op costs, 10k-drain flatness = compaction proof, tlist.Add reference, zero-fork), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
+          "category": "performance",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Numbers recorded; final master sweep green."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-07-12",
+      "batch": "planning",
+      "summary": "tqueuestack PLAN.md + ledger written; folders created. No implementation. Key decisions recorded: one unit/four classes (owner block = one folder); hole-based queue head with computed count (${#arr[@]} counts set elements only) + amortized internal compaction; single-OnNotify seam cloned from tdictionary; FPC quirks PRESERVED (TObjectQueue.Dequeue procedure, TObjectStack.Pop returns freed handle) with warning-box docs; ctor owns-default TRUE kept per FPC signature; Clear event orders FIFO/LIFO differ from tdictionary's empty-first model — honest, pinned."
+    }
+  ]
+}

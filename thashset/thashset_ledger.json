@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "project": "kcl/thashset — port of FPC rtl-generics THashSet (TCustomSet surface + set algebra) to bash (kklass instantiable class over the tdictionary storage pattern)",
+  "created": "2026-07-12",
+  "updated": "2026-07-12",
+  "status": "PLANNED — plan + ledger only, no implementation yet. Roadmap position 6/7.",
+  "owner": "keksov",
+  "roadmap": {
+    "priority": 6,
+    "of": 7,
+    "order": ["tstopwatch", "tregex", "tarray", "tinifile", "tqueuestack", "thashset", "fpjson"]
+  },
+  "notes": "Single source of truth for thashset status. Plan: kcl/thashset/PLAN.md. Source: generics.collections.pas TCustomSet :513-566 (Add/Remove/Extract Boolean trio, AddRange :550, UnionWith :2853, IntersectWith :2861 two-pass, ExceptWith :2878, SymmetricExceptWith after :2878) + THashSet :570-612 (backed by TOpenAddressingLP<T,TEmptyRecord> :574 — FPC's set IS a dictionary with empty values; Extract :3019 Default(T) on miss; Clear :3031). Bash port = tdictionary storage minus values + the set algebra (the actual payoff: Union/Intersect/Except/SymmetricExcept replace eternal hand-rolled loops). All storage idioms arrive pre-validated by tdictionary tests/002. Entirely Tier A. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated.",
+  "conventions": {
+    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
+    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
+    "severity_values": ["critical", "high", "medium", "low"],
+    "tier_values": ["A-pure-bash-exact"]
+  },
+  "baseline": {
+    "measured": "2026-07-12 — at roadmap planning time (post-tdictionary). RE-MEASURE at P0: roadmap units 1-5 will have raised the totals.",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2)",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64)",
+    "suites_green": {
+      "kklass": 226,
+      "kcl_total": 1723,
+      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130",
+      "protected_core": "kcl 1723 + kklass 226 = 1949",
+      "master_full": "2481/0 across 13 suites"
+    },
+    "regression_rule": "thashset work must keep the (re-measured) baseline green; the new suite adds on top."
+  },
+  "design_decisions": {
+    "storage": "${__inst__}_items assoc, membership items[\"k$item\"]=1 — tdictionary idioms VERBATIM (k-prefix for empty-subscript safety, ${ref[pk]+x} existence, single-quoted unset 'ref[$pk]', ${k#k} strip, __ts_ local prefix). count computed = ${#items[@]}. Reduced torture subset in tests (full 34-key matrix already proven in tdictionary/tests/002).",
+    "boolean_rc": "Add rc0=added/rc1=present-SILENT; Remove rc0=removed/rc1=absent-SILENT — FPC set Booleans, NOT errors (loud contrast with TDictionary's raise-on-dup Add and always-rc0 Remove; README comparison box because the units will be used side by side).",
+    "set_algebra": "FPC loop semantics cloned: UnionWith = Add each of other's snapshot; IntersectWith = TWO-PASS :2861 (collect victims, then remove — self-intersect is a defined no-op); ExceptWith = Remove each of other's snapshot; SymmetricExceptWith pinned at P0 (self-case must yield empty set). Operand validated as a live THashSet BEFORE any mutation (atomicity — the Assign lesson). Event order on algebra ops = hash iteration order, UNSPECIFIED (tests set-compare).",
+    "events": "Single onNotify property + public virtual Notify seam + _notifyHook guard (house pattern; unhooked cost = one [[ -n ]]). No TObject* set subclass exists in FPC — seam is future-proofing, documented.",
+    "extract_ambiguity": "Extract miss -> RESULT='' rc 0 (Default(T), :3019) — identical shape to extracting a stored '' element; disambiguate via Contains first (same pinned ambiguity as tdictionary ExtractPair)."
+  },
+  "goals": [
+    "Faithful TCustomSet surface with Boolean-rc contract and FPC-exact algebra semantics incl. defined self-operation edges.",
+    "Set algebra truth tables proven against hand-computed results on all operand shapes (disjoint/subset/superset/overlap/empty).",
+    "Zero forks; O(1) membership riding the native assoc; PATH='' tests; bench flat 1k vs 10k.",
+    "TDictionary-vs-THashSet difference table as a first-class doc deliverable.",
+    "Never regress the (re-measured) baseline."
+  ],
+  "test_basis": {
+    "seed_primary": "rtl-generics/tests scanned at P0 for set fpcunit coverage (mined if present).",
+    "parity_model": {
+      "tier_A_exact": "Membership lifecycle, Boolean rcs, algebra results, event sequences (set-compared), Extract ambiguity shape — byte-for-byte vs source-pinned semantics (S1-S9 in PLAN section 3)."
+    },
+    "new_coverage_protocol": "Non-FPC cases (ToArray/ForEach/Assign/AddRangeFromArray extras, reduced torture, zero-fork, self-op edges beyond FPC tests) -> TEST_COVERAGE_NOTES.md rows."
+  },
+  "out_of_scope": [
+    { "item": "Comparer ctor Create(IEqualityComparer) :602, TOpenAddressingLP backend, capacity family (Capacity/SetCapacity/TrimExcess :562-563)", "status": "wontfix", "reason": "tdictionary API-v2 precedent verbatim: declare -A is the backend; comparers cannot back assoc lookups; capacity controls nothing in bash." },
+    { "item": "TSortedSet / TSortedHashSet / TAVLTree family", "status": "wontfix", "reason": "Balanced trees are pointless over a native hash; ordered iteration = TArray.sort over ToArray output at the boundary (README example)." },
+    { "item": "Enumerator objects / pointer enumerators :576-592", "status": "wontfix", "reason": "ForEach + ToArray fills (house style)." },
+    { "item": "TEmptyRecord internal trick :574", "status": "wontfix", "reason": "Internal representation; bash stores literal 1 as the value." },
+    { "item": "NUL bytes in elements", "status": "wontfix", "reason": "bash language limit." }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Pins + skeleton",
+      "goal": "READ SymmetricExceptWith/AddRange-Boolean/self-op impls (S3/S7/S8); verify S1/S2/S4/S5/S9; skeleton + runner; reduced torture; baseline re-measure.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "Pin S1-S9 from generics.collections.pas with line refs; scan rtl-generics tests for set seeds",
+          "category": "infra",
+          "severity": "critical",
+          "status": "todo",
+          "acceptance": "S-table complete; seeds recorded; algebra self-op behaviors decided from source."
+        },
+        {
+          "id": "P0.2",
+          "title": "Skeleton (Create/Destroy/count) + reduced storage torture + runner + baseline re-measure",
+          "category": "infra",
+          "severity": "high",
+          "status": "todo",
+          "acceptance": "Green on both bashes; baseline recorded."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Membership core",
+      "goal": "Add/Remove/Contains/Extract/Clear/count + ToArray/ForEach/Assign extras.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "Membership lifecycle with Boolean-rc contract, '' element, Extract ambiguity, Clear/Destroy models (S4/S5)",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Lifecycle + ambiguity + extras green; zero-fork; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Set algebra",
+      "goal": "UnionWith/IntersectWith/ExceptWith/SymmetricExceptWith + AddRange forms.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "Four algebra ops (FPC loop semantics, two-pass intersect) + AddRange/AddRangeFromArray + truth tables + self-op edges + operand validation atomicity",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Truth tables green on all operand shapes; a∩a=a, a∪a=a, a∖a=∅, a⊕a=∅ per source pins; invalid operand leaves set untouched; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Events",
+      "goal": "onNotify/Notify/_notifyHook + recorders on all mutation paths.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "Event plumbing + recorder tests (membership ops exact-sequence; algebra ops set-compared) + dangling-cb/rc-ignored edges",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "todo",
+          "acceptance": "Sequences per S9; hook-less cost = one string test; dual-bash; sweep gate."
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Docs, bench, closeout",
+      "goal": "README + docs/THashSet.md + bench + coverage notes + final sweep.",
+      "status": "todo",
+      "tasks": [
+        {
+          "id": "P4.1",
+          "title": "README.md (API + TDictionary-vs-THashSet comparison box + sorted-iteration composition example) + docs/THashSet.md (upstream FPC reference per kcl docs convention)",
+          "category": "docs",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Every public member + wontfix documented; comparison box complete."
+        },
+        {
+          "id": "P4.2",
+          "title": "bench.sh (Add/Contains per-op, 1kx1k Union/Intersect, O(1) flat, zero-fork), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
+          "category": "performance",
+          "severity": "medium",
+          "status": "todo",
+          "acceptance": "Numbers recorded; final master sweep green."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-07-12",
+      "batch": "planning",
+      "summary": "thashset PLAN.md + ledger written; folders created. No implementation. Key decisions recorded: storage = tdictionary minus values (idioms verbatim, reduced re-torture); Boolean-rc Add/Remove SILENT (answers, not errors — loud README contrast with TDictionary); algebra ops clone FPC loop semantics incl. two-pass IntersectWith and defined self-op edges (pinned at P0); Extract miss shares the Default(T) '' ambiguity with ExtractPair; sorted sets wontfix (compose TArray.sort at the boundary)."
+    }
+  ]
+}
