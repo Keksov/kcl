@@ -1,0 +1,566 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tdictionary — port of FPC Generics.Collections TDictionary/TObjectDictionary to bash (kklass Pascal DSL instantiable classes)",
+  "created": "2026-07-12",
+  "updated": "2026-07-12",
+  "status": "COMPLETE — all phases done 2026-07-12 (P0-P3, P5-P7; P4 dropped by the API v2 thin-wrapper decision). TDictionary (31 members) + TObjectDictionary (ownerships, auto-free of owned kklass instances on 'removed' only) as kklass instantiable classes over a prefixed per-instance assoc array (${__inst__}_items; empty-key-safe; exotic keys byte-exact). Exact FPC data semantics pinned from generics.dictionaries.inc: dup Add rejected without mutation, silent Remove miss, UPDATE-ONLY SetItem (FPC != Delphi), Default-pair ExtractPair miss, FPC-exact notification order on all 9 mutation paths (assign-before-notify on overwrite, empty-dict-during-Clear-events, extracted-never-frees). Suite 130/130 (tests 001-013) on bash 5.2.37 AND 5.3.9; final master sweep 2481/0 across 13 suites (baseline 2351 intact). Bench: core ops 0.47-0.62 ms/call (kklass dispatch-dominated; tlist.Add 0.66 as reference), ForEach 29 us/pair, O(1) confirmed flat 1k vs 10k (636 vs 618 us), zero-fork verified under PATH=''; $() capture costs ~17 ms (MSYS2 fork) — direct call + RESULT is the documented path. Deliverables in kcl/tdictionary/: tdictionary.sh, README.md, PLAN.md, docs/TDictionary.md, bench.sh, TEST_COVERAGE_NOTES.md (58 non-FPC rows: boundary 14 / bash-convention 23 / representation 8 / cross-check 13), tdictionary_ledger.json, tests/001-013 + tests.sh. COMMITS GATED (all uncommitted).",
+  "owner": "keksov",
+  "notes": "Single source of truth for the tdictionary implementation. Plan: kcl/tdictionary/PLAN.md. Source: C:/projects/KKMindWave/VendorsCore/fpc/sources/main/packages/rtl-generics/src/inc/generics.dictionariesh.inc (interface, 676 lines; TDictionary = TOpenAddressingLP at :668) + inc/generics.dictionaries.inc (implementation; all semantics pinned from it, line refs in PLAN.md section 3). Update task.status as work proceeds. The kcl+kklass baseline below must NEVER regress; every phase ends with a full sweep on bash 5.2 and a spot-check on 5.3.",
+  "conventions": {
+    "status_values": [
+      "todo",
+      "in_progress",
+      "blocked",
+      "done",
+      "wontfix"
+    ],
+    "category_values": [
+      "feature",
+      "infra",
+      "test-coverage",
+      "docs",
+      "performance"
+    ],
+    "severity_values": [
+      "critical",
+      "high",
+      "medium",
+      "low"
+    ],
+    "tier_values": [
+      "A-pure-bash-exact"
+    ]
+  },
+  "baseline": {
+    "measured": "2026-07-12 — RE-MEASURED at P0.1 via the full master suite (tests/tests.sh), run BEFORE kcl/tdictionary/tests/tests.sh existed (upfront discovery -> tdictionary excluded from the baseline run)",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2) — thin dispatch path",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64)",
+    "suites_green": {
+      "kklass": 226,
+      "kcl_total": 1593,
+      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81",
+      "protected_core": "kcl 1593 + kklass 226 = 1819 (matches the post-math figure exactly, no drift)",
+      "master_full": "2351/0 across 12 suites (adds kkore 232 + ktests 300 on top of the protected core)"
+    },
+    "regression_rule": "tdictionary work must keep all of the above green; the new tdictionary suite adds on top (23 as of P0)."
+  },
+  "design_decisions": {
+    "scope": "Port the API, not the hash table. FPC's unit is ~90% machinery for building hash tables out of Pascal arrays (open addressing LP/QP/DH, tombstones, deamortized cuckoo D2/D4/D6, hash factories, equality comparers). Bash `declare -A` is a native C hash table; porting probing to bash is 10-100x slower with zero semantic gain, and custom comparers cannot back an assoc lookup at all. TDictionary (the 'for normal programmers' class, dictionariesh.inc:668) + TObjectDictionary are ported with exact observable semantics; everything else is wontfix — INCLUDING (API v2, owner decision 2026-07-12) the capacity family (Capacity/SetCapacity/TrimExcess/LoadFactor/MaxLoadFactor): in FPC those are knobs of a real allocator; bash `declare -A` offers no preallocation or bucket introspection, so emulated numbers would be parity theater at per-Add cost. Unlike tlist's capacity (which truncates data — observable semantics, rightly ported there), FPC's dictionary capacity never mutates data.",
+    "storage": "Per-instance assoc array ${__inst__}_items (assoc counterpart of tlist's indexed _items; matches FPC's FItems field name), nameref access. P0 FINDING: ${instance}_data is TAKEN — it is kklass's OWN per-instance property store (count/capacity live there); wiping it destroys the object's fields. Keys stored under a one-char prefix: items[\"k$key\"] — bash 5.2.37 REJECTS the empty subscript (verified: a['']=x -> 'bad array subscript') and the empty string is a valid FPC key. Prefix makes every subscript non-empty, version-proof; iteration strips it with ${k#k}.",
+    "safe_key_ops": "Existence: [[ -n ${ref[\"k$key\"]+x} ]] (single-expansion safe). Deletion: pk=\"k$key\"; unset 'ref[$pk]' — single-quoted so unset expands the subscript exactly once; the planned scoped assoc_expand_once dance proved UNNECESSARY because the prefix already guarantees pk is never empty/@/* (the cases the shopt protects against). Never unset \"ref[$k]\" with raw keys (double-expansion trap). Validated by the P0 torture test (34 keys: '', ], }, *, ?, [a-z], quotes, space, newline, tab, $(echo pwned), backtick, $HOME, k/kk collision candidates, unicode) on 5.2.37 AND 5.3.9, including through a nameref and under PATH='' (zero-fork).",
+    "count_and_order": "count = COMPUTED property (property count read GetCount) returning ${#items[@]} — one entry per pair by construction, so drift from storage is impossible and mutation methods maintain NO counters. Enumeration order UNSPECIFIED — same as FPC (hash order); tests compare sorted; no insertion-order bookkeeping (FPC has none, and it would tax Remove).",
+    "naming_returns_errors": "Methods PascalCase (Add, TryGetValue, ExtractPair...), properties lowercase (count, onKeyNotify, onValueNotify) — tlist family conventions. funcs echo AND set RESULT (direct call + $RESULT preserves trailing newlines that $() strips); ExtractPair also sets RESULT_KEY. FPC exceptions map to return 1 with debug msg only under VERBOSE_KKLASS=debug; boolean queries return via exit status.",
+    "capacity_emulation": "DROPPED (API v2, owner decision 2026-07-12). The originally planned FPC-exact capacity arithmetic (pow2 growth, Round(size*0.75)-1 thresholds via _mulRound, TrimExcess->SetCapacity(count+1), LoadFactor decimals) is NOT implemented: the numbers would control nothing in bash. TDictionary.new accepts and ignores ACapacity for porting compat. _pow2cap/_mulRound never ship. See out_of_scope.",
+    "notifications": "onKeyNotify/onValueNotify hold a bash function name; empty = off. cb invoked as: cb <dict> <item> <added|removed|extracted>. Plumbing copies impl:40-70: PairNotify = KeyNotify+ValueNotify; Add->added; Remove/Clear->removed; ExtractPair->extracted; SetItem/AddOrSetValue overwrite -> ValueNotify(old,removed) THEN ValueNotify(new,added), key NOT re-notified (SetValue, impl:54); Destroy -> Clear -> per-pair removed (impl:128).",
+    "tobjectdictionary": "class TObjectDictionary : TDictionary (kklass inheritance + override, proven by tstringlist). Overrides KeyNotify/ValueNotify exactly like FPC (impl:2389-2405): after inherited, if ownership flag set AND notification == removed (NEVER extracted) -> free the item = call $item.delete when it names a live kklass instance. Ctor: TObjectDictionary.new od \"doOwnsValues\" [capacity] (tokens: doOwnsKeys doOwnsValues). Pinned: ExtractPair hands ownership back (no free); AddOrSetValue over existing key FREES the old value under doOwnsValues; failed duplicate Add frees nothing (FPC raises before notify).",
+    "convenience_extras": "GetValueDef key default (TryGetValue sugar), AddPairs k v [k v ...], ToArrays kVar vVar, KeysToArray/ValuesToArray nameref fills, ForEach cb — bash shapes replacing enumerator objects, collection objects and Create(ACollection); each documented in TEST_COVERAGE_NOTES.md as bash-convention."
+  },
+  "goals": [
+    "Faithful observable FPC TDictionary DATA semantics, byte-for-byte (all Tier A): duplicate Add rejected without mutation, silent Remove miss, update-only SetItem (FPC != Delphi), Default-pair ExtractPair miss, exact notification order.",
+    "Arbitrary bash-string keys and values: empty key, spaces, newlines, quotes, globs, ']' — all safe via prefix storage + pinned idioms (NUL impossible in bash, documented).",
+    "Zero forks in every operation; O(1) Add/lookup/Remove riding the native assoc array (bench proves flat 1k vs 10k scaling).",
+    "Full ktest coverage seeded from FPC's own rtl-generics fpcunit tests; every non-FPC case logged in TEST_COVERAGE_NOTES.md.",
+    "Never regress the kcl/kklass baseline (1819)."
+  ],
+  "test_basis": {
+    "seed_primary": "packages/rtl-generics/tests/tests.generics.dictionary.pas — TestKeys, TestNotificationDelete, TestValueNotification, TestValueNotificationDelete, TestKeyValueNotificationSet -> P3/P5 parity.",
+    "seed_additional": [
+      "packages/rtl-generics/tests/tests.generics.dictionary2.pas — generic Add/AddPair/TryAdd/AddOrSet x modify/remove/duplicate matrix (TTestGenDictionary) -> P1/P2 parity.",
+      "packages/rtl-generics/tests/tests.generics.stdcollections.pas — std collection behaviors -> mined at implementation time.",
+      "packages/rtl-generics/tests/tests.generics.hashmaps.pas — only for semantics shared with TDictionary (not the cuckoo-specific parts)."
+    ],
+    "parity_model": {
+      "tier_A_exact": "Everything: values, RESULT/RESULT_KEY contents, exit codes, notification sequences, capacity/threshold/loadFactor numbers — compared byte-for-byte against semantics read from the FPC implementation source (line refs in PLAN.md section 3)."
+    },
+    "new_coverage_protocol": "Every test case NOT traceable to an FPC test file gets a row in kcl/tdictionary/TEST_COVERAGE_NOTES.md: id (file+label), functions, concrete case, why FPC lacks it (boundary / bash-convention / representation-specific / cross-check), and the basis for the expected value (FPC source reading, seed analog, or invariant). Same protocol as dateutils/math."
+  },
+  "out_of_scope": [
+    {
+      "item": "Hashing machinery: THashFactory hierarchy, IEqualityComparer/IExtendedEqualityComparer ctor overloads, TLinearProbing/TQuadraticProbing/TDoubleHashing, tombstone variants (TOpenAddressingSH/LPT/QP/DH), cuckoo maps (TCuckooD2/D4/D6, deamortization queue, CDM), Rehash, GetMemoryLayout, TombstonesCount, QueueCount",
+      "status": "wontfix",
+      "reason": "bash `declare -A` is the hash table; reimplementing probing in bash is 10-100x slower with zero semantic gain; custom equality cannot back an assoc lookup (keys compare as exact byte strings)."
+    },
+    {
+      "item": "Pointer API: Ptr collection, PKey/PValue enumerators, GetMutableValue, TryGetMutableValue, GetOrAddMutableValue",
+      "status": "wontfix",
+      "reason": "No pointers in bash; GetOrAdd essence survives as GetValueDef/TryAdd."
+    },
+    {
+      "item": "Enumerator objects (TPairEnumerator/TKeyEnumerator/TValueEnumerator, MoveNext/Current)",
+      "status": "wontfix",
+      "reason": "Replaced by ForEach + KeysToArray/ValuesToArray/ToArrays; an object-per-iteration protocol is pure dispatch overhead in bash."
+    },
+    {
+      "item": "Alias classes THashMap/TFastHashMap/TObjectHashMap/TCuckoo*/TOpenAddressingLPT/QP/DH",
+      "status": "wontfix",
+      "reason": "They select alternative backends; bash has one backend — TDictionary covers all."
+    },
+    {
+      "item": "TEmptyRecord dictionary-as-set",
+      "status": "wontfix",
+      "reason": "Internal trick for sets; N/A."
+    },
+    {
+      "item": "TPair.Create record constructor",
+      "status": "wontfix",
+      "reason": "Pairs travel as RESULT_KEY/RESULT or ForEach callback args."
+    },
+    {
+      "item": "Create(ACollection[, AComparer]) constructor family",
+      "status": "wontfix",
+      "reason": "Replaced by Assign (copy from another dict) + AddPairs (bulk literal pairs)."
+    },
+    {
+      "item": "NUL bytes in keys/values",
+      "status": "wontfix",
+      "reason": "Bash strings cannot contain NUL (language limit)."
+    },
+    {
+      "item": "Capacity family: Capacity property, SetCapacity, TrimExcess, LoadFactor, MaxLoadFactor (+ the effective ACapacity ctor argument)",
+      "status": "wontfix",
+      "reason": "API v2 owner decision 2026-07-12 (thin wrapper): these are real-allocator knobs in FPC; bash `declare -A` manages its own storage with no preallocation/introspection, so emulated values would be state affecting nothing, at per-Add arithmetic cost. FPC's dictionary capacity never mutates data (SetCapacity below Count raises rather than truncates), so nothing observable is lost. The ctor argument is accepted and ignored so ported Pascal code Create(N) keeps working."
+    }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Scaffolding, storage model, ctor/dtor",
+      "goal": "Class skeleton + validated storage foundations every later phase builds on.",
+      "status": "done",
+      "result": "tdictionary.sh: class TDictionary (Create/Destroy/Clear + read-only count/capacity properties) builds and runs on 5.2.37 and 5.3.9. STORAGE COLLISION FOUND AND FIXED: ${instance}_data is kklass's own per-instance property store — pair storage renamed to ${__inst__}_items (assoc; FPC FItems analog). Unset idiom SIMPLIFIED vs plan: prefix guarantees pk never empty/@/*, so plain single-quoted unset 'ref[$pk]' suffices (no assoc_expand_once dance). Capacity ctor arg follows the FPC Resize pow2 rule (0->0, 1->8, 10->16, 16->16); Clear zeroes count+capacity and empties storage; Destroy = Clear + unset storage. Tests: 001 (13) + 002 storage torture (10, 34 exotic keys incl. '' ] * newline $(echo pwned) k/kk, nameref path, zero-fork) = 23/23 on 5.2, 23/23 on 5.3 (explicit-PATH run). Baseline re-measured via full master suite before adding the runner: see baseline.suites_green. AMENDED SAME DAY (API v2): capacity property, ctor pow2 arithmetic and _pow2cap REMOVED after the owner chose the thin-wrapper API (capacity family wontfix); count switched from stored property to computed (property count read GetCount -> ${#items[@]}); tests/001 rewritten (11 checks: ignored ctor arg, absent capacity member, computed-count proof, Clear, independence, teardown); suite 21/21 (001:11 + 002:10) re-verified on 5.2.37 AND 5.3.9.",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "Directory, class skeleton, tests runner, baseline re-measure",
+          "component": "kcl/tdictionary",
+          "category": "infra",
+          "severity": "high",
+          "status": "done",
+          "files": [
+            "kcl/tdictionary/tdictionary.sh",
+            "kcl/tdictionary/tests/tests.sh"
+          ],
+          "fix": "class TDictionary ... end + build via kklass_pascal.sh (tlist model: sources kklass_pascal.sh/klib.sh/kerr.sh, TDICTIONARY_DIR guard); ktests runner mirroring other kcl suites; header comment documenting the scope decision (API not machinery) + the pinned idioms. Baseline re-measured with the master suite BEFORE creating tests/tests.sh (discovery is upfront, so the baseline run excludes tdictionary).",
+          "acceptance": "source tdictionary.sh succeeds on 5.2 and 5.3; suite runs green; baseline numbers confirmed and recorded in this ledger.",
+          "depends_on": []
+        },
+        {
+          "id": "P0.2",
+          "title": "Storage model: prefixed assoc array + safe-unset idiom, exotic-key torture",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "critical",
+          "status": "done",
+          "functions": [
+            "${__inst__}_items layout",
+            "existence idiom ${ref[pk]+x}",
+            "unset 'ref[$pk]' idiom"
+          ],
+          "fix": "IMPLEMENTED (amended): pairs in ${__inst__}_items (NOT _data — that name is kklass's own property store, wiping it destroys count/capacity) under items[\"k$key\"]; existence via ${ref[pk]+x}; deletion via pk=\"k$key\"; unset 'ref[$pk]' — the single-quote form is sufficient because the prefix guarantees pk is never empty/@/* (assoc_expand_once not needed).",
+          "acceptance": "MET: tests/002_StorageIdioms.sh green on BOTH bashes (10 checks / 34 torture keys: '', ']', '[', 'a]b[c', braces, parens, '*', '?', '[a-z]', punctuation, 'a b', newline, tab, quotes, backslash, '$(echo pwned)', backtick, '$HOME', '${PATH}', 'k', 'kk', unicode) — store/exists/fetch/delete each, prefix round-trip via ${k#k}, '' vs 'k' vs 'kk' distinctness, empty-value vs missing, trailing-newline value, nameref cycle, ${#ref[@]} back to 0, zero forks under PATH=''.",
+          "depends_on": [
+            "P0.1"
+          ]
+        },
+        {
+          "id": "P0.3",
+          "title": "Constructor/destructor + count property",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "high",
+          "status": "done",
+          "functions": [
+            "Create",
+            "Destroy",
+            "Clear",
+            "GetCount",
+            "count (computed property)"
+          ],
+          "fix": "IMPLEMENTED (as amended by API v2): constructor Create [ACapacity]: declares/empties ${__inst__}_items (assoc); any argument accepted and IGNORED (capacity family dropped). destructor Destroy (runs on .delete): $this.Clear + unset -v storage. Clear: empties storage (count follows). count = computed property read GetCount = ${#items[@]}.",
+          "acceptance": "MET (tests/001 v2, 11 checks): new d -> count 0, storage declare -A empty; Create(1000) rc=0 and count 0 (arg ignored); capacity member ABSENT (access rc!=0); direct-seed 2 entries -> count 2 (computed); Clear resets; instances independent; delete -> inaccessible + storage unset; recreate under same name clean.",
+          "depends_on": [
+            "P0.2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Core CRUD",
+      "goal": "Add/TryAdd/AddOrSetValue, GetItem/SetItem/TryGetValue/ContainsKey, Remove/Clear with exact FPC miss/duplicate semantics.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "Add / TryAdd / AddOrSetValue",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "Add",
+            "TryAdd",
+            "AddOrSetValue"
+          ],
+          "fix": "Add: duplicate -> rc=1 NO mutation (EListError SDuplicatesNotAllowed, impl:399); TryAdd: rc=0 added / rc=1 silent (impl:718); AddOrSetValue: upsert (impl:729). count is computed — mutation methods maintain no counters.",
+          "acceptance": "MET (tests/003): 20-add matrix + spot values; duplicate Add rc=1 value+count unchanged; TryAdd dup rc=1 silent / new rc=0; AddOrSetValue insert+overwrite; empty key '' add/dup-reject; empty value; glob-char value byte-exact; count == ${#items[@]} throughout.",
+          "depends_on": [
+            "P0.3"
+          ]
+        },
+        {
+          "id": "P1.2",
+          "title": "GetItem / SetItem / TryGetValue / ContainsKey",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "GetItem",
+            "SetItem",
+            "TryGetValue",
+            "ContainsKey"
+          ],
+          "fix": "GetItem miss -> rc=1 RESULT='' (impl:640); SetItem miss -> rc=1 — UPDATE-ONLY, the FPC-vs-Delphi divergence documented in README (impl:662); TryGetValue miss -> RESULT='' rc=1 (impl:705); ContainsKey via existence idiom (impl:742).",
+          "acceptance": "MET (tests/004): GetItem $() and RESULT forms agree; miss rc=1 RESULT='' (stale-leak guard); SetItem update-only (miss mutates NOTHING); TryGetValue hit/miss/empty-value; ContainsKey rc; exotic keys ('', ], *, space, newline, k) via public API; trailing-newline value lossless via RESULT ($() strips, documented).",
+          "depends_on": [
+            "P1.1"
+          ]
+        },
+        {
+          "id": "P1.3",
+          "title": "Remove / Clear",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "critical",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "Remove",
+            "Clear"
+          ],
+          "fix": "Remove miss -> SILENT rc=0 (impl:492); Clear: storage emptied, count follows (impl:515). Destructor already delegates to Clear.",
+          "acceptance": "MET (tests/005): Remove existing (count-1, neighbors intact); Remove absent/never-existed silent rc=0; re-Add after Remove; exotic-key removal; Clear populated -> 0 and usable after; 8-op interleaved sequence final state == storage == hand-computed map.",
+          "depends_on": [
+            "P1.2"
+          ]
+        }
+      ],
+      "result": "9 methods live: Add (dup -> rc=1 NO mutation, debug-only stderr), TryAdd (dup -> rc=1 SILENT — an answer, not an error), AddOrSetValue (upsert), GetItem (miss -> rc=1 RESULT=''), SetItem (UPDATE-ONLY, miss -> rc=1 nothing inserted — the FPC!=Delphi divergence), TryGetValue (miss -> rc=1 RESULT='' per Default(TValue)), ContainsKey (rc), Remove (miss -> silent rc=0), Clear. FRAMEWORK TRAP FOUND: kklass _invoke restores the CALLER's RESULT unless the func body reaches its auto-appended kk._return trailer — an early `return 1` leaks the caller's stale RESULT; fixed by calling kk._return '' explicitly on the GetItem/TryGetValue miss paths (procs are unaffected). Empty key/value first-class through the public API. Tests 003 (10, AddFamily), 004 (10, Items/lookups), 005 (8, Remove/Clear) seeded from tests.generics.dictionary2.pas; suite 49/49 on bash 5.2.37 AND 5.3.9. TEST_COVERAGE_NOTES.md started (P0+P1 rows: 6 boundary, 6 bash-convention, 5 representation, 5 cross-check groups)."
+    },
+    {
+      "id": "P2",
+      "name": "Removal/query extras + bulk fill",
+      "goal": "ExtractPair, ContainsValue, GetValueDef, Assign, AddPairs.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "ExtractPair",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "ExtractPair"
+          ],
+          "fix": "Hit: RESULT_KEY=key RESULT=value, remove entry (notification 'extracted' wired in P5); miss: Default pair — RESULT_KEY='' RESULT='' rc=0, NOT an error (impl:503-513, note FPC returns Default(TPair) with the DEFAULT key, not AKey).",
+          "acceptance": "MET (tests/006): hit removes and returns both fields; miss returns empty pair rc=0 dict untouched (stale RESULT/RESULT_KEY not leaked); ''-key extraction + ContainsKey disambiguation; last-pair extraction empties; exotic keys byte-exact; trailing-newline value lossless; $()-capture caveat pinned (no parent mutation).",
+          "depends_on": [
+            "P1.3"
+          ]
+        },
+        {
+          "id": "P2.2",
+          "title": "ContainsValue + GetValueDef",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "medium",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "ContainsValue",
+            "GetValueDef"
+          ],
+          "fix": "ContainsValue: O(n) scan over ${ref[@]} values, exact string equality, rc (impl:750); GetValueDef key default: bash convenience (TryGetValue sugar) — RESULT=value or the provided default, always rc=0; logged as bash-convention in TEST_COVERAGE_NOTES.",
+          "acceptance": "MET (tests/007): ContainsValue hit/miss, duplicate values across keys (found until last holder removed), '' value, multiline exact-match (no substring), empty dict False; GetValueDef stored value wins incl. stored '', default only when absent, omitted default -> '', always rc=0.",
+          "depends_on": [
+            "P1.3"
+          ]
+        },
+        {
+          "id": "P2.3",
+          "title": "Assign + AddPairs (Create(ACollection) analogs)",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "medium",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "Assign",
+            "AddPairs"
+          ],
+          "fix": "Assign src: Clear then copy every pair from another TDictionary instance (Create(ACollection) semantics = Add each, impl:106-114 — duplicates impossible from a source dict); AddPairs k v [k v ...]: bulk Add, odd arg count -> rc=1 nothing added (validated up front).",
+          "acceptance": "MET (tests/008): Assign copies 4 exotic pairs byte-exact, replaces prior content, source intact, copies independent, empty-source empties dest, self-assign no-op, invalid source rc=1 with dest untouched; AddPairs adds N incl. ''/glob keys, odd argc rejected atomically, duplicate aborts at the pair (earlier kept, later unattempted) incl. within-batch repeat (first occurrence wins).",
+          "depends_on": [
+            "P2.1"
+          ]
+        }
+      ],
+      "result": "5 methods live: ExtractPair (hit -> RESULT_KEY/RESULT + removal; miss -> Default pair ('','') rc=0 NOT an error; ''-key hit shape == miss shape — the SAME ambiguity FPC has with Default(TKey), disambiguate via ContainsKey first; $() caveat pinned by test: capture yields the value but removal stays in the subshell — direct call is the real extraction path), ContainsValue (linear scan over ${items_ref[@]}, exact string equality, rc; empty dict -> False), GetValueDef (bash convenience: existence decides — stored '' beats the default; never rc!=0), Assign (Create(ACollection) analog: validity check via ${src_ref@a} == *A* BEFORE clearing so an invalid source leaves the dest untouched; self-assign no-op; copies independent), AddPairs (bulk; odd argc rejected atomically; duplicate ABORTS at that pair — earlier stay, later unattempted, incl. within-batch repeats — mirroring FPC Create(collection)'s raise-aborts-loop). Tests 006 (7) / 007 (10) / 008 (10); suite 76/76 on bash 5.2.37 AND 5.3.9. TEST_COVERAGE_NOTES.md extended with 11 P2 rows. P1 gate note: full master sweep completed 2400/0 (13 suites = baseline 2351 + tdictionary 49)."
+    },
+    {
+      "id": "P3",
+      "name": "Iteration & collections",
+      "goal": "Keys/Values echo forms, lossless nameref fills, ForEach.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "Keys / Values / KeysToArray / ValuesToArray / ToArrays",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "Keys",
+            "Values",
+            "KeysToArray",
+            "ValuesToArray",
+            "ToArrays"
+          ],
+          "fix": "Keys/Values: echo one item per line, order unspecified (KeyCollection/ValueCollection ToArray analog; their .Count == d.count trivially); KeysToArray/ValuesToArray outVar: nameref fill, LOSSLESS for keys with newlines; ToArrays kVar vVar: parallel arrays, index-aligned (the TPair ToArray analog). Iteration strips the storage prefix with ${k#k}.",
+          "acceptance": "MET (tests/009): TestKeys analog sorted-compare; duplicate values listed per holder; empty dict -> zero lines; Keys->ContainsKey closure; exotic keys (newline/glob/empty/space) round-trip via KeysToArray set-compare; trailing-newline value intact in ValuesToArray; ToArrays index-aligned vs GetItem; pre-filled output arrays reset; empty/invalid/same output names rc=1.",
+          "depends_on": [
+            "P1.3"
+          ]
+        },
+        {
+          "id": "P3.2",
+          "title": "ForEach (enumerator analog)",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "ForEach"
+          ],
+          "fix": "ForEach cbName: iterate a SNAPSHOT of \"${!ref[@]}\" invoking cb key value per pair (skip keys deleted mid-iteration); callback may freely Remove/Add — additions during iteration are not visited (documented snapshot semantics; FPC enumerator over a mutating dict is UB, ours is defined-safe). Callback nonzero rc does not abort by default; ForEach returns 0.",
+          "acceptance": "MET (tests/010): 5 exotic pairs visited exactly once byte-exact; delete-OTHERS callback -> 1 visit, deletions honored; delete-SELF callback -> all 3 visited, dict empty; adding callback -> 3 originals visited, 3 additions present-but-unvisited; callback rc=7 ignored (all called, ForEach rc=0); empty dict -> zero invocations rc=0; unknown callback rc=1; 50-pair zero-fork run under PATH=''.",
+          "depends_on": [
+            "P3.1"
+          ]
+        }
+      ],
+      "result": "6 methods live: Keys/Values (one item per line, order unspecified — line form documented ambiguous for embedded newlines), KeysToArray/ValuesToArray (nameref fills, LOSSLESS: newline/glob/empty keys and trailing-newline values byte-exact; output array reset before fill; empty/invalid names rc=1), ToArrays (two DISTINCT index-aligned parallel arrays, keys[i]->values[i]; same-name rejected), ForEach (pair-enumerator analog: SNAPSHOT of keys + existence re-check per pair -> callback may freely Remove/Add: deleted pairs skipped, additions not visited this pass — a DEFINED-safe contract where FPC enumeration over mutation is UB; callback rc ignored; unknown callback rc=1; zero-fork for 50 pairs under PATH=''). Internal locals use the __td_ prefix so caller output-variable names cannot collide with namerefs (documented: do not pass __td_* names). Tests 009 (9) / 010 (8); suite 93/93 on bash 5.2.37 AND 5.3.9. TEST_COVERAGE_NOTES.md extended with 9 P3 rows."
+    },
+    {
+      "id": "P4",
+      "name": "Capacity / load-factor emulation — DROPPED",
+      "goal": "(void)",
+      "status": "wontfix",
+      "result": "Owner decision 2026-07-12 (API v2, thin wrapper) during the post-P0 API review: the capacity family is not ported. Rationale and consequences recorded in design_decisions.capacity_emulation, out_of_scope, and PLAN.md section 2.5. The P0 skeleton's provisional capacity property and _pow2cap were removed the same day.",
+      "tasks": []
+    },
+    {
+      "id": "P5",
+      "name": "Notifications",
+      "goal": "onKeyNotify/onValueNotify events with FPC-exact firing order on every mutation path.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "P5.1",
+          "title": "Notify plumbing (KeyNotify/ValueNotify/PairNotify) on all paths",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "onKeyNotify",
+            "onValueNotify",
+            "KeyNotify",
+            "ValueNotify",
+            "PairNotify"
+          ],
+          "fix": "Properties hold a bash function name (empty=off, only a [[ -n ]] on hot paths). cb invoked: cb <dict> <item> <added|removed|extracted>. Wiring per impl:40-70: Add/TryAdd-hit/AddOrSetValue-insert -> pair added; Remove -> pair removed; ExtractPair -> pair extracted; Clear/Destroy -> pair removed per entry; SetItem/AddOrSetValue-overwrite -> ValueNotify(old,removed) THEN ValueNotify(new,added), key silent (SetValue, impl:54). KeyNotify/ValueNotify declared as overridable methods (P6 hooks them).",
+          "acceptance": "MET (tests/011, 16 checks): recording callback captures exact sequences — Add k v -> K:added,V:added (K first); overwrite -> V:old:removed,V:new:added only, dict already holds the new value during the old-removed event; Remove -> K+V removed with the pair already absent; Extract -> extracted; Clear on 2 pairs -> 2 removed pairs with count 0 during callbacks; d.delete fires removals; duplicate Add fires NOTHING; unhook stops events; cb rc=5 ignored; dangling hook skipped; sender arg = instance name.",
+          "depends_on": [
+            "P2.1"
+          ]
+        },
+        {
+          "id": "P5.2",
+          "title": "Notification parity tests from FPC seeds",
+          "component": "kcl/tdictionary",
+          "category": "test-coverage",
+          "severity": "medium",
+          "status": "done",
+          "fix": "Port the assertion logic of tests.generics.dictionary.pas: TestNotificationDelete, TestValueNotification, TestValueNotificationDelete, TestKeyValueNotificationSet to ktest, adapted to the bash callback signature.",
+          "acceptance": "MET (tests/012, 6 checks): TestValueNotification / TestValueNotificationDelete / TestNotificationDelete (incl. Free-fires-removals) / TestKeyValueNotificationSet analogs green; plus Assign (removals+addeds) and AddPairs (per-pair added) composition checks.",
+          "depends_on": [
+            "P5.1"
+          ]
+        }
+      ],
+      "result": "Events live. Properties onKeyNotify/onValueNotify (stored read/write; empty = off; read-back works; dangling function names skipped with debug-only msg, mutation unaffected; callback rc ignored). Virtual seam: KeyNotify/ValueNotify are public overridable procs (P6 hooks exactly these two, like FPC); mutation methods guard with [[ -n onKeyNotify || -n onValueNotify || -n _notifyHook ]] before dispatching — a hook-less dictionary pays one string test, no method dispatch; _notifyHook is set by subclasses that override the seam (P6) so ownership frees fire even with no user callbacks. FPC-exact order pinned per path: Add/TryAdd-insert/AddOrSetValue-insert/AddPairs -> Key then Value 'added' AFTER the write (:420, :43); duplicate Add -> NOTHING (:399 raises first); SetItem/AddOrSetValue-overwrite -> assign FIRST then ValueNotify(old,removed)+ValueNotify(new,added), key silent (:54); Remove -> notify after removal (:477); ExtractPair -> 'extracted' after removal (:512), RESULT_KEY/RESULT set after the callbacks; Clear -> storage emptied FIRST then per-pair removed (:515) — callbacks see count 0; Destroy -> via Clear (:128); Assign -> Clear removals + per-copied-pair added. Callback contract: cb <dict> <item> <action>, sender = instance name. Tests 011 (16) / 012 (6) — 012 ports the four dictionary.pas notification tests; suite 115/115 on bash 5.2.37 AND 5.3.9. TEST_COVERAGE_NOTES.md +10 rows."
+    },
+    {
+      "id": "P6",
+      "name": "TObjectDictionary",
+      "goal": "Ownership-aware subclass freeing owned kklass instances.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "P6.1",
+          "title": "Subclass + ownerships + freeing overrides",
+          "component": "kcl/tdictionary",
+          "category": "feature",
+          "severity": "high",
+          "tier": "A-pure-bash-exact",
+          "status": "done",
+          "functions": [
+            "TObjectDictionary.Create",
+            "override KeyNotify",
+            "override ValueNotify"
+          ],
+          "fix": "class TObjectDictionary : TDictionary; ctor parses ownership tokens (doOwnsKeys/doOwnsValues, space-separated) + optional capacity; overrides per impl:2389-2405: inherited first, then if flag set AND action==removed -> $item.delete when $item names a live kklass instance (existence-checked; non-instance strings silently skipped, documented). Extracted NEVER frees; AddOrSetValue overwrite FREES old value under doOwnsValues; failed duplicate Add frees nothing.",
+          "acceptance": "MET (tests/013): ctor token matrix incl. comma form and atomic unknown-token reject; values = live TDictionary instances: Remove frees, ExtractPair does NOT (RESULT delivered, instance alive), AddOrSetValue AND SetItem overwrite free the replaced value only, duplicate Add frees nothing, Clear and .delete free all owned; doOwnsKeys frees key instances (value untouched); both flags free both; no-ownership frees nothing; plain-string item skipped silently; user callback fires BEFORE the free and sees the instance alive.",
+          "depends_on": [
+            "P5.1"
+          ]
+        },
+        {
+          "id": "P6.2",
+          "title": "Object-lifecycle test suite",
+          "component": "kcl/tdictionary",
+          "category": "test-coverage",
+          "severity": "medium",
+          "status": "done",
+          "fix": "Dedicated test file exercising the ownership matrix (none/keys/values/both) x (Remove/Extract/Clear/overwrite/destroy) with real kklass objects, verifying freed-vs-alive by instance accessibility.",
+          "acceptance": "MET: ownership matrix (none/keys/values/both) x (Remove/Extract/Clear/overwrite/destroy) green on 5.2 and 5.3; leak scan — freed instances leave no <inst>_items globals.",
+          "depends_on": [
+            "P6.1"
+          ]
+        }
+      ],
+      "result": "TObjectDictionary live: `class TObjectDictionary : TDictionary` (first kcl consumer of kklass inheritance + override outside tstringlist). Ctor parses ownership tokens (space- or comma-separated; '' = none; unknown token -> rc=1 with NO flags applied — atomic), chains `inherited` (ACapacity ignored per API v2), and arms the inherited _notifyHook when any ownership is set so the virtual KeyNotify/ValueNotify dispatch fires without user callbacks. Overrides mirror impl:2389-2405 exactly: `inherited KeyNotify/ValueNotify \"$1\" \"$2\"` FIRST (user events fire and observe the instance still alive), then free on action == removed only. _free liveness check = `declare -F \"$item.delete\"` — plain strings under ownership are silently skipped. Verified consequences: Remove/Clear/Destroy free; ExtractPair does NOT (ownership handed back); AddOrSetValue/SetItem overwrite frees the REPLACED value only; failed duplicate Add frees nothing; no ownerships = plain TDictionary behavior; leak scan clean. Tests 013 (15 checks, owned objects = real TDictionary instances). Suite 130/130 on bash 5.2.37 AND 5.3.9. TEST FIX during the phase: three tests (003/005/013) had wrapped MUTATING calls in $() to capture stderr — the mutation happened in the subshell copy (the very caveat pinned in 006); switched to direct call + stderr file redirect."
+    },
+    {
+      "id": "P7",
+      "name": "Docs, bench, closeout",
+      "goal": "README, upstream API reference, bench, coverage-notes finalization, final sweeps.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "P7.1",
+          "title": "README.md + docs/TDictionary.md",
+          "component": "kcl/tdictionary",
+          "category": "docs",
+          "severity": "medium",
+          "status": "done",
+          "files": [
+            "kcl/tdictionary/README.md",
+            "kcl/tdictionary/docs/TDictionary.md"
+          ],
+          "fix": "README = bash-side API by group + conventions (RESULT/RESULT_KEY, rc mapping, snapshot ForEach, $() newline caveat, order-unspecified, SetItem update-only divergence-from-Delphi warning box) + quickstart + out-of-scope. docs/TDictionary.md = upstream FPC API reference per kcl docs convention (Pascal signature + description + kcl mapping line per member, TCustomDictionary/TOpenAddressing/TDictionary/TObjectDictionary members that survived scoping; wontfix members listed with reasons).",
+          "acceptance": "MET: every public bash method appears in README.md and docs/TDictionary.md; signatures verbatim from dictionariesh.inc; wontfix members listed with reasons; docs cross-checked against the class declaration (26 TDictionary members + count property + 2 event properties + TObjectDictionary ctor/overrides).",
+          "depends_on": [
+            "P6.1"
+          ]
+        },
+        {
+          "id": "P7.2",
+          "title": "bench.sh",
+          "component": "kcl/tdictionary",
+          "category": "performance",
+          "severity": "medium",
+          "status": "done",
+          "files": [
+            "kcl/tdictionary/bench.sh"
+          ],
+          "fix": "Micro-bench: Add/TryGetValue/ContainsKey/Remove per-call at N=1000; O(1) scaling proof (per-op time flat between dict sizes 1k and 10k); ForEach per-item; zero-fork check (PATH='' on core ops); tlist.Add reference number alongside for context.",
+          "acceptance": "MET: all ops fork-free under PATH=''; O(1) scaling flat within noise (636 vs 618 us/call at 1k vs 10k pairs); numbers recorded here and in execution_log; tlist.Add reference included (0.66 ms — dispatch parity confirms the thin wrapper adds no meaningful overhead).",
+          "depends_on": [
+            "P6.1"
+          ]
+        },
+        {
+          "id": "P7.3",
+          "title": "TEST_COVERAGE_NOTES finalization + full dual-bash sweep + ledger COMPLETE",
+          "component": "kcl/tdictionary",
+          "category": "test-coverage",
+          "severity": "high",
+          "status": "done",
+          "files": [
+            "kcl/tdictionary/TEST_COVERAGE_NOTES.md"
+          ],
+          "fix": "Finalize the notes (per-phase tables, class breakdown boundary/bash-convention/representation/cross-check, Finalization section); full kcl+kklass+tdictionary sweep on 5.2, functional sweep on 5.3; ledger status -> COMPLETE with final counts.",
+          "acceptance": "MET: TEST_COVERAGE_NOTES.md finalized (per-phase tables, 58 rows, class breakdown boundary 14 / bash-convention 23 / representation 8 / cross-check 13, traps section); suite 130/130 on 5.2.37 and 5.3.9; final master sweep 2481/0 (13 suites); ledger statuses all done/wontfix.",
+          "depends_on": [
+            "P7.1",
+            "P7.2"
+          ]
+        }
+      ],
+      "result": "Deliverables complete. README.md: bash-side API by group, event-order table, TObjectDictionary ownership matrix, conventions/caveats ($() never mutates, RESULT lossless path, __td_ reserved, SetItem update-only warning), out-of-scope list. docs/TDictionary.md: upstream FPC reference per the kcl docs convention — every public member of the TCustomDictionary/TOpenAddressing/TDictionary/TObjectDictionary chain with verbatim Pascal signatures, descriptions, impl line refs and kcl mapping lines; wontfix members (capacity family, comparers, pointer API, enumerator objects, backend aliases, GetMemoryLayout) documented with reasons. bench.sh: core ops 0.47-0.62 ms/call, ForEach 29 us/pair, O(1) flat (636 vs 618 us @ 1k/10k), zero-fork OK, $() ~17 ms informational, tlist.Add 0.66 ms reference. TEST_COVERAGE_NOTES.md finalized (58 rows + traps section). Final suite 130/130 both bashes."
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-07-12",
+      "batch": "P0",
+      "summary": "P0 complete. Skeleton: class TDictionary (Create[ACapacity]/Destroy/Clear, read-only count+capacity properties, TDictionary._pow2cap). Findings: (1) ${instance}_data is kklass's own per-instance property store -> pair storage named ${__inst__}_items (assoc, FPC FItems analog); (2) unset idiom simplified to single-quoted unset 'ref[$pk]' (prefix guarantees pk never empty/@/*; assoc_expand_once dance unnecessary). Tests 001 (13 checks) + 002 storage torture (10 checks / 34 exotic keys) = 23/23 on bash 5.2.37 and 5.3.9. Baseline re-measured: protected core 1819 (kcl 1593 + kklass 226), master full 2351/0 across 12 suites, tdictionary excluded from the baseline run by construction."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "API-v2",
+      "summary": "Post-P0 API review with the owner (thin wrapper around declare -gA?). DECISION: drop the capacity family (capacity/SetCapacity/TrimExcess/LoadFactor/MaxLoadFactor) — wontfix; ctor ACapacity accepted+ignored; count switched to computed (${#items[@]}); phase P4 dropped; P5.1 dependency rewired to P2.1. Code amended immediately: tdictionary.sh v2 (no capacity, GetCount computed property), tests/001 rewritten. Suite 21/21 on 5.2.37 and 5.3.9. Events (P5) and TObjectDictionary (P6) stay — real behavior, not bookkeeping."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P1",
+      "summary": "Core CRUD implemented (9 methods). kklass trap: func early-return skips the auto kk._return trailer and _invoke restores the CALLER's RESULT -> miss paths now call kk._return '' explicitly (GetItem/TryGetValue). Tests 003/004/005 (+28) seeded from dictionary2.pas; tdictionary suite 49/49 on 5.2.37 and 5.3.9. TEST_COVERAGE_NOTES.md created with P0+P1 rows. Full master sweep re-run pending completion (background)."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P2",
+      "summary": "P1 sweep gate confirmed: master 2400/0 (13 suites). P2 implemented: ExtractPair/ContainsValue/GetValueDef/Assign/AddPairs (+27 tests, 006-008), suite 76/76 on 5.2.37 and 5.3.9. Pinned: ExtractPair $()-capture does not mutate the parent (subshell) — direct call is the extraction path; Assign validates the source BEFORE clearing; AddPairs abort-at-duplicate mirrors FPC's raise-aborts-loop. P2 master sweep launched."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P3",
+      "summary": "Iteration implemented: Keys/Values (line echo), KeysToArray/ValuesToArray/ToArrays (lossless nameref fills, __td_ prefix guards against output-name collisions), ForEach (snapshot + existence re-check; mutation-safe by contract). Tests 009/010 (+17); suite 93/93 on 5.2.37 and 5.3.9. P2 sweep confirmed in-flight green for tdictionary (76/76 section) — final P2/P3 sweep numbers recorded on completion."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P5",
+      "summary": "Notifications implemented with FPC-exact ordering on all 9 mutation paths; KeyNotify/ValueNotify public virtual seam + _notifyHook guard flag for P6. Tests 011/012 (+22); suite 115/115 on 5.2.37 and 5.3.9. INCIDENT: the P3-gate sweep's tdictionary section hit an edit race (P5 class declarations landed while the sweep was mid-run, before bodies existed -> build error; other 12 suites green; P2 sweep had already shown 2422/0). Lesson recorded: never edit tdictionary.sh while a master sweep is in flight — check the sweep's tdictionary section first. Clean P5 sweep launched to cover the P3+P5 gates."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P5-gate",
+      "summary": "Clean P5 master sweep COMPLETE: 13/13 suites, 2466/0 total (baseline 2351 + tdictionary 115). Closes the P3 and P5 regression gates."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P6",
+      "summary": "TObjectDictionary implemented (inheritance + override + ownerships + _notifyHook arming). Ownership matrix green on both bashes; suite 130/130. Fixed a test-side trap in 003/005/013: $() around mutating calls mutates only the subshell copy — replaced with direct call + stderr file redirect. P6 sweep launched AFTER all edits (lesson from the P3 race applied)."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P6-gate",
+      "summary": "P6 master sweep COMPLETE: 13/13 suites, 2481/0 total (baseline 2351 + tdictionary 130). P6 regression gate closed."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P7-closeout",
+      "summary": "README.md + docs/TDictionary.md + bench.sh delivered; TEST_COVERAGE_NOTES.md finalized (58 rows). Bench (bash 5.2.37, N=300): Add 519us, TryGetValue 591us, GetItem 583us, ContainsKey 485/465us, AddOrSetValue 599us, SetItem 616us, Remove 550us, ForEach 29us/pair, O(1) flat 636->618us (1k->10k), zero-fork OK, $() capture 17.35ms (subshell fork on MSYS2), tlist.Add reference 660us. Suite 130/130 both bashes. Ledger -> COMPLETE. Final master sweep pending as the last gate."
+    }
+  ]
+}
