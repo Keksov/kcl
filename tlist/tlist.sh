@@ -5,6 +5,10 @@ TLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TLIST_DIR/../../kklass/kklass_pascal.sh"
 source "$TLIST_DIR/../../kkore/klib.sh"
 source "$TLIST_DIR/../../kkore/kerr.sh"
+# TArray.sort/binarySearch — the delegation target for CustomSort here and for
+# TStringList.Sort (composition, exactly as FPC generics TList<T>.Sort delegates
+# to TArrayHelper.Sort(FItems, cmp, 0, Count)). Re-source-guarded + fork-free.
+source "$TLIST_DIR/../tarray/tarray.sh"
 
 # ---------------------------------------------------------------------------
 # TList: a dynamic list (Free Pascal's Classes.TList), an INSTANTIABLE class.
@@ -356,10 +360,13 @@ TList.Sort() {
 }
 
 TList.CustomSort() {
+    # FPC Classes.TList.Sort(Compare: TListSortCompare) equivalent — sort the
+    # [0,count) range in place with a caller-supplied comparator, delegated to
+    # TArray.sort (stable bottom-up mergesort, fork-free). The comparator uses
+    # the TArray cmpFn protocol: `cmp a b` -> rc 0 (a<b) / 1 (a==b) / 2 (a>b).
     local compare_func="$1"
-    # Implementation would need to be provided - for now just error
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: CustomSort not implemented" >&2
-    return 1
+    [[ -z "$compare_func" ]] && return 1
+    TArray.sort "${__inst__}_items" "$compare_func" 0 "$count"
 }
 
 TList.Find() {

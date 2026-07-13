@@ -83,24 +83,15 @@ TStringList.IndexOf() {
 }
 
 TStringList.Sort() {
-    local items_var="${this}_items"
-    declare -n items_ref="$items_var"
-    # Optimized bubble sort with early exit
-    local swapped
-    for (( i = 0; i < count; i++ )); do
-        swapped=0
-        for (( j = 0; j < count - i - 1; j++ )); do
-            local item1="${items_ref[$j]}"
-            local item2="${items_ref[$((j+1))]}"
-            $this.CompareStrings "$item1" "$item2" >/dev/null
-            if (( RESULT == 2 )); then  # item1 > item2, swap
-                items_ref[$j]="$item2"
-                items_ref[$((j+1))]="$item1"
-                swapped=1
-            fi
-        done
-        (( swapped == 0 )) && break  # Early exit if already sorted
-    done
+    # Delegates the O(n log n) STABLE mergesort to TArray.sort over the [0,count)
+    # range (leaving any capacity padding untouched), exactly as FPC's generics
+    # TList<T>.Sort delegates to TArrayHelper.Sort(FItems, cmp, 0, Count). The
+    # comparator is _sortcmp (the CompareStrings core WITHOUT kklass dispatch),
+    # so equal keys keep input order — byte-identical to the old stable bubble
+    # sort, ~2 orders faster. case_sensitive is captured for the shim; `sorted`
+    # is set unconditionally afterward (incl. empty/single lists).
+    __tsl_sortcs="$case_sensitive"
+    TArray.sort "${this}_items" TStringList._sortcmp 0 "$count"
     sorted=true
 }
 
@@ -311,24 +302,36 @@ TStringList.Insert() {
     inherited Insert "$index" "$item"
 }
 
+# Plain comparison CORE (NOT a class member — like math._num_cmp). Single
+# source of truth for the string ordering, callable WITHOUT kklass dispatch so
+# the delegated Sort is fast. rc protocol = TArray cmpFn: 0 = a<b, 1 = a==b,
+# 2 = a>b.  $1 a, $2 b, $3 case_sensitive ("true" = exact, else fold both to
+# lower). Ambient-locale [[ < ]] (NOT LC_ALL=C) — verbatim old CompareStrings.
+TStringList._cmpCore() {
+    local __a __b
+    if [[ "$3" == "true" ]]; then __a="$1"; __b="$2"; else __a="${1,,}"; __b="${2,,}"; fi
+    [[ "$__a" < "$__b" ]] && return 0
+    [[ "$__a" == "$__b" ]] && return 1
+    return 2
+}
+
+# Comparator shim handed to TArray.sort (cmpFn form). Reads the case-sensitivity
+# captured by Sort into __tsl_sortcs, so a comparison is one plain-function call
+# — NOT a per-element kklass CompareStrings dispatch (the point of delegating).
+TStringList._sortcmp() {
+    TStringList._cmpCore "$1" "$2" "$__tsl_sortcs"
+}
+
+# CompareStrings (public method, unchanged contract) — now a thin wrapper over
+# the core, mapping its rc to the historical RESULT protocol: 0 = equal,
+# 1 = str1 < str2, 2 = str1 > str2.
 TStringList.CompareStrings() {
-    local str1="$1"
-    local str2="$2"
-    local cmp_str1 cmp_str2
-    if [[ "$case_sensitive" == "true" ]]; then
-        cmp_str1="$str1"
-        cmp_str2="$str2"
-    else
-        cmp_str1="${str1,,}"
-        cmp_str2="${str2,,}"
-    fi
-    if [[ "$cmp_str1" < "$cmp_str2" ]]; then
-        RESULT=1 # str1 < str2
-    elif [[ "$cmp_str1" > "$cmp_str2" ]]; then
-        RESULT=2 # str1 > str2
-    else
-        RESULT=0 # equal
-    fi
+    TStringList._cmpCore "$1" "$2" "$case_sensitive"
+    case $? in
+        0) RESULT=1 ;;   # str1 < str2
+        1) RESULT=0 ;;   # equal
+        2) RESULT=2 ;;   # str1 > str2
+    esac
 }
 
 # Finalize: extract the bodies above into the TStringList class (the override
