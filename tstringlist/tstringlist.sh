@@ -27,13 +27,11 @@ class TStringList : TList
         var case_sensitive
         var sorted
         var duplicates
-        override func  Get
         override func  IndexOf
         override proc  Sort
         override func  Find
         override proc  Assign
         proc           AddStrings
-        override proc  Put
         override func  Remove
         override func  Add
         override proc  Insert
@@ -52,17 +50,8 @@ TStringList.Create() {
     duplicates="dupAccept"
 }
 
-TStringList.Get() {
-    local index="$1"
-    local current_count="$count"
-    if (( index < 0 || index >= current_count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
-        return 1
-    fi
-    local items_var="${__inst__}_items"
-    declare -n items_ref="$items_var"
-    RESULT="${items_ref[$index]}"
-}
+# Get and Put are NOT overridden here — TList.Get/Put are real (bounds-checked
+# indexed access) and inherited unchanged. (Removed the duplicate overrides.)
 
 TStringList.IndexOf() {
     local item="$1"
@@ -192,19 +181,6 @@ TStringList.AddStrings() {
         item_to_add="${source_items_ref[$idx]}"
         $this.Add "$item_to_add" >/dev/null
     done
-}
-
-TStringList.Put() {
-    local index="$1"
-    local item="$2"
-    local current_count="$count"
-    if (( index < 0 || index >= current_count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
-        return 1
-    fi
-    local items_var="${this}_items"
-    declare -n items_ref="$items_var"
-    items_ref[$index]="$item"
 }
 
 TStringList.Remove() {

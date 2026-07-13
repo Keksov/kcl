@@ -48,7 +48,7 @@ class TList
         proc Pack
         func First
         func Last
-        proc Get
+        func Get
         proc Put
         func IndexOf
         func Remove
@@ -304,13 +304,29 @@ TList.Last() {
 }
 
 TList.Get() {
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Get method not implemented in TList - use in subclasses" >&2
-    return 1
+    # Real indexed read (bash TList holds strings, so unlike FPC's pointer TList
+    # this is meaningful here). Bounds are [0,count); out of range -> rc 1,
+    # RESULT untouched. Same pattern as the already-real First/Last.
+    local index="$1" current_count="$count"
+    if (( index < 0 || index >= current_count )); then
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        return 1
+    fi
+    local items_var="${__inst__}_items"
+    declare -n items_ref="$items_var"
+    RESULT="${items_ref[$index]}"
 }
 
 TList.Put() {
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Put method not implemented in TList - use in subclasses" >&2
-    return 1
+    # Real indexed write; bounds [0,count); out of range -> rc 1, no change.
+    local index="$1" item="$2" current_count="$count"
+    if (( index < 0 || index >= current_count )); then
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        return 1
+    fi
+    local items_var="${__inst__}_items"
+    declare -n items_ref="$items_var"
+    items_ref[$index]="$item"
 }
 
 TList.IndexOf() {
