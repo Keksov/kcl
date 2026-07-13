@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tobjectlist — port of FPC contnrs.TObjectList (owning list of kklass-instance handles) as kklass class TObjectList : TList",
+  "created": "2026-07-13",
+  "updated": "2026-07-13",
+  "status": "COMPLETE (P0-P2) 2026-07-13, awaiting owner review, UNCOMMITTED (commits gated). TObjectList : TList — the OWNING list of kklass-instance handles: removal paths (Delete/Clear/Remove/Put/BatchDelete/destructor) free elements when owns_objects (default true), composed as free-then-`inherited` (zero duplication); Extract = remove-without-free; FindInstanceOf fully ported (exact + is-a via ${class}_parent_class); _free liveness guard makes double-free/non-instances silent no-ops. Suite 001-003 = 31/31 on 5.2.37 AND true 5.3.9 (incl. all 9 FPC utcobjectlist.pp fpcunit tests verbatim); final master sweep 17/17 (see P2 log). Deliverables: tobjectlist.sh, tests/001-003+tests.sh, README.md, docs/TObjectList.md, TEST_COVERAGE_NOTES.md, PLAN.md, ledger. No bench (PLAN section 7).",
+  "owner": "keksov",
+  "origin": "Owner-approved side-unit (2026-07-13) from the collection-hierarchy discussion: the OWNING container — the non-owning-vs-owning axis is the genuinely valuable bash distinction (elements are kklass-instance handles; the list manages their lifecycle).",
+  "notes": "Single source of truth for tobjectlist status. Plan: kcl/tobjectlist/PLAN.md. Source: fcl-base/src/contnrs.pp TObjectList=class(TList) :82-102 (Notify frees on lnDeleted; SetItem frees old via Put; Extract removes WITHOUT free; OwnsObjects default TRUE). FPC SEED VERIFIED PRESENT: packages/fcl-base/tests/utcobjectlist.pp (9 tests) = parity oracle for P1. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated.",
+  "conventions": {
+    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
+    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
+    "severity_values": ["critical", "high", "medium", "low"],
+    "tier_values": ["A-pure-bash-exact"]
+  },
+  "baseline": {
+    "measured": "2026-07-13 at P0: master sweep 16/16 suites green, 2811 tests (incl. tlist 107, tstringlist 160 after the delegation + Get/Put work).",
+    "bash_primary": "GNU bash 5.2.37 (MSYS2)",
+    "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64) — honest invocation: PATH=/c/bin/msys64/usr/bin:$PATH /c/bin/msys64/usr/bin/bash <suite>",
+    "regression_rule": "tobjectlist work must keep the baseline green; the new suite adds on top."
+  },
+  "design_decisions": {
+    "model": "Element = kklass instance HANDLE (name string); free = $handle.delete. Ownership = removal paths also free.",
+    "composition": "No Notify seam in bash TList -> override each removal path as `<free if owns>; inherited Method \"$@\"` — kklass rewrites `inherited X` to $this.parent X in ANY method body (kk.decl._rewrite_inherited, probed M2). Zero body duplication.",
+    "free_guard": "_free helper: [[ -n $1 ]] && declare -F \"$1.delete\" && \"$1\".delete. Liveness = existence of the per-instance dispatcher fn (probed M5: present while alive, gone after delete). Double-free and non-instance strings are SILENT NO-OPS — bash-side softening of FPC (garbage.Free crashes there, nil.Free is safe; our guard generalizes nil).",
+    "owns_objects": "plain kklass var, default TRUE (FPC parameterless Create); ctor token [true|false] mirrors Create(FreeObjects); unknown token rc 1 + debug msg, list stays valid owning. Writable mid-life like FPC's property.",
+    "ownership_scope": "Delete, Clear, Remove, Put(replace: free OLD unless same handle), destructor, BatchDelete(bash extra). NOT: Add/Insert/Extract/Exchange/Move/Sort (no lnDeleted in FPC there).",
+    "extract": "Extract item -> remove WITHOUT free (RESULT=item rc0 / RESULT='' rc1). Inside its body `inherited Delete idx` deliberately bypasses our own freeing Delete override (M2) = lnExtracted semantics.",
+    "bounds": "validate index BEFORE freeing (invalid index must free nothing), then inherited enforces/errors exactly as TList always did.",
+    "p0_skeleton_deviation": "P0 ships a WORKING core (ctor/dtor/owns/_free), NO stub overrides — a stubbed Delete/Clear would corrupt real list behavior (unlike a brand-new class). Class decl GROWS at P1; deviation documented in PLAN section 3."
+  },
+  "probes": {
+    "M1": "plain parent bodies (TList.Delete) are UNSET by build -> no plain-fn parent calls",
+    "M2": "`inherited MethodName args` works in ANY method body (rewritten to $this.parent) — verified ctor+Delete+Clear, both bashes; chains parent impl with correct shifts/count",
+    "M3": "parent ctor does NOT auto-chain; `inherited` first line of ctor chains it (house pattern per TStringList.Create)",
+    "M4": "child destructor runs when parent has none; dynamic scope exposes $count/items inside dtor -> dtor can free owned elements",
+    "M5": "per-instance dispatcher fn '<handle>.delete' exists while alive, GONE after delete -> `declare -F \"$h.delete\"` is the liveness guard",
+    "M6": "\"$var\".delete dispatches; ctor token args arrive as $1"
+  },
+  "out_of_scope": [
+    { "item": "TComponentList / TClassList / TOrderedList / TStack / TQueue (same contnrs unit)", "status": "wontfix", "reason": "tqueuestack is its own roadmap unit; component/class lists have no bash meaning." },
+    { "item": "Notify seam itself", "status": "wontfix", "reason": "bash TList has no notification mechanism; removal-path overrides ARE the port of it." },
+    { "item": "FindInstanceOf hierarchy walk (AExact=False)", "status": "wontfix", "reason": "no class-tree introspection in bash; at most exact-name match — P1 decision (implement-if-cheap or wontfix)." }
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Probes + plan + skeleton (working ownership core) + baseline",
+      "status": "done",
+      "tasks": [
+        { "id": "P0.1", "title": "Probe kklass mechanics M1-M6 (inherited-in-overrides, ctor chain, dtor scope, liveness guard) on both bashes", "category": "infra", "severity": "critical", "status": "done", "acceptance": "All six answered with probe output; design composed from data." },
+        { "id": "P0.2", "title": "PLAN.md + ledger + skeleton (Create[token]/Destroy-frees-owned/owns_objects/_free) + smoke test + baseline re-measure", "category": "infra", "severity": "high", "status": "done", "acceptance": "Smoke green both bashes incl. the headline FPC TestOwnsObjects contract (list.delete frees owned elements); baseline recorded." }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Removal-path overrides + Extract + FPC parity",
+      "status": "done",
+      "tasks": [
+        { "id": "P1.1", "title": "override Delete/Clear/Remove/Put (+BatchDelete) via free-then-inherited; Extract (remove-no-free); FindInstanceOf implement-if-cheap decision", "category": "feature", "severity": "critical", "tier": "A-pure-bash-exact", "status": "done", "acceptance": "FPC utcobjectlist.pp mined verbatim (9 tests adapted to handles); ownership torture (double-free, non-instance elements, mixed live/dead, owns toggled mid-life, empty edges); bounds-before-free; dual-bash; sweep gate." }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Docs + closeout",
+      "status": "done",
+      "tasks": [
+        { "id": "P2.1", "title": "README.md (ownership contract, _free guard semantics, FPC delta table) + docs/TObjectList.md + TEST_COVERAGE_NOTES finalized + final sweep, ledger COMPLETE", "category": "docs", "severity": "medium", "status": "done", "acceptance": "Every member + wontfix documented; final master sweep green." }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-07-13",
+      "batch": "P0 — probes + plan + skeleton",
+      "summary": "Owner 'go TObjectList'. FPC source (contnrs.pp :82-102) + fpcunit seed (utcobjectlist.pp, 9 tests) located and read — seed VERIFIED (tregex lesson). kklass mechanics M1-M6 probed on 5.2.37 AND 5.3.9 — the load-bearing find: `inherited MethodName` works in ANY override body (kk.decl._rewrite_inherited -> $this.parent), so every removal override is `<free>; inherited X \"$@\"` with zero duplication; liveness guard = declare -F \"$h.delete\". Plan+ledger written; skeleton = WORKING ownership core (Create with [true|false] token, owns default TRUE; Destroy frees owned [0,count); _free guard; owns_objects var) — no stub overrides (would corrupt behavior; PLAN section 3).",
+      "tests": "tests/001_OwnershipCore.sh = 10/10 on 5.2.37 AND true 5.3.9: create-default-owning (FPC TestCreate), ctor token false/true/bogus(rc1-still-valid-owning), HEADLINE FPC TestOwnsObjects (owning list.delete frees elements; non-owning leaves alive), owns toggled mid-life honored by dtor, _free guard (non-instance/double-free/empty all rc0 no-ops), mixed live+string elements, inherited TList surface (Add/Get/IndexOf/Sort/First/Last on handles), empty-list delete, PATH='' zero-fork ownership cycle. Test-trap pinned: inside $() an instance `func` (Add) ECHOES RESULT -> redirect >/dev/null in captures.",
+      "baseline_remeasured": "Master sweep on 5.2.37 GREEN: 17/17 suites, 0 failed, 'All test suites passed.', 2821 tests (was 16/2811; +10 from tobjectlist). No [FAIL] lines anywhere. No regression: only ADDS a suite; no existing unit or kklass file touched."
+    },
+    {
+      "date": "2026-07-13",
+      "batch": "P1 — removal-path overrides + Extract + FindInstanceOf + FPC parity",
+      "summary": "Owner 'go P1'. All removal paths own now: Delete/Clear/Remove/Put/BatchDelete overridden as `<free if owns>; inherited X \"$@\"` (bounds validated BEFORE freeing; Put frees the OLD item unless same handle — FPC TList.Put only notifies on pointer change; BatchDelete mirrors the parent's clamp math to free exactly the removed range). Extract added (remove WITHOUT free: `inherited Delete idx` resolves past our own freeing override to TList.Delete — lnExtracted). FindInstanceOf FULLY ported, not just exact: kklass exposes ${inst}_class AND ${class}_parent_class, so the non-exact IS-A walk is a chain lookup; non-instance elements are skipped via the liveness guard. Suite 10 -> 31; 31/31 on 5.2.37 AND true 5.3.9.",
+      "trailer_trap": "HIT THE HOUSE 'kklass trailer trap' (tdictionary memory): a `func` body that exits via an explicit `return` skips the auto-appended trailer, and _invoke RESTORES the caller's RESULT — Extract/FindInstanceOf initially returned stale RESULTs (the previous Add's count). Fix per the pinned idiom: `kk._return <value>` before EVERY explicit return in a func body. Smoke went 9/19 -> 19/19 on both bashes after the fix.",
+      "tests": "002_FpcParity.sh = the 9 utcobjectlist.pp fpcunit tests adapted (TObject->kklass handles; TMyObject(:TObject) -> TStringList(:TList) for FindInstanceOf; IsFreed destructor flag -> dispatcher liveness; Items[i] -> Get i): Create/Add/Extract/Remove/IndexOf/FindInstanceOf(exact+inexact+is-a-from-start)/Insert/FirstLast/OwnsObjects. 003_OwnershipTorture.sh = ownership matrix per path (owning+non-owning), oob-frees-nothing, Remove miss alive, Put same-handle no-free + oob, BatchDelete clamped range, DUPLICATE handle freed once (guard), mixed live/plain-string/dead elements, owns toggled mid-life honored, Extract-survives-list-destruction, FindInstanceOf skips class-name STRINGS + empty-arg rc2, 5-element dtor, PATH='' zero-fork lifecycle. Smoke-harness trap re-pinned: inside $() an instance func ECHOES RESULT — never `$(L.Get 0; echo $RESULT)`.",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 17/17 suites, 0 failed, 'All test suites passed.', 2842 tests (was 2821 at P0; +21 from tobjectlist 10->31), no [FAIL] lines. FLAKE NOTE: the first attempt hit the DOCUMENTED recurring tdirectory flake (024_GetLastAccessTimeUtc, 3rd sighting) — procedure followed: tdirectory alone 197/197, master re-run 17/17 clean. Not related to tobjectlist (separate suite/process; no existing file touched)."
+    },
+    {
+      "date": "2026-07-13",
+      "batch": "P2 — docs + closeout",
+      "summary": "Owner 'go P2'. Unit closed out: README.md (ownership-contract table per removal path, _free guard deltas-vs-FPC table, API, wontfix), docs/TObjectList.md (upstream contnrs.pp declaration + per-member mapping; documents the pre-existing TList-level Add-returns-COUNT delta vs FPC's Add-returns-index, and the class-NAME-identity basis of FindInstanceOf), TEST_COVERAGE_NOTES.md finalized (001/003 invented rows + 002 FPC-traceable citing each utcobjectlist.pp procedure). No bench per PLAN section 7 (one declare -F per removed element — nothing to measure). Final master sweep recorded below.",
+      "status_final": "tobjectlist COMPLETE (P0-P2). Suite 001-003 = 31/31 on 5.2.37 AND true 5.3.9. All deliverables present. UNCOMMITTED (commits gated). FINAL MASTER SWEEP (5.2.37, absolute path): 17/17 suites, 0 failed, 'All test suites passed.', 2842 tests, no [FAIL] lines -- clean on the first attempt."
+    }
+  ]
+}
