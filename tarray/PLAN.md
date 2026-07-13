@@ -113,8 +113,12 @@ the SAME comparator (garbage-in-garbage-out, like FPC; documented).
 
 ## 4. Parity & test model
 
-Seeds: FPC has no dedicated array-helper fpcunit file in rtl-generics/tests (checked at
-P0; if found — mined). Basis: implementation-source reading (line refs above) + hand
+Seeds: **an FPC array-helper fpcunit file WAS found at P0** —
+`packages/rtl-generics/tests/tests.generics.arrayhelper.pas` (BinarySearch/IndexOf/
+First/Last/Min/Max/Contains/Reverse, fixture `(1 3 5 7 9 11 13 15 20)`) — mined into
+`tests/00X_FpcParity.sh` as the parity oracle. It has NO Sort test, so sort parity =
+the sorted-invariant + hand matrices. Basis: that seed + implementation-source reading
+(line refs above, for the BinarySearch sign/candidate and Copy/Reverse/Concat detail) + hand
 matrices: sorted/reverse/random/all-equal/single/empty arrays; duplicates (stability
 proof for cmpFn mode with tagged elements); exotic elements ('', newline, glob, unicode,
 `-n` negatives/zeros/±2^62); range forms; binarySearch hit/miss/first/last/candidate

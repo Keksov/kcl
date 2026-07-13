@@ -3,7 +3,7 @@
   "project": "kcl/tarray — port of FPC rtl-generics TArrayHelper (Sort/BinarySearch/scan helpers) to bash (kklass static class over caller-named arrays)",
   "created": "2026-07-12",
   "updated": "2026-07-12",
-  "status": "PLANNED — plan + ledger only, no implementation yet. Roadmap position 3/7.",
+  "status": "COMPLETE (P0-P4) 2026-07-13, awaiting owner review, UNCOMMITTED (commits gated). Full TArrayHelper port over caller-named arrays: stable bottom-up mergesort (byte/-n/cmpFn modes, range form), FPC-verbatim binarySearch (RESULT/CANDIDATE/COMPARE), indexOf family, min/max, strict copy, temp-safe reverse, concat, compact. FPC fpcunit seed mined as the oracle (006). Suite 001-007 = 80/80 on 5.2.37 AND true 5.3.9; final master sweep 16/16 (see P4 log). Deliverables: tarray.sh, tests/001-007+tests.sh, README.md, docs/TArray.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, ledger. Roadmap 3/7 done; next unit tinifile; APPROVED side-task queued: TList/TStringList delegation to TArray (owner 2026-07-13). Phases: P0 (S1-S8 pins + LC_ALL=C + skeleton), P1 (sort 28), P2 (search 62), P3 (copy/reverse/concat 80), P4 (docs/bench).",
   "owner": "keksov",
   "roadmap": {
     "priority": 3,
@@ -45,7 +45,7 @@
     "Never regress the (re-measured) baseline."
   ],
   "test_basis": {
-    "seed_primary": "rtl-generics/tests checked for array-helper fpcunit coverage at P0 (mined if present). Primary basis: implementation-source reading (line refs in PLAN) + linear-scan oracles.",
+    "seed_primary": "FPC SEED FOUND at P0 (2026-07-12): packages/rtl-generics/tests/tests.generics.arrayhelper.pas — a dedicated fpcunit test for TArrayHelper (BinarySearch/IndexOf/First/Last/Min/Max/Contains/Reverse), fixture a=(1 3 5 7 9 11 13 15 20). It is the parity ORACLE, mined into tests/00X_FpcParity.sh. NB: it has NO Sort test -> sort parity = the sorted-invariant + hand matrices. Also present: tqsort_killer.pp (sort stress), tests.generics.bugs.pas. Secondary basis: impl-source reading (generics.collections.pas line refs in PLAN) for S2/S4/S6/S7 sign+bounds detail.",
     "parity_model": {
       "tier_A_exact": "Sorted output, search indices/candidates, scan indices, min/max picks, copy/reverse/concat contents — byte-for-byte vs source-pinned semantics and oracles."
     },
@@ -63,14 +63,14 @@
       "id": "P0",
       "name": "Semantics pin + design freeze + skeleton",
       "goal": "Read impl for the S2-S7 open pins; freeze comparator protocol, LC_ALL=C scoping idiom (probe both bashes!), density contract; skeleton + runner; baseline re-measure.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P0.1",
           "title": "Pin S2-S7 from generics.collections.pas impl (binarySearch tie/candidate, IndexOf==First?, Reverse-into-target, Min/Max ties+default, Copy bounds/self, Concat edges); record here",
           "category": "infra",
           "severity": "critical",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Every S-row in PLAN section 3 resolved with line refs; tests derive from these pins."
         },
         {
@@ -78,7 +78,7 @@
           "title": "LC_ALL=C scoping probe on BOTH bashes + comparator rc-protocol freeze + skeleton + runner + baseline re-measure",
           "category": "infra",
           "severity": "high",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Byte-order compare idiom proven identical on 5.2.37/5.3.9; skeleton sources green; baseline recorded."
         }
       ]
@@ -87,7 +87,7 @@
       "id": "P1",
       "name": "sort",
       "goal": "Bottom-up merge core; string/numeric/custom modes; range form; stability.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P1.1",
@@ -95,7 +95,7 @@
           "category": "feature",
           "severity": "critical",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "sorted/reverse/random/all-equal/single/empty x exotic elements green; stability proven with tagged duplicates; -n rejects non-integers atomically; range leaves outside untouched; zero-fork; dual-bash; sweep gate."
         }
       ]
@@ -104,7 +104,7 @@
       "id": "P2",
       "name": "binarySearch + scan family",
       "goal": "Search (both shapes) + indexOf family + contains + min/max.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P2.1",
@@ -112,7 +112,7 @@
           "category": "feature",
           "severity": "high",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Hit/miss/duplicate/boundary matrix vs linear oracle; sort+search closure (every element findable); empty-array contracts exact; dual-bash; sweep gate."
         }
       ]
@@ -121,7 +121,7 @@
       "id": "P3",
       "name": "copy / reverse / concat / compact",
       "goal": "Remaining helpers with source-pinned semantics.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P3.1",
@@ -129,7 +129,7 @@
           "category": "feature",
           "severity": "medium",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "S4/S6/S7 pins green; self-copy/self-concat edges; lossless exotic elements; dual-bash; sweep gate."
         }
       ]
@@ -138,14 +138,14 @@
       "id": "P4",
       "name": "Docs, bench, closeout",
       "goal": "README + docs/TArray.md + bench + coverage notes + final sweep.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P4.1",
           "title": "README.md (positioning vs external sort, comparator contract + worked example) + docs/TArray.md (upstream FPC reference per kcl docs convention)",
           "category": "docs",
           "severity": "medium",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Every public member + wontfix items documented with reasons."
         },
         {
@@ -153,7 +153,7 @@
           "title": "bench.sh (per-element cost n=100/1k/5k; default vs cmpFn; binarySearch; informational /usr/bin/sort comparison), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
           "category": "performance",
           "severity": "medium",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Numbers recorded here and in README; final master sweep green."
         }
       ]
@@ -164,6 +164,84 @@
       "date": "2026-07-12",
       "batch": "planning",
       "summary": "tarray PLAN.md + ledger written; folders created. No implementation. Key decisions recorded: bottom-up stable mergesort (vs FPC introsort — equal-order unspecified there, so stability is parity-compatible and stronger), comparator = plain function with rc 0/1/2 protocol (fork-free, dispatch-free), byte-order default under scoped LC_ALL=C, dense-array contract with explicit compact, TBinarySearchResult flattened to RESULT_* in one call."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P0 — semantics pin + design freeze + skeleton",
+      "summary": "Owner 'go tarray'. P0.1 + P0.2 done. FPC SEED FOUND (verified, not assumed — tregex lesson): tests.generics.arrayhelper.pas is the parity oracle. Read generics.collections.pas impl for the sign/bounds detail. LC_ALL=C idiom probed on BOTH bashes. Skeleton + runner + 001 smoke = 6/6 on 5.2.37 AND true 5.3.9.",
+      "pins": {
+        "S1_binsearch_empty": "found=false, FoundIndex=-1, CandidateIndex=-1, CompareResult=0 (impl :1231-1237; test Test_BinarySearch_EmptyArray).",
+        "S2_binsearch_loop": "Compare(AValues[mid], AItem) — ARRAY element FIRST. <0 go right, >=0 go left, =0 found. CandidateIndex = convergence imin; CompareResult = sign(array[candidate]-item); miss candidate = insertion point. Test fixture (1 3 5 7 9 11 13 15 20): search 10 -> candidate 5, found -1, compare>0 (array[5]=11>10); search 20 -> candidate 8, found 8, compare 0 (impl :1243-1292). cmpFn rc->sign map: {0:-1, 1:0, 2:+1}.",
+        "S3_indexof": "IndexOf == FirstIndexOf (first occurrence); LastIndexOf = last. impl :1371 (IndexOf delegates to FirstIndexOf); test: 9 in (1 3 5 7 9 11 13 9 20) -> first 4, last 7. Contains == IndexOf<>-1 (impl :1342).",
+        "S4_reverse": "builds into a TEMP buffer then assigns target, so src==dst (in-place) is SAFE; Reverse(a,b) leaves a untouched (impl :1324-1339; test does both Reverse(a,b) and Reverse(a,a)).",
+        "S5_minmax": "return the min/max VALUE (not index) or aDefault when empty; values so no tie ambiguity (test: 1/20; [] -> -1 default).",
+        "S6_copy": "same-array -> ERROR (SErrSameArrays); count<0 or > len(src)-srcIdx or > len(dst)-dstIdx -> ErrorArgumentOutOfRange; dst NOT auto-grown (impl :1301-1322). Copy(src,dst,count)=Copy(src,dst,0,0,count).",
+        "S7_concat": "TotalLen = sum of arg lengths; empty args skipped (CurLen>0 guard); all-empty -> empty (impl :1347-1369).",
+        "S8_sort_range": "range [AIndex .. AIndex+ACount-1] inclusive; ACount<=1 -> no-op (Exit); outside untouched (impl :1059-1065)."
+      },
+      "design_freeze": {
+        "lc_idiom": "byte order via `local LC_ALL=C` (NOT LC_COLLATE). Probed on 5.2.37 AND 5.3.9: `local LC_ALL=C` forces strcmp `[[ < ]]` (a<B FALSE, Z<a TRUE) regardless of the ambient locale, incl. ambient LC_ALL=en_US.UTF-8; `local LC_COLLATE=C` FAILS under ambient LC_ALL (LC_ALL wins). Var-assignment prefix `LC_ALL=C [[ ... ]]` is NOT usable ([[ is a keyword). So: `local LC_ALL=C` at the top of the compare/sort/search functions.",
+        "comparator": "cmpFn a b -> rc 0=a<b / 1=a==b / 2=a>b, fork-free (no $()); built-in string (LC_ALL=C [[ < ]]) and numeric (-n, (( )) 64-bit, shape ^-?[0-9]+$, 10# guard) modes INLINED.",
+        "algorithm": "bottom-up iterative STABLE mergesort; O(n) scratch local.",
+        "contract": "all members static proc (silent, call direct); RESULT / RESULT_CANDIDATE / RESULT_COMPARE; arrays by name (declare -n, __ta_ prefix, reject __ta_* caller names); dense indices; assoc arrays rejected rc=1."
+      },
+      "skeleton": "kcl/tarray/tarray.sh (guard + kklass_pascal + class TArray with 13 static-proc members + P0 stubs) + tests/tests.sh runner + tests/001_Skeleton.sh (source+build, 13 dispatch, direct-sets-RESULT+silent, $()-no-leak, RESULT_CANDIDATE/COMPARE shaped, PATH='' zero-fork). 6/6 on 5.2.37 AND true 5.3.9.",
+      "baseline_remeasured": "Master sweep on 5.2.37 GREEN: 16/16 suites, 0 failed, 'All test suites passed.', 2717 tests (was 15 suites/2711 pre-tarray; +6 from the tarray skeleton). tarray suite 6/6. No regression: only ADDS a suite; no existing unit or kklass file touched."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P1 — sort",
+      "summary": "Owner 'go P1'. TArray.sort implemented as bottom-up iterative STABLE mergesort. Suite 6 -> 28 (002 modes/range/edges/rejects, 003 stability/torture/zero-fork). 28/28 on 5.2.37 AND true 5.3.9. Sort has NO FPC seed test, so basis = the sorted-invariant + hand matrices + the stability definition.",
+      "implemented": {
+        "signature": "sort arr [cmp|-n] [start count]. arg after arr: '-n' -> numeric; a `declare -F` function name -> custom cmpFn; else it's `start` (default byte mode). start/count = the range form.",
+        "modes": "default = BYTE order via `local LC_ALL=C` set ONLY in str mode (num uses (( )), fn may want the ambient locale). numeric -n = 64-bit (( )) over a PARALLEL normalized-int key array (10# strips leading-zero octal trap; bare (( 08 )) is fatal), ORIGINAL element strings preserved (007 stays 007). cmpFn = rc 0=a<b/1=a==b/2=a>b, INLINED per §2.4 (case branch, no per-compare function call for the 2 built-ins; fn called directly).",
+        "algorithm": "bottom-up iterative mergesort, O(n) local scratch (__ta_buf/__ta_nbuf); STABLE (tie -> take LEFT run). Strictly stronger than FPC introsort (equal-order unspecified there) -> a documented bash-side guarantee.",
+        "range": "S8: [start, start+count-1]; count<=1 no-op; start clamped >=0, start>=n no-op, start+count clamped to n.",
+        "rejects": "associative array (${arr@a} has 'A') -> rc 1; non-integer element under -n -> rc 1 (array unchanged, no silent lexicographic fallback); missing array name -> rc 2."
+      },
+      "tests": "002 (byte-order incl. digit<upper<lower, numeric negatives/zeros/leading-zeros/64-bit, cmpFn bylen/revnum, range + clamp + count<=1, empty/single/all-equal/sorted/reversed, reject assoc/non-int/no-name); 003 (stability via tagged value:seq + byfirst, torture: newline/glob/space/empty/quotes/backticks/$()-looking/unicode/sentinel-as-data elements lossless byte-order, 200-element non-decreasing correctness, PATH='' zero-fork all 3 modes).",
+      "test_fix": "001 updated for sort-now-real: the 'all 13 dispatch rc0' + zero-fork-on-stub-sort assertions were sort-as-stub; changed to '12 pending members return sentinel' (sort excluded) and zero-fork now sorts a real array (3 1 2 -> 1 2 3).",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 16/16 suites, 0 failed, 'All test suites passed.', 2739 tests (was 2717 at P0; +22 from tarray 6->28). No regression: no existing unit or kklass file touched."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P2 — binarySearch + scan family",
+      "summary": "Owner 'go'. binarySearch + indexOf/firstIndexOf/lastIndexOf/contains + min/max implemented via shared _resolveCmp (-n/fn/byte) + _cmp3 (3-way sign, dynamic scope). Suite 28 -> 62 (004 binarySearch, 005 scan family, 006 FPC parity). 62/62 on 5.2.37 AND true 5.3.9. FPC ORACLE (006) confirms the port against tests.generics.arrayhelper.pas — 0-based, NO index adjustment (unlike tregex's 1-based Match.Index).",
+      "implemented": {
+        "_cmp3": "3-way compare -> __ta_sign -1/0/+1. str: LC_ALL=C [[ < ]]/[[ == ]] (caller sets local LC_ALL=C). num: 10#-guarded normalize (malformed -> 0, crash-free, documented precondition violation). fn: __ta_cmp rc {0:-1,1:0,2:+1}.",
+        "binarySearch": "FPC loop verbatim (:1243-1292): Compare(array[mid],item) ARRAY-first; RESULT=FoundIndex(-1 miss), RESULT_CANDIDATE=convergence imin, RESULT_COMPARE=last sign; empty/empty-range -> -1/-1/0 rc1. Optional [start count] range. Cross-checked: miss(10)->cand5/found-1/cmp>0, hit(20)->cand8/found8/cmp0, empty->-1/-1/0.",
+        "scan": "firstIndexOf (linear, first match), indexOf==firstIndexOf (S3), lastIndexOf (reverse linear), contains==firstIndexOf-rc, min/max (value or aDefault on empty, rc 0 found / 1 empty, tie->first). All accept [cmp]; min/max also [default].",
+        "modes_all": "every member: default byte (local LC_ALL=C), -n numeric, or a cmpFn name; original element strings preserved."
+      },
+      "tests": "004 (hit/miss-below/miss-above candidate+compare-sign, empty/single, byte/cmpFn modes, range form, sort+search closure, newline torture, no-name rc2); 005 (indexOf==first/last on dups, contains present/absent/empty, min/max value+default+preserve-strings+single+tie-first, byte/cmpFn modes, newline/unicode torture, PATH='' zero-fork); 006 FPC-traceable (Test_BinarySearch_Integers/EmptyArray, IndexOf/First/Last, Min/Max, Contains — verbatim fixtures + expected values).",
+      "test_fix": "001 updated for P2-now-real: pending-stub list trimmed to the 5 P3 members (copy/reverse/reverseInPlace/concat/compact); the direct-RESULT contract test switched from now-real min to the copy stub. 005 rc-capture order fixed (r=$? BEFORE d=$RESULT — an assignment resets $?).",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 16/16 suites, 0 failed, 'All test suites passed.', 2773 tests (was 2739 at P1; +34 from tarray 28->62). No regression: no existing unit or kklass file touched."
+    },
+    {
+      "date": "2026-07-12",
+      "batch": "P3 — copy / reverse / concat / compact",
+      "summary": "Owner 'go'. Remaining helpers implemented; all 13 members now real. Suite 62 -> 80 (007 + 006 Test_Reverse). 80/80 on 5.2.37 AND true 5.3.9.",
+      "implemented": {
+        "reverse": "reverse src dst -> dst=reversed src via a TEMP buffer, so src==dst (in-place) is SAFE (S4, impl :1324-1339); src untouched when distinct. rc 0/2.",
+        "reverseInPlace": "bash extra = reverse arr arr.",
+        "copy": "copy src dst [srcIdx dstIdx] count (3 or 5 args). S6 (impl :1301-1322): same NAME -> rc 2 (SErrSameArrays); count<0 or > len(src)-srcIdx or > len(dst)-dstIdx -> rc 2; dst NOT auto-grown (STRICT — the P0-flagged decision resolved FPC-faithful; a caller pre-sizes dst). count 0 -> no-op rc 0.",
+        "concat": "concat dst src1 [src2 ...] (array NAMES). Empty sources skipped (S7, impl :1347-1369); built in a temp so dst may be a source. rc 0/2.",
+        "compact": "bash extra: arr=(\"${arr[@]}\") re-indexes sparse->dense, order kept (the ONE place holes drop, §2.1).",
+        "note": "these are pure mutators — they set NO RESULT; call directly ($() discards array writes). Reserved names: __ta_src/__ta_dst/__ta_tmp/__ta_cur/__ta_arr."
+      },
+      "tests": "007 (reverse into-target + in-place + empty/single + rc2; copy count/indexed forms + same-array rc2 + dst-too-small-not-grown rc2 + count>src/negative rc2 + count-0 no-op; concat multi + skip-empty + dst-is-src + all-empty + no-name rc2; compact sparse->dense; torture reverse/concat lossless; PATH='' zero-fork); 006 extended with FPC Test_Reverse (into-target + in-place, source-safe).",
+      "design_note": "S6 copy resolved STRICT (dst not auto-grown) per the P0 flag — FPC-faithful, avoids silently creating sparse/partial arrays; documented in README/docs.",
+      "test_fix": "001 updated for all-real: 'pending stubs' replaced by 'representative members real (sort/min/reverse behave)'; direct-RESULT contract test switched from the copy stub to real min (a value-returner).",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 16/16 suites, 0 failed, 'All test suites passed.', 2791 tests (was 2773 at P2; +18 from tarray 62->80). No regression: no existing unit or kklass file touched."
+    },
+    {
+      "date": "2026-07-13",
+      "batch": "P4 -- docs, bench, closeout",
+      "summary": "Owner 'go P4' (after a consultative detour: TArray-vs-TList difference + can-TArray-be-a-base-class -> NO inheritance (kklass static has no instance semantics; FPC itself composes: generics.collections :2151-2168 TList<T>.Sort = one-line TArrayHelper.Sort(FItems,cmp,0,Count)); owner approved a SEPARATE follow-up task: TList/TStringList delegation to TArray). Unit closed out: README.md (contract, API, comparator worked example, measured positioning vs /usr/bin/sort, FPC-parity note), docs/TArray.md (upstream per-member reference + wontfix reasons), bench.sh (dog-foods TStopwatch.getTimeStamp per the house bench-clock convention). TEST_COVERAGE_NOTES finalized.",
+      "bench": "bash bench.sh on MSYS2 both bashes (5.2.37 / 5.3.9): sort n=100 ~220/175 us/elem (22/17 ms total), n=1000 ~283/280 us/elem, n=5000 ~373/370 us/elem (1.9 s); mode delta at n=1000: byte 294/288, -n 372/346, cmpFn 395/371 us/elem; binarySearch on n=5000 ~0.83/1.33 ms/search vs indexOf full-scan miss ~288/479 ms (~350x); reverse ~7-11 us/elem, concat ~2-3 us/elem; INFORMATIONAL one printf|sort fork+pipe n=1000 ~45/57 ms. POSITIONING: below ~300-500 elements TArray.sort BEATS forking sort (22 vs 45 ms at n=100); at thousands the external tool wins raw speed (50 ms vs 1.9 s at n=5000) IF elements are newline-free; TArray's wins = zero forks, lossless arbitrary strings, stability+cmpFn, binarySearch, FPC API. zero-fork check GREEN on all 13 members, both bashes.",
+      "bench_note": "bench.sh is NOT run by the master sweep (tests/tests.sh discovers only tests/tests.sh); validated by running on both bashes -- numbers sane + zero-fork green.",
+      "status_final": "tarray COMPLETE (P0-P4). Suite 001-007 = 80/80 on 5.2.37 AND true 5.3.9. Deliverables all present. UNCOMMITTED (commits gated). FINAL MASTER SWEEP (5.2.37, absolute path): 16/16 suites, 0 failed, 'All test suites passed.', 2791 tests -- clean.",
+      "followup_approved": "TList/TStringList -> TArray delegation (owner 'Да' 2026-07-13): wire TList.Sort/CustomSort/Find stubs + TStringList.Sort bubble to TArray.sort/binarySearch '${__inst__}_items' cmp 0 $count (FPC composition pattern); needs the RESULT-vs-rc comparator shim + case_sensitive-via-cmpFn (NOT byte default); own task + sweep gate (touches tlist 92 + tstringlist 155 tests)."
     }
   ]
 }
