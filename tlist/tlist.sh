@@ -355,8 +355,12 @@ TList.Remove() {
 }
 
 TList.Sort() {
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Sort method not implemented in TList - use in subclasses" >&2
-    return 1
+    # Bash convenience (NOT in FPC Classes.TList — that sorts pointers and always
+    # needs a comparator): a raw TList holds STRINGS, so the parameterless Sort
+    # does a default BYTE-order sort of [0,count) via TArray.sort, symmetric with
+    # TArray.sort's own no-argument default. For another order use CustomSort;
+    # TStringList overrides this with its case-fold Sort.
+    TArray.sort "${__inst__}_items" 0 "$count"
 }
 
 TList.CustomSort() {

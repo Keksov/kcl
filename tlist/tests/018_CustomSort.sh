@@ -14,12 +14,28 @@ source "$SCRIPT_DIR/../tlist.sh"
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
-kt_test_section "018: TList.CustomSort (delegates to TArray.sort)"
+kt_test_section "018: TList.Sort / CustomSort (delegate to TArray.sort)"
 
 bylen(){ (( ${#1} < ${#2} )) && return 0; (( ${#1} == ${#2} )) && return 1; return 2; }
 bybyte(){ local a="$1" b="$2"; local LC_ALL=C; [[ "$a" < "$b" ]] && return 0; [[ "$a" == "$b" ]] && return 1; return 2; }
 items_of(){ local -n __a="${1}_items"; echo "${__a[*]}"; }
 item_at(){ local -n __a="${1}_items"; echo "${__a[$2]}"; }
+
+# --- TList.Sort (no-arg) = default BYTE-order sort (bash convenience; NOT in
+#     FPC Classes.TList — a raw TList holds strings, so byte order is natural,
+#     symmetric with TArray.sort's no-arg default). TStringList overrides it.
+kt_test_start "TList.Sort (no-arg) sorts byte-order (upper<lower)"
+TList.new L; for x in banana Apple cherry Banana; do L.Add "$x"; done
+L.Sort
+[[ "$(items_of L)" == "Apple Banana banana cherry" ]] && kt_test_pass "$(items_of L)" || kt_test_fail "got $(items_of L)"
+L.delete
+
+kt_test_start "TList.Sort (no-arg): empty rc0, single intact"
+TList.new E; E.Sort; re=$?
+TList.new S; S.Add "only"; S.Sort
+[[ $re -eq 0 && "$(E.count)" == "0" && "$(items_of S)" == "only" ]] \
+    && kt_test_pass "empty rc0, single intact" || kt_test_fail "re=$re E=$(E.count) S=[$(items_of S)]"
+E.delete; S.delete
 
 # --- sort by a custom comparator (length) ---
 kt_test_start "CustomSort by length"
