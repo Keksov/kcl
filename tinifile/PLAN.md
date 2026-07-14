@@ -51,8 +51,9 @@ be pure dispatch tax; the mapping is documented in docs/TIniFile.md.
 3. **ReadBinaryStream/WriteBinaryStream** — TStream + NUL bytes, impossible in bash.
 4. **SectionList object model** (TIniFileSection/TIniFileKeyList classes) — internal
    representation, replaced by §2.2 storage.
-5. **ifoEscapeLineFeeds** (`\`-continuation) — **decide at P0** after reading the FPC
-   reader: if it is a simple join-on-read, port it; if it entangles the writer, wontfix v1.
+5. **ifoEscapeLineFeeds** — RESOLVED AT P0: it is a simple READ-side join
+   (RemoveBackslashes :1039 merges `\`-terminated lines before parsing; the
+   writer emits the joined form) → **PORTED**.
 6. **NUL bytes** in anything (bash limit).
 
 ---
@@ -69,18 +70,26 @@ around idents, values containing `=`, `[` in section names, inline comments (FPC
 `;` only at line start? verify), quoted values + ifoStripQuotes, ifoStripInvalid. Each
 answer becomes a table row here and a test.
 
-### 2.2 Storage (per instance)
-- `${inst}_kv` (assoc): value store, key = `"${secKey}"$'\x1f'"${idKey}"` where secKey/idKey
-  are the **lookup-normalized** names (§2.3). `\x1f` (US) cannot legally appear in a
-  section/ident (validated at every public entry: rc=1; documented — the only reserved character;
-  values may contain anything except NUL/newline-semantics pinned at P0).
-- `${inst}_secorder` (indexed): section names in first-appearance order (original case).
-- `${inst}_keyorder` (assoc): per-section `\x1f`-joined ident list in first-appearance
-  order (original case) — UpdateFile round-trip preserves section/key ORDER exactly.
-- Comment/blank-line preservation: storage extension decided at P0 (§2.1) — if FPC
-  preserves them, a per-section raw-prefix-lines assoc keeps ours byte-compatible;
-  otherwise documented divergence.
-Subscripts are never empty (`\x1f` inside) → no k-prefix needed; pinned by torture test.
+### 2.2 Storage (per instance) — REVISED AT P0: the FPC section-list, verbatim
+The originally-planned assoc `kv["sec\x1fid"]` model CANNOT represent S3
+(duplicate sections/keys both stored, first-wins, all emitted) — so P0 froze a
+direct mirror of FPC's TIniFileSectionList instead, as parallel SPARSE indexed
+arrays with linear scans (FPC itself scans linearly — KeyByName/SectionByName
+are for-loops; config-file scale, and the P4 bench arbitrates if it ever hurts):
+- `${inst}_secnames` (indexed, sparse): one slot per section IN ORDER — a slot
+  may hold a comment-section (text starts `;`) or the empty name (`[]`).
+- `${inst}_kident` / `${inst}_kvalue` / `${inst}_kowner` (indexed, sparse,
+  parallel): one row per key IN ORDER — comment-keys (ident `;…`, value ''),
+  invalid rows (ident '', value = raw line), normal keys; kowner = owning
+  section SLOT.
+- Deletion = `unset` the slot/row (sparse holes; iteration via `${!arr[@]}`
+  preserves order; no renumbering, no compaction at config scale).
+- Duplicates, order fidelity, comment preservation and the `[]`-section all
+  come FREE — byte-compatible UpdateFile output by construction.
+- The `\x1f` reserved-character constraint is GONE (no composite keys).
+- Case: lookups compare normalized (`${x,,}`) unless ifoCaseSensitive; slots
+  store ORIGINAL first-appearance case; WriteString updates the first match
+  in place (stored ident case unchanged) — exactly FPC.
 
 ### 2.3 Case sensitivity — FPC default is case-INSENSITIVE
 Lookups normalize section+ident with `${var,,}` unless `ifoCaseSensitive` (write-back
@@ -109,33 +118,45 @@ regex pinned at P0) and passes the LITERAL through — byte-lossless, zero float
 Callers doing arithmetic use kcl/math. Divergence documented (FPC would canonicalize
 "1.50" → "1.5"; we don't). Same philosophy as tdictionary API v2: no parity theater.
 
-### 2.7 Error convention
-INI Read* NEVER fails (default-based). Failures are structural only: bad instance/args,
-`\x1f` in names, unwritable target on UpdateFile/eager Write (rc=1 + debug msg;
-TIniFile eager-write failure semantics pinned at P0 — FPC raises EInOutError; we rc=1
-and KEEP the memory state, documented).
+### 2.7 Error convention + write-path validation (P0-frozen)
+INI Read* NEVER fails (default-based). Failures are structural only: bad
+instance/args and unwritable target on UpdateFile/eager Write (rc=1 + debug
+msg; FPC raises EInOutError; we rc=1 and KEEP the memory state, documented).
+**Validation hardening (documented divergence — fail-fast over silent
+corruption):** WriteString and friends reject with rc=1 what FPC would write
+and then MISREAD after reload: empty Section/Ident (FPC silently no-ops — we
+add the debug message), Ident containing `=` or starting with `;`, Section
+starting with `;`, and CR/LF anywhere in Section/Ident/Value (line-based
+format). FPC happily corrupts in all these cases; round-trip integrity is this
+unit's core promise, so we refuse instead. Values may otherwise contain
+anything (`=`, `;`, quotes, `[`, unicode, spaces — all pinned by S8/S12).
 
-## 3. Pinned semantics (P0 fills the answers)
+## 3. Pinned semantics — ANSWERED at P0 (2026-07-13, from inifiles.pp source)
 
-| # | Question | FPC source anchor |
+| # | Answer | Anchor |
 |---|---|---|
-| S1 | Missing file at Create → empty ini, no error? | TIniFile.Create/ReadIniValues |
-| S2 | Comments/blank lines: preserved through load→UpdateFile? Where may `;` start? | FillSectionList/UpdateFile |
-| S3 | Duplicate sections / duplicate keys — merge/first/last wins? | FillSectionList |
-| S4 | Keys before any `[section]`; empty section name `[]`; `]` in section | FillSectionList |
-| S5 | ReadInteger accepts `$FF`/`0x`/spaces? (StrToIntDef reality) | TCustomIniFile.ReadInteger |
-| S6 | ReadBool truth rule (`'1'` only? BoolTrueStrings? first char?) + WriteBool output | :285–288 + ReadBool/WriteBool |
-| S7 | DeleteKey/EraseSection on missing → silent? dirty-flag set? | impl |
-| S8 | Whitespace: around `=`, leading/trailing in ident and value; quoted values | FillSectionList + ifoStripQuotes |
-| S9 | UpdateFile creates missing directories? (SErrCouldNotCreatePath :277) | UpdateFile |
-| S10 | TIniFile eager-write: flush per Write* or on Destroy too? CacheUpdates flip mid-life? | SetCacheUpdates/MaybeUpdateFile |
-| S11 | TMemIniFile.Rename(Reload=true/false) exact behavior | Rename |
-| S12 | Values containing `=`, `;`, leading `[` — parse rules | FillSectionList |
+| S1 | Missing file → EMPTY ini, no error (`FileExists` guard). | ReadIniValues :1411 |
+| S2 | Comment = line whose FIRST char after Trim is `;` (leading spaces then `;` IS a comment; no inline comments — `;` after a value is part of the value). PRESERVED: before any section → a comment-SECTION (Name=the line); inside a section → a comment-KEY (Ident=line, Value=''); stripped only under ifoStripComments. **Blank lines are DROPPED on load**; UpdateFile inserts ONE blank line between sections (not after comment-sections). | IsComment :298, FillSectionList :1076/:1094, UpdateFile :1373 |
+| S3 | Duplicates BOTH stored (sections and keys); every lookup is a linear scan, **FIRST wins** (Break); WriteString updates the FIRST match; UpdateFile emits ALL copies. | SectionByName/KeyByName (Break), FillSectionList |
+| S4 | Non-comment key lines BEFORE any `[section]` are **silently DROPPED**. `[]` → section with Name='' — stored, rewritten as `[]`, listed by ReadSections as '' — but **NOT addressable** (SectionByName/KeyByName guard `AName>'' and not IsComment`). `]` inside a name is fine: `[a]b]` → name `a]b` (only first `[` / last char `]` matter, after Trim). | FillSectionList :1086, guards :460/:536 |
+| S5 | ReadInteger/Int64 = StrToIntDef via val(): optional sign + decimal \| `$`hex \| `0x/0X`hex \| `&`octal \| `%`binary; anything else → Default. Whitespace inside → invalid (line already trimmed by parser). | :690–707 + val() |
+| S6 | ReadBool cascade: (1) if BoolTrue/FalseStrings set → exact-match lists (SameText), no match → Default; (2) elif ifoWriteStringBoolean (=ifoStringBoolean, alias :272) → SameText 'true'/'false', else Default; (3) else `first char == '1'`. Empty value → Default. WriteBool: option → BoolTrueStrings[0]//'true' / BoolFalseStrings[0]//'false'; else '1'/'0'. | :720–772, CharToBool :285 |
+| S7 | DeleteKey: silent when section/key missing; flush(Maybe) ONLY when actually deleted. EraseSection: silent when missing; found → whole section object removed (its comment-keys die with it) + MaybeUpdateFile. | :1318–1347 |
+| S8 | Every LINE is Trim'd first; ident = Trim(before FIRST `=`), value = Trim(after). Quotes are STORED verbatim; stripped only at READ (ReadString/ReadSectionValues) when StripQuotes: matching `"…"`/`'…'`, len>1. **TIniFile.Create AUTO-ADDS ifoStripQuotes; TMemIniFile does NOT** (`if not (self is TMemIniFile)` :969). WriteString never quotes. | FillSectionList :1114, ReadString :1136, Create :967 |
+| S9 | UpdateFile: ForceDirectories(dir of FileName) — **CREATES missing directories**; failure → EInOutError (bash: rc=1, memory kept). After write it RE-PARSES the composed lines and clears Dirty. | :1377–1391 |
+| S10 | MaybeUpdateFile: CacheUpdates ? Dirty:=true : UpdateFile. TIniFile: CacheUpdates=false → EVERY Write*/Delete(hit)/Erase(hit) flushes. TMemIniFile ctor: CacheUpdates=true. SetCacheUpdates(false) while dirty → flush. **Destroy: flushes when Dirty AND CacheUpdates, exceptions eaten** (D7 compat, bug 19046). | :1151, :1397, :1447, Destroy :1024 |
+| S11 | Rename(AFileName, Reload): FFileName:=new, FStream:=nil; Reload → ReadIniValues from the NEW file (missing → empty); no write happens. | :1494 |
+| S12 | Value = everything after the FIRST `=` (trimmed): may contain `=`, `;`, `[`, quotes. Line with NO `=` inside a section → "invalid" key: Ident='', Value=line — kept unless ifoStripInvalid; ReadSection lists it as '' (IsComment('')=false); ReadSectionValues includes it by default (svoIncludeInvalid). | FillSectionList :1104–1116, ReadSection :1211 |
+
+**Extra pins (beyond the S-table):** WriteString guard: empty Section OR empty Ident → NO-OP (FPC :1179; we add rc=1+debug). ifoEscapeLineFeeds = READ-side only (RemoveBackslashes joins `\`-terminated lines BEFORE parsing; UpdateFile writes the JOINED form) → **PORTED** (simple join loop; §1.5 resolved). ReadSectionValues option-quirks: comments included if svoIncludeComments OR ifoStripComments; invalid if svoIncludeInvalid (default) OR ifoStripInvalid. GetStrings ≠ UpdateFile by one detail: blank line after EVERY section incl. comment-sections. SetStrings/Clear do NOT touch Dirty. UpdateFile writes `Ident=Value` with NO spaces and the section header `[Name]`; comment-sections/keys emit their text verbatim. FormatSettings defaults (DecimalSeparator '.') pinned :605–615 — relevant only as documentation (floats are string-preserving here).
 
 ## 4. Parity & test model
 
-Seeds: FPC fcl-base tests checked at P0 (`packages/fcl-base/tests/` — tcinifile if
-present, mined). Primary basis: S1–S12 source pins + round-trip properties:
+Seeds: **FOUND at P0** — `packages/fcl-base/tests/utcinifile.pp` (fpcunit; small:
+2 dense Bool tests = 16 assertions over WriteBool/ReadBool incl. BoolStrings +
+ifoWriteStringBoolean, on a TMemIniFile) — mined verbatim at P3 (typed
+accessors); everything else has NO FPC test. Primary basis: S1–S12 source pins
++ round-trip properties:
 load→UpdateFile idempotence (byte-compare where FPC-compatible), write→read closure for
 every typed accessor, order preservation proof, case-insensitivity matrix, CRLF/BOM/
 no-final-newline inputs, torture values (spaces, `=`, `;`, quotes, globs, unicode,

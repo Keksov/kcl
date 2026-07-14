@@ -3,19 +3,46 @@
   "project": "kcl/tinifile — port of FPC fcl-base TIniFile/TMemIniFile to bash (kklass instantiable classes, TMemIniFile : TIniFile)",
   "created": "2026-07-12",
   "updated": "2026-07-12",
-  "status": "PLANNED — plan + ledger only, no implementation yet. Roadmap position 4/7.",
+  "status": "COMPLETE (P0-P4) 2026-07-14, awaiting owner review, UNCOMMITTED (commits gated). TIniFile (eager) + TMemIniFile:TIniFile (cached) port of fcl-base inifiles.pp. Format spec = the FPC reader (S1-S12 pinned from FillSectionList). Storage = FPC section-list mirror in sparse parallel arrays (duplicates/order/comments/[] preserved). Full surface: load/read core (ReadString+StripQuotes, SectionExists/ValueExists, ReadSection(s)/Values/Raw), write core (WriteString first-match, DeleteKey/EraseSection, UpdateFile compose+tmp+mv+ForceDirectories, eager-vs-cached split + destroy-flush, Clear/GetStrings/SetStrings/Rename), typed accessors (Integer val()-grammar, Bool cascade, Float string-preserving, SetBoolStringValues). Suite 001-005 = 84/84 on 5.2.37 AND true 5.3.9 incl. all 16 FPC utcinifile.pp Bool assertions verbatim + UTF-8 disk round-trip. Deliverables: tinifile.sh, tests/001-005+tests.sh, README.md, docs/TIniFile.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, ledger. Final master sweep 18/18 (recorded in the P4 log). Roadmap 4/7 done.",
   "owner": "keksov",
   "roadmap": {
     "priority": 4,
     "of": 7,
-    "order": ["tstopwatch", "tregex", "tarray", "tinifile", "tqueuestack", "thashset", "fpjson"]
+    "order": [
+      "tstopwatch",
+      "tregex",
+      "tarray",
+      "tinifile",
+      "tqueuestack",
+      "thashset",
+      "fpjson"
+    ]
   },
   "notes": "Single source of truth for tinifile status. Plan: kcl/tinifile/PLAN.md. Source: packages/fcl-base/src/inifiles.pp (TCustomIniFile :159-218 folded into bash TIniFile; TIniFile :222-259 = eager persist, CacheUpdates=false; TMemIniFile :261-269 = cached until UpdateFile; TIniFileOption :143-152; format constants :279-283). INI'S SPEC IS THE FPC READER — P0 pins every format rule (S1-S12) from FillSectionList/UpdateFile before any code. Line-oriented format -> perfect bash fit: fork-free while-read parse, assoc storage, default-based Read* API (missing key -> caller default, rc=0 always). Entirely Tier A. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated.",
   "conventions": {
-    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
-    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
-    "severity_values": ["critical", "high", "medium", "low"],
-    "tier_values": ["A-pure-bash-exact"]
+    "status_values": [
+      "todo",
+      "in_progress",
+      "blocked",
+      "done",
+      "wontfix"
+    ],
+    "category_values": [
+      "feature",
+      "infra",
+      "test-coverage",
+      "docs",
+      "performance"
+    ],
+    "severity_values": [
+      "critical",
+      "high",
+      "medium",
+      "low"
+    ],
+    "tier_values": [
+      "A-pure-bash-exact"
+    ]
   },
   "baseline": {
     "measured": "2026-07-12 — at roadmap planning time (post-tdictionary). RE-MEASURE at P0: roadmap units 1-3 will have raised the totals.",
@@ -32,7 +59,7 @@
   },
   "design_decisions": {
     "class_split": "Mirrors FPC exactly: both classes memory-backed; TIniFile flushes per Write* (CacheUpdates=false), TMemIniFile : TIniFile caches until UpdateFile. TCustomIniFile abstract base FOLDED into TIniFile (an abstract bash class is pure dispatch tax; mapping documented in docs).",
-    "storage": "${inst}_kv assoc keyed \"secKey\\x1fidKey\" (lookup-normalized names); ${inst}_secorder indexed (sections, first-appearance order, original case); ${inst}_keyorder assoc (per-section \\x1f-joined ident list) -> UpdateFile preserves section/key ORDER exactly. \\x1f (US) is the single reserved char in section/ident names (validated rc=1 at every public entry). Subscripts never empty by construction (no k-prefix needed — pinned by torture test). Comment/blank-line preservation model decided at P0 from FPC reader behavior.",
+    "storage": "REVISED AT P0 (the planned kv[sec\u001fid] assoc cannot represent S3 duplicates): FPC section-list mirrored into sparse parallel indexed arrays — ${inst}_secnames (slot->name, incl. comment-sections and the []-empty name) + ${inst}_kident/kvalue/kowner (row->ident/value/owning slot; comment-keys ident=';…', invalid rows ident=''). Deletion=unset (order-preserving holes, iteration via ${!arr[@]}). Linear first-wins scans exactly like FPC's ByName loops. Duplicates/order/comments/[] come free; \u001f reservation DROPPED (no composite keys).",
     "case_rule": "FPC default = case-INSENSITIVE lookups; ${var,,} normalization for the kv key, original first-appearance case kept for write-back; ifoCaseSensitive flips. Beyond-ASCII lowercasing is locale-dependent (documented). Exact FPC rewrite-case rule pinned at P0.",
     "file_io": "Read: while IFS= read -r || [[ -n $line ]]; strip one trailing \\r per line (CRLF tolerance); strip UTF-8 BOM on first line. Write: compose in memory -> printf to tmp in SAME dir -> mv over target (mv = the only fork, UpdateFile-only). LF written (CRLF not preserved — divergence row if FPC differs).",
     "float_policy": "ReadFloat/WriteFloat are STRING-PRESERVING: shape-validated, byte-lossless passthrough; NO float engine dependency (kcl/math is the arithmetic tool). Documented divergence: FPC canonicalizes through Double, we do not. Same no-parity-theater philosophy as tdictionary API v2.",
@@ -47,42 +74,66 @@
     "Never regress the (re-measured) baseline."
   ],
   "test_basis": {
-    "seed_primary": "packages/fcl-base/tests checked for inifile fpcunit coverage at P0 (mined if present). Primary basis: S1-S12 source pins + round-trip/closure properties.",
+    "seed_primary": "FOUND at P0: packages/fcl-base/tests/utcinifile.pp — TestWriteBoolean+TestReadBoolean (16 assertions over the Bool cascade incl. BoolStrings + ifoWriteStringBoolean, on TMemIniFile) — mined verbatim at P3. Everything else has NO FPC test; basis = S1-S12 source pins + round-trip/closure properties.",
     "parity_model": {
       "tier_A_exact": "Parse results, typed conversions (S5/S6 rules), order preservation, persistence timing (eager vs cached), silent-miss semantics — byte-for-byte vs source-pinned behavior."
     },
     "new_coverage_protocol": "Non-FPC cases (CRLF/BOM/no-final-NL torture, \\x1f rejects, zero-fork, string-preserving floats) -> TEST_COVERAGE_NOTES.md rows."
   },
   "out_of_scope": [
-    { "item": "TEncoding machinery, BOM writing, WriteBOM, non-UTF8 encodings", "status": "wontfix", "reason": "bash strings are bytes; UTF-8 BOM tolerated+stripped on read, never written. Documented." },
-    { "item": "ReadDate/ReadDateTime/ReadTime/WriteDate family + FormatSettings + ifoFormatSettingsActive", "status": "wontfix", "reason": "Locale-datetime machinery out of v1; a dateutils bridge is a possible later extra (noted, not promised)." },
-    { "item": "ReadBinaryStream/WriteBinaryStream", "status": "wontfix", "reason": "TStream + NUL bytes — impossible in bash strings." },
-    { "item": "TIniFileSection/TIniFileKeyList object model", "status": "wontfix", "reason": "Internal representation; replaced by kv+order storage (design_decisions.storage)." },
-    { "item": "ifoEscapeLineFeeds line continuation", "status": "todo", "reason": "P0 DECISION: port if it is a simple join-on-read in FPC; wontfix v1 if it entangles the writer. Resolved at P0.1." },
-    { "item": "NUL bytes anywhere", "status": "wontfix", "reason": "bash language limit." }
+    {
+      "item": "TEncoding machinery, BOM writing, WriteBOM, non-UTF8 encodings",
+      "status": "wontfix",
+      "reason": "bash strings are bytes; UTF-8 BOM tolerated+stripped on read, never written. Documented."
+    },
+    {
+      "item": "ReadDate/ReadDateTime/ReadTime/WriteDate family + FormatSettings + ifoFormatSettingsActive",
+      "status": "wontfix",
+      "reason": "Locale-datetime machinery out of v1; a dateutils bridge is a possible later extra (noted, not promised)."
+    },
+    {
+      "item": "ReadBinaryStream/WriteBinaryStream",
+      "status": "wontfix",
+      "reason": "TStream + NUL bytes — impossible in bash strings."
+    },
+    {
+      "item": "TIniFileSection/TIniFileKeyList object model",
+      "status": "wontfix",
+      "reason": "Internal representation; replaced by kv+order storage (design_decisions.storage)."
+    },
+    {
+      "item": "ifoEscapeLineFeeds line continuation",
+      "status": "done",
+      "reason": "RESOLVED AT P0: it is a simple READ-side join (RemoveBackslashes :1039) -> PORTED in P1 (_fill forward-accumulator; trailing backslash on the last line stays, as FPC)."
+    },
+    {
+      "item": "NUL bytes anywhere",
+      "status": "wontfix",
+      "reason": "bash language limit."
+    }
   ],
   "phases": [
     {
       "id": "P0",
       "name": "Reader-semantics pinning + storage freeze + skeleton",
       "goal": "Fill the S1-S12 table from inifiles.pp impl; freeze storage incl. comment model; ctor token grammar; skeleton + runner; baseline re-measure.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P0.1",
           "title": "Read FillSectionList/UpdateFile/typed accessors; resolve S1-S12 + ifoEscapeLineFeeds decision + comment-preservation model; record answers here with line refs",
           "category": "infra",
           "severity": "critical",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Every S-row resolved; storage model final; fcl-base tests checked for mineable seeds."
         },
         {
           "id": "P0.2",
-          "title": "Skeleton (both classes, ctor tokens, fields) + storage torture (exotic names/values, \\x1f rejects, never-empty subscripts) + runner + baseline re-measure",
+          "title": "Skeleton (both classes, ctor tokens, fields) + storage init/teardown + runner + baseline re-measure (the \\x1f-torture item died with the storage revision — no composite keys anymore)",
           "category": "infra",
           "severity": "high",
-          "status": "todo",
-          "acceptance": "source tinifile.sh green on both bashes; torture green; baseline recorded."
+          "status": "done",
+          "acceptance": "source tinifile.sh green on both bashes; skeleton suite green; baseline recorded."
         }
       ]
     },
@@ -90,7 +141,7 @@
       "id": "P1",
       "name": "Load + read core",
       "goal": "Parse (CRLF/BOM/no-final-NL) + ReadString/SectionExists/ValueExists/ReadSection(s)/ReadSectionValues.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P1.1",
@@ -98,7 +149,7 @@
           "category": "feature",
           "severity": "critical",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Fixture files (incl. CRLF, BOM, no-final-NL, comments, duplicates, whitespace torture) parse to pinned results; empty-value-vs-absent distinction proven; dual-bash; sweep gate."
         }
       ]
@@ -107,7 +158,7 @@
       "id": "P2",
       "name": "Write core + persistence split",
       "goal": "WriteString/DeleteKey/EraseSection/UpdateFile + eager-vs-cached + TMemIniFile extras.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P2.1",
@@ -115,7 +166,7 @@
           "category": "feature",
           "severity": "critical",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Round-trip idempotence; order preservation proof; eager/cached split proven via file content between ops; Rename matrix (S11); silent-miss deletes (S7); dual-bash; sweep gate."
         }
       ]
@@ -124,7 +175,7 @@
       "id": "P3",
       "name": "Typed accessors + options",
       "goal": "Integer/Int64/Bool/Float + options subset.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P3.1",
@@ -132,7 +183,7 @@
           "category": "feature",
           "severity": "high",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Typed write->read closure; malformed-value -> default (never error); option matrix green; dual-bash; sweep gate."
         }
       ]
@@ -141,14 +192,14 @@
       "id": "P4",
       "name": "Docs, bench, closeout",
       "goal": "README + docs/TIniFile.md + bench + coverage notes + final sweep.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P4.1",
           "title": "README.md (bash API, THE PINNED FORMAT RULES, divergences) + docs/TIniFile.md (upstream FPC reference per kcl docs convention, TCustomIniFile->TIniFile->TMemIniFile chain)",
           "category": "docs",
           "severity": "medium",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Every public member + wontfix documented; format rules published as the contract."
         },
         {
@@ -156,7 +207,7 @@
           "title": "bench.sh (load 1k keys, ReadString/WriteString hot, UpdateFile cost), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
           "category": "performance",
           "severity": "medium",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Numbers recorded; final master sweep green."
         }
       ]
@@ -167,6 +218,57 @@
       "date": "2026-07-12",
       "batch": "planning",
       "summary": "tinifile PLAN.md + ledger written; folders created. No implementation. Key decisions recorded: FPC reader IS the format spec (S1-S12 pin table drives P0); TCustomIniFile folded, TIniFile eager / TMemIniFile cached split kept verbatim; \\x1f-composite kv storage + explicit order arrays for round-trip fidelity; case-insensitive default with original-case write-back; string-preserving floats (no parity theater); tmp+mv single-fork writes."
+    },
+    {
+      "date": "2026-07-13",
+      "batch": "P0 — reader-semantics pinning + storage freeze + skeleton",
+      "summary": "Owner 'go tinifile'. Read inifiles.pp end to end (FillSectionList :1033, UpdateFile :1349, ReadIniValues :1405, typed accessors :690-802, TMemIniFile :1445-1507, Create chain :600-670/:967, Destroy :1024). S1-S12 ANSWERED (full table now in PLAN.md section 3 with anchors). FPC SEED FOUND: packages/fcl-base/tests/utcinifile.pp — small (113 lines) but dense: TestWriteBoolean+TestReadBoolean = 16 assertions over the whole Bool cascade on a TMemIniFile; mined verbatim at P3. Skeleton + runner + 001 = 11/11 on 5.2.37 AND true 5.3.9.",
+      "headline_pins": {
+        "S3_duplicates_forced_storage_revision": "FPC stores DUPLICATE sections and keys as separate list entries; every lookup is a linear scan with Break (FIRST wins); UpdateFile emits ALL copies. The planned assoc kv[sec\\x1fid] model cannot represent that -> storage FROZEN as the FPC section-list mirror: sparse parallel indexed arrays ${inst}_secnames + ${inst}_kident/kvalue/kowner (row owner = section slot); deletion = unset (order-preserving holes); comments/[]-sections/invalid rows are ordinary slots/rows. \\x1f reservation DROPPED (no composite keys).",
+        "quotes_split": "TIniFile.Create AUTO-ADDS ifoStripQuotes via an explicit `if not (self is TMemIniFile)` (:967-970) — TIniFile strips quotes on READ by default, TMemIniFile does NOT. Quotes always STORED verbatim; stripping happens only in ReadString/ReadSectionValues for matching \"...\"/'...' len>1.",
+        "destroy_flush": "TIniFile.Destroy (:1024) flushes when Dirty AND CacheUpdates, EATING exceptions (D7 compat, bug 19046) — so TMemIniFile DOES auto-save dirty state on destroy (contrary to common lore).",
+        "eager_cached": "MaybeUpdateFile (:1397): CacheUpdates ? Dirty:=true : UpdateFile. SetCacheUpdates(false) while dirty -> flush (:1151).",
+        "parser": "every line Trim'd; blank lines DROPPED (writer re-inserts ONE between sections, not after comment-sections); comment = first char ';' (no inline comments); comment before any section = comment-SECTION, inside = comment-KEY(ident=line,value=''); non-comment keys BEFORE any section silently DROPPED; [] = empty-name section (stored+rewritten+listed as '' but NOT addressable — SectionByName guard AName>''); ']' legal inside a name ([a]b] -> a]b); ident=Trim(before FIRST '='), value=Trim(after); no-'='-line = invalid row (ident='', value=line) kept unless ifoStripInvalid, listed by ReadSection as ''.",
+        "typed": "ReadInteger/Int64 = StrToIntDef/val(): sign + decimal|$hex|0x/0X-hex|&octal|%binary, else Default. ReadBool cascade: BoolTrue/FalseStrings lists (if any set) -> ifoStringBoolean SameText true/false -> first-char=='1'; empty -> Default. WriteBool: '1'/'0' or 'true'/'false'/BoolStrings[0]. ifoWriteStringBoolean = ifoStringBoolean alias (:272) — ctor accepts both, normalizes.",
+        "writer": "UpdateFile composes [Name] / Ident=Value (no spaces added, no quoting) / comment lines verbatim; ForceDirectories CREATES missing dirs (S9); after save it RE-PARSES the composed lines and clears Dirty; GetStrings differs by one detail (blank line after EVERY section incl. comment-sections); SetStrings/Clear do NOT touch Dirty.",
+        "escapelinefeeds": "RESOLVED: read-side-only join (RemoveBackslashes :1039) -> PORTED."
+      },
+      "skeleton": "tinifile.sh: class TIniFile (ctor REAL: file_name, option-token grammar + dedupe + alias normalize + unknown->rc1-instance-valid, TIniFile-only auto-ifoStripQuotes via ${inst}_class check, cache_updates=false, dirty=false, storage arrays init; dtor tears storage down) + class TMemIniFile : TIniFile (ctor = inherited + cache_updates=true); 25 member stubs via kk._return sentinel (trailer trap respected). tests/001 = 11 cases: defaults split, auto-quotes asymmetry, token parse/dedupe/alias, explicit TMemIniFile opt-in, bogus-token rc1-valid, storage exists/empty, inheritance chain, stub sentinels, delete teardown, re-source guard, PATH='' zero-fork. NB harness trap re-hit: a func stub under $() echoes TWICE (explicit kk._return + auto trailer) — mute stdout in $() captures.",
+      "baseline_remeasured": "Master sweep on 5.2.37 GREEN: 18/18 suites, 0 failed, 'All test suites passed.', 2853 tests (was 17/2842 pre-tinifile; +11 from the skeleton), no [FAIL] lines, clean first attempt. No regression: only ADDS a suite; no existing unit or kklass file touched."
+    },
+    {
+      "date": "2026-07-13",
+      "batch": "P1 — load + read core",
+      "summary": "Owner 'go p1'. Implemented the parser + read family exactly per the P0 pins. Helpers (plain fns, dynamic scope): _trim (fork-free prefix/suffix strip), _norm (${x,,} unless ifoCaseSensitive), _findSection/_findKey (FPC ByName verbatim: first-wins linear scan, guard vs empty/comment names), _unquote (matching quotes len>1), _fill (FillSectionList port incl. forward-accumulator RemoveBackslashes equivalent for ifoEscapeLineFeeds — trailing backslash on the LAST line stays, as FPC), _load (while IFS= read -r || [[ -n ]]; %r strip; BOM strip line 1; S1). Read members: ReadString/SectionExists/ValueExists/ReadSection/ReadSections/ReadSectionValues/ReadSectionRaw — every explicit-return path goes through kk._return (trailer trap). ReadSectionRaw pins the FPC quirk verbatim: comment rows emit ';comment=' (Ident+Separator+Value for ANY non-empty ident, :1218).",
+      "tests": "002_LoadAndRead (21 cases): the torture fixture (BOM+CRLF+top-comment+orphan+blank+padded key+url-with-=;+quoted+bareline+dup-section+]-in-name+[]+dup-key-case+empty-value+no-final-NL) drives S1/S2/S3/S4/S8/S12 assertions; quotes asymmetry (TIniFile strips, TMemIniFile keeps); ifoCaseSensitive exact-only (dup-key second hit); StripComments/StripInvalid at load; EscapeLineFeeds join vs literal; empty-value-vs-absent-key distinction; ReadSectionValues default/+comments/+quotes shapes; ReadSectionRaw quirk; PATH='' zero-fork read path. 001 updated (stub checks moved to P2 members; zero-fork expects real default).",
+      "smoke_note": "pre-suite smoke hit a HARNESS-side escaping bug (printf format lost a backslash level authoring the EscapeLineFeeds fixture -> file contained literal \n chars); rewritten with echo-per-line; implementation was correct. 28/28 smoke, then 32/32 suite, both bashes.",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 18/18 suites, 0 failed, 'All test suites passed.', 2874 tests (was 2853 at P0; +21 from tinifile 11->32), no [FAIL] lines, clean first attempt. No regression: no existing unit or kklass file touched.",
+      "utf8_amendment": "Owner asked about UTF-8 coverage -> audit: tregex/tarray had deliberate unicode cases; tinifile had ONLY BOM. Added 3 cases to 002 (suite 32->35, both bashes green): (1) exact-case unicode section/ident ([Café] naïve/Größe) + LOSSLESS cyrillic value 'Привет мир é' (byte pass-through proven); (2) unicode names lossless in ReadSection fills; (3) fold contract: ASCII-case-only lookup (cAFé) MUST hit; the É-fold is a documented locale OBSERVATION (accept both). NEW DUAL-BASH PIN from the observation probe: under empty/C locale `${x,,}` on 5.2.37 BYTE-MANGLES non-ASCII (0xC3->0xE3, 'CAFÉ'->'caf�'), 5.3.9 leaves the bytes intact ('cafÉ'); under a UTF-8 locale both fold properly ('café'). The design is SAFE regardless: _norm is applied to BOTH comparison sides (self-consistent) and the folded form is never stored or emitted — lookups agree with themselves on every bash/locale combination. P2 will add a UTF-8 write->read round-trip through a real file.",
+      "sweep_gate_after_utf8": "Master sweep on 5.2.37 GREEN after the UTF-8 amendment: 18/18 suites, 0 failed, 'All test suites passed.', 2877 tests (tinifile 35). FLAKE NOTE: one intermediate attempt hit the DOCUMENTED tdirectory timestamp flake class (this time 022_GetLastAccessTime, sibling of 024 — 4th sighting); procedure followed: tdirectory alone 197/197, clean re-run 18/18. One re-gate run was also lost to a session restart (no marker) and re-launched."
+    },
+    {
+      "date": "2026-07-14",
+      "batch": "P2 — write core + persistence split",
+      "summary": "Owner 'go' (P2 design pre-briefed). Implemented _compose (two modes: updatefile = FPC UpdateFile blank-line rule; getstrings = blank after EVERY section, the pinned :1486 divergence), _updateNow (compose -> mkdir-p-if-missing -> printf tmp -> mv; empty-compose guard; failure rc1 keeps memory AND dirty; success re-parses composed lines exactly as FPC :1390 and clears dirty), _maybeUpdate, _validate (PLAN 2.7). Members: WriteString/DeleteKey/EraseSection/UpdateFile + Destroy-flush + TMemIniFile Clear/GetStrings/SetStrings/Rename.",
+      "bug_found_and_fixed": "NAMEREF SHADOWING (house-wide lesson): _updateNow passed its local array named __tif_lines to _fill, whose own `local -a __tif_lines` SHADOWED the caller's array — namerefs resolve BY NAME in the INNERMOST scope at each use, so `__tif_fl=(\"${__tif_in[@]}\")` copied from the callee's fresh EMPTY local. Symptom: storage empty after every UpdateFile re-parse (reads returned defaults after any flush). _load never hit it (its buffer is __tif_raw). Fix: per-function internal names (_fill=__tif_fl, _updateNow=__tif_ul, GetStrings=__tif_gl) + RESERVED-NAMES note in the unit header (never pass caller arrays named __tif_*). Smoke 23/28 -> 28/28 after fix.",
+      "tests": "003_WriteAndPersist (15 cases): eager-vs-cached split (disk timing + dirty flag), destroy-flush saved vs clean-no-file, first-match in-place update with original case+slot, compose exact-match vs pinned want-string + idempotent second write + memory intact after normalization, S7 silent misses + erase-flushes-empty-file, GetStrings blank-after-every + SetStrings closure + dirty untouched, Clear (dirty untouched), Rename false/true, S9 mkdir -p, unwritable rc1+state-intact, validation 4x rc1 no-dirty, UTF-8 disk round-trip, PATH='' zero-fork on cached in-memory paths. 001 stub-check moved to P3 members.",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 18/18 suites, 0 failed, 'All test suites passed.', 2892 tests (was 2877 at P1; +15 from tinifile 35->50), no [FAIL] lines, clean first attempt. No regression: no existing unit or kklass file touched."
+    },
+    {
+      "date": "2026-07-14",
+      "batch": "P3 — typed accessors + options",
+      "summary": "Owner 'go p3'. Plain helpers _get (shared fetch+StripQuotes — ReadString refactored onto it; FPC typed accessors all read THROUGH ReadString so they inherit quote stripping) and _toInt (StrToIntDef/val grammar; base#digits guarded by regex; 10# guard so leading-zero stays DECIMAL not C-octal). Members: ReadInteger/ReadInt64/WriteInteger/WriteInt64, ReadBool/WriteBool/SetBoolStringValues, ReadFloat/WriteFloat. FPC-pinned: IndexOfString uses CompareText -> BoolStrings membership is CASE-INSENSITIVE; ReadBool cascade order lists->ifoStringBoolean->CharToBool; WriteBool output modes.",
+      "bug_found_and_fixed": "BUILD UNSETS MEMBER GLOBALS (house-wide kklass lesson): after `build`, the global function TIniFile.ReadInteger is CONSUMED into the class runtime and no longer callable by name — so a member body can NOT call a sibling member via `TIniFile.Sibling` (command-not-found) NOR via `$this.Sibling` if it is a FUNC (dispatch runs a fresh _invoke whose kk._return sets the INNER frame; the outer func's _invoke still has __kk_return_set=0 and rolls RESULT back to caller_result — the value is lost). Symptom: ReadInt64 returned the class name 'TIniFile'. FIX: sibling REUSE goes through PLAIN helpers (TIniFile._get/_toInt survive build — they are not declared members); ReadInt64 duplicates the 5-line glue over those helpers; WriteInt64 (a PROC, no return concern) uses $this.WriteString dispatch. Plain helpers = the safe cross-member sharing mechanism. Also removed the now-dead _stub helper (all members real).",
+      "tests": "004_TypedAccessors (13 cases): S5 all int forms + sign + leading-zero-decimal + invalid->default, ReadInt64==ReadInteger 64-bit, WriteInteger canonicalize+reject, S6 bool cascade branches (first-char / empty-default / ifoStringBoolean / BoolStrings ci membership), WriteBool output modes + reject, ReadFloat/WriteFloat string-preserving (1.50 kept) + reject, typed-reads-through-StripQuotes, PATH='' zero-fork. 005_FpcBoolParity: the COMPLETE utcinifile.pp — TestWriteBoolean (6) + TestReadBoolean (10) = 16 assertions verbatim, each citing its seed line; Options+=ifoWriteStringBoolean modeled by appending ifoStringBoolean to the options var. 001 stub-check retired (repurposed to a typed-default check).",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 18/18 suites, 0 failed, 'All test suites passed.', 2926 tests (was 2892 at P2; +34 from tinifile 50->84), no [FAIL] lines, clean first attempt. No regression: no existing unit or kklass file touched."
+    },
+    {
+      "date": "2026-07-14",
+      "batch": "P4 — docs + bench + closeout",
+      "summary": "Owner 'go p4'. README.md (bash API, THE PINNED FORMAT RULES as the contract, class-split table, typed-conversion rules, divergences table, wontfix). docs/TIniFile.md (upstream contnrs... inifiles.pp per-member with FPC line anchors, TCustomIniFile->TIniFile->TMemIniFile chain mapping, full deltas table). TEST_COVERAGE_NOTES.md finalized (001-004 invented/source-pinned rows citing PLAN S-pins, 005 FPC-traceable citing utcinifile.pp proc+line). bench.sh dog-foods TStopwatch.getTimeStamp per house convention.",
+      "bench_numbers": "5.2.37: load ~150-170 us/key (1000-key file ~169 ms); ReadString linear first-match grows with key count (~0.7 ms/read at 2 keys baseline, ~2.3 ms at 100 keys, ~9.4 ms at 1000 keys in one section — the honest 'config scale' positioning, FPC's own linear model, _norm lowercase per candidate dominates); WriteString update-in-place ~4 ms vs append ~10.7 ms (200-key list); UpdateFile ~180-540 us/key; typed parse overhead small (ReadInteger +~130 us, ReadBool +~210 us over ReadString baseline ~720 us). Zero-fork verified on all in-memory paths (PATH='') on BOTH bashes; UpdateFile forks once (mv) + mkdir only when dir missing. Positioning: built for config-file scale (tens-hundreds of keys); the linear scan is FPC-faithful and fork-free, not a large-DB store.",
+      "final_deliverables": "tinifile.sh, tests/{001_Skeleton,002_LoadAndRead,003_WriteAndPersist,004_TypedAccessors,005_FpcBoolParity,tests.sh}, README.md, docs/TIniFile.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, tinifile_ledger.json.",
+      "final_sweep": "Master sweep on 5.2.37 GREEN: 18/18 suites, 0 failed, 'All test suites passed.', 2926 tests, no [FAIL] lines, clean first attempt. tinifile contributes 84."
     }
   ]
 }
