@@ -3,7 +3,7 @@
   "project": "kcl/tqueuestack — port of FPC rtl-generics TQueue/TStack + TObjectQueue/TObjectStack to bash (kklass instantiable classes; one owner-defined block = one unit)",
   "created": "2026-07-12",
   "updated": "2026-07-12",
-  "status": "P4 DONE (awaiting owner review), UNCOMMITTED — TObjectQueue/TObjectStack complete: Notify overrides = inherited FIRST (the user callback observes the instance ALIVE) then _free on 'removed' ONLY when owning, owns read AT EVENT TIME (:2696/:2733); nhook armed UNCONDITIONALLY at the TObject* ctors (not only when owning — S10 mid-life flips must catch, and the FPC seed itself flips: TestNoFreeOnDeQueue sets OwnsObjects:=False after Create(True)); the S8 quirks VERBATIM (TObjectQueue.Dequeue = proc wrapping inherited -> caller's RESULT untouched via dispatch rollback; TObjectStack.Pop = inherited Pop + kk._return -> returns the just-freed dead handle). The dead _pending helper removed (all 4 classes fully real). Suite 001-007 = 76/76 on 5.2.37 AND true 5.3.9. P5 (docs/bench/closeout) next. Prior: P3 60/60 (2986), P2 45/45 (2971), P1 28/28 (2954), P0 11/11 (2937).",
+  "status": "COMPLETE (P0-P5) 2026-07-18, awaiting owner review, UNCOMMITTED FINAL DELIVERABLES (core P0-P4 already committed kcl d5c2a6c/parent 4751a8d; P5 docs+bench+notes are the uncommitted delta). Four classes: TQueue/TStack + TObjectQueue:TQueue/TObjectStack:TStack. Storage = one indexed array/instance (stack dense O(1); queue hole-based qhead + drain-reset + amortized reindex). Events = single on_notify + virtual Notify seam + hot-path gate, one _notify at each removal-helper tail. Ownership = inherited-first-then-free-on-removed, owns read at event time (S10), the two FPC quirks (Dequeue-procedure / Pop-freed-handle) preserved verbatim. Suite 001-007 = 76/76 on 5.2.37 AND true 5.3.9 incl. all TTestSimple{Queue,Stack} + notification + TTestSingleObject{Queue,Stack} FPC parity. Deliverables: tqueuestack.sh, tests/001-007+tests.sh, README.md, docs/TQueue.md, docs/TStack.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, ledger. Roadmap 5/7 done.",
   "owner": "keksov",
   "roadmap": {
     "priority": 5,
@@ -204,14 +204,14 @@
       "id": "P5",
       "name": "Docs, bench, closeout",
       "goal": "README + docs/TQueue.md + docs/TStack.md + bench + coverage notes + final sweep.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P5.1",
           "title": "README.md (both classes, quirk warning boxes, Try* guidance) + docs/TQueue.md + docs/TStack.md (upstream FPC references per kcl docs convention)",
           "category": "docs",
           "severity": "medium",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Every public member of all four classes + wontfix documented."
         },
         {
@@ -219,7 +219,7 @@
           "title": "bench.sh (per-op costs, 10k-drain flatness = compaction proof, tlist.Add reference, zero-fork), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
           "category": "performance",
           "severity": "medium",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Numbers recorded; final master sweep green."
         }
       ]
@@ -273,6 +273,14 @@
       "batch": "code-review fixes (high-effort review, applied #1 + #3)",
       "summary": "Owner ran /code-review (high effort, 8 angles) on the uncommitted unit; applied 2 of 5 findings. #1 (correctness/portability): `(( __tqs_h++ ))` in _qremove returned rc 1 when qhead was 0 -> a consumer sourcing the unit under `set -e` aborted on the first Dequeue of a fresh queue; fixed to pre-increment `(( ++__tqs_h ))` (new value >=1 -> rc 0). Verified: `set -e` now survives a fresh dequeue, a 100-element drain crossing the reindex+drain-reset, and an owning dequeue+free. #3 (simplification): Count/ToArray/Notify bodies were byte-identical across TQueue/TStack (and the two object Notify overrides identical) -> factored into shared plain helpers _count/_toArray/_fireNotify/_freeOnRemoved (the file's own thin-wrapper-over-`_helper` pattern; kk._return propagates through the caller's func frame, the tinifile _get precedent). Also removed the collapsed-continuation artifact in the warning line (finding #5, free with the _fireNotify consolidation). Behavior byte-identical: suite 76/76 on 5.2.37 AND true 5.3.9 unchanged.",
       "findings_deferred": "#2 (reindex fires mid-Clear wasting an O(n/2) copy on >128-el collections being emptied) and #4 (nhook armed unconditionally -> non-owning object collections pay a no-op Notify dispatch per op) left as documented tradeoffs — both are efficiency-only, correct, and #4 is required by the S10 mid-life owns-flip. Reconsider at P5 bench if the numbers warrant."
+    },
+    {
+      "date": "2026-07-18",
+      "batch": "P5 — docs + bench + closeout",
+      "summary": "Owner 'go P5'. README.md (both classes, the two quirk WARNING BOXES with Extract-escape guidance, storage/compaction/events design, divergences, measured performance section). docs/TQueue.md + docs/TStack.md (upstream generics.collections.pas per-member with line anchors, model mapping, quirk callouts, divergences). TEST_COVERAGE_NOTES.md finalized (76 rows; 003/005 FPC-traceable citing seed procs, 007 ownership citing TTestSingleObject*). bench.sh dog-foods TStopwatch.getTimeStamp.",
+      "bench_numbers_and_review_remeasure": "5.2.37: Enqueue/Dequeue ~0.43-0.58 ms/op, Push/Pop ~0.40-0.48 ms/op, flat n=1000->5000 (kklass dispatch dominates, data op trivial). COMPACTION PROOF: 10k enqueue+drain = ~0.49 ms/op == 1k Dequeue ~0.50 ms/op -> amortized O(1) confirmed (flat per-op vs n; not quadratic). REVIEW #2 RE-MEASURED: Clear 4000 = ~0.05 ms/el (tight _qremove loop, no per-op method dispatch) -> ~10x cheaper per element than a dispatched Dequeue; the mid-drain reindex (one ~2000-el copy) is NOT measurable against 2000 individual removals -> #2 CONFIRMED low-impact, left as-is. REVIEW #4 RE-MEASURED: non-owning TObjectQueue.Enqueue = ~1.6 ms/op vs plain TQueue ~0.42 ms/op = ~4x (the unconditional-nhook no-op virtual Notify dispatch, 2 kklass frames). DECISION: ACCEPT + document -> the 4x is isolated to the NON-OWNING object-collection config (niche: TObject* exists for owning; owning pays the dispatch anyway to free; plain TQueue/TStack unaffected). Optimization path noted (make owns_objects a property whose setter re-arms nhook so the gate can skip when not owning) but deferred: it restructures the S10 flip mechanism and the niche cost doesn't justify destabilizing COMPLETE. README/docs disclose the number and the mitigation (use a plain queue of handles in hot loops). Reference: TList.Add ~0.53 ms/op (same kklass family). Zero-fork verified on all in-memory ops both bashes.",
+      "final_deliverables": "tqueuestack.sh, tests/{001_Skeleton,002_QueueCore,003_FpcQueueParity,004_StackCore,005_FpcStackParity,006_Events,007_ObjectOwnership,tests.sh}, README.md, docs/TQueue.md, docs/TStack.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, tqueuestack_ledger.json.",
+      "final_sweep": "Master sweep on 5.2.37 GREEN: 19/19 suites, 0 failed, 'All test suites passed.', 3002 tests, no [FAIL] lines, clean first attempt. tqueuestack contributes 76 (docs/bench are not test-gated)."
     }
   ]
 }
