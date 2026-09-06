@@ -3,19 +3,46 @@
   "project": "kcl/thashset — port of FPC rtl-generics THashSet (TCustomSet surface + set algebra) to bash (kklass instantiable class over the tdictionary storage pattern)",
   "created": "2026-07-12",
   "updated": "2026-07-12",
-  "status": "PLANNED — plan + ledger only, no implementation yet. Roadmap position 6/7.",
+  "status": "P1 DONE (awaiting owner review), UNCOMMITTED — membership core: Add/Remove/Contains (Boolean-rc, SILENT on the negative answer — the loud TDictionary difference), Extract (hit RESULT=item / miss '' — rc 0 both, S6), Clear (empty-first-then-notify, S4), ToArray (lossless, hash order)/ForEach (snapshot)/Assign (copy + operand validation, atomic). Events THREADED via the _notify gate at every mutation (dormant until P3 fills Notify — the tqueuestack lesson). Storage idioms = tdictionary verbatim. Suite 001-002 = 23/23 on 5.2.37 AND true 5.3.9. P2 (set algebra) next. Prior: P0 (pins+seed+skeleton 9/9, baseline 20/20 3011).",
   "owner": "keksov",
   "roadmap": {
     "priority": 6,
     "of": 7,
-    "order": ["tstopwatch", "tregex", "tarray", "tinifile", "tqueuestack", "thashset", "fpjson"]
+    "order": [
+      "tstopwatch",
+      "tregex",
+      "tarray",
+      "tinifile",
+      "tqueuestack",
+      "thashset",
+      "fpjson"
+    ]
   },
   "notes": "Single source of truth for thashset status. Plan: kcl/thashset/PLAN.md. Source: generics.collections.pas TCustomSet :513-566 (Add/Remove/Extract Boolean trio, AddRange :550, UnionWith :2853, IntersectWith :2861 two-pass, ExceptWith :2878, SymmetricExceptWith after :2878) + THashSet :570-612 (backed by TOpenAddressingLP<T,TEmptyRecord> :574 — FPC's set IS a dictionary with empty values; Extract :3019 Default(T) on miss; Clear :3031). Bash port = tdictionary storage minus values + the set algebra (the actual payoff: Union/Intersect/Except/SymmetricExcept replace eternal hand-rolled loops). All storage idioms arrive pre-validated by tdictionary tests/002. Entirely Tier A. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated.",
   "conventions": {
-    "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
-    "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
-    "severity_values": ["critical", "high", "medium", "low"],
-    "tier_values": ["A-pure-bash-exact"]
+    "status_values": [
+      "todo",
+      "in_progress",
+      "blocked",
+      "done",
+      "wontfix"
+    ],
+    "category_values": [
+      "feature",
+      "infra",
+      "test-coverage",
+      "docs",
+      "performance"
+    ],
+    "severity_values": [
+      "critical",
+      "high",
+      "medium",
+      "low"
+    ],
+    "tier_values": [
+      "A-pure-bash-exact"
+    ]
   },
   "baseline": {
     "measured": "2026-07-12 — at roadmap planning time (post-tdictionary). RE-MEASURE at P0: roadmap units 1-5 will have raised the totals.",
@@ -52,25 +79,45 @@
     "new_coverage_protocol": "Non-FPC cases (ToArray/ForEach/Assign/AddRangeFromArray extras, reduced torture, zero-fork, self-op edges beyond FPC tests) -> TEST_COVERAGE_NOTES.md rows."
   },
   "out_of_scope": [
-    { "item": "Comparer ctor Create(IEqualityComparer) :602, TOpenAddressingLP backend, capacity family (Capacity/SetCapacity/TrimExcess :562-563)", "status": "wontfix", "reason": "tdictionary API-v2 precedent verbatim: declare -A is the backend; comparers cannot back assoc lookups; capacity controls nothing in bash." },
-    { "item": "TSortedSet / TSortedHashSet / TAVLTree family", "status": "wontfix", "reason": "Balanced trees are pointless over a native hash; ordered iteration = TArray.sort over ToArray output at the boundary (README example)." },
-    { "item": "Enumerator objects / pointer enumerators :576-592", "status": "wontfix", "reason": "ForEach + ToArray fills (house style)." },
-    { "item": "TEmptyRecord internal trick :574", "status": "wontfix", "reason": "Internal representation; bash stores literal 1 as the value." },
-    { "item": "NUL bytes in elements", "status": "wontfix", "reason": "bash language limit." }
+    {
+      "item": "Comparer ctor Create(IEqualityComparer) :602, TOpenAddressingLP backend, capacity family (Capacity/SetCapacity/TrimExcess :562-563)",
+      "status": "wontfix",
+      "reason": "tdictionary API-v2 precedent verbatim: declare -A is the backend; comparers cannot back assoc lookups; capacity controls nothing in bash."
+    },
+    {
+      "item": "TSortedSet / TSortedHashSet / TAVLTree family",
+      "status": "wontfix",
+      "reason": "Balanced trees are pointless over a native hash; ordered iteration = TArray.sort over ToArray output at the boundary (README example)."
+    },
+    {
+      "item": "Enumerator objects / pointer enumerators :576-592",
+      "status": "wontfix",
+      "reason": "ForEach + ToArray fills (house style)."
+    },
+    {
+      "item": "TEmptyRecord internal trick :574",
+      "status": "wontfix",
+      "reason": "Internal representation; bash stores literal 1 as the value."
+    },
+    {
+      "item": "NUL bytes in elements",
+      "status": "wontfix",
+      "reason": "bash language limit."
+    }
   ],
   "phases": [
     {
       "id": "P0",
       "name": "Pins + skeleton",
       "goal": "READ SymmetricExceptWith/AddRange-Boolean/self-op impls (S3/S7/S8); verify S1/S2/S4/S5/S9; skeleton + runner; reduced torture; baseline re-measure.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P0.1",
           "title": "Pin S1-S9 from generics.collections.pas with line refs; scan rtl-generics tests for set seeds",
           "category": "infra",
           "severity": "critical",
-          "status": "todo",
+          "status": "done",
           "acceptance": "S-table complete; seeds recorded; algebra self-op behaviors decided from source."
         },
         {
@@ -78,7 +125,7 @@
           "title": "Skeleton (Create/Destroy/count) + reduced storage torture + runner + baseline re-measure",
           "category": "infra",
           "severity": "high",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Green on both bashes; baseline recorded."
         }
       ]
@@ -87,7 +134,7 @@
       "id": "P1",
       "name": "Membership core",
       "goal": "Add/Remove/Contains/Extract/Clear/count + ToArray/ForEach/Assign extras.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P1.1",
@@ -95,7 +142,7 @@
           "category": "feature",
           "severity": "critical",
           "tier": "A-pure-bash-exact",
-          "status": "todo",
+          "status": "done",
           "acceptance": "Lifecycle + ambiguity + extras green; zero-fork; dual-bash; sweep gate."
         }
       ]
@@ -164,6 +211,22 @@
       "date": "2026-07-12",
       "batch": "planning",
       "summary": "thashset PLAN.md + ledger written; folders created. No implementation. Key decisions recorded: storage = tdictionary minus values (idioms verbatim, reduced re-torture); Boolean-rc Add/Remove SILENT (answers, not errors — loud README contrast with TDictionary); algebra ops clone FPC loop semantics incl. two-pass IntersectWith and defined self-op edges (pinned at P0); Extract miss shares the Default(T) '' ambiguity with ExtractPair; sorted sets wontfix (compose TArray.sort at the boundary)."
+    },
+    {
+      "date": "2026-07-18",
+      "batch": "P0 — pins + skeleton",
+      "summary": "Owner 'go thashset'. Read TCustomSet/THashSet source end to end. ALL S-pins resolved: S1 Add = `not ContainsKey; if new: dict.Add` -> True iff added, no event/mutation on dup (:3002); S2 Remove = FindBucketIndex>=0; if hit DoRemove(cnRemoved) -> Boolean (:3009); S3 SymmetricExceptWith = two-pass: for each of OTHER, if self.Contains -> mark (LList) else Add; then Remove marked -> self-op = empty (:2886); S4 Clear delegates to internal dict Clear = empty-FIRST-then-notify (my tdictionary model, verified impl:515); S5 Destroy = FInternalDictionary.Free -> Clear during delete (:2996); S6 Extract miss -> Default(T)='' rc0 no event, hit -> Result=AValue + DoRemove(cnExtracted) (:3019); S7 AddRange = `Result:=True; Result:=Add(i) and Result` -> AND-fold, True iff ALL newly added (:2815); S8 UnionWith `for i in OTHER: Add(i)` (:2853, self-op no-op via snapshot), ExceptWith `for i in OTHER: Remove(i)` (:2878, self-op = full drain), IntersectWith two-pass collect-then-remove (:2861, self-op no-op); S9 events = plain added/removed/extracted per element via the internal dict Notify.",
+      "seed": "tests.generics.sets.pas 358 lines. Test_Set_General (:86) = the GOLD parity oracle (full truth-table, hand-computed) -> mined at P2. Test_THashSet_Notification (:53) -> P3. Test_Set_Sorted/NonSorted (:155/:196) show ordered iteration = sort the ToArray output at the boundary (README composition example, not a THashSet feature).",
+      "storage_reuse": "tdictionary idioms verbatim: items[\"k$item\"]=1 (dummy value), ${ref[\"k$item\"]+x} existence, pk=\"k$item\"; unset 'ref[$pk]', for pk: item=\"${pk#k}\". count == ${#items[@]}. Reduced torture (9 keys) confirms k-prefix keeps ''/k/kk/kkk distinct and no empty subscript ever used, on both bashes -- the full 34-key matrix stays proven in tdictionary/tests/002.",
+      "skeleton": "thashset.sh: class THashSet, member surface frozen (Boolean members = proc rc-drivers per the tdictionary contract; Extract/Count/ToArray = func). P0-real: Create/Destroy (shared _init/_teardown plain helpers), computed Count (kk._return ${#items[@]}, no property -- fork pin). 15 pending sentinels. tests/001 = 9 cases: storage init, computed-count probe, reduced exotic-key torture, empty-subscript-never-used, sentinels, teardown, re-source, isolation, PATH='' zero-fork. 9/9 both bashes.",
+      "baseline_remeasured": "Master sweep on 5.2.37 GREEN: 20/20 suites, 0 failed, 'All test suites passed.', 3011 tests (was 19/3002 pre-thashset; +9 from the skeleton), no [FAIL] lines, clean first attempt. No regression: only ADDS a suite."
+    },
+    {
+      "date": "2026-07-18",
+      "batch": "P1 — membership core",
+      "summary": "Owner 'go p1'. Add/Remove/Contains are proc rc-drivers over the tdictionary k-prefix storage (items[\"k$item\"]=1); Boolean-rc is SILENT on rc 1 (never an error path, no debug msg) -- the pinned difference from TDictionary's raise-on-dup Add / always-rc0 Remove. Extract = func, hit RESULT=item + 'extracted' + remove, miss RESULT='' rc 0 no event (Default(T), disambiguate via Contains). Clear mirrors the tdictionary empty-FIRST-then-notify model (S4). Extras: ToArray (k-prefix strip, lossless, hash-order), ForEach (snapshot keys -> mutating cb sees stable iteration), Assign (TSet._isSet operand validation BEFORE any mutation -> atomic; snapshot src before Clear-ing self). _notify gate + action threaded at every mutation now so P3 only fills the Notify body.",
+      "tests": "002_MembershipCore (14): Boolean Add new/dup-silent, Contains hit/miss, Boolean Remove hit/absent-silent, Extract hit/miss rc0-both + removed, ''-element (empty-subscript trap) add/contains/remove, 8 exotic elements byte-exact (incl. k/kk distinct), ForEach visits-all + snapshot-under-mutation, Clear empties, Assign copy + bad-operand rc1 + atomicity (target intact after reject), hot-path gate off, instance isolation, PATH='' zero-fork. 001 sentinel check moved to P2/P3 members.",
+      "sweep_gate": "Master sweep on 5.2.37 GREEN: 20/20 suites, 0 failed, 'All test suites passed.', 3025 tests (was 3011 at P0; +14 from thashset 9->23), no [FAIL] lines, clean first attempt."
     }
   ]
 }
