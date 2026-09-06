@@ -58,12 +58,14 @@ class TObjectList : TList
     public
         constructor Create
         destructor  Destroy
-        var owns_objects
+        property owns_objects read owns_objects write _setOwnsObjects
+        proc _setOwnsObjects
         override proc Delete
         override proc Clear
         override func Remove
         override proc Put
         override proc BatchDelete
+        override proc _setCount
         func Extract
         func FindInstanceOf
 end
@@ -103,8 +105,10 @@ TObjectList.Create() {
 TObjectList.Destroy() {
     # FPC: destroying the list Clears it; with OwnsObjects=True every element
     # is freed (Notify lnDeleted). Here: free owned elements [0,count), then
-    # kklass tears the instance down as usual. Dynamic scope provides $count
-    # and the items array (probed M4).
+    # chain to TList.Destroy, which releases the storage array itself
+    # (finding G1-01 — without `inherited` the elements were freed but
+    # `${inst}_items` stayed behind as a global with its full contents).
+    # Dynamic scope provides $count and the items array (probed M4).
     if [[ "$owns_objects" == "true" ]]; then
         local __tol_i __tol_items_var="${__inst__}_items"
         declare -n __tol_items_ref="$__tol_items_var"
@@ -112,6 +116,22 @@ TObjectList.Destroy() {
             TObjectList._free "${__tol_items_ref[__tol_i]}"
         done
     fi
+    inherited
+}
+
+TObjectList._setOwnsObjects() {
+    # FPC OwnsObjects is a Boolean property; bash has to police the token
+    # itself (finding G1-16). Before this, `L.owns_objects = yes` silently
+    # produced a NON-owning list — anything but the literal `true` disowned it
+    # — and the elements then leaked on delete. rc 2 = malformed call
+    # (kcl/README.md section 1.2), value unchanged.
+    case "${1:-}" in
+        true|false) owns_objects="$1" ;;
+        *)
+            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
+                echo "Error: TObjectList.owns_objects: '${1:-}' is not 'true' or 'false'" >&2
+            return 2 ;;
+    esac
 }
 
 # ---- removal-path overrides: <free if owns> ; inherited X "$@" ---------------
@@ -177,6 +197,26 @@ TObjectList.Put() {
     inherited Put "$@"
 }
 
+TObjectList._setCount() {
+    # FPC TList.SetCount shrinks through Delete, so every dropped element gets
+    # Notify(lnDeleted) and an owning list frees it (finding G1-07a: `L.count =
+    # 1` used to drop the tail handles ALIVE and unreachable). Growing pads
+    # with '' and frees nothing. The bounds/validation stay in the parent; this
+    # override only decides WHAT to free before the parent drops it.
+    if [[ "$owns_objects" == "true" ]]; then
+        local __tol_new="$1"
+        kk.isInt "$__tol_new" __tol_new || return 1
+        if (( __tol_new >= 0 && __tol_new < count )); then
+            local __tol_i __tol_items_var="${__inst__}_items"
+            declare -n __tol_items_ref="$__tol_items_var"
+            for (( __tol_i = __tol_new; __tol_i < count; __tol_i++ )); do
+                TObjectList._free "${__tol_items_ref[__tol_i]}"
+            done
+        fi
+    fi
+    inherited _setCount "$@"
+}
+
 TObjectList.BatchDelete() {
     # bash extra in TList (a removal path — an owning list must not leak
     # through it). Mirror the parent's validation + clamping to decide WHAT
@@ -232,6 +272,13 @@ TObjectList.FindInstanceOf() {
     # func trailer only fires on fall-through; see Extract).
     local __tol_cls="$1" __tol_exact="${2:-true}" __tol_start="${3:-0}"
     if [[ -z "$__tol_cls" ]]; then kk._return "-1"; return 2; fi
+    # G1-16: only `true`/`false` are boolean tokens. `FindInstanceOf TList no`
+    # used to mean exact=true, i.e. the opposite of what the caller wrote.
+    if [[ "$__tol_exact" != "true" && "$__tol_exact" != "false" ]]; then
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
+            echo "Error: TObjectList.FindInstanceOf: exact token '$__tol_exact' is not 'true' or 'false'" >&2
+        kk._return "-1"; return 2
+    fi
     if ! kk.isInt "$__tol_start" __tol_start; then kk._return "-1"; return 2; fi
     if (( __tol_start < 0 )); then __tol_start=0; fi
     local __tol_i __tol_h __tol_c __tol_cvar __tol_pvar

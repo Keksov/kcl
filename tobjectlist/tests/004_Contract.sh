@@ -89,6 +89,23 @@ else
 fi
 L.delete
 
+# --- 4. lifecycle (X-LEAK) -------------------------------------------------
+# `.delete` frees every `${inst}_*` this unit creates (kcl/README.md 1.9).
+# Until P2 the destructor freed the owned elements but never chained to
+# TList.Destroy, so the storage array outlived the instance (G1-01).
+kt_test_start "delete frees every per-instance array this unit creates [G1-01]"
+TList.new el
+TObjectList.new W
+W.Add el
+W.delete
+leaked=""
+for suffix in items data class; do
+    declare -p "W_$suffix" >/dev/null 2>&1 && leaked+="W_$suffix "
+done
+declare -F "W.Add" >/dev/null 2>&1 && leaked+="W.Add() "
+[[ -z "$leaked" ]] && kt_test_pass "no W_* variable and no wrapper left" \
+    || kt_test_fail "left behind: $leaked"
+
 # --- 5. the error path reaches the caller under set -e (D7) ----------------
 # Direct proof, instead of auditing the code for `&&` lists: bash exits only
 # for the command following the FINAL && or ||, so a list in mid-body is safe;

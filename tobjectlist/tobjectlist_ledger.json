@@ -90,6 +90,13 @@
       "batch": "P2 — docs + closeout",
       "summary": "Owner 'go P2'. Unit closed out: README.md (ownership-contract table per removal path, _free guard deltas-vs-FPC table, API, wontfix), docs/TObjectList.md (upstream contnrs.pp declaration + per-member mapping; documents the pre-existing TList-level Add-returns-COUNT delta vs FPC's Add-returns-index, and the class-NAME-identity basis of FindInstanceOf), TEST_COVERAGE_NOTES.md finalized (001/003 invented rows + 002 FPC-traceable citing each utcobjectlist.pp procedure). No bench per PLAN section 7 (one declare -F per removed element — nothing to measure). Final master sweep recorded below.",
       "status_final": "tobjectlist COMPLETE (P0-P2). Suite 001-003 = 31/31 on 5.2.37 AND true 5.3.9. All deliverables present. UNCOMMITTED (commits gated). FINAL MASTER SWEEP (5.2.37, absolute path): 17/17 suites, 0 failed, 'All test suites passed.', 2842 tests, no [FAIL] lines -- clean on the first attempt."
+    },
+    {
+      "date": "2026-09-07",
+      "batch": "kcl review 2026-09-06 — phase P2 (containers)",
+      "summary": "Four findings closed. G1-01: Destroy now ends with `inherited`, so TList.Destroy (new in P2) releases ${inst}_items — the elements were freed but the storage array outlived every deleted list. G1-07a: _setCount is overridden and frees the dropped tail [new,count) when owning, matching FPC SetCount -> Delete -> Notify(lnDeleted); `L.count = 1` used to drop handles ALIVE and unreachable. G1-07b/G1-09 (R2): no override needed — TList._setCapacity now refuses `capacity < count` and negatives (rc 1, unchanged), so that path can no longer drop an element at all. G1-07c: TList.Assign fails BEFORE the virtual Clear, which on an owning list had been freeing everything and then reporting 'not implemented'. G1-16: owns_objects became a property with a validating setter (true|false, else rc 2 and unchanged — `= yes` used to disown the list silently) and FindInstanceOf's exact token is validated the same way.",
+      "tests": "tests/005_ReviewP2.sh (13 assertions, RED 8/13 on the pre-fix tree) + a lifecycle assertion in 004_Contract.sh. Suite 31 -> 51 cases.",
+      "note": "The owns_objects var -> property change also changes how a DIRECT read behaves (silent + RESULT, like every other kcl value) — `$(L.owns_objects)` is unaffected. README updated."
     }
   ]
 }

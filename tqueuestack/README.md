@@ -56,6 +56,16 @@ variants add `x.owns_objects` (writable). Read-returning members set `RESULT`;
 discards the fill) and returns the count. Removals on an empty collection →
 rc 1 + `RESULT=''`; the `Try*` forms are the silent equivalent.
 
+The `ToArray` output name is **validated before anything is written**: it must
+be a plain identifier that is not one of the unit's own `__tqs_*` locals, not
+`__kk_*`, not `RESULT`/`REPLY`/`IFS`/`this`/`__inst__`/`__class__`, not the
+instance's own `${inst}_items`/`_qhead`/`_nhook`/`_data`, and not an
+associative array. A rejected name is **rc 2** + `RESULT=''` with the
+collection untouched — a malformed *call*, not a value you may legitimately
+try (`kcl/README.md` §1.2/§1.7). Before the 2026-09-06 review there was no
+check at all: `q.ToArray __tqs_it` aliased the storage and the fill loop
+appended the queue to itself (Count 2 → 4, rc 0).
+
 Per-member upstream references: [docs/TQueue.md](docs/TQueue.md) ·
 [docs/TStack.md](docs/TStack.md).
 

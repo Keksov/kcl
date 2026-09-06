@@ -121,3 +121,18 @@ Verbatim FPC fixtures/expected values (integer `-n` mode = `TComparer<Integer>.D
 | 007.compact | compact | sparse → dense, order kept | behavior | bash extra (§2.1) |
 | 007.torture | reverse/concat | newline/glob/quotes elements lossless | torture | array-write lossless |
 | 007.zero-fork | copy/reverse/concat/compact | complete under `PATH=''` | contract | builtins only |
+
+## 009 — review 2026-09-06, phase P2 (invented)
+
+| ID | Members | Case | Class | Basis |
+|---|---|---|---|---|
+| 009.sort-badcmp | sort | an undefined comparator name → rc 2, array untouched | contract | G1-12 (already closed by the P1 `kk.isInt` guard on start/count — pinned here so it stays closed) |
+| 009.sort-modes | sort | `-n`, a real cmpFn and a plain range still work | contract | regression fence for the check above |
+| 009.bs-badcmp | binarySearch | an undefined comparator name → rc 2 | contract | G1-12 |
+| 009.scan-badcmp | indexOf/firstIndexOf/lastIndexOf/contains | an undefined comparator name → rc 2 (was silently ignored: byte-order search, rc 0) | contract | G1-12 — nothing follows the comparator slot in this signature, so the token cannot be data |
+| 009.scan-modes | indexOf/contains | `-n` and a real cmpFn still answer | contract | regression fence |
+| 009.minmax-ambiguity | min/max | a non-function token IS the default (rc 1 on empty); a function token IS the comparator | behavior | documented ambiguity: `min arr [cmp] [default]` — the slot after the array is free-form data unless it names a function (G1-12, README) |
+| 009.bs-clamp-count | binarySearch | `count` overrunning the array is clamped; the candidate stays inside | contract | G1-15 (was CandidateIndex 11 on a 4-element array) |
+| 009.bs-clamp-start | binarySearch | a negative start clamps to 0 | contract | G1-15 |
+| 009.bs-start-past-end | binarySearch | start ≥ n → rc 1 with −1/−1 (S1 shape) | contract | G1-15 |
+| 009.bs-subrange | binarySearch | an in-range subrange search is unchanged | behavior | S2 regression fence |

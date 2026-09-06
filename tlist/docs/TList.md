@@ -1,5 +1,28 @@
 # TList Properties (System.Classes.TList)
 
+> **Upstream reference, not the port's API.** This file is an automatic dump of
+> the Delphi/FPC documentation and describes members this port does not have.
+> What `kcl/tlist` actually implements is in **[../README.md](../README.md)**;
+> this table is the map between the two (review 2026-09-06, finding G1-19).
+>
+> | Upstream member | kcl/tlist |
+> |---|---|
+> | `Capacity`, `Count` | `l.capacity` / `l.count` — read and write. A write below `Count` or below zero is **rc 1 and no change** (FPC raises `EListError`; decision R2) |
+> | `Add` | `l.Add v` — returns the **index** of the new element in `RESULT` (decision R1) |
+> | `Insert`, `Delete`, `Clear`, `Exchange`, `Move`, `Pack`, `Remove` | same names, same semantics |
+> | `First`, `Last`, `Get`, `Put`, `Items[]` | `l.First` / `l.Last` / `l.Get i` / `l.Put i v` — the port stores **strings**, not pointers, so indexed access is real |
+> | `IndexOf` | `l.IndexOf v` — `RESULT` = index or `-1` |
+> | `Sort`, `SortList` | `l.Sort` (byte order, a bash convenience) and `l.CustomSort cmpFn` (the FPC `Sort(Compare)` equivalent, delegated to `TArray.sort`) |
+> | `Create`, `Destroy` | `TList.new l` / `l.delete` — the destructor also frees `${l}_items` (G1-01) |
+> | `Assign` | **stub**: rc 1 and the list untouched. FPC's `Assign(ListA, AOperator, ListB)` set algebra is not ported; `TStringList.Assign` is |
+> | `Extract`, `ExtractItem`, `RemoveItem`, `IndexOfItem` | **not ported** — they select by pointer identity/direction, which has no meaning for bash strings. `TObjectList.Extract` (remove without freeing) is ported |
+> | `GetEnumerator`, `operator []` | **not ported** — bash has no enumerator objects or operator overloading; loop over `l.count` with `l.Get i` |
+> | `Notify`, `Error`, `Grow`, `Expand`, `SetCapacity`, `SetCount` | internal in FPC; `Grow`/`Expand`/`_setCapacity`/`_setCount` exist here as members, `Notify` does not — ownership is routed through `TObjectList`'s overrides instead |
+> | `List` (the raw pointer array) | **not ported** — the storage is the bash array `${l}_items`; treat it as private |
+>
+> bash extras with no FPC counterpart: `l.BatchInsert idx v…` and
+> `l.BatchDelete idx n`.
+
 Automatically extracted from [Embarcadero DocWiki](https://docwiki.embarcadero.com/Libraries/Sydney/en/System.Classes.TList_Properties).
 
 ## `System.Classes.TList.Capacity`

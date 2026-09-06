@@ -110,24 +110,43 @@ else
 fi
 mylist.delete
 
-# Test: Sorted list workflow
-kt_test_start "Sorted list complete workflow"
+# Test: Sorted list workflow.
+# REWRITTEN for the 2026-09-06 review (G1-03). The old version pinned the
+# opposite of FPC: it added a duplicate to an UNSORTED list under dupIgnore and
+# demanded that the list drop it (count 4). FPC applies Duplicates only when
+# Sorted is true — "Duplicates does nothing if the list is not sorted", also
+# stated in docs/TStringList.md:47 — so the unsorted list must keep both
+# copies, and the same items on a SORTED list must lose one.
+kt_test_start "Sorted list complete workflow (Duplicates only bites when Sorted)"
 TStringList.new mylist
 mylist.sorted = "false"
 mylist.duplicates = "dupIgnore"
-# Add items, then sort to check it works correctly
 for item in "grape" "apple" "cherry" "apple" "banana"; do
     mylist.Add "$item"
 done
+unsorted_count=$(mylist.count)
 mylist.Sort
-count=$(mylist.count)
 first=$(mylist.Get 0)
-if [[ "$count" == "4" && "$first" == "apple" ]]; then
-    kt_test_pass "Sorted list maintained order, duplicate ignored"
+second=$(mylist.Get 1)
+
+TStringList.new sortedlist
+sortedlist.sorted = "true"
+sortedlist.duplicates = "dupIgnore"
+for item in "grape" "apple" "cherry" "apple" "banana"; do
+    sortedlist.Add "$item"
+done
+sorted_count=$(sortedlist.count)
+sorted_first=$(sortedlist.Get 0)
+sorted_last=$(sortedlist.Get 3)
+
+if [[ "$unsorted_count" == "5" && "$first" == "apple" && "$second" == "apple" \
+   && "$sorted_count" == "4" && "$sorted_first" == "apple" && "$sorted_last" == "grape" ]]; then
+    kt_test_pass "unsorted keeps 5 (both apples), sorted keeps 4 in order"
 else
-    kt_test_fail "count=$count (expected 4), first=$first (expected apple)"
+    kt_test_fail "unsorted count=$unsorted_count first=$first second=$second; sorted count=$sorted_count first=$sorted_first last=$sorted_last"
 fi
 mylist.delete
+sortedlist.delete
 
 # Test: Large list operations
 kt_test_start "Large list operations"

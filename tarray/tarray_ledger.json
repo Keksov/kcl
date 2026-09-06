@@ -242,6 +242,13 @@
       "bench_note": "bench.sh is NOT run by the master sweep (tests/tests.sh discovers only tests/tests.sh); validated by running on both bashes -- numbers sane + zero-fork green.",
       "status_final": "tarray COMPLETE (P0-P4). Suite 001-007 = 80/80 on 5.2.37 AND true 5.3.9. Deliverables all present. UNCOMMITTED (commits gated). FINAL MASTER SWEEP (5.2.37, absolute path): 16/16 suites, 0 failed, 'All test suites passed.', 2791 tests -- clean.",
       "followup_approved": "TList/TStringList -> TArray delegation (owner 'Да' 2026-07-13): wire TList.Sort/CustomSort/Find stubs + TStringList.Sort bubble to TArray.sort/binarySearch '${__inst__}_items' cmp 0 $count (FPC composition pattern); needs the RESULT-vs-rc comparator shim + case_sensitive-via-cmpFn (NOT byte default); own task + sweep gate (touches tlist 92 + tstringlist 155 tests)."
+    },
+    {
+      "date": "2026-09-07",
+      "batch": "kcl review 2026-09-06 — phase P2 (containers)",
+      "summary": "G1-12 (comparator validation) and G1-15 (binarySearch range clamp). G1-12 turned out to be HALF-closed by P1: `sort`/`binarySearch` take start/count after the comparator slot, so the D1 kk.isInt guard already rejects a typo'd comparator name with rc 2 (verified: `TArray.sort a myUndefinedCmp` -> rc 2, array untouched). The hole that remained is the scan family — firstIndexOf/lastIndexOf/indexOf/contains have NOTHING after the comparator slot, so an undefined name was silently ignored and the search ran in byte order with rc 0. _resolveCmp now reports __ta_badcmp and those four return rc 2. min/max deliberately do NOT: their next positional is the free-form default value, so a non-function token there is data, not a typo — the ambiguity (a default that happens to name a function is read as a comparator) is documented in README.md and pinned by a test. G1-15: binarySearch clamps start/count to the array exactly as sort does; `binarySearch a 9 2 10` on 4 elements used to compare against nonexistent elements and return CandidateIndex 11.",
+      "tests": "tests/009_ReviewP2.sh (10 assertions, RED 3/10 on the pre-fix tree). Suite 88 -> 98 cases.",
+      "bench": "re-run on 5.2.37 before/after: sort n=1000 310 -> 289 ms, n=5000 1800 -> 1842 ms, binarySearch 500 hits 435 -> 441 ms, cmpFn n=1000 366 -> 409 ms — all within run-to-run noise (the added work is one `case` per call, none of it inside a loop)."
     }
   ]
 }

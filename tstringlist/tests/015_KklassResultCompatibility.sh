@@ -44,25 +44,42 @@ fi
 
 result_list.delete
 
-kt_test_start "Assign implementation avoids eval-based array copying"
-assign_block=""
-in_assign=0
-while IFS= read -r line; do
-    if [[ "$line" == *"method Assign '{"* ]]; then
-        in_assign=1
-    fi
-    if (( in_assign )); then
-        assign_block+="$line"$'\n'
-        if [[ "$line" == *"}' \\"* ]]; then
-            break
+# REWRITTEN for the 2026-09-06 review (finding G1-17): this used to scan for
+# `method Assign '{`, the pre-Pascal-DSL syntax that no longer exists anywhere
+# in the file — the collected block was always empty, so the assertion could
+# not fail. It now reads the REAL body of the two bulk-copy members and pins
+# what the finding is about: no `eval`, and no `$( )` (finding G1-11 — the
+# source count came from `$($source.count)`, one fork per call).
+body_of() {   # FUNCTION_NAME -> the body text of that function in the unit
+    local fn="$1" src="$TSTRINGLIST_DIR/tstringlist.sh" line out="" in_fn=0
+    while IFS= read -r line; do
+        if (( in_fn == 0 )); then
+            [[ "$line" == "$fn() {" ]] && in_fn=1
+            continue
         fi
-    fi
-done < "$TSTRINGLIST_DIR/tstringlist.sh"
+        [[ "$line" == "}" ]] && break
+        out+="$line"$'\n'
+    done < "$src"
+    printf '%s' "$out"
+}
 
-if [[ "$assign_block" == *"eval"* ]]; then
-    kt_test_fail "Assign still contains eval-based array copying"
-else
-    kt_test_pass "Assign avoids eval-based array copying"
-fi
+for member in Assign AddStrings; do
+    kt_test_start "TStringList.$member copies without eval and without a fork [G1-17, G1-11]"
+    block="$(body_of "TStringList.$member")"
+    problems=""
+    [[ -z "$block" ]] && problems+="body not found; "
+    [[ "$block" == *"eval"* ]] && problems+="uses eval; "
+    # strip the comment lines, then arithmetic expansion (which is NOT a fork),
+    # before looking for a command substitution
+    payload="$(printf '%s\n' "$block" | grep -v '^[[:space:]]*#')"
+    payload="${payload//\$((/ARITH}"
+    [[ "$payload" == *'$('* ]] && problems+="uses \$( ) (fork); "
+    [[ "$payload" == *'`'* ]] && problems+="uses backticks (fork); "
+    if [[ -z "$problems" ]]; then
+        kt_test_pass "$(printf '%s' "$block" | grep -c '') lines, no eval, no subshell"
+    else
+        kt_test_fail "$problems"
+    fi
+done
 
 kt_test_log "015_KklassResultCompatibility.sh completed"

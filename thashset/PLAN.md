@@ -132,6 +132,14 @@ zero-fork PATH=''; dual-bash. Non-FPC cases → TEST_COVERAGE_NOTES rows.
 ## 6. Bash traps to respect
 
 1. All tdictionary storage idioms verbatim; `__ts_` local prefix in nameref methods.
+   **This line was a claim the P1 code did not honour** (kcl review 2026-09-06,
+   findings G2-01/G2-06): the deletion idiom was written `unset "${__inst__}_items[$pk]"`
+   — DOUBLE quotes, so `unset` re-parsed the substituted subscript. Elements containing
+   `]` `[` `$` `'` `"` `\` or a backtick were not removed (rc 0 all the same) and `$( )`
+   content was EXECUTED. Fixed in the kcl P2 phase with the real single-quoted form
+   `unset 'ref[$pk]'`; tests/002 now removes and extracts the exotic set, which the
+   original torture did not (it covered Add/Contains/ToArray only — hence 23/23 green
+   over a HIGH defect). When a plan says "verbatim", a test has to prove it.
 2. Algebra ops snapshot the OTHER set's keys BEFORE mutating self (and self's keys
    before removing during IntersectWith) — `"${!ref[@]}"` array capture first.
 3. rc=1 from Add/Remove is an ANSWER — never route it through error paths, never

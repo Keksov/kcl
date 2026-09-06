@@ -21,8 +21,9 @@ counterpart are marked **wontfix** with the reason (see also PLAN.md §1).
 Generic parameters collapse to bash strings: `TKey = TValue = string`.
 
 kcl mapping conventions: FPC exceptions → `return 1` (message under
-`VERBOSE_KKLASS=debug`); function results → echo + `RESULT`; booleans → exit
-status; `TPair` results → `RESULT_KEY` + `RESULT`.
+`VERBOSE_KKLASS=debug`); function results → **`RESULT`** (a direct call prints
+nothing; the same call inside `$( )` prints the value once — review 2026-09-06,
+G2-07); booleans → exit status; `TPair` results → `RESULT_KEY` + `RESULT`.
 
 ---
 

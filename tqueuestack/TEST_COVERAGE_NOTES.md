@@ -131,3 +131,21 @@ Classes: `contract` (rc/RESULT/gate/zero-fork), `order` (FIFO/LIFO/ToArray),
   flatness proof and the reviewed non-owning-object dispatch cost.
 - `set -e` consumer safety is exercised ad hoc (review round), not in the
   suite; the `_qremove` pre-increment fix removed the one landmine.
+
+## 009 — review 2026-09-06, phase P2 (invented)
+
+| ID | Members | Case | Class | Basis |
+|---|---|---|---|---|
+| 009.toarray-self | ToArray (queue + stack) | the unit's own local name (`__tqs_it`) → rc 2, storage untouched | contract | G2-02 — it used to alias the storage and append it to itself (Count 2→4, rc 0) |
+| 009.toarray-storage | ToArray | the instance's own `${inst}_items` → rc 2 | contract | G2-02 |
+| 009.toarray-bad | ToArray | empty / `bad name` / `1abc` / `a-b` / `RESULT` / `IFS` / `__kk_x` → rc 2, silent | contract | kcl README §1.2/§1.7, G2-02 (rc 2 = malformed call; owner decision 2026-09-07 over the report's rc 1) |
+| 009.toarray-assoc | ToArray | an associative target → rc 2, target untouched | contract | G2-02 (it used to fill 0,1,2… keys) |
+| 009.toarray-ok | ToArray | a normal array is still filled, `RESULT` = count, order intact | behavior | regression fence for the four rows above |
+| 009.ctor-token-queue | TObjectQueue.Create | a rejected token → rc 1 **and** an owning, usable queue (defaults) | contract | decision R3 / G2-10 |
+| 009.ctor-token-stack | TObjectStack.Create | same for the stack | contract | R3 / G2-10 |
+| 009.ctor-token-silent | TObjectQueue.Create | silent by default, explained only under `VERBOSE_KKLASS=debug` | contract | D2 |
+
+Trap worth remembering: `ToArray` is a `func`, and kklass appends
+`kk._return "$RESULT"` to every `func` body — a bare `helper "$1"` as the last
+statement therefore returns **0** whatever the helper answered. The wrappers
+are `_toArray "$1" || return 1; return 0` for that reason.

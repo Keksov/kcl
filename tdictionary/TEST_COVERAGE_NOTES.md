@@ -133,3 +133,20 @@ Test-side traps pinned during the effort (also in PLAN.md §6):
 - kklass restores the caller's RESULT when a `func` early-returns — miss paths
   must call `kk._return` explicitly (library-side fix, pinned by 004).
 - Never edit the unit while a master sweep is in flight (P3-sweep race).
+
+## 013 additions — review 2026-09-06, phase P2 (invented)
+
+| ID | Members | Case | Class | Basis |
+|---|---|---|---|---|
+| 013.r3-defaults | TObjectDictionary.Create | a rejected ownership token → rc 1 **and** an instance with the DEFAULTS (non-owning), usable, clean delete | contract | decision R3 / G2-10 — the same shape as tqueuestack (whose default is *owning*) |
+| 013.r4-same-handle | AddOrSetValue | storing an owned value back over ITSELF frees it and keeps the dead name | behavior | FPC `SetValue` runs `Notify(cnRemoved)` on the old value without comparing pointers — decision R4, documented in README with a guard idiom |
+| 013.r4-counterpart | TObjectList.Put | the same-handle `Put` does NOT free (FPC `TList.Put` notifies only when the pointer changes) | behavior | the other half of the R4 claim; the asymmetry is upstream's |
+
+## 009 additions — output-name validation, rc 2 (invented; owner decision 2026-09-07)
+
+| ID | Members | Case | Class | Basis |
+|---|---|---|---|---|
+| 009.outname-rc | KeysToArray/ValuesToArray/ToArrays | empty / `bad name` / `1bad` / `a-b` / same-var → **rc 2** (was rc 1) | contract | kcl/README.md §1.2 — a malformed output-array name is a malformed CALL, not a value the caller may try |
+| 009.outname-reserved | KeysToArray | `__td_items`, `__td_oref`, `__kk_x`, `RESULT`, `IFS`, `this`, `__inst__`, `${inst}_items`, `${inst}_data` → rc 2, dict intact | contract | the G2-02 shape; `__td_items` used to ALIAS the storage so the reset emptied the dictionary and returned rc 0 (ledger found_in_P2/P2-F2) |
+| 009.outname-assoc | KeysToArray/ValuesToArray | an associative target → rc 2, target untouched | contract | an assoc array cannot receive an index-ordered fill (it would collect 0,1,2… keys) |
+| 009.outname-ok | KeysToArray | a valid name still fills and returns rc 0 | contract | regression fence for the three rows above |

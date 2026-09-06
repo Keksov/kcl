@@ -58,3 +58,21 @@ instances (`TList.new`); the `TMyObject(:TObject)` subclass →
 | 003.fio-edges | FindInstanceOf | class-name STRING element skipped; empty arg → rc 2 | contract | liveness guard + arg validation |
 | 003.dtor-many | destructor | 5 owned elements all freed | behavior | dtor loop |
 | 003.zero-fork | all removal paths | Delete/Extract/FindInstanceOf/Clear cycle under `PATH=''` | contract | builtins only |
+
+## 004–005 — kcl contract + review 2026-09-06 (invented; P1/P2)
+
+`004_Contract.sh` is the house contract file (identical in shape across the 17
+kcl suites); `005_ReviewP2.sh` closes the review findings of phase P2.
+
+| ID | Members | Case | Class | Basis |
+|---|---|---|---|---|
+| 004.setu | source, main path | loads and re-loads under `set -eu`, main path clean | contract | kcl README §1.4 (D7) |
+| 004.inj | Delete/Put/BatchDelete/FindInstanceOf | injection-shaped index rejected, nothing executed | contract | kcl README §1.5 (D1, G1-02) |
+| 004.leak | destructor | no `W_items`/`W_data`/`W_class`/wrapper after `.delete` | contract | kcl README §1.9 (G1-01) |
+| 004.set-e | Delete | a failing member returns control under `set -e` | contract | D7 |
+| 005.dtor-storage | Destroy | `${inst}_items` gone after delete, owning AND non-owning | contract | G1-01 (`inherited` in Destroy) |
+| 005.count-shrink | _setCount | owning shrink frees the dropped tail; non-owning does not; growth frees nothing | behavior | FPC SetCount → Delete → Notify(lnDeleted) (G1-07a) |
+| 005.capacity-guard | _setCapacity | `capacity < count` → rc 1, nothing dropped or freed | contract | FPC EListError / decision R2 (G1-07b, G1-09) |
+| 005.assign-atomic | Assign | the unimplemented stub leaves an owning list untouched | contract | G1-07c (it used to Clear first, freeing everything) |
+| 005.owns-token | owns_objects | `yes` → rc 2 and the value unchanged; `true`/`false` still work; a rejected token does not disown | contract | FPC Boolean property / G1-16 |
+| 005.fio-token | FindInstanceOf | a non-boolean `exact` token → rc 2 (was silently `true`) | contract | G1-16 |

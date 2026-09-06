@@ -158,15 +158,32 @@ else
 fi
 mylist.delete
 
-# Test: Negative capacity value (should be invalid)
-kt_test_start "Invalid capacity assignment"
+# Test: Negative capacity value (invalid).
+# REWRITTEN for the 2026-09-06 review: this used to call kt_test_pass
+# unconditionally, so it could not fail. FPC SetCapacity raises
+# EListError (SListCapacityError) below Count or below zero; decision R2 maps
+# that to rc 1 with the list left exactly as it was (finding G1-09).
+kt_test_start "Invalid capacity assignment is refused and changes nothing"
 TStringList.new testlist
+testlist.Add "one"
+testlist.Add "two"
+cap_before=$(testlist.capacity)
 TRAP_ERRORS_ENABLED=false
-testlist.capacity = "-10" 2>&1
-result=$?
+testlist.capacity = "-10" 2>/dev/null
+neg_rc=$?
+testlist.capacity = "1" 2>/dev/null
+low_rc=$?
 TRAP_ERRORS_ENABLED=true
-# May or may not error depending on implementation
-kt_test_pass "Tested capacity with negative value"
+count_after=$(testlist.count)
+cap_after=$(testlist.capacity)
+item0=$(testlist.Get 0)
+item1=$(testlist.Get 1)
+if [[ $neg_rc -eq 1 && $low_rc -eq 1 && "$count_after" == "2" \
+   && "$cap_after" == "$cap_before" && "$item0" == "one" && "$item1" == "two" ]]; then
+    kt_test_pass "negative and below-count capacity both rc 1, list intact"
+else
+    kt_test_fail "neg_rc=$neg_rc low_rc=$low_rc count=$count_after capacity=$cap_after (was $cap_before) items='$item0','$item1'"
+fi
 testlist.delete
 
 # Test: Zero-based indexing

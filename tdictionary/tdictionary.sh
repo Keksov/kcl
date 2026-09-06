@@ -43,9 +43,15 @@ source "$TDICTIONARY_DIR/../../kklass/kklass_pascal.sh"
 # count is COMPUTED from ${#items[@]} (one entry per pair by construction),
 # so it can never drift from the storage.
 #
-# `func` methods echo the result AND set RESULT (direct call + $RESULT is the
-# lossless path for values with trailing newlines); FPC exceptions map to
-# `return 1` with a message only under VERBOSE_KKLASS=debug (tlist style).
+# `func` methods return through RESULT. A DIRECT call prints NOTHING (kklass
+# D1 / kcl README section 1.1) — `d.GetItem k; use "$RESULT"` — while the same
+# call inside `$( )` prints the value exactly once, so `v=$(d.GetItem k)` also
+# works (it forks, and a mutating call would lose its mutation with the
+# subshell). The direct + `$RESULT` form is also the lossless one: `$( )`
+# strips trailing newlines. (G2-07: this header used to say "echo the result
+# AND set RESULT", which described the pre-D1 framework.)
+# FPC exceptions map to `return 1` with a message only under
+# VERBOSE_KKLASS=debug (tlist style).
 # ---------------------------------------------------------------------------
 class TDictionary
     public
@@ -393,13 +399,45 @@ TDictionary.Values() {
     done
 }
 
+# Validate a caller-supplied OUTPUT ARRAY name (kcl/README.md 1.7) BEFORE any
+# nameref is bound. rc 0 ok / 1 not — the CALLER answers rc 2, because a name
+# that cannot receive the fill is a malformed CALL, not a value the caller may
+# legitimately try (kcl/README.md 1.2; owner decision 2026-09-07 — these three
+# members used to answer rc 1, and so did the sibling units until the same day).
+#
+# The old check was `[[ -z ]] || ! declare -n ref="$name"`, which accepted every
+# reserved name: `d.KeysToArray __td_items` bound the output nameref to the very
+# array the body then re-declares, so the `ref=()` reset WIPED the dictionary
+# and reported success (the G2-02 shape the review found in tqueuestack and
+# thashset — it was present here too, under the report's "tdictionary validates"
+# note). Verified: 3 pairs -> 0 pairs, rc 0.
+TDict._outName() {
+    local __td_n="${1:-}"
+    case "$__td_n" in
+        ""|__td_*|__kk_*|__KK_*|RESULT|RESULT_KEY|REPLY|IFS|this|__inst__|__class__) return 1 ;;
+    esac
+    case "$__td_n" in
+        "${__inst__}_items"|"${__inst__}_data"|"${__inst__}_class") return 1 ;;
+    esac
+    [[ "$__td_n" =~ ^[A-Za-z_][A-Za-z_0-9]*$ ]] || return 1
+    return 0
+}
+
+# Is the named variable an ASSOCIATIVE array? It cannot receive an index-ordered
+# fill (it would collect 0,1,2… keys), so it is refused like a bad name.
+TDict._isAssoc() {
+    local -n __td_probe="$1" 2>/dev/null || return 1
+    [[ "${__td_probe@a}" == *A* ]]
+}
+
 TDictionary.KeysToArray() {
     # Keys.ToArray analog: fill the named indexed array with the keys, exact.
     local __td_out="$1"
-    if [[ -z "$__td_out" ]] || ! declare -n __td_oref="$__td_out" 2>/dev/null; then
+    if ! TDict._outName "$__td_out" || TDict._isAssoc "$__td_out"; then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.KeysToArray: bad output variable name '$__td_out'" >&2
-        return 1
+        return 2
     fi
+    declare -n __td_oref="$__td_out"
     declare -n __td_items="${__inst__}_items"
     __td_oref=()
     local __td_k
@@ -411,10 +449,11 @@ TDictionary.KeysToArray() {
 TDictionary.ValuesToArray() {
     # Values.ToArray analog: fill the named indexed array with the values.
     local __td_out="$1"
-    if [[ -z "$__td_out" ]] || ! declare -n __td_oref="$__td_out" 2>/dev/null; then
+    if ! TDict._outName "$__td_out" || TDict._isAssoc "$__td_out"; then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.ValuesToArray: bad output variable name '$__td_out'" >&2
-        return 1
+        return 2
     fi
+    declare -n __td_oref="$__td_out"
     declare -n __td_items="${__inst__}_items"
     __td_oref=()
     local __td_v
@@ -427,14 +466,17 @@ TDictionary.ToArrays() {
     # ToArray (array of TPair) analog: fill TWO named indexed arrays,
     # index-aligned — keys[i] maps to values[i].
     local __td_kout="$1" __td_vout="$2"
-    if [[ -z "$__td_kout" || -z "$__td_vout" || "$__td_kout" == "$__td_vout" ]]; then
+    if [[ "$__td_kout" == "$__td_vout" ]]; then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.ToArrays: two DISTINCT output variable names required" >&2
-        return 1
+        return 2
     fi
-    if ! declare -n __td_kref="$__td_kout" 2>/dev/null || ! declare -n __td_vref="$__td_vout" 2>/dev/null; then
+    if ! TDict._outName "$__td_kout" || TDict._isAssoc "$__td_kout" \
+       || ! TDict._outName "$__td_vout" || TDict._isAssoc "$__td_vout"; then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.ToArrays: bad output variable name" >&2
-        return 1
+        return 2
     fi
+    declare -n __td_kref="$__td_kout"
+    declare -n __td_vref="$__td_vout"
     declare -n __td_items="${__inst__}_items"
     __td_kref=()
     __td_vref=()

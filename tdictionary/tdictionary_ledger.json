@@ -561,6 +561,12 @@
       "date": "2026-07-12",
       "batch": "P7-closeout",
       "summary": "README.md + docs/TDictionary.md + bench.sh delivered; TEST_COVERAGE_NOTES.md finalized (58 rows). Bench (bash 5.2.37, N=300): Add 519us, TryGetValue 591us, GetItem 583us, ContainsKey 485/465us, AddOrSetValue 599us, SetItem 616us, Remove 550us, ForEach 29us/pair, O(1) flat 636->618us (1k->10k), zero-fork OK, $() capture 17.35ms (subshell fork on MSYS2), tlist.Add reference 660us. Suite 130/130 both bashes. Ledger -> COMPLETE. Final master sweep pending as the last gate."
+    },
+    {
+      "date": "2026-09-07",
+      "batch": "kcl review 2026-09-06 — phase P2 (containers): docs drift, R3/R4 pins, output-name validation (rc 2)",
+      "summary": "No code change in this unit. G2-07 (contract drift): the unit header, README.md and docs/TDictionary.md all said function results are \"echo + RESULT\"; since the kklass D1 change a DIRECT call is silent and only a subshell capture prints, which is what the tests always asserted. All three now describe the real contract. R4: a README warning (with a guard idiom) for the FPC-parity behaviour that AddOrSetValue/SetItem on an owning dictionary FREE the replaced value even when it is the SAME handle — verified live: the instance is freed and its dead name stays stored. R3/G2-10: a rejected ownership token already leaves an instance with the defaults (non-owning) plus rc 1, matching tqueuestack; pinned by a test now, along with the R4 behaviour and its TObjectList.Put counterpart (which does NOT free a same-handle Put — the asymmetry is upstream's).",
+      "tests": "tests/013_ObjectDictionary.sh +3 assertions (R3 defaults, R4 same-handle free, TObjectList.Put counterpart) — these PIN existing behaviour, no red-first, nothing changed. PLUS a code change after the owner's 2026-09-07 decision: KeysToArray/ValuesToArray/ToArrays now validate the output name through TDict._outName + TDict._isAssoc and answer rc 2 (was rc 1) for a malformed, reserved or associative target. That check ALSO closed a HIGH hole the review had recorded as validated: the old `declare -n ref=$name` accepted `__td_items`, whose nameref aliased the storage, so the reset EMPTIED the dictionary and returned rc 0 (repro and red evidence in kcl_ledger.json, found_in_P2/P2-F2). tests/009_KeysValues.sh: the validation case rewritten to rc 2 + 3 new assertions (reserved names, associative target, positive path); red 4 of 12 before the fix. Suite 137 -> 143 cases."
     }
   ]
 }

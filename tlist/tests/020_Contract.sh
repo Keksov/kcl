@@ -170,14 +170,19 @@ leaked=""
 [[ -z "$leaked" ]] && kt_test_pass "no leak" || kt_test_fail "clobbered: $leaked"
 
 # --- 5. lifecycle (X-LEAK) -------------------------------------------------
-# The remaining clause of the contract — `.delete` frees every `${inst}_*` this
-# unit creates — is NOT asserted here: `${inst}_items` survives `.delete`
-# because TList has no destructor (finding G1-01), and that fix is scheduled for
-# P2 together with `inherited` in TObjectList.Destroy. The assertion lands in
-# this file when G1-01 does. Units whose destructor is already correct assert it
-# from the start.
-
+# `.delete` frees every `${inst}_*` this unit creates (kcl/README.md 1.9). TList
+# had no destructor at all until P2, so every deleted list leaked its storage
+# (finding G1-01); the regression detail lives in 021_ReviewP2.sh.
+kt_test_start "delete frees every per-instance array this unit creates [G1-01]"
+L.Clear; L.Add one; L.Add two
 L.delete
+leaked=""
+for suffix in items data class; do
+    declare -p "L_$suffix" >/dev/null 2>&1 && leaked+="L_$suffix "
+done
+declare -F "L.Add" >/dev/null 2>&1 && leaked+="L.Add() "
+[[ -z "$leaked" ]] && kt_test_pass "no L_* variable and no wrapper left" \
+    || kt_test_fail "left behind: $leaked"
 
 # --- 6. the error path reaches the caller under set -e (D7) ----------------
 # Direct proof, instead of auditing the code for `&&` lists: bash exits only

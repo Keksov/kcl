@@ -110,15 +110,56 @@ else
     kt_test_fail "n=${#PRE[@]}"
 fi
 
-kt_test_start "Output-variable validation: empty / invalid / same-var"
-d.KeysToArray "" 2>/dev/null;        rc1=$?
+# A malformed output-array name is a malformed CALL, not a value the caller may
+# legitimately try, so it answers rc 2 — kcl/README.md sections 1.2 and 1.7
+# (owner decision, 2026-09-07: the README contract wins over the rc 1 these
+# three members used to return, and over the rc 1 the review report suggested).
+kt_test_start "Output-variable validation: empty / invalid / same-var -> rc 2"
+d.KeysToArray "" 2>/dev/null;         rc1=$?
 d.KeysToArray "bad name" 2>/dev/null; rc2=$?
 d.ToArrays SAME SAME 2>/dev/null;     rc3=$?
-if [[ $rc1 -eq 1 && $rc2 -eq 1 && $rc3 -eq 1 ]]; then
-    kt_test_pass "all rejected with rc=1"
+d.KeysToArray "1bad" 2>/dev/null;     rc4=$?
+d.ValuesToArray "a-b" 2>/dev/null;    rc5=$?
+if [[ $rc1 -eq 2 && $rc2 -eq 2 && $rc3 -eq 2 && $rc4 -eq 2 && $rc5 -eq 2 ]]; then
+    kt_test_pass "all five rejected with rc=2"
 else
-    kt_test_fail "rc1=$rc1 rc2=$rc2 rc3=$rc3"
+    kt_test_fail "rc1=$rc1 rc2=$rc2 rc3=$rc3 rc4=$rc4 rc5=$rc5"
 fi
+
+# The same validation must also refuse names that would ALIAS the unit's own
+# nameref or the instance's storage. `d.KeysToArray __td_items` used to bind the
+# output nameref to the very array the body then re-declares, so the `out=()`
+# reset WIPED the dictionary and reported success (kcl review 2026-09-06, the
+# G2-02 shape — found in tqueuestack/thashset, present here too).
+kt_test_start "Output-variable validation: the unit's own and the instance's names -> rc 2, dict intact"
+before="$(d.count)"
+bad=""
+for name in __td_items __td_oref __kk_x RESULT IFS this __inst__ d_items d_data; do
+    d.KeysToArray "$name" 2>/dev/null; rc=$?
+    [[ $rc -eq 2 ]] || bad+="rc[$name]=$rc "
+done
+after="$(d.count)"
+if [[ -z "$bad" && "$before" == "$after" && "$before" != "0" ]]; then
+    kt_test_pass "9 reserved names rejected, $after pairs intact"
+else
+    kt_test_fail "$bad count $before -> $after"
+fi
+
+kt_test_start "Output-variable validation: an associative target -> rc 2, target untouched"
+declare -A ASSOC_TARGET=()
+d.KeysToArray ASSOC_TARGET 2>/dev/null; rck=$?
+d.ValuesToArray ASSOC_TARGET 2>/dev/null; rcv=$?
+if [[ $rck -eq 2 && $rcv -eq 2 && ${#ASSOC_TARGET[@]} -eq 0 ]]; then
+    kt_test_pass "rc 2 twice, target untouched"
+else
+    kt_test_fail "rck=$rck rcv=$rcv keys='${!ASSOC_TARGET[*]}'"
+fi
+
+kt_test_start "a valid name still fills and still returns rc 0"
+declare -a OK_TARGET=(stale)
+d.KeysToArray OK_TARGET; rc=$?
+[[ $rc -eq 0 && ${#OK_TARGET[@]} -eq 3 ]] && kt_test_pass "rc 0, 3 keys" \
+    || kt_test_fail "rc=$rc n=${#OK_TARGET[@]}"
 
 d.delete
 

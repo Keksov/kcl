@@ -21,7 +21,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 kt_test_init "Contract" "$(dirname "$0")" "$@"
 
 UNIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UNIT="$UNIT_DIR/tstringlist.sh"
+UNIT="$UNIT_DIR/thashset.sh"
 source "$UNIT"
 
 TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
@@ -63,65 +63,51 @@ printf OK" 2>"$errf")"; rc=$?
 expect_clean "the unit loads under set -eu [X-SETU, D7]" ":"
 expect_clean "loading the unit TWICE under set -eu is a no-op [X-SETU]" "source '$UNIT'"
 expect_clean "main path under set -eu [X-SETU, D7]" '
-TStringList.new L
-L.Add banana
-L.Add apple
-L.count >/dev/null
-L.Get 0 >/dev/null
-L.IndexOf apple >/dev/null || true
-L.Sort
-L.Delete 0
-L.Clear
-L.delete'
-
-# --- 2. numeric arguments (D1) ---------------------------------------------
-kt_test_start "index-taking members reject an injection shape [G1-02]"
-canary="$TMP/pwn"; rm -f "$canary"
-bad="x[\$(touch '$canary')]"
-TStringList.new L; L.Add a; L.Add b
-accepted=""
-L.Get "$bad" 2>/dev/null && accepted+="Get "
-L.Delete "$bad" 2>/dev/null && accepted+="Delete "
-L.Insert "$bad" v 2>/dev/null && accepted+="Insert "
-if [[ ! -e "$canary" && -z "$accepted" ]]; then
-    kt_test_pass "rejected, nothing executed"
-else
-    kt_test_fail "canary=$([[ -e "$canary" ]] && echo CREATED || echo absent) accepted: ${accepted:-none}"
-fi
+THashSet.new h
+h.Add alpha
+h.Count >/dev/null
+if h.Contains alpha; then :; fi
+h.Remove alpha || :
+h.Clear
+h.delete'
 
 # --- 3. values are data (X-ECHO) -------------------------------------------
-kt_test_start "values that look like echo options round-trip [G1-13]"
-L.Clear
+kt_test_start "exotic elements survive Add, Contains, Remove and Extract [G2-01]"
+# The Remove/Extract half was finding G2-01: the `unset` used DOUBLE quotes, so
+# the already-substituted subscript was parsed a second time — every element
+# containing ] [ $ quotes or a backslash stayed in the set with rc 0, and
+# `$( )` content was executed. Closed in P2; the element torture lives in 002.
+THashSet.new H
 broken=""
-for v in '-e' '-n' '-neE'; do
-    L.Add "$v"
-    L.Get $(( $(L.count >/dev/null; printf '%s' "$RESULT") - 1 )) >/dev/null
-    [[ "$RESULT" == "$v" ]] || broken+="[$v] "
+for v in '-e' '-n' 'a]b' 'a[b' 'a$b' 'a\b' "a'b" 'a"b'; do
+    H.Add "$v"
+    H.Contains "$v" || broken+="contains[$v] "
 done
-[[ -z "$broken" ]] && kt_test_pass "all round-tripped" || kt_test_fail "lost: $broken"
+for v in '-e' 'a]b' 'a$b' "a'b"; do
+    H.Remove "$v" || broken+="remove-rc[$v] "
+    H.Contains "$v" && broken+="not-removed[$v] "
+done
+for v in '-n' 'a[b' 'a\b' 'a"b'; do
+    H.Extract "$v"
+    [[ "$RESULT" == "$v" ]] || broken+="extract-value[$v] "
+    H.Contains "$v" && broken+="not-extracted[$v] "
+done
+H.Count
+[[ -z "$broken" && "$RESULT" == "0" ]] \
+    && kt_test_pass "8 exotic elements stored, found and removed" || kt_test_fail "$broken count=$RESULT"
+H.delete
 
-# --- 4. no global leakage (X-LOCALS) ---------------------------------------
-kt_test_start "members do not clobber the caller's loop variables [G1-08]"
-i="CALLER_I"; j="CALLER_J"
-L.IndexOf a >/dev/null || true
-L.Remove a >/dev/null 2>&1 || true
-leaked=""
-[[ "$i" == "CALLER_I" ]] || leaked+="i=$i "
-[[ "$j" == "CALLER_J" ]] || leaked+="j=$j "
-[[ -z "$leaked" ]] && kt_test_pass "no leak" || kt_test_fail "clobbered: $leaked"
-
-# --- 4b. lifecycle (X-LEAK) ------------------------------------------------
-# `.delete` frees every `${inst}_*` this unit creates (kcl/README.md 1.9).
-# TStringList inherits TList.Destroy, which did not exist before P2 (G1-01).
+# --- 4. lifecycle (X-LEAK) -------------------------------------------------
 kt_test_start "delete frees every per-instance array this unit creates [G1-01]"
-L.Clear; L.Add one
-L.delete
+THashSet.new W
+W.Add one
+W.delete
 leaked=""
 for suffix in items data class; do
-    declare -p "L_$suffix" >/dev/null 2>&1 && leaked+="L_$suffix "
+    declare -p "W_$suffix" >/dev/null 2>&1 && leaked+="W_$suffix "
 done
-declare -F "L.Add" >/dev/null 2>&1 && leaked+="L.Add() "
-[[ -z "$leaked" ]] && kt_test_pass "no L_* variable and no wrapper left" \
+declare -F "W.Add" >/dev/null 2>&1 && leaked+="W.Add() "
+[[ -z "$leaked" ]] && kt_test_pass "no W_* variable and no wrapper left" \
     || kt_test_fail "left behind: $leaked"
 
 # --- 5. the error path reaches the caller under set -e (D7) ----------------
@@ -133,30 +119,10 @@ declare -F "L.Add" >/dev/null 2>&1 && leaked+="L.Add() "
 kt_test_start "a failing member returns to the caller under set -e [D7, M7/T1]"
 out="$(bash -c "set -e
 source '$UNIT'
-TStringList.new L; L.Get 5 || printf 'reached rc=%s' \0
+THashSet.new h; h.Remove nope || printf 'reached rc=%s' \0
 printf ' end'" 2>&1)"
 if [[ "$out" == *"reached rc="* && "$out" == *"end"* ]]; then
     kt_test_pass "$out"
 else
     kt_test_fail "caller never regained control: '$out'"
-fi
-
-# A member whose ANSWER is carried by a helper's exit status is the other half
-# of D7: CompareStrings called `_cmpCore` bare, so every "equal" and "greater"
-# comparison aborted the caller under `set -e` (found in P2; same class as the
-# four bare status-as-value calls P1 fixed).
-kt_test_start "a member that answers 'greater' does not abort the caller [D7]"
-out="$(bash -c "set -e
-source '$UNIT'
-TStringList.new L
-L.CompareStrings b a
-printf 'greater=%s' \"\$RESULT\"
-L.CompareStrings a a
-printf ' equal=%s' \"\$RESULT\"
-L.Sort
-printf ' end'" 2>&1)"
-if [[ "$out" == "greater=2 equal=0 end" ]]; then
-    kt_test_pass "$out"
-else
-    kt_test_fail "got '$out' (expected 'greater=2 equal=0 end')"
 fi

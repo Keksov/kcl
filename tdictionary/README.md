@@ -48,7 +48,7 @@ d.delete                     # destructor: Clear (events fire) + teardown
 
 | Method | Semantics | rc |
 |---|---|---|
-| `d.GetItem key` | `Items[key]` read; echoes and sets `RESULT`; miss → `RESULT=""` | 0 / 1 |
+| `d.GetItem key` | `Items[key]` read; sets `RESULT` (a direct call prints nothing — see *Conventions*); miss → `RESULT=""` | 0 / 1 |
 | `d.SetItem key value` | `Items[key]` write — **UPDATE-ONLY**: missing key → rc 1, nothing inserted. FPC semantics; **Delphi would upsert here** | 0 / 1 |
 | `d.TryGetValue key` | `RESULT`=value; miss → `RESULT=""` (FPC `Default(TValue)`) | 0 / 1 |
 | `d.GetValueDef key [default]` | value if the key exists (a stored `""` wins!), else the default. *bash convenience, not in FPC* | 0 |
@@ -70,8 +70,8 @@ d.delete                     # destructor: Clear (events fire) + teardown
 | Method | Semantics |
 |---|---|
 | `d.Keys` / `d.Values` | one item per line (ambiguous for embedded newlines — use the array forms) |
-| `d.KeysToArray var` / `d.ValuesToArray var` | fill a named indexed array, **lossless** (newline-safe); the array is reset first |
-| `d.ToArrays kVar vVar` | two index-aligned parallel arrays: `kVar[i]` ↔ `vVar[i]`; names must differ |
+| `d.KeysToArray var` / `d.ValuesToArray var` | fill a named indexed array, **lossless** (newline-safe); the array is reset first. A malformed output name → **rc 2**, dict untouched (see below) |
+| `d.ToArrays kVar vVar` | two index-aligned parallel arrays: `kVar[i]` ↔ `vVar[i]`; names must differ, else **rc 2** |
 | `d.ForEach cb` | invoke `cb key value` per pair over a **snapshot**: the callback may freely `Remove`/`Add` — deleted pairs are skipped, additions are not visited in this pass; callback rc ignored |
 | `d.Assign src` | replace content with a copy of another TDictionary (`Create(ACollection)` analog); self-assign is a no-op; invalid source → rc 1, dict untouched |
 
@@ -116,10 +116,49 @@ Unknown ownership tokens reject the whole set (rc 1, none applied).
 User callbacks fire *before* the free (FPC: `inherited` precedes `.Free`) and
 observe the instance still alive.
 
+> **Warning — storing a value back over itself frees it** (decision R4, review
+> 2026-09-06). On an owning dictionary, `AddOrSetValue`/`SetItem` free the
+> *replaced* value, and bash cannot tell "the same handle" from "a different
+> handle with the same name": the overwrite frees the instance and then stores
+> its now-dead name.
+>
+> ```bash
+> TObjectDictionary.new od doOwnsValues
+> TDictionary.new payload
+> od.Add k payload
+> od.AddOrSetValue k payload   # payload is FREED; od.GetItem k -> a DEAD handle
+> ```
+>
+> This is FPC parity — `TObjectDictionary.SetValue` runs the same
+> `Notify(cnRemoved)` on the old value without comparing pointers — so it is
+> kept, not "fixed". Guard the call yourself when a re-store is possible:
+>
+> ```bash
+> if ! od.TryGetValue k || [[ "$RESULT" != "payload" ]]; then
+>     od.AddOrSetValue k payload
+> fi
+> ```
+>
+> (`TObjectList.Put` takes the opposite route: FPC's `TList.Put` notifies only
+> when the pointer actually changes, so re-putting the same handle there is a
+> no-op. The asymmetry is upstream's, not the port's.)
+
 ## Conventions and caveats
 
-- **`func` results**: methods echo the result *and* set `RESULT`. The direct
-  call + `$RESULT` form is lossless; `$(…)` strips trailing newlines.
+- **`func` results**: a method returns through `RESULT`. A **direct call prints
+  nothing** and sets `RESULT`; the same call inside `$(…)` prints the value
+  exactly once, so both forms work:
+
+  ```bash
+  d.GetItem k; use "$RESULT"     # no fork, lossless
+  v="$(d.GetItem k)"             # forks; strips trailing newlines
+  ```
+
+  The direct form is the lossless one and the only one that can mutate — a
+  `$(…)` call runs in a subshell. (Review 2026-09-06, G2-07: this section used
+  to say members "echo the result *and* set RESULT", which described the
+  framework before the kklass D1 change; the tests always matched the real
+  contract, only the prose was stale.)
 - **`$()` never mutates**: command substitution runs in a subshell, so
   `v=$(d.ExtractPair k)` returns the value but the parent dictionary keeps the
   pair. Mutating calls must be DIRECT calls. (Pinned by tests.)
@@ -129,9 +168,16 @@ observe the instance still alive.
 - **`ExtractPair` miss vs `''`-key hit** produce the same `('','')` shape —
   exactly as in FPC (`Default(TKey)` is `''`); disambiguate with `ContainsKey`
   beforehand.
-- **Reserved names**: do not pass output-variable names starting with `__td_`
-  to the `*ToArray`/`ToArrays` methods, and do not touch `${instance}_data`
-  (kklass's own property store); pair storage lives in `${instance}_items`.
+- **Output-array names are validated** (`KeysToArray`/`ValuesToArray`/
+  `ToArrays`): the name must be a plain identifier that is not one of the
+  unit's own `__td_*` locals, not `__kk_*`, not `RESULT`/`RESULT_KEY`/`REPLY`/
+  `IFS`/`this`/`__inst__`/`__class__`, not the instance's own
+  `${instance}_items`/`_data`/`_class`, and not an associative array. A
+  rejected name is **rc 2** with the dictionary untouched and nothing written —
+  it is a malformed *call*, not a value you may legitimately try
+  (`kcl/README.md` §1.2/§1.7). Until the 2026-09-06 review these members
+  answered rc 1 and, worse, accepted `__td_items`, whose nameref aliased the
+  storage so the reset **emptied the dictionary** and reported success.
 - **Zero forks** in every method on the direct-call path (`bench.sh` proves it
   with `PATH=''`).
 

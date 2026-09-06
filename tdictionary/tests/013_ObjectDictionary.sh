@@ -35,6 +35,62 @@ else
 fi
 c1.delete; c2.delete; c3.delete; c4.delete; c5.delete; c6.delete 2>/dev/null
 
+# Decision R3 (review 2026-09-06, finding G2-10): a REJECTED constructor token
+# leaves a usable instance carrying the class DEFAULTS, plus rc 1 — identically
+# in tqueuestack (default owning) and here (default: no ownership). The old
+# test only checked that rc was 1 and that OTHER instances were alive; nothing
+# pinned the state of the instance whose token was refused, and a half-applied
+# ownership set is exactly the kind of drift that frees a caller's live object.
+kt_test_start "R3: a rejected ctor token leaves an instance with DEFAULTS + rc 1 [G2-10]"
+TObjectDictionary.new r1 "doOwnsKeys,bogus" 2>/dev/null
+rc1=$?
+TDictionary.new keyobj
+r1.Add keyobj v0
+r1.Remove keyobj          # non-owning default => the key instance survives
+n1="$(r1.count)"
+kobj_alive=freed; alive keyobj && kobj_alive=alive
+r1.delete
+if [[ $rc1 -eq 1 && "$n1" == "0" && "$kobj_alive" == "alive" ]] && ! alive r1; then
+    kt_test_pass "rc 1, usable, non-owning defaults, clean delete"
+else
+    kt_test_fail "rc=$rc1 count=$n1 key=$kobj_alive"
+fi
+alive keyobj && keyobj.delete
+
+# Decision R4 (review 2026-09-06): storing an owned value back over ITSELF
+# frees it — FPC's TObjectDictionary.SetValue runs Notify(cnRemoved) on the old
+# value without comparing pointers, and bash cannot tell "the same handle" from
+# "another handle with the same name". Kept as parity, documented in README.md
+# with the guard idiom; pinned here so the behaviour cannot drift silently.
+kt_test_start "R4: AddOrSetValue with the SAME owned handle frees it (FPC parity)"
+TObjectDictionary.new r4 doOwnsValues
+TDictionary.new payload
+r4.Add k payload
+r4.AddOrSetValue k payload
+same_state=alive; alive payload || same_state=freed
+r4.GetItem k; stored="$RESULT"
+r4.delete
+if [[ "$same_state" == "freed" && "$stored" == "payload" ]]; then
+    kt_test_pass "handle freed, the dead name is still stored (documented)"
+else
+    kt_test_fail "payload=$same_state stored='$stored'"
+fi
+alive payload && payload.delete
+
+kt_test_start "R4 counterpart: TObjectList.Put with the same handle does NOT free"
+# The asymmetry is upstream's (TList.Put notifies only when the pointer really
+# changes); the README says so, and this is the other half of the claim.
+source "$SCRIPT_DIR/../../tobjectlist/tobjectlist.sh"
+TObjectList.new ol
+TDictionary.new held
+ol.Add held
+ol.Put 0 held
+put_state=alive; alive held || put_state=freed
+ol.delete
+[[ "$put_state" == "alive" ]] && kt_test_pass "same-handle Put is a no-op" \
+    || kt_test_fail "held=$put_state"
+alive held && held.delete
+
 kt_test_start "inherited API surface intact (Add/GetItem/count/Keys)"
 TObjectDictionary.new od doOwnsValues
 od.Add k0 plainstring

@@ -39,6 +39,7 @@ source "$TLIST_DIR/../tarray/tarray.sh"
 class TList
     public
         constructor Create
+        destructor  Destroy
         property capacity read capacity write _setCapacity
         property count    read count    write _setCount
         proc _setCapacity
@@ -77,19 +78,30 @@ TList.Create() {
     items_ref=()
 }
 
+TList.Destroy() {
+    # LIFECYCLE (kcl/README.md section 1.9, finding G1-01): kklass's `.delete`
+    # frees `<inst>_data`, `<inst>_class` and the wrappers — an extra
+    # per-instance array the unit creates is the unit's own responsibility.
+    # Without this, every deleted list left a global `<inst>_items` behind with
+    # its full contents, and a new instance reusing the name started out
+    # pre-populated. Inherited by TStringList; TObjectList frees the owned
+    # elements first and then chains here with `inherited`.
+    unset "${__inst__}_items"
+}
+
 TList._setCapacity() {
-    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local new_capacity="$1"
     kk.isInt "$new_capacity" new_capacity || return 1
-    local items_var="${__inst__}_items"
-    local current_count="$count"
-    declare -n items_ref="$items_var"
-    if (( new_capacity < current_count )); then
-        # Truncate items to new capacity using unset instead of array copy
-        for (( i = new_capacity; i < current_count; i++ )); do
-            unset "items_ref[$i]"
-        done
-        count="$new_capacity"
+    # FPC Classes.TList.SetCapacity raises EListError (SListCapacityError) for
+    # a capacity below Count or below zero — it never silently drops elements.
+    # Here (decision R2, finding G1-09) that is rc 1 with the list UNCHANGED:
+    # the old code truncated to `new_capacity` (losing data) and, for a
+    # negative value, left count = capacity = -3 with the storage wiped by
+    # bash's own "bad array subscript" error.
+    if (( new_capacity < 0 || new_capacity < count )); then
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
+            echo "Error: TList.capacity: $new_capacity is below count ($count) or negative" >&2
+        return 1
     fi
     capacity="$new_capacity"
     # No physical pre-fill: capacity is a logical reservation; the sparse
@@ -167,7 +179,10 @@ TList.Add() {
     items_ref[$current_count]="$item"
     local new_count=$((current_count + 1))
     $__inst__.property count = "$new_count" >/dev/null
-    RESULT="$new_count"
+    # FPC `TList.Add: Integer` returns the INDEX of the new element, which is
+    # the count BEFORE the insertion (decision R1, finding G1-06). docs/TList.md
+    # and TStringList.Add already said index; only this body said count.
+    RESULT="$current_count"
 }
 
 TList.Insert() {
@@ -419,9 +434,11 @@ TList.Find() {
 }
 
 TList.Assign() {
-    local source="$1"
-    $this.Clear
-    # Basic assignment - would need to be overridden in subclasses
+    # Subclass stub. It FAILS BEFORE touching this list (finding G1-07c): the
+    # old body called the virtual `$this.Clear` first, so on a TObjectList it
+    # freed every owned element and only then reported "not implemented" —
+    # rc 1 with the caller's data destroyed. An unimplemented operation must
+    # leave the instance exactly as it was (kcl/README.md section 1.2).
     [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Assign method not implemented in TList - use in subclasses" >&2
     return 1
 }

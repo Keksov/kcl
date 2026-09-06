@@ -1,5 +1,33 @@
 # TStringList Properties (System.Classes.TStringList)
 
+> **Upstream reference, not the port's API.** This file is an automatic dump of
+> the Delphi/FPC documentation; most of what it describes is **not implemented**
+> here. The port's real surface is in **[../README.md](../README.md)**, and this
+> is the map between the two (review 2026-09-06, finding G1-19).
+>
+> **Ported** — `Create`/`Destroy`, `CaseSensitive` (`l.case_sensitive`),
+> `Duplicates` (`l.duplicates`), `Sorted` (`l.sorted` — the setter really sorts,
+> FPC `SetSorted`), `Add`, `Insert`, `IndexOf`, `Find`, `Sort`,
+> `CompareStrings`, `Remove`, `Assign`, `AddStrings`, plus everything inherited
+> from [`TList`](../../tlist/README.md) (`Get`/`Put`/`Delete`/`Clear`/`count`/
+> `capacity`/`Exchange`/`Move`/`Pack`/`First`/`Last`/`CustomSort`/`Batch*`).
+>
+> **Not ported** (documented below, absent from the code):
+>
+> | Upstream | Status |
+> |---|---|
+> | `Names`, `Values`, `ValueFromIndex`, `IndexOfName`, `NameValueSeparator` | **roadmap** — the name=value view; a self-contained addition on top of the current storage |
+> | `Text`, `CommaText`, `DelimitedText`, `Delimiter`, `QuoteChar`, `StrictDelimiter`, `LineBreak` | **roadmap** — serialisation; needs a quoting model decision first |
+> | `LoadFromFile`, `SaveToFile`, `LoadFromStream`, `SaveToStream` | **roadmap** — file I/O (compose with `kcl/tfile` for now) |
+> | `Objects`, `AddObject`, `InsertObject`, `IndexOfObject`, `GetObject`, `PutObject`, `OwnsObjects` | **wontfix** — the parallel object array; a list of kklass handles plus `TObjectList` covers the use case |
+> | `OnChange`, `OnChanging`, `Changed`, `Changing`, `BeginUpdate`, `EndUpdate`, `SetUpdateState` | **wontfix** — the change-notification protocol; nothing in kcl observes it |
+> | `ExchangeItems`, `InsertItem`, `GetCapacity`, `GetCount`, `SetCapacity` | internal FPC helpers; the equivalents are `TList`'s members |
+> | `CustomSort` | inherited from `TList` (comparator protocol: rc 0/1/2), not a separate TStringList member |
+>
+> Note that `Duplicates` only takes effect while `Sorted` is true — FPC's rule,
+> stated below in the `Duplicates` section and restored in the port by finding
+> G1-03.
+
 Automatically extracted from [Embarcadero DocWiki](https://docwiki.embarcadero.com/Libraries/Sydney/en/System.Classes.TStringList_Properties).
 
 ## `System.Classes.TStringList.CaseSensitive`

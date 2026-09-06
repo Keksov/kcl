@@ -46,7 +46,9 @@
 # ToArray fills a caller-named nameref (queue: front->back; stack: bottom->top,
 # S9) and RESULTs the count — CALL DIRECTLY ($() discards the fill).
 # RESERVED NAMES: never pass caller arrays named __tqs_* (nameref shadowing,
-# the tinifile P2 lesson).
+# the tinifile P2 lesson) — the name is now VALIDATED, and a reserved,
+# malformed or associative output name is rc 2 + RESULT='' with the storage
+# untouched (kcl/README.md 1.2/1.7, review finding G2-02).
 #
 # ---- The two FPC quirks are PRESERVED, not fixed (S8) ------------------------
 # * TObjectQueue.Dequeue is a PROCEDURE: the dequeued (and, when owning,
@@ -167,10 +169,47 @@ TQueueStack._count() {
     return 0
 }
 
+# Validate a caller-supplied OUTPUT ARRAY name (kcl/README.md 1.7) BEFORE the
+# nameref is bound, so a rejected name cannot touch anything. rc 0 ok / 1 not
+# (the CALLER maps a rejection to rc 2 — see below).
+#
+# G2-02: `q.ToArray __tqs_it` aliased this unit's own nameref and the fill loop
+# appended the queue's storage to itself (Count 2 -> 4, rc 0); an empty or
+# malformed name printed a bash error, filled a throwaway local and still
+# returned rc 0 with a count; an assoc target got 0,1,2… keys.
+# The member answers **rc 2**: a name that is not a usable identifier is a
+# malformed CALL, not a value the caller may legitimately try (kcl/README.md
+# sections 1.2 and 1.7 — owner decision 2026-09-07; the review report had
+# suggested rc 1, which is what tdictionary used to answer as well).
+TQueueStack._outName() {
+    local __tqs_n="${1:-}"
+    case "$__tqs_n" in
+        ""|__tqs_*|__kk_*|__KK_*|RESULT|REPLY|IFS|this|__inst__|__class__) return 1 ;;
+    esac
+    case "$__tqs_n" in
+        "${__inst__}_items"|"${__inst__}_qhead"|"${__inst__}_nhook"|"${__inst__}_data") return 1 ;;
+    esac
+    [[ "$__tqs_n" =~ ^[A-Za-z_][A-Za-z_0-9]*$ ]] || return 1
+    return 0
+}
+
 # Fill a caller nameref in ascending index order (queue: front->back over the
 # live region; stack: bottom->top over the dense array — S9) + RESULT=count.
 TQueueStack._toArray() {
-    local -n __tqs_out="$1"; __tqs_out=()
+    if ! TQueueStack._outName "${1:-}"; then
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
+            echo "Error: ToArray: bad output array name '${1:-}'" >&2
+        kk._return ""
+        return 2
+    fi
+    local -n __tqs_out="$1" 2>/dev/null || { kk._return ""; return 2; }
+    if [[ "${__tqs_out@a}" == *A* ]]; then     # an assoc target would get 0,1,2… keys
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
+            echo "Error: ToArray: '$1' is an associative array" >&2
+        kk._return ""
+        return 2
+    fi
+    __tqs_out=()
     local -n __tqs_it="${__inst__}_items"
     local __tqs_i
     for __tqs_i in "${!__tqs_it[@]}"; do
@@ -385,7 +424,16 @@ TQueue.Clear() {
 # outArr -> front->back (S9: FPC queue enumerator starts at FLow); RESULT=count.
 # CALL DIRECTLY ($() discards the fill). ${!items[@]} ascends over the live
 # region = front->back.
-TQueue.ToArray() { TQueueStack._toArray "$1"; }
+TQueue.ToArray() {
+    # The rc must survive the func trailer: `kk._return "$RESULT"` is appended
+    # to every func body and would turn the validation failure (G2-02) back
+    # into rc 0 — and it must survive VERBATIM, because a bad output-array name
+    # answers rc 2 (kcl README 1.2/1.7), not just "nonzero". `_toArray` has
+    # already called kk._return on every path.
+    local __tqs_rc=0
+    TQueueStack._toArray "$1" || __tqs_rc=$?
+    return $__tqs_rc
+}
 
 # ---- P2 stack plain helpers ---------------------------------------------------
 
@@ -480,7 +528,16 @@ TStack.Clear() {
 }
 
 # outArr -> bottom->top (S9; seed TestToArray: A[i-1]==IntToStr(i)); RESULT=count.
-TStack.ToArray() { TQueueStack._toArray "$1"; }
+TStack.ToArray() {
+    # The rc must survive the func trailer: `kk._return "$RESULT"` is appended
+    # to every func body and would turn the validation failure (G2-02) back
+    # into rc 0 — and it must survive VERBATIM, because a bad output-array name
+    # answers rc 2 (kcl README 1.2/1.7), not just "nonzero". `_toArray` has
+    # already called kk._return on every path.
+    local __tqs_rc=0
+    TQueueStack._toArray "$1" || __tqs_rc=$?
+    return $__tqs_rc
+}
 
 # The virtual Notify seam — the base classes just fire the user event.
 # Callback signature: <inst> <item> <added|removed|extracted>.

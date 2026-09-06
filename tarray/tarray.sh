@@ -225,13 +225,24 @@ TArray.sort() {
 # ---------------------------------------------------------------------------
 
 # Resolve an optional comparator arg -> __ta_mode (str|num|fn), __ta_cmp,
-# __ta_shifted (1 if the arg was a comparator and should be shifted away).
+# __ta_shifted (1 if the arg was a comparator and should be shifted away),
+# __ta_badcmp (1 if the arg is neither `-n` nor a DEFINED function).
+#
+# G1-12: a typo'd comparator name used to fall through silently — for the scan
+# family, which has no start/count after the comparator slot, the token was
+# simply ignored and the search ran in byte order with rc 0. Members whose next
+# positional is a range (sort, binarySearch) already reject it through the D1
+# numeric guard; members whose next positional is free-form DATA (min/max's
+# default) must NOT reject it. Each caller therefore decides what __ta_badcmp
+# means for it; the resolver only reports.
 TArray._resolveCmp() {
-    __ta_mode="str"; __ta_cmp=""; __ta_shifted=0
+    __ta_mode="str"; __ta_cmp=""; __ta_shifted=0; __ta_badcmp=0
     if [[ "$1" == "-n" ]]; then
         __ta_mode="num"; __ta_shifted=1
     elif [[ -n "$1" ]] && declare -F "$1" >/dev/null 2>&1; then
         __ta_mode="fn"; __ta_cmp="$1"; __ta_shifted=1
+    elif [[ -n "$1" ]]; then
+        __ta_badcmp=1
     fi
 }
 
@@ -270,7 +281,7 @@ TArray._cmp3() {
 TArray.binarySearch() {
     if [[ -z "$1" ]]; then RESULT=-1; RESULT_CANDIDATE=-1; RESULT_COMPARE=0; return 2; fi
     local __ta_name="$1" __ta_item="$2"; shift 2
-    local __ta_mode __ta_cmp __ta_shifted
+    local __ta_mode __ta_cmp __ta_shifted __ta_badcmp
     TArray._resolveCmp "${1:-}"; (( __ta_shifted )) && shift
     local -n __ta_arr="$__ta_name"
     local __ta_n=${#__ta_arr[@]}
@@ -278,9 +289,15 @@ TArray.binarySearch() {
     # X-INJ (G1-02, decision D1): start/count go into (( )) below.
     kk.isInt "$__ta_start" __ta_start || return 2
     if [[ -n "$__ta_count" ]]; then kk.isInt "$__ta_count" __ta_count || return 2; fi
+    # G1-15: clamp the range to the array exactly as sort does. Without this a
+    # `binarySearch a 9 2 10` on a 4-element array compared against elements
+    # that do not exist and reported CandidateIndex 11 — a "candidate" outside
+    # the array is not an insertion point, it is garbage.
+    if (( __ta_start < 0 )); then __ta_start=0; fi
     [[ -z "$__ta_count" ]] && __ta_count=$(( __ta_n - __ta_start ))
+    if (( __ta_start + __ta_count > __ta_n )); then __ta_count=$(( __ta_n - __ta_start )); fi
     [[ "$__ta_mode" == "str" ]] && local LC_ALL=C
-    if (( __ta_n == 0 || __ta_count <= 0 )); then      # S1 (empty / empty range)
+    if (( __ta_n == 0 || __ta_start >= __ta_n || __ta_count <= 0 )); then   # S1 (empty / empty range)
         RESULT=-1; RESULT_CANDIDATE=-1; RESULT_COMPARE=0; return 1
     fi
     local __ta_imin=$__ta_start __ta_imax=$(( __ta_start + __ta_count - 1 )) __ta_imid __ta_sign
@@ -304,8 +321,15 @@ TArray.binarySearch() {
 TArray.firstIndexOf() {
     if [[ -z "$1" ]]; then RESULT=-1; return 2; fi
     local __ta_name="$1" __ta_item="$2"; shift 2
-    local __ta_mode __ta_cmp __ta_shifted
+    local __ta_mode __ta_cmp __ta_shifted __ta_badcmp
     TArray._resolveCmp "${1:-}"
+    # G1-12: nothing follows the comparator in this signature, so a token that
+    # is neither `-n` nor a defined function is a typo, not data — answering
+    # "not found" (or "found, byte order") for it would be a wrong answer.
+    if (( __ta_badcmp )); then
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "TArray.firstIndexOf: '$1' is not a comparator function" >&2
+        RESULT=-1; return 2
+    fi
     local -n __ta_arr="$__ta_name"
     [[ "$__ta_mode" == "str" ]] && local LC_ALL=C
     local __ta_n=${#__ta_arr[@]} __ta_i __ta_sign
@@ -323,8 +347,12 @@ TArray.indexOf() { TArray.firstIndexOf "$@"; }
 TArray.lastIndexOf() {
     if [[ -z "$1" ]]; then RESULT=-1; return 2; fi
     local __ta_name="$1" __ta_item="$2"; shift 2
-    local __ta_mode __ta_cmp __ta_shifted
+    local __ta_mode __ta_cmp __ta_shifted __ta_badcmp
     TArray._resolveCmp "${1:-}"
+    if (( __ta_badcmp )); then                      # G1-12, see firstIndexOf
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "TArray.lastIndexOf: '$1' is not a comparator function" >&2
+        RESULT=-1; return 2
+    fi
     local -n __ta_arr="$__ta_name"
     [[ "$__ta_mode" == "str" ]] && local LC_ALL=C
     local __ta_n=${#__ta_arr[@]} __ta_i __ta_sign
@@ -342,7 +370,7 @@ TArray.contains() { TArray.firstIndexOf "$@"; }
 TArray.min() {
     if [[ -z "$1" ]]; then RESULT=""; return 2; fi
     local __ta_name="$1"; shift
-    local __ta_mode __ta_cmp __ta_shifted
+    local __ta_mode __ta_cmp __ta_shifted __ta_badcmp
     TArray._resolveCmp "${1:-}"; (( __ta_shifted )) && shift
     local __ta_default="${1:-}"
     local -n __ta_arr="$__ta_name"
@@ -361,7 +389,7 @@ TArray.min() {
 TArray.max() {
     if [[ -z "$1" ]]; then RESULT=""; return 2; fi
     local __ta_name="$1"; shift
-    local __ta_mode __ta_cmp __ta_shifted
+    local __ta_mode __ta_cmp __ta_shifted __ta_badcmp
     TArray._resolveCmp "${1:-}"; (( __ta_shifted )) && shift
     local __ta_default="${1:-}"
     local -n __ta_arr="$__ta_name"
