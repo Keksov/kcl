@@ -1,0 +1,81 @@
+{
+  "name": "kcl deep review 2026-09-06 — fix plan",
+  "updated": "2026-09-06",
+  "status": "P0 DONE 2026-09-06 (uncommitted, awaiting owner go). P1-P10 todo. REVIEW.md + PLAN.md (section 0 = handoff context) + docs/review-2026-09-06 (8 full reviewer reports + repro scripts) written, decisions D1-D8 taken by owner 2026-09-06",
+  "baseline": {
+    "master_sweep_5.2.37": "20 suites / 3066 tests / 0 FAIL (kcl 17 suites = 2261)",
+    "master_sweep_5.3.9": "20 suites / 3066 tests / 0 FAIL",
+    "note": "every defect in REVIEW.md lives under green tests"
+  },
+  "finding_counts": { "HIGH": 28, "MED": 45, "LOW": 50, "approx": true },
+  "decisions": {
+    "D1": "numeric args via shared kk.isInt/kk.isNum in kkore/klib.sh, 10# normalisation, rc 1 silent",
+    "D2": "instance units: error = rc 1 + RESULT='' + stderr only under VERBOSE_KKLASS=debug; booleans = rc",
+    "D3": "ALL SIX static printing units (dateutils tstringhelper math tfile tpath tdirectory) converted to func + kk._return",
+    "D4": "tcustomapplication: faithful FPC 3.2.2 CheckOptions/FindOptionIndex port; tests pinning the old dialect rewritten",
+    "D5": "MSYS/cygwin path separator = '/'; tpath parsers accept both '/' and '\\' on input",
+    "D6": "UTF-8 required; runners pin LC_ALL=C.UTF-8; units export LC_CTYPE=C.UTF-8 when LC_ALL/LC_CTYPE/LANG are empty; fpjson lexer pins C locally",
+    "D7": "set -e and set -u are a kcl-wide contract; set -eu smoke test per suite",
+    "D8": "fpjson P0 = pure bash handle model + windowed regex lexer; awk accelerator stays in fpjson P8"
+  },
+  "defaults": ["R1 TList.Add returns index", "R2 capacity<count -> rc 1", "R3 rejected ctor token -> instance with defaults + rc 1 (queue and dict alike)", "R4 AddOrSetValue same owned handle frees (FPC) + README warning", "R5 Assign checks ${src}_class", "R6 tinifile hybrid validation, SectionExists=FPC, persistence guards, lookup fix variant (a)", "R7 DST-aware offset via printf %(%z)T epoch", "R8 boolean funcs of converted statics: rc + kk._return true|false", "R9 tstringhelper FPC semantics (replace all, indexOf('')=-1, TryStrToBool, split->array, trim<=#32)", "R10 custapp last occurrence wins, GetOptionValues->array", "R11 math engine never dies, +inf/-inf/nan, read -t, LC_ALL=C awk, token normalisation, process substitution or EXIT trap", "R12 tregex anchored zero-length: docs + tests now", "R13 fs units: dot-entries included, no recursion into dir symlinks, delete strips trailing '/', tfile setters real, readAllTextVar, copy/move existing dest", "R14 drop dead source kerr/klib", "R15 keep **/.ckk ignore AND fix kklass tests 030/063/065, delete stale kcl .ckk dirs"],
+  "phases": {
+    "P0": {
+      "title": "Foundations: kklass fixes (kk._return printf, set -u delete, pascal guard, locals, tests 030/063/065 -> KKLASS_CKK_DIR), kkore kk.isInt/kk.isNum, runner locale pin, kcl/README contract, stale .ckk cleanup",
+      "size": "S",
+      "status": "done",
+      "done": "2026-09-06",
+      "findings": ["G1-13", "G2-03", "G1-14", "G8-01(kklass+kkore+ktests)", "G8-04", "R15", "D1", "D6"],
+      "closed": {
+        "G1-13 / G2-03": { "fix": "kklass/kklass.sh kk._return: echo -n -> printf '%s' (one line). Values -e/-n/-E/-en/-neE/-nEe were swallowed under $( ) by every func and function-kind computed property.", "test": "kklass/tests/127_ReturnValueFidelity.sh", "red_before": "6 of 24 assertions FAIL on the pre-fix code (captured 0 bytes, expected 2-4)" },
+        "G1-14": { "fix": "kklass/kklass.sh: ${!__kk_dv:-} in kk._delete, and the same guard on every other indirect metadata read (${!__kk_bv}, ${!parent_var}, ${!ctor_var}, ... 36 sites across kklass.sh / kklass_pascal.sh / kklass_decl.sh / kklass_serializable.sh); ${meth_index[$2]:-} in defineClass; ${6:-} in kk._prop_computed/_prop_plain; ${2:-} in class().", "test": "kklass/tests/128_SetUContract.sh", "red_before": "18-19 of 20 assertions FAIL on the pre-fix code" },
+        "G8-01": { "fix": "re-source guards read ${_X_SOURCED:-} in kklass_pascal.sh, kklass_decl.sh, kklass_kkp.sh, kkore/{klib,kerr,kvar,kcfg,kuse}.sh and ktests/{ktest,ktest_assertions,ktest_core,ktest_fixtures,ktest_runner}.sh; kerr.sh ${1:-} BOTH at the end of the file and INSIDE the re-source branch; ktest.sh ${KTESTS_LIB_DIR:-} / ${KK_OUTPUT_COUNTS:-}. The kcl units' own guards are P1.", "test": "kklass/tests/128_SetUContract.sh", "red_before": "every source of kklass/kkore under set -u died with '<GUARD>: unbound variable'; after the first round, 3 more assertions were red on kerr.sh:5", "partial": "P0 covers kklass + kkore + ktests only; the 17 kcl units are P1", "round2": "Owner review caught the miss: the first pass fixed only the trailing ${1:-} on kerr.sh:146, leaving a bare \"$1\" in the re-source branch on line 5. That branch is not hypothetical — kklass.sh loads kkore, and tlist.sh / tdictionary.sh / tstopwatch.sh (and tstringlist.sh through tlist.sh) then source klib.sh and kerr.sh AGAIN, so those four units would still have died under set -u after the P1 guards. Test 128 missed it because it loaded each file exactly once in a fresh shell; it now sources every kkore and kklass entry point TWICE, plus the real kklass-then-unit shape and the `source kerr.sh set_trap` forwarding path." },
+        "G8-04": { "fix": "kklass/kklass.sh: local m p sm sp wm in kk._build_class_runtime, local wm in kk._processMethodBody, local m in _defineMethodType. Every defineClass used to clobber the caller's one-letter variables — and kcl units define their classes at source time.", "test": "kklass/tests/129_BuilderNamespace.sh", "red_before": "5 of 7 assertions FAIL (p=lz m=two sm=bump sp=total wm=two after one defineClass)" },
+        "D1": { "fix": "kk.isInt / kk.isNum + kk._setOut in kkore/klib.sh: fork-free, silent, never expand the argument; kk.isInt strips a leading + and leading zeros (08 -> 8) and rejects anything outside int64; kk.isNum takes fraction + exponent and strips only the +. Values land in __KK_INT / __KK_NUM and in an optional OUTVAR (printf -v, identifier-validated, rc 2 otherwise).", "test": "kkore/tests/006_NumericGuards.sh", "red_before": "96 FAIL / 0 PASS (functions did not exist)", "note": "the ~40 kcl call sites are P1", "round2": "Owner review found two holes. (a) bash scopes locals DYNAMICALLY, so `kk.isInt 5 __v` wrote the guard's own local and returned rc 0 while the caller's variable stayed empty — all guard locals now carry the reserved __kk_ prefix AND kk._setOut refuses __kk_*/__KK_* as an OUTVAR (rc 2). (b) kk.isInt / kk.isNum / kk._setOut with no argument died on $1 under set -u; all three now read ${1:-}/${2:-}. Both red first: 2 assertions listing the swallowed names, 1 for the no-argument case." },
+        "D6": { "fix": "ktests/ktest.sh exports LC_ALL=LANG=C.UTF-8. Pinned in the framework entry point rather than in each runner, so a test file run directly behaves exactly as inside a sweep. The per-unit LC_CTYPE self-heal block is specified in kcl/README.md section 1.6 and applied to the units in P1.", "test": "ktests/tests/030_LocaleContract.sh", "red_before": "7 of 8 assertions FAIL with the export commented out (LC_ALL empty, ${#s}=4 for 2 chars, ${s,,} corrupts UTF-8)" },
+        "R15": { "fix": "kklass tests 030/031/063/065 made hermetic (private fixture dir + KKLASS_CKK_DIR under the ktests temp dir) so no test writes .ckk into $PWD any more; the four stale dirs kcl/.ckk, kcl/tinifile/.ckk, kcl/tlist/.ckk, kcl/tqueuestack/.ckk deleted; **/.ckk kept in kcl/.gitignore. 027/032/033 still exercise the default $(pwd)/.ckk contract (they cd into kklass/tests first).", "test": "kklass/tests/030,031,063,065 + verified by running the kklass suite with cwd=kcl/tlist: 324/324 and no .ckk created under kcl", "weak_asserts_rewritten": "030 was 'output contains Force OR Compiling' (passes on the failure path too) -> force marker + successful compile + compiled newer than source; 031 was 'runtime OR No compiled' -> exact message + no compiled file produced + the class is actually usable" }
+      },
+      "review_round2_2026-09-06": "Owner reviewed the working tree (not the report) and confirmed the red-first evidence by stashing kklass.sh. Verdict: commit blocked on one real defect (kerr.sh:5) plus four smaller items, all closed here — see the round2 fields above, the tregex row in README (it is a static class TRegEx, not an instance one), the boolean-under-set-eu case in test 128, and the P6_kcl_review_P0 entry now present in kklass/PLAN.md and kklass_ledger.json so a later kklass session knows where these edits came from. Owner approved: int64 rejection in kk.isInt, deleting kbool/.ckk (done) while keeping kklass/tests/.ckk (027/032/033 pin the default cwd/.ckk contract), and all four first-round scope deviations.",
+      "gate": {
+        "kklass_5.2.37": "335/335 (273 baseline + 62 new)",
+        "kkore_5.2.37": "334/334 (232 baseline + 102 new)",
+        "ktests_5.2.37": "308/308 (300 baseline + 8 new)",
+        "master_5.2.37": "20 suites / 3238 tests / 0 FAIL, 'All test suites passed', all [FAIL] lines grepped (0); re-run after the round-2 fixes because klib.sh and kerr.sh are loaded by every kcl unit",
+        "master_5.3.9": "20 suites / 3238 tests / 0 FAIL, 'All test suites passed', all [FAIL] lines grepped (0); kklass 335/335 — the old 028/029 timing flake did not recur",
+        "bench": "not run — P0 changes no runtime path except kk._return (printf for echo, same cost) and adds no work to a hot path; kk.isInt/kk.isNum have their own perf gate in 006 (1000 calls < 1 s, BASHPID unchanged)",
+        "tree": "no .ckk created under kcl by a sweep started from a unit directory; the four stale dirs removed"
+      },
+      "notes": [
+        "Scope note: the plan named 030/063/065, but 031_RuntimeMode.sh writes .ckk into $PWD by exactly the same idiom (its own `rm -f .ckk/\\\"$TEST_FILE\\\".sh` never deleted anything because of the literal quotes) and was fixed too — the stale dirs contained its test_031.kk.",
+        "Scope note: G1-14 was one line in the plan; under set -u the same defect class appeared in 36 more indirect reads across the framework, all of which had to go for `source <unit>.sh` under set -u (D7) to be reachable at all in P1.",
+        "Scope note: P0 also fixed the set -u guards in kkore and ktests, not only kklass — kklass.sh sources kkore, and every kcl NNN_Contract.sh (P1) will source ktests under set -eu.",
+        "P0 touches FOUR submodules (kklass, kkore, ktests, kcl) plus the parent kbool. Commit order: submodules first, parent last.",
+        "Observation, not a defect: reading a stored or lazy property directly PRINTS (kk._prop_plain / kk._prop_lazy use printf '%s\\n'), while a computed function-property is silent and returns via RESULT. That is the framework's design (test 116 relies on it); noted because it surprises when writing set -eu smoke tests."
+      ]
+    },
+    "P1": { "title": "Cross-unit hardening: X-INJ via kk.isInt, X-ECHO printf, X-SETU guards, X-SETE, X-LOCALS, X-DASH, R14, NNN_Contract.sh per suite", "size": "M", "status": "todo", "findings": ["G1-02", "G3-04", "TSH-01", "TCA-05", "M4", "tregex T2", "G6-06", "G8-06", "TSH-02", "M12", "G6-03", "G8-01", "M7", "tregex T1", "G1-08", "TSH-10", "G6-23", "TCA-14", "G6-11", "T7", "G8-03"] },
+    "P2": { "title": "Containers: tlist/tobjectlist/tstringlist/tarray + thashset/tqueuestack (+tdictionary docs)", "size": "L", "status": "todo", "findings": ["G1-01", "G1-03", "G1-04", "G1-05", "G1-06", "G1-07", "G1-09", "G1-10", "G1-11", "G1-12", "G1-15", "G1-16", "G1-17", "G1-18", "G1-19", "G2-01", "G2-02", "G2-04", "G2-05", "G2-06", "G2-07", "G2-10"] },
+    "P3": { "title": "File system: tfile/tpath/tdirectory — D5 separator, symlink safety, changeExtension, setters, forks, D3 conversion", "size": "L", "status": "todo", "findings": ["G6-01", "G6-02", "G6-04", "G6-05", "G6-07", "G6-08", "G6-09", "G6-10", "G6-12", "G6-13", "G6-14", "G6-15", "G6-16", "G6-17", "G6-18", "G6-19", "G6-20", "G6-21", "G6-22", "G6-24", "G6-25", "G6-26", "G6-27"] },
+    "P4": { "title": "tcustomapplication: faithful FPC custapp port (D4), tests rewritten", "size": "M", "status": "todo", "findings": ["TCA-01", "TCA-02", "TCA-03", "TCA-04", "TCA-06", "TCA-07", "TCA-08", "TCA-09", "TCA-10", "TCA-11", "TCA-12", "TCA-13", "TCA-15", "TCA-16", "TCA-17", "TCA-18", "TCA-19", "TCA-20"] },
+    "P5": { "title": "tstringhelper: D3 conversion, split->array, FPC semantics, O(n) paths, locale", "size": "M", "status": "todo", "findings": ["TSH-03", "TSH-04", "TSH-05", "TSH-06", "TSH-07", "TSH-08", "TSH-09", "TSH-11", "TSH-12", "TSH-13", "TSH-14", "TSH-15", "TSH-16", "TSH-17", "TSH-18", "TSH-19"] },
+    "P6": { "title": "dateutils + tstopwatch: 10# normalisation, ISO validation, negative MJD, DST-aware offset, D3 conversion of 185 members, docs", "size": "M", "status": "todo", "findings": ["G3-01", "G3-02", "G3-03", "G3-05", "G3-06", "G3-07", "G3-08", "G3-09", "G3-10", "G3-11", "G3-12"] },
+    "P7": { "title": "math + tregex: engine lifecycle (R11), overflow, tokens, D3 conversion; tregex flags/escape/docs/nameref validation", "size": "M", "status": "todo", "findings": ["M1", "M2", "M3", "M5", "M6", "M8", "M9", "M10", "M11", "M13", "M14", "M15", "tregex T3", "tregex T4", "tregex T5", "tregex T6", "tregex T7", "tregex T8", "tregex T9", "tregex T10"] },
+    "P8": { "title": "tinifile: persistence safety, validation holes, SectionExists, lookup cost", "size": "M", "status": "todo", "findings": ["T1", "T2", "T3", "T4", "T5", "T6", "T8", "T9", "T10", "T11", "T12", "T13", "T14"] },
+    "P9": { "title": "Docs and ledgers: README for 7 units, docs trimmed to ported subset, 8 ledger statuses, kcl/README unit table", "size": "M", "status": "todo", "findings": ["G8-10", "G8-09", "G1-19", "G3-11", "G2-06", "G2-07"] },
+    "P10": { "title": "fpjson P0 re-plan (D8): windowed lexer, _parent/_kids, destructor, UTF-8 by hand, error contract, bench probe", "size": "S", "status": "todo", "findings": ["G8 task 5"] }
+  },
+  "gates": [
+    "unit suites of the phase: 0 FAIL on bash 5.2.37 and 5.3.9, run sequentially",
+    "kbool/tests/tests.sh: 0 FAIL on both; grep ALL [FAIL] lines",
+    "bench.sh where present: no metric slower; D3 conversions prove direct call is fork-free (BASHPID)",
+    "set -eu smoke for touched units",
+    "git status clean after sweep; .ckk and /tmp do not grow",
+    "commit only on owner go; kcl before kbool",
+    "every closed finding names its regression test in this ledger, and that test was RED on the pre-fix code (red-first rule, PLAN.md section 4)"
+  ],
+  "journal": [
+    { "date": "2026-09-06", "entry": "Review run by 8 parallel reviewers + manual re-verification of key HIGHs; REVIEW.md, PLAN.md, this ledger written; owner answered D1-D8 (all recommended options except D3 where owner chose to convert all six static units instead of two first). Nothing implemented, nothing committed." },
+    { "date": "2026-09-06", "entry": "P0 implemented red-first: 4 new test files written and run RED on the pre-fix code (127 6 FAIL, 128 18 FAIL, 129 5 FAIL, kkore 006 96 FAIL / 0 PASS, ktests 030 7 FAIL with the pin commented out), then the fixes, then green. New kcl/README.md states the kcl contract. Master sweep 5.2.37 and 5.3.9: 20 suites / 3224 tests / 0 FAIL." },
+    { "date": "2026-09-06", "entry": "Owner reviewed the working tree (not the report) and confirmed the red-first evidence by stashing kklass.sh. One real defect found in P0 territory — kerr.sh line 5 kept a bare \"\" inside the RE-SOURCE branch, which tlist/tdictionary/tstopwatch/tstringlist hit because they source kerr.sh again after kklass already did; test 128 missed it by loading each file exactly once. Closed red-first (3 FAIL) together with four smaller items: dynamic-scope OUTVAR collision and no-argument call in kk.isInt/kk.isNum, the tregex row in kcl/README (static, not instance), a boolean-under-set-eu case in 128, and a P6_kcl_review_P0 record in kklass/PLAN.md + kklass_ledger.json. kbool/.ckk deleted with owner approval, kklass/tests/.ckk kept. Re-gated in full because klib.sh and kerr.sh are loaded by every kcl unit: 20 suites / 3238 tests / 0 FAIL on both bash versions." }
+  ]
+}
