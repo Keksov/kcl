@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
+# sourceable — and re-sourceable — from a script running `set -eu`, and building
+# the class a second time is pure waste.
+if [[ -n "${_TSTRINGHELPER_SOURCED:-}" ]]; then
+    return
+fi
+declare -g _TSTRINGHELPER_SOURCED=1
+
 # Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
 tstringhelper_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$tstringhelper_DIR/../../kklass/kklass_pascal.sh"
@@ -97,52 +105,52 @@ end
 
 string.equals() {
     local str1="$1"
-    local str2="$2"
+    local str2="${2:-}"
     if [[ "$str1" == "$str2" ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
 string.trimStart() {
     local str="$1"
-    local trimChars="$2"
+    local trimChars="${2:-}"
     local result="$str"
     while [[ ${#result} -gt 0 ]] && [[ "$trimChars" == *"${result:0:1}"* ]]; do
         result="${result:1}"
     done
-    echo "$result"
+    printf '%s\n' "$result"
 }
 
 string.trimEnd() {
     local str="$1"
-    local trimChars="$2"
+    local trimChars="${2:-}"
     local result="$str"
     while [[ ${#result} -gt 0 ]] && [[ "$trimChars" == *"${result: -1}"* ]]; do
         result="${result:0:${#result}-1}"
     done
-    echo "$result"
+    printf '%s\n' "$result"
 }
 
 string.startsText() {
     local subText="$1"
-    local text="$2"
+    local text="${2:-}"
     local sub_lower="${subText,,}"
     local text_lower="${text,,}"
     if [[ "$text_lower" == "$sub_lower"* ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
 string.split() {
     local str="$1"
-    local sep="$2"
-    local count="$3"
+    local sep="${2:-}"
+    local count="${3:-}"
     if [[ -z "$sep" ]]; then
-        echo "$str"
+        printf '%s\n' "$str"
         return
     fi
     local IFS="$sep"
@@ -151,18 +159,18 @@ string.split() {
     if [[ -n "$count" ]] && (( ${#parts[@]} > count )); then
         parts=("${parts[@]:0:count}")
     fi
-    echo "${parts[*]}"
+    printf '%s\n' "${parts[*]}"
 }
 
 string._replace_literal() {
     local str="$1"
-    local old="$2"
-    local new="$3"
-    local replace_all="$4"
-    local ignore_case="$5"
+    local old="${2:-}"
+    local new="${3:-}"
+    local replace_all="${4:-}"
+    local ignore_case="${5:-}"
 
     if [[ -z "$old" ]]; then
-        echo "$str"
+        printf '%s\n' "$str"
         return
     fi
 
@@ -205,14 +213,14 @@ string._replace_literal() {
         fi
     done
 
-    echo "$result"
+    printf '%s\n' "$result"
 }
 
 string.replace() {
     local str="$1"
-    local old="$2"
-    local new="$3"
-    local flags="$4"
+    local old="${2:-}"
+    local new="${3:-}"
+    local flags="${4:-}"
     local replace_all=false
     local ignore_case=false
     [[ "$flags" == *"rfReplaceAll"* ]] && replace_all=true
@@ -222,76 +230,82 @@ string.replace() {
 
 string.remove() {
     local str="$1"
-    local start="$2"
-    local count="$3"
+    local start="${2:-}"
+    local count="${3:-}"
+    kk.isInt "$start" start || return 1
+    if [[ -n "$count" ]]; then kk.isInt "$count" count || return 1; fi
     if [[ -z "$count" ]]; then
-        echo "${str:0:$start}"
+        printf '%s\n' "${str:0:$start}"
     else
-        echo "${str:0:$start}${str:$start+$count}"
+        printf '%s\n' "${str:0:$start}${str:$start+$count}"
     fi
 }
 
 string.quotedString() {
     local str="$1"
-    local quote="$2"
+    local quote="${2:-}"
     if [[ -z "$quote" ]]; then
         quote="'"
         # Double internal single quotes
-        local escaped=$(echo "$str" | sed "s/'/''/g")
-        echo "$quote$escaped$quote"
+        local escaped=$(printf '%s\n' "$str" | sed "s/'/''/g")
+        printf '%s\n' "$quote$escaped$quote"
     else
-        echo "$quote$str$quote"
+        printf '%s\n' "$quote$str$quote"
     fi
 }
 
 string.parse() {
-    echo "$1"
+    printf '%s\n' "$1"
 }
 
 string.padLeft() {
     local str="$1"
-    local width="$2"
-    local padChar="$3"
+    local width="${2:-}"
+    local padChar="${3:-}"
+    kk.isInt "$width" width || return 1
     if [[ -z "$padChar" ]]; then
         padChar=" "
     fi
     local len=${#str}
     if [[ $len -ge $width ]]; then
-        echo "$str"
+        printf '%s\n' "$str"
     else
         local padLen=$((width - len))
         local padding=""
-        for ((i=0; i<padLen; i++)); do
+        local i
+        for ((i = 0; i < padLen; i += 1)); do
             padding+="$padChar"
         done
-        echo "$padding$str"
+        printf '%s\n' "$padding$str"
     fi
 }
 
 string.padRight() {
     local str="$1"
-    local width="$2"
-    local padChar="$3"
+    local width="${2:-}"
+    local padChar="${3:-}"
+    kk.isInt "$width" width || return 1
     if [[ -z "$padChar" ]]; then
         padChar=" "
     fi
     local len=${#str}
     if [[ $len -ge $width ]]; then
-        echo "$str"
+        printf '%s\n' "$str"
     else
         local padLen=$((width - len))
         local padding=""
-        for ((i=0; i<padLen; i++)); do
+        local i
+        for ((i = 0; i < padLen; i += 1)); do
             padding+="$padChar"
         done
-        echo "$str$padding"
+        printf '%s\n' "$str$padding"
     fi
 }
 
 string.join() {
     local sep="$1"
     shift
-    local result=""
+    local result="" arg          # X-LOCALS (TSH-10): join left $arg behind
     local first=true
     for arg in "$@"; do
         if [[ "$first" == true ]]; then
@@ -301,26 +315,26 @@ string.join() {
             result="$result$sep$arg"
         fi
     done
-    echo "$result"
+    printf '%s\n' "$result"
 }
 
 string.isNullOrWhiteSpace() {
     local str="$1"
     if [[ -z "$str" ]]; then
-        echo "true"
+        printf '%s\n' "true"
     elif [[ "$str" =~ ^[[:space:]]*$ ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
 string.isNullOrEmpty() {
     local str="$1"
     if [[ -z "$str" ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
@@ -330,40 +344,44 @@ string.isEmpty() {
 
 string.isDelimiter() {
     local str="$1"
-    local index="$2"
-    local delims="$3"
+    local index="${2:-}"
+    local delims="${3:-}"
+    kk.isInt "$index" index || return 1
     if [[ $index -lt 0 || $index -ge ${#str} ]]; then
-        echo "false"
+        printf '%s\n' "false"
     else
         local char="${str:$index:1}"
         if [[ "$delims" == *"$char"* ]]; then
-            echo "true"
+            printf '%s\n' "true"
         else
-            echo "false"
+            printf '%s\n' "false"
         fi
     fi
 }
 
 string.insert() {
     local str="$1"
-    local index="$2"
-    local value="$3"
+    local index="${2:-}"
+    local value="${3:-}"
+    kk.isInt "$index" index || return 1
     if [[ $index -le 0 ]]; then
-        echo "$value$str"
+        printf '%s\n' "$value$str"
     elif [[ $index -ge ${#str} ]]; then
-        echo "$str$value"
+        printf '%s\n' "$str$value"
     else
-        echo "${str:0:$index}$value${str:$index}"
+        printf '%s\n' "${str:0:$index}$value${str:$index}"
     fi
 }
 
 string.indexOfAnyUnquoted() {
     local str="$1"
-    local anyOf="$2"
-    local quoteStart="$3"
-    local quoteEnd="$4"
+    local anyOf="${2:-}"
+    local quoteStart="${3:-}"
+    local quoteEnd="${4:-}"
     local startIndex="${5:-0}"
-    local count="$6"
+    local count="${6:-}"
+    kk.isInt "$startIndex" startIndex || return 1
+    if [[ -n "$count" ]]; then kk.isInt "$count" count || return 1; fi
     local len=${#str}
     local inQuote=false
     local quoteChar=""
@@ -379,7 +397,7 @@ string.indexOfAnyUnquoted() {
                 inQuote=true
                 quoteChar="$quoteStart"
             elif [[ "$anyOf" == *"$char"* ]]; then
-                echo "$i"
+                printf '%s\n' "$i"
                 return
             fi
         else
@@ -387,16 +405,18 @@ string.indexOfAnyUnquoted() {
                 inQuote=false
             fi
         fi
-        ((i++))
+        (( i += 1 )) || :
     done
-    echo "-1"
+    printf '%s\n' "-1"
 }
 
 string.indexOfAny() {
     local str="$1"
-    local anyOf="$2"
+    local anyOf="${2:-}"
     local startIndex="${3:-0}"
-    local count="$4"
+    local count="${4:-}"
+    kk.isInt "$startIndex" startIndex || return 1
+    if [[ -n "$count" ]]; then kk.isInt "$count" count || return 1; fi
     local len=${#str}
     local i=$startIndex
     if [[ -n "$count" ]]; then
@@ -406,23 +426,25 @@ string.indexOfAny() {
     while [[ $i -lt $len ]]; do
         local char="${str:i:1}"
         if [[ "$anyOf" == *"$char"* ]]; then
-            echo "$i"
+            printf '%s\n' "$i"
             return
         fi
-        ((i++))
+        (( i += 1 )) || :
     done
-    echo "-1"
+    printf '%s\n' "-1"
 }
 
 string.indexOf() {
     local str="$1"
-    local value="$2"
+    local value="${2:-}"
     local startIndex="${3:-0}"
-    local count="$4"
+    local count="${4:-}"
+    kk.isInt "$startIndex" startIndex || return 1
+    if [[ -n "$count" ]]; then kk.isInt "$count" count || return 1; fi
     local len=${#str}
     local val_len=${#value}
     if [[ $val_len -eq 0 ]]; then
-        echo "$startIndex"
+        printf '%s\n' "$startIndex"
         return
     fi
     local i=$startIndex
@@ -432,12 +454,12 @@ string.indexOf() {
     fi
     while [[ $((i + val_len)) -le $len ]]; do
         if [[ "${str:i:val_len}" == "$value" ]]; then
-            echo "$i"
+            printf '%s\n' "$i"
             return
         fi
-        ((i++))
+        (( i += 1 )) || :
     done
-    echo "-1"
+    printf '%s\n' "-1"
 }
 
 string.getHashCode() {
@@ -450,14 +472,14 @@ string.getHashCode() {
         # the old form forked a process for every character in the string.
         printf -v ord '%d' "'${str:i:1}"
         hash=$(( (hash + ord) * 31 ))
-        ((i++))
+        (( i += 1 )) || :
     done
-    echo "$hash"
+    printf '%s\n' "$hash"
 }
 
 string.lastDelimiter() {
     local str="$1"
-    local delim="$2"
+    local delim="${2:-}"
     local last_index=-1
     local i=0
     while [[ $i -lt ${#str} ]]; do
@@ -465,16 +487,18 @@ string.lastDelimiter() {
         if [[ "$delim" == *"$char"* ]]; then
             last_index=$i
         fi
-        ((i++))
+        (( i += 1 )) || :
     done
-    echo "$last_index"
+    printf '%s\n' "$last_index"
 }
 
 string.lastIndexOf() {
     local str="$1"
-    local value="$2"
-    local startIndex="$3"
-    local count="$4"
+    local value="${2:-}"
+    local startIndex="${3:-}"
+    local count="${4:-}"
+    if [[ -n "$startIndex" ]]; then kk.isInt "$startIndex" startIndex || return 1; fi
+    if [[ -n "$count" ]]; then kk.isInt "$count" count || return 1; fi
     local len=${#str}
     local val_len=${#value}
     if [[ -n "$startIndex" ]]; then
@@ -492,16 +516,18 @@ string.lastIndexOf() {
             last_index=$i
             break
         fi
-        ((i--))
+        (( i -= 1 )) || :
     done
-    echo "$last_index"
+    printf '%s\n' "$last_index"
 }
 
 string.lastIndexOfAny() {
     local str="$1"
-    local anyOf="$2"
-    local startIndex="$3"
-    local count="$4"
+    local anyOf="${2:-}"
+    local startIndex="${3:-}"
+    local count="${4:-}"
+    if [[ -n "$startIndex" ]]; then kk.isInt "$startIndex" startIndex || return 1; fi
+    if [[ -n "$count" ]]; then kk.isInt "$count" count || return 1; fi
     local len=${#str}
     if [[ -n "$startIndex" ]]; then
         len=$startIndex
@@ -517,9 +543,9 @@ string.lastIndexOfAny() {
             last_index=$i
             break
         fi
-        ((i--))
+        (( i -= 1 )) || :
     done
-    echo "$last_index"
+    printf '%s\n' "$last_index"
 }
 
 # SECURITY / trust boundary: $format is a caller-supplied printf format string
@@ -538,92 +564,92 @@ string.lowerCase() {
 
 string.compare() {
     local strA="$1"
-    local strB="$2"
+    local strB="${2:-}"
     local options="${3:-}"
     local locale="${4:-}"
 
     # Simple implementation: use bash string comparison
     if [[ "$strA" < "$strB" ]]; then
-        echo -1
+        printf '%s\n' -1
     elif [[ "$strA" > "$strB" ]]; then
-        echo 1
+        printf '%s\n' 1
     else
-        echo 0
+        printf '%s\n' 0
     fi
 }
 
 string.compareOrdinal() {
     local strA="$1"
-    local strB="$2"
+    local strB="${2:-}"
 
     # Ordinal comparison
     if [[ "$strA" < "$strB" ]]; then
-        echo -1
+        printf '%s\n' -1
     elif [[ "$strA" > "$strB" ]]; then
-        echo 1
+        printf '%s\n' 1
     else
-        echo 0
+        printf '%s\n' 0
     fi
 }
 
 string.compareText() {
     local strA="$1"
-    local strB="$2"
+    local strB="${2:-}"
 
     # Case insensitive
     local a_lower="${strA,,}"
     local b_lower="${strB,,}"
     if [[ "$a_lower" < "$b_lower" ]]; then
-        echo -1
+        printf '%s\n' -1
     elif [[ "$a_lower" > "$b_lower" ]]; then
-        echo 1
+        printf '%s\n' 1
     else
-        echo 0
+        printf '%s\n' 0
     fi
 }
 
 string.compareTo() {
     local self="$1"
-    local strB="$2"
+    local strB="${2:-}"
 
     string.compare "$self" "$strB"
 }
 
 string.contains() {
     local self="$1"
-    local value="$2"
+    local value="${2:-}"
 
     if [[ "$self" == *"$value"* ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
 string.copy() {
     local str="$1"
-    echo "$str"
+    printf '%s\n' "$str"
 }
 
 string.copyTo() {
     local self="$1"
-    local source_index="$2"
-    local destination_name="$3"
-    local destination_index="$4"
-    local count="$5"
+    local source_index="${2:-}"
+    local destination_name="${3:-}"
+    local destination_index="${4:-}"
+    local count="${5:-}"
 
     if [[ ! "$source_index" =~ ^[0-9]+$ || ! "$destination_index" =~ ^[0-9]+$ || ! "$count" =~ ^[0-9]+$ ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: CopyTo indexes and count must be non-negative integers" >&2
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && printf '%s\n' "Error: CopyTo indexes and count must be non-negative integers" >&2
         return 1
     fi
 
     if [[ ! "$destination_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: CopyTo destination must be a valid array variable name" >&2
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && printf '%s\n' "Error: CopyTo destination must be a valid array variable name" >&2
         return 1
     fi
 
     if (( source_index + count > ${#self} )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: CopyTo source range is out of bounds" >&2
+        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && printf '%s\n' "Error: CopyTo source range is out of bounds" >&2
         return 1
     fi
 
@@ -636,73 +662,76 @@ string.copyTo() {
 
 string.countChar() {
     local self="$1"
-    local char="$2"
+    local char="${2:-}"
     local count=0
     local i
     for ((i=0; i<${#self}; i++)); do
         if [[ "${self:i:1}" == "$char" ]]; then
-            ((count++))
+            (( count += 1 )) || :
         fi
     done
-    echo "$count"
+    printf '%s\n' "$count"
 }
 
 string.create() {
     # Simplified, assume char and count
     local char="$1"
-    local count="$2"
-    local result=""
+    local count="${2:-}"
+    local result="" i
+    kk.isInt "$count" count || return 1
     for ((i=0; i<count; i++)); do
         result+="$char"
     done
-    echo "$result"
+    printf '%s\n' "$result"
 }
 
 string.deQuotedString() {
     local self="$1"
     # Simple remove quotes
-    echo "${self//\"/}"
+    printf '%s\n' "${self//\"/}"
 }
 
 string.endsText() {
     local subText="$1"
-    local text="$2"
+    local text="${2:-}"
     local sub_lower="${subText,,}"
     local text_lower="${text,,}"
     if [[ "$text_lower" == *"$sub_lower" ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
 string.startsWith() {
     local self="$1"
-    local value="$2"
+    local value="${2:-}"
     if [[ "$self" == "$value"* ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
 string.substring() {
     local self="$1"
-    local startIndex="$2"
-    local length="$3"
+    local startIndex="${2:-}"
+    local length="${3:-}"
+    kk.isInt "$startIndex" startIndex || return 1
+    if [[ -n "$length" ]]; then kk.isInt "$length" length || return 1; fi
     if [[ -z "$length" ]]; then
-        echo "${self:$startIndex}"
+        printf '%s\n' "${self:$startIndex}"
     else
-        echo "${self:$startIndex:$length}"
+        printf '%s\n' "${self:$startIndex:$length}"
     fi
 }
 
 string.toBoolean() {
     local self="$1"
     if [[ "$self" == "true" || "$self" == "1" ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
@@ -732,20 +761,20 @@ string.toCharArray() {
 
     local char_index
     for (( char_index = start_index; char_index < end_index; char_index++ )); do
-        echo "${self:char_index:1}"
+        printf '%s\n' "${self:char_index:1}"
     done
 }
 
 string.toDouble() {
     local self="$1"
     local num="${self%% *}"
-    echo "$num"
+    printf '%s\n' "$num"
 }
 
 string.toExtended() {
     local self="$1"
     local num="${self%% *}"
-    echo "$num"
+    printf '%s\n' "$num"
 }
 
 string.toInt64() {
@@ -769,93 +798,94 @@ string._parse_int() {
     if [[ "$int_part" =~ ^([+-]?)([0-9]+)$ ]]; then
         local sign="${BASH_REMATCH[1]}"
         [[ "$sign" == "+" ]] && sign=""
-        echo "$(( ${sign}10#${BASH_REMATCH[2]} ))"
+        printf '%s\n' "$(( ${sign}10#${BASH_REMATCH[2]} ))"
         return 0
     fi
-    echo 0
+    printf '%s\n' 0
     return 1
 }
 
 string.toLower() {
     local self="$1"
-    echo "${self,,}"
+    printf '%s\n' "${self,,}"
 }
 
 string.toLowerInvariant() {
     local self="$1"
-    echo "${self,,}"
+    printf '%s\n' "${self,,}"
 }
 
 string.toSingle() {
     local self="$1"
     local num="${self%% *}"
-    echo "$num"
+    printf '%s\n' "$num"
 }
 
 string.toUpper() {
     local self="$1"
-    echo "${self^^}"
+    printf '%s\n' "${self^^}"
 }
 
 string.toUpperInvariant() {
     local self="$1"
-    echo "${self^^}"
+    printf '%s\n' "${self^^}"
 }
 
 string.trim() {
     local self="$1"
     # Trim spaces
     local trimmed="${self#"${self%%[![:space:]]*}"}"
-    echo "${trimmed%"${trimmed##*[![:space:]]}"}"
+    printf '%s\n' "${trimmed%"${trimmed##*[![:space:]]}"}"
 }
 
 string.trimLeft() {
     local self="$1"
-    echo "${self#"${self%%[![:space:]]*}"}"
+    printf '%s\n' "${self#"${self%%[![:space:]]*}"}"
 }
 
 string.trimRight() {
     local self="$1"
-    echo "${self%"${self##*[![:space:]]}"}"
+    printf '%s\n' "${self%"${self##*[![:space:]]}"}"
 }
 
 string.upperCase() {
     local s="$1"
-    echo "${s^^}"
+    printf '%s\n' "${s^^}"
 }
 
 string.length() {
     local self="$1"
-    echo "${#self}"
+    printf '%s\n' "${#self}"
 }
 
 string.chars() {
     local self="$1"
-    local index="$2"
+    local index="${2:-}"
+    kk.isInt "$index" index || return 1
     if [[ $index -ge 0 && $index -lt ${#self} ]]; then
-        echo "${self:$index:1}"
+        printf '%s\n' "${self:$index:1}"
     else
-        echo "undefined"
+        printf '%s\n' "undefined"
     fi
 }
 
 string.endsWith() {
     local self="$1"
-    local value="$2"
-    local ignoreCase="$3"
+    local value="${2:-}"
+    local ignoreCase="${3:-}"
     if [[ "$ignoreCase" == "true" ]]; then
         local self_lower="${self,,}"
         local value_lower="${value,,}"
         if [[ "$self_lower" == *"$value_lower" ]]; then
-            echo "true"
+            printf '%s\n' "true"
         else
-            echo "false"
+            printf '%s\n' "false"
         fi
     else
         if [[ "$self" == *"$value" ]]; then
-            echo "true"
+            printf '%s\n' "true"
         else
-            echo "false"
+            printf '%s\n' "false"
         fi
     fi
 }

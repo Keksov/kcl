@@ -50,7 +50,7 @@
 
 # Re-source guard: the __MATH_* constants below are readonly, and the class
 # only needs to be built once per process.
-if [[ -n "$_MATH_SOURCED" ]]; then
+if [[ -n "${_MATH_SOURCED:-}" ]]; then
     return
 fi
 declare -g _MATH_SOURCED=1
@@ -404,7 +404,8 @@ math._dec_cmp() {
     if (( bz )); then (( as > 0 )) && REPLY=1 || REPLY=-1; return; fi
     if (( as != bs )); then (( as > 0 )) && REPLY=1 || REPLY=-1; return; fi
     math._mag_cmp "$ai" "$af" "$bi" "$bf"
-    (( as < 0 )) && REPLY=$(( -REPLY ))
+    if (( as < 0 )); then REPLY=$(( -REPLY )); fi
+    return 0                    # X-SETE (M7): never fail the caller under set -e
 }
 
 # Is <value> an integer literal? (status only)
@@ -419,6 +420,7 @@ math._trunc() {
     [[ -z $v ]] && v=0
     REPLY=$s$v
     [[ $REPLY == -0 ]] && REPLY=0
+    return 0                    # X-SETE (M7): never fail the caller under set -e
 }
 
 # Signed fractional part (value - trunc(value)). <value> -> REPLY (0 if none)
@@ -441,8 +443,14 @@ math._num_cmp() {
     # integer fast path (the common case): plain integers within 64-bit are
     # compared with arithmetic — much faster than the decimal split.
     if [[ $1 =~ ^[+-]?[0-9]{1,18}$ && $2 =~ ^[+-]?[0-9]{1,18}$ ]]; then
-        (( $1 < $2 )) && REPLY=-1 || { (( $1 > $2 )) && REPLY=1 || REPLY=0; }
-        return
+        # The regex admits leading zeros, and `(( 08 ))` is an octal parse error,
+        # not 8 (M4). `10#` cannot follow a sign, so the sign is lifted out of
+        # the base prefix: `-10#08` is unary minus applied to `10#08`.
+        # `return 0`: a bare `return` here reports the last arithmetic status and
+        # aborts the caller under `set -e` (M7).
+        local __m_a=$(( ${1%%[0-9]*}10#${1#[-+]} )) __m_b=$(( ${2%%[0-9]*}10#${2#[-+]} ))
+        (( __m_a < __m_b )) && REPLY=-1 || { (( __m_a > __m_b )) && REPLY=1 || REPLY=0; }
+        return 0
     fi
     if [[ $1 == *[![:digit:].+-]* || $2 == *[![:digit:].+-]* ]]; then
         math._fe cmp "$1" "$2"
@@ -510,17 +518,17 @@ math._fe_stop() {
 # ===========================================================================
 
 # ---- constant getters ------------------------------------------------------
-math.pi()          { echo "$__MATH_PI"; }
-math.e()           { echo "$__MATH_E"; }
-math.infinity()    { echo "$__MATH_INFINITY"; }
-math.negInfinity() { echo "$__MATH_NEG_INFINITY"; }
-math.nan()         { echo "$__MATH_NAN"; }
-math.minSingle()   { echo "$__MATH_MIN_SINGLE"; }
-math.maxSingle()   { echo "$__MATH_MAX_SINGLE"; }
-math.minDouble()   { echo "$__MATH_MIN_DOUBLE"; }
-math.maxDouble()   { echo "$__MATH_MAX_DOUBLE"; }
-math.minExtended() { echo "$__MATH_MIN_EXTENDED"; }
-math.maxExtended() { echo "$__MATH_MAX_EXTENDED"; }
+math.pi()          { printf '%s\n' "$__MATH_PI"; }
+math.e()           { printf '%s\n' "$__MATH_E"; }
+math.infinity()    { printf '%s\n' "$__MATH_INFINITY"; }
+math.negInfinity() { printf '%s\n' "$__MATH_NEG_INFINITY"; }
+math.nan()         { printf '%s\n' "$__MATH_NAN"; }
+math.minSingle()   { printf '%s\n' "$__MATH_MIN_SINGLE"; }
+math.maxSingle()   { printf '%s\n' "$__MATH_MAX_SINGLE"; }
+math.minDouble()   { printf '%s\n' "$__MATH_MIN_DOUBLE"; }
+math.maxDouble()   { printf '%s\n' "$__MATH_MAX_DOUBLE"; }
+math.minExtended() { printf '%s\n' "$__MATH_MIN_EXTENDED"; }
+math.maxExtended() { printf '%s\n' "$__MATH_MAX_EXTENDED"; }
 
 # ---- float-engine lifecycle (kcl extension) --------------------------------
 # feStart: start the shared engine now (opt-in for persistence across $()).
@@ -531,9 +539,9 @@ math.feStop()  { math._fe_stop; }
 # feActive: is the engine currently running? echoes true/false.
 math.feActive() {
     if [[ -n "$__MATH_FE_UP" ]] && kill -0 "$__MATH_FE_PID" 2>/dev/null; then
-        echo true
+        printf '%s\n' true
     else
-        echo false
+        printf '%s\n' false
     fi
 }
 
@@ -545,48 +553,48 @@ math.feActive() {
 # ===========================================================================
 
 # Min/Max of two operands. FPC: a if a<b else b / a if a>b else b (ties -> b).
-math.min() { math._num_cmp "$1" "$2"; (( REPLY < 0 )) && echo "$1" || echo "$2"; }
-math.max() { math._num_cmp "$1" "$2"; (( REPLY > 0 )) && echo "$1" || echo "$2"; }
+math.min() { math._num_cmp "$1" "$2"; (( REPLY < 0 )) && printf '%s\n' "$1" || printf '%s\n' "$2"; }
+math.max() { math._num_cmp "$1" "$2"; (( REPLY > 0 )) && printf '%s\n' "$1" || printf '%s\n' "$2"; }
 
 # Min/Max over the argument list (echoes the winning argument verbatim).
-math.minValue() { local best=$1 x; shift; for x in "$@"; do math._num_cmp "$x" "$best"; (( REPLY < 0 )) && best=$x; done; echo "$best"; }
-math.maxValue() { local best=$1 x; shift; for x in "$@"; do math._num_cmp "$x" "$best"; (( REPLY > 0 )) && best=$x; done; echo "$best"; }
+math.minValue() { local best=$1 x; shift; for x in "$@"; do math._num_cmp "$x" "$best"; (( REPLY < 0 )) && best=$x; done; printf '%s\n' "$best"; }
+math.maxValue() { local best=$1 x; shift; for x in "$@"; do math._num_cmp "$x" "$best"; (( REPLY > 0 )) && best=$x; done; printf '%s\n' "$best"; }
 
 # Integer-array reducers (pure integer arithmetic).
-math.minIntValue() { local best=$1 x; shift; for x in "$@"; do (( x < best )) && best=$x; done; echo "$best"; }
-math.maxIntValue() { local best=$1 x; shift; for x in "$@"; do (( x > best )) && best=$x; done; echo "$best"; }
+math.minIntValue() { local best x; kk.isInt "$1" best || return 1; shift; for x in "$@"; do kk.isInt "$x" x || return 1; (( x < best )) && best=$x; done; printf '%s\n' "$best"; }
+math.maxIntValue() { local best x; kk.isInt "$1" best || return 1; shift; for x in "$@"; do kk.isInt "$x" x || return 1; (( x > best )) && best=$x; done; printf '%s\n' "$best"; }
 
 # Sign: -1 / 0 / 1  (TValueSign).
-math.sign() { math._num_cmp "$1" 0; echo "$REPLY"; }
+math.sign() { math._num_cmp "$1" 0; printf '%s\n' "$REPLY"; }
 
 # InRange: is value in the closed interval [min,max]?  echoes true/false.
 math.inRange() {
-    math._num_cmp "$1" "$2"; (( REPLY < 0 )) && { echo false; return; }
-    math._num_cmp "$1" "$3"; (( REPLY > 0 )) && { echo false; return; }
-    echo true
+    math._num_cmp "$1" "$2"; (( REPLY < 0 )) && { printf '%s\n' false; return; }
+    math._num_cmp "$1" "$3"; (( REPLY > 0 )) && { printf '%s\n' false; return; }
+    printf '%s\n' true
 }
 
 # EnsureRange: clamp value into [min,max].
 math.ensureRange() {
-    math._num_cmp "$1" "$2"; (( REPLY < 0 )) && { echo "$2"; return; }
-    math._num_cmp "$1" "$3"; (( REPLY > 0 )) && { echo "$3"; return; }
-    echo "$1"
+    math._num_cmp "$1" "$2"; (( REPLY < 0 )) && { printf '%s\n' "$2"; return; }
+    math._num_cmp "$1" "$3"; (( REPLY > 0 )) && { printf '%s\n' "$3"; return; }
+    printf '%s\n' "$1"
 }
 
 # CompareValue: -1 / 0 / 1. Optional float tolerance `delta` (nonzero -> engine).
 math.compareValue() {
-    local delta=$3
+    local delta="${3:-}"          # X-SETU (D7): the tolerance is optional
     if [[ -n $delta && ! $delta =~ ^[+-]?0*[.]?0*$ ]]; then
         math._fe cmpd "$1" "$2" "$delta"
     else
         math._num_cmp "$1" "$2"
     fi
-    echo "$REPLY"
+    printf '%s\n' "$REPLY"
 }
 
 # IfThen: ternary. cond is true/1 => iftrue, else iffalse (default 0).
 math.ifThen() {
-    if [[ "$1" == true || "$1" == 1 ]]; then echo "$2"; else echo "${3:-0}"; fi
+    if [[ "$1" == true || "$1" == 1 ]]; then printf '%s\n' "$2"; else printf '%s\n' "${3:-0}"; fi
 }
 
 # IsZero: |value| <= epsilon (default 1e-12, the FPC Double resolution).
@@ -594,15 +602,15 @@ math.ifThen() {
 # the engine (a float-tolerance predicate).
 math.isZero() {
     if [[ -z "$2" ]] && math._is_int "$1"; then
-        [[ "$1" == 0 || "$1" == -0 || "$1" == +0 ]] && echo true || echo false
+        [[ "$1" == 0 || "$1" == -0 || "$1" == +0 ]] && printf '%s\n' true || printf '%s\n' false
         return
     fi
-    math._fe iszero "$1" "${2:-0}"; echo "$REPLY"
+    math._fe iszero "$1" "${2:-0}"; printf '%s\n' "$REPLY"
 }
 
 # SameValue: |a-b| <= epsilon, epsilon defaulting to FPC's
 # Max(Min(|a|,|b|)*1e-12, 1e-12). Float-tolerance predicate -> engine.
-math.sameValue() { math._fe samev "$1" "$2" "${3:-0}"; echo "$REPLY"; }
+math.sameValue() { math._fe samev "$1" "$2" "${3:-0}"; printf '%s\n' "$REPLY"; }
 
 # ===========================================================================
 # P2 — rounding & number conversion.
@@ -614,52 +622,55 @@ math.sameValue() { math._fe samev "$1" "$2" "${3:-0}"; echo "$REPLY"; }
 # Ceil: round toward +inf. FPC Trunc(x)+ord(Frac(x)>0).
 math.ceil() {
     local x=$1
-    [[ $x == *[![:digit:].+-]* ]] && { math._fe ceil "$x"; echo "$REPLY"; return; }
+    [[ $x == *[![:digit:].+-]* ]] && { math._fe ceil "$x"; printf '%s\n' "$REPLY"; return; }
     math._trunc "$x"; local t=$REPLY
     math._frac "$x"; [[ $REPLY != 0 && $REPLY != -* ]] && t=$(( t + 1 ))
-    echo "$t"
+    printf '%s\n' "$t"
 }
 math.ceil64() { math.ceil "$1"; }
 
 # Floor: round toward -inf. FPC Trunc(x)-ord(Frac(x)<0).
 math.floor() {
     local x=$1
-    [[ $x == *[![:digit:].+-]* ]] && { math._fe floor "$x"; echo "$REPLY"; return; }
+    [[ $x == *[![:digit:].+-]* ]] && { math._fe floor "$x"; printf '%s\n' "$REPLY"; return; }
     math._trunc "$x"; local t=$REPLY
     math._frac "$x"; [[ $REPLY == -* ]] && t=$(( t - 1 ))
-    echo "$t"
+    printf '%s\n' "$t"
 }
 math.floor64() { math.floor "$1"; }
 
 # DivMod: integer division + remainder (truncation toward zero; remainder takes
 # the dividend's sign — matches Pascal div/mod and bash / %). Echoes "quot rem".
 math.divMod() {
-    (( $2 == 0 )) && return 1
-    echo "$(( $1 / $2 )) $(( $1 % $2 ))"
+    local __m_a __m_b
+    kk.isInt "$1" __m_a || return 1
+    kk.isInt "${2:-}" __m_b || return 1
+    if (( __m_b == 0 )); then return 1; fi
+    printf '%s\n' "$(( __m_a / __m_b )) $(( __m_a % __m_b ))"
 }
 
 # RoundTo: Round(value/10^digits)*10^digits — banker's (half-to-even). Engine
 # (awk sprintf %.0f is round-half-to-even -> exact FPC-Double parity).
-math.roundTo() { math._fe roundto "$1" "$2"; echo "$REPLY"; }
+math.roundTo() { math._fe roundto "$1" "$2"; printf '%s\n' "$REPLY"; }
 
 # SimpleRoundTo: Int(value*RV +/- 0.5)/RV, RV=10^(-digits) — arithmetic rounding
 # (half away from zero). Default digits = -2. Engine.
 math.simpleRoundTo() {
     if [[ -n "$2" ]]; then math._fe sround "$1" "$2"; else math._fe sround "$1"; fi
-    echo "$REPLY"
+    printf '%s\n' "$REPLY"
 }
 
 # FMod: floating-point modulo, a - b*Int(a/b). Engine.
-math.fmod() { math._fe fmod "$1" "$2"; echo "$REPLY"; }
+math.fmod() { math._fe fmod "$1" "$2"; printf '%s\n' "$REPLY"; }
 
 # IntPower: base^exponent (integer exponent) by squaring. Integer base with a
 # non-negative exponent is exact pure-bash; float base or negative exponent
 # (fractional result) uses the engine.
 math.intPower() {
     if math._is_int "$1" && math._is_int "$2" && (( $2 >= 0 )); then
-        echo $(( $1 ** $2 ))
+        printf '%s\n' $(( $1 ** $2 ))
     else
-        math._fe ipow "$1" "$2"; echo "$REPLY"
+        math._fe ipow "$1" "$2"; printf '%s\n' "$REPLY"
     fi
 }
 
@@ -667,20 +678,20 @@ math.intPower() {
 # P3 — angle conversions (engine; π is irrational and FPC returns Double).
 # 1 cycle = 360 deg = 400 grad = 2π rad.
 # ===========================================================================
-math.degToRad()    { math._fe d2r "$1"; echo "$REPLY"; }
-math.radToDeg()    { math._fe r2d "$1"; echo "$REPLY"; }
-math.gradToRad()   { math._fe g2r "$1"; echo "$REPLY"; }
-math.radToGrad()   { math._fe r2g "$1"; echo "$REPLY"; }
-math.degToGrad()   { math._fe d2g "$1"; echo "$REPLY"; }
-math.gradToDeg()   { math._fe g2d "$1"; echo "$REPLY"; }
-math.cycleToDeg()  { math._fe c2d "$1"; echo "$REPLY"; }
-math.degToCycle()  { math._fe d2c "$1"; echo "$REPLY"; }
-math.cycleToGrad() { math._fe c2g "$1"; echo "$REPLY"; }
-math.gradToCycle() { math._fe g2c "$1"; echo "$REPLY"; }
-math.cycleToRad()  { math._fe c2r "$1"; echo "$REPLY"; }
-math.radToCycle()  { math._fe r2c "$1"; echo "$REPLY"; }
+math.degToRad()    { math._fe d2r "$1"; printf '%s\n' "$REPLY"; }
+math.radToDeg()    { math._fe r2d "$1"; printf '%s\n' "$REPLY"; }
+math.gradToRad()   { math._fe g2r "$1"; printf '%s\n' "$REPLY"; }
+math.radToGrad()   { math._fe r2g "$1"; printf '%s\n' "$REPLY"; }
+math.degToGrad()   { math._fe d2g "$1"; printf '%s\n' "$REPLY"; }
+math.gradToDeg()   { math._fe g2d "$1"; printf '%s\n' "$REPLY"; }
+math.cycleToDeg()  { math._fe c2d "$1"; printf '%s\n' "$REPLY"; }
+math.degToCycle()  { math._fe d2c "$1"; printf '%s\n' "$REPLY"; }
+math.cycleToGrad() { math._fe c2g "$1"; printf '%s\n' "$REPLY"; }
+math.gradToCycle() { math._fe g2c "$1"; printf '%s\n' "$REPLY"; }
+math.cycleToRad()  { math._fe c2r "$1"; printf '%s\n' "$REPLY"; }
+math.radToCycle()  { math._fe r2c "$1"; printf '%s\n' "$REPLY"; }
 # DegNormalize: wrap degrees into [0,360). Deg - Int(Deg/360)*360, +360 if <0.
-math.degNormalize() { math._fe dnorm "$1"; echo "$REPLY"; }
+math.degNormalize() { math._fe dnorm "$1"; printf '%s\n' "$REPLY"; }
 
 # ===========================================================================
 # P4 — trig, inverse trig, hyperbolic, area (all engine).
@@ -688,119 +699,121 @@ math.degNormalize() { math._fe dnorm "$1"; echo "$REPLY"; }
 # convenience. ArcSin/ArcCos use the numerically-stable sqrt((1-x)(1+x)) form;
 # tanh is FPC's robust large-x formula; ArcSinH preserves sign.
 # ===========================================================================
-math.sin()      { math._fe sin "$1";    echo "$REPLY"; }
-math.cos()      { math._fe cos "$1";    echo "$REPLY"; }
-math.tan()      { math._fe tan "$1";    echo "$REPLY"; }
-math.cotan()    { math._fe cotan "$1";  echo "$REPLY"; }
-math.cot()      { math._fe cotan "$1";  echo "$REPLY"; }
-math.sinCos()   { math._fe sincos "$1"; echo "$REPLY"; }   # echoes "sin cos"
-math.secant()   { math._fe sec "$1";    echo "$REPLY"; }
-math.cosecant() { math._fe csc "$1";    echo "$REPLY"; }
-math.sec()      { math._fe sec "$1";    echo "$REPLY"; }
-math.csc()      { math._fe csc "$1";    echo "$REPLY"; }
-math.arcSin()   { math._fe asin "$1";   echo "$REPLY"; }
-math.arcCos()   { math._fe acos "$1";   echo "$REPLY"; }
-math.arcTan()   { math._fe atan "$1";   echo "$REPLY"; }
-math.arcTan2()  { math._fe atan2 "$1" "$2"; echo "$REPLY"; }
-math.cosh()     { math._fe cosh "$1";   echo "$REPLY"; }
-math.sinh()     { math._fe sinh "$1";   echo "$REPLY"; }
-math.tanh()     { math._fe tanh "$1";   echo "$REPLY"; }
-math.secH()     { math._fe sech "$1";   echo "$REPLY"; }
-math.cscH()     { math._fe csch "$1";   echo "$REPLY"; }
-math.cotH()     { math._fe coth "$1";   echo "$REPLY"; }
-math.arcCosH()  { math._fe arcosh "$1"; echo "$REPLY"; }
-math.arcSinH()  { math._fe arsinh "$1"; echo "$REPLY"; }
-math.arcTanH()  { math._fe artanh "$1"; echo "$REPLY"; }
-math.arCosH()   { math._fe arcosh "$1"; echo "$REPLY"; }
-math.arSinH()   { math._fe arsinh "$1"; echo "$REPLY"; }
-math.arTanH()   { math._fe artanh "$1"; echo "$REPLY"; }
-math.arcSec()   { math._fe arcsec "$1"; echo "$REPLY"; }
-math.arcCsc()   { math._fe arccsc "$1"; echo "$REPLY"; }
-math.arcCot()   { math._fe arccot "$1"; echo "$REPLY"; }
-math.arcSecH()  { math._fe arcsech "$1"; echo "$REPLY"; }
-math.arcCscH()  { math._fe arccsch "$1"; echo "$REPLY"; }
-math.arcCotH()  { math._fe arccoth "$1"; echo "$REPLY"; }
+math.sin()      { math._fe sin "$1";    printf '%s\n' "$REPLY"; }
+math.cos()      { math._fe cos "$1";    printf '%s\n' "$REPLY"; }
+math.tan()      { math._fe tan "$1";    printf '%s\n' "$REPLY"; }
+math.cotan()    { math._fe cotan "$1";  printf '%s\n' "$REPLY"; }
+math.cot()      { math._fe cotan "$1";  printf '%s\n' "$REPLY"; }
+math.sinCos()   { math._fe sincos "$1"; printf '%s\n' "$REPLY"; }   # echoes "sin cos"
+math.secant()   { math._fe sec "$1";    printf '%s\n' "$REPLY"; }
+math.cosecant() { math._fe csc "$1";    printf '%s\n' "$REPLY"; }
+math.sec()      { math._fe sec "$1";    printf '%s\n' "$REPLY"; }
+math.csc()      { math._fe csc "$1";    printf '%s\n' "$REPLY"; }
+math.arcSin()   { math._fe asin "$1";   printf '%s\n' "$REPLY"; }
+math.arcCos()   { math._fe acos "$1";   printf '%s\n' "$REPLY"; }
+math.arcTan()   { math._fe atan "$1";   printf '%s\n' "$REPLY"; }
+math.arcTan2()  { math._fe atan2 "$1" "$2"; printf '%s\n' "$REPLY"; }
+math.cosh()     { math._fe cosh "$1";   printf '%s\n' "$REPLY"; }
+math.sinh()     { math._fe sinh "$1";   printf '%s\n' "$REPLY"; }
+math.tanh()     { math._fe tanh "$1";   printf '%s\n' "$REPLY"; }
+math.secH()     { math._fe sech "$1";   printf '%s\n' "$REPLY"; }
+math.cscH()     { math._fe csch "$1";   printf '%s\n' "$REPLY"; }
+math.cotH()     { math._fe coth "$1";   printf '%s\n' "$REPLY"; }
+math.arcCosH()  { math._fe arcosh "$1"; printf '%s\n' "$REPLY"; }
+math.arcSinH()  { math._fe arsinh "$1"; printf '%s\n' "$REPLY"; }
+math.arcTanH()  { math._fe artanh "$1"; printf '%s\n' "$REPLY"; }
+math.arCosH()   { math._fe arcosh "$1"; printf '%s\n' "$REPLY"; }
+math.arSinH()   { math._fe arsinh "$1"; printf '%s\n' "$REPLY"; }
+math.arTanH()   { math._fe artanh "$1"; printf '%s\n' "$REPLY"; }
+math.arcSec()   { math._fe arcsec "$1"; printf '%s\n' "$REPLY"; }
+math.arcCsc()   { math._fe arccsc "$1"; printf '%s\n' "$REPLY"; }
+math.arcCot()   { math._fe arccot "$1"; printf '%s\n' "$REPLY"; }
+math.arcSecH()  { math._fe arcsech "$1"; printf '%s\n' "$REPLY"; }
+math.arcCscH()  { math._fe arccsch "$1"; printf '%s\n' "$REPLY"; }
+math.arcCotH()  { math._fe arccoth "$1"; printf '%s\n' "$REPLY"; }
 
 # ===========================================================================
 # P5 — logarithms, exponentials, powers, misc (engine; integer ** via P2 intPower).
 # The float ** operator maps to power. sqrt/exp/ln are System-unit elementaries.
 # ===========================================================================
-math.log10() { math._fe log10 "$1";      echo "$REPLY"; }
-math.log2()  { math._fe log2 "$1";       echo "$REPLY"; }
-math.logN()  { math._fe logn "$1" "$2";  echo "$REPLY"; }   # logN base value
-math.lnXP1() { math._fe lnxp1 "$1";      echo "$REPLY"; }   # ln(1+x), accurate near 0
-math.expM1() { math._fe expm1 "$1";      echo "$REPLY"; }   # exp(x)-1, accurate near 0
-math.power() { math._fe power "$1" "$2"; echo "$REPLY"; }
-math.hypot() { math._fe hypot "$1" "$2"; echo "$REPLY"; }
-math.frexp() { math._fe frexp "$1";      echo "$REPLY"; }   # echoes "mantissa exponent"
-math.ldexp() { math._fe ldexp "$1" "$2"; echo "$REPLY"; }   # x * 2^p
-math.sqrt()  { math._fe sqrt "$1";       echo "$REPLY"; }
-math.exp()   { math._fe exp "$1";        echo "$REPLY"; }
-math.ln()    { math._fe ln "$1";         echo "$REPLY"; }
+math.log10() { math._fe log10 "$1";      printf '%s\n' "$REPLY"; }
+math.log2()  { math._fe log2 "$1";       printf '%s\n' "$REPLY"; }
+math.logN()  { math._fe logn "$1" "$2";  printf '%s\n' "$REPLY"; }   # logN base value
+math.lnXP1() { math._fe lnxp1 "$1";      printf '%s\n' "$REPLY"; }   # ln(1+x), accurate near 0
+math.expM1() { math._fe expm1 "$1";      printf '%s\n' "$REPLY"; }   # exp(x)-1, accurate near 0
+math.power() { math._fe power "$1" "$2"; printf '%s\n' "$REPLY"; }
+math.hypot() { math._fe hypot "$1" "$2"; printf '%s\n' "$REPLY"; }
+math.frexp() { math._fe frexp "$1";      printf '%s\n' "$REPLY"; }   # echoes "mantissa exponent"
+math.ldexp() { math._fe ldexp "$1" "$2"; printf '%s\n' "$REPLY"; }   # x * 2^p
+math.sqrt()  { math._fe sqrt "$1";       printf '%s\n' "$REPLY"; }
+math.exp()   { math._fe exp "$1";        printf '%s\n' "$REPLY"; }
+math.ln()    { math._fe ln "$1";         printf '%s\n' "$REPLY"; }
 
 # ===========================================================================
 # P6 — statistics. Arrays are passed as the argument list; the engine computes
 # each statistic in one awk pass. sumInt is pure-bash integer (zero-fork).
 # Sample Variance/StdDev use N-1; PopnVariance/PopnStdDev use N.
 # ===========================================================================
-math.sum()            { math._fe asum "$@";       echo "$REPLY"; }
-math.mean()           { math._fe amean "$@";      echo "$REPLY"; }
-math.sumOfSquares()   { math._fe asumsq "$@";     echo "$REPLY"; }
-math.sumsAndSquares() { math._fe asumsandsq "$@"; echo "$REPLY"; }   # "sum sumOfSquares"
-math.variance()       { math._fe avariance "$@";  echo "$REPLY"; }   # sample (N-1)
-math.totalVariance()  { math._fe atotvar "$@";    echo "$REPLY"; }   # Sum((x-mean)^2)
-math.popnVariance()   { math._fe apopnvar "$@";   echo "$REPLY"; }   # population (N)
-math.stdDev()         { math._fe astddev "$@";    echo "$REPLY"; }
-math.popnStdDev()     { math._fe apopnstddev "$@"; echo "$REPLY"; }
-math.meanAndStdDev()  { math._fe ameanstddev "$@"; echo "$REPLY"; }  # "mean stddev"
-math.momentSkewKurtosis() { math._fe amoments "$@"; echo "$REPLY"; } # "m1 m2 m3 m4 skew kurtosis"
-math.norm()           { math._fe anorm "$@";      echo "$REPLY"; }   # euclidean L2
-math.randG()          { math._fe randg "$1" "$2"; echo "$REPLY"; }   # gaussian(mean,stddev)
+math.sum()            { math._fe asum "$@";       printf '%s\n' "$REPLY"; }
+math.mean()           { math._fe amean "$@";      printf '%s\n' "$REPLY"; }
+math.sumOfSquares()   { math._fe asumsq "$@";     printf '%s\n' "$REPLY"; }
+math.sumsAndSquares() { math._fe asumsandsq "$@"; printf '%s\n' "$REPLY"; }   # "sum sumOfSquares"
+math.variance()       { math._fe avariance "$@";  printf '%s\n' "$REPLY"; }   # sample (N-1)
+math.totalVariance()  { math._fe atotvar "$@";    printf '%s\n' "$REPLY"; }   # Sum((x-mean)^2)
+math.popnVariance()   { math._fe apopnvar "$@";   printf '%s\n' "$REPLY"; }   # population (N)
+math.stdDev()         { math._fe astddev "$@";    printf '%s\n' "$REPLY"; }
+math.popnStdDev()     { math._fe apopnstddev "$@"; printf '%s\n' "$REPLY"; }
+math.meanAndStdDev()  { math._fe ameanstddev "$@"; printf '%s\n' "$REPLY"; }  # "mean stddev"
+math.momentSkewKurtosis() { math._fe amoments "$@"; printf '%s\n' "$REPLY"; } # "m1 m2 m3 m4 skew kurtosis"
+math.norm()           { math._fe anorm "$@";      printf '%s\n' "$REPLY"; }   # euclidean L2
+math.randG()          { math._fe randg "$1" "$2"; printf '%s\n' "$REPLY"; }   # gaussian(mean,stddev)
 # SumInt: pure-bash integer sum (exact, zero-fork).
-math.sumInt() { local s=0 x; for x in "$@"; do s=$(( s + x )); done; echo "$s"; }
+math.sumInt() { local s=0 x; for x in "$@"; do kk.isInt "$x" x || return 1; s=$(( s + x )); done; printf '%s\n' "$s"; }
 
 # ===========================================================================
 # P7 — financial (annuity), RNG, IEEE predicates, FPU stubs.
 # Financial: engine. APaymentTime is a 0/1 flag (0=ptEndOfPeriod default,
 # 1=ptStartOfPeriod). RNG + predicates are pure-bash (zero-fork).
 # ===========================================================================
-math.futureValue()     { math._fe fv "$1" "$2" "$3" "$4" "${5:-0}"; echo "$REPLY"; }   # rate n payment presentValue [ptype]
-math.presentValue()    { math._fe pv "$1" "$2" "$3" "$4" "${5:-0}"; echo "$REPLY"; }   # rate n payment futureValue [ptype]
-math.payment()         { math._fe pmt "$1" "$2" "$3" "$4" "${5:-0}"; echo "$REPLY"; }  # rate n presentValue futureValue [ptype]
-math.interestRate()    { math._fe irate "$1" "$2" "$3" "$4" "${5:-0}"; echo "$REPLY"; } # nPeriods payment presentValue futureValue [ptype]
-math.numberOfPeriods() { math._fe nper "$1" "$2" "$3" "$4" "${5:-0}"; echo "$REPLY"; } # rate payment presentValue futureValue [ptype]
+math.futureValue()     { math._fe fv "$1" "$2" "$3" "$4" "${5:-0}"; printf '%s\n' "$REPLY"; }   # rate n payment presentValue [ptype]
+math.presentValue()    { math._fe pv "$1" "$2" "$3" "$4" "${5:-0}"; printf '%s\n' "$REPLY"; }   # rate n payment futureValue [ptype]
+math.payment()         { math._fe pmt "$1" "$2" "$3" "$4" "${5:-0}"; printf '%s\n' "$REPLY"; }  # rate n presentValue futureValue [ptype]
+math.interestRate()    { math._fe irate "$1" "$2" "$3" "$4" "${5:-0}"; printf '%s\n' "$REPLY"; } # nPeriods payment presentValue futureValue [ptype]
+math.numberOfPeriods() { math._fe nper "$1" "$2" "$3" "$4" "${5:-0}"; printf '%s\n' "$REPLY"; } # rate payment presentValue futureValue [ptype]
 
 # RandomRange: uniform integer in [min(from,to), max(from,to)) — upper-exclusive
 # (FPC Random(Abs(from-to))+Min). Pure-bash 30-bit RNG (two $RANDOM), zero-fork.
 math.randomRange() {
-    local from=$1 to=$2 lo hi n
+    local from to lo hi n
+    kk.isInt "${1:-}" from || return 1
+    kk.isInt "${2:-}" to || return 1
     (( from < to )) && { lo=$from; hi=$to; } || { lo=$to; hi=$from; }
     n=$(( hi - lo ))
-    (( n == 0 )) && { echo "$lo"; return; }
-    echo $(( lo + (RANDOM<<15 | RANDOM) % n ))
+    if (( n == 0 )); then printf '%s\n' "$lo"; return; fi
+    printf '%s\n' $(( lo + (RANDOM<<15 | RANDOM) % n ))
 }
 
 # RandomFrom: a random element of the argument list. Zero-fork.
 math.randomFrom() {
     local -a vals=("$@")
     local n=${#vals[@]}
-    (( n == 0 )) && return 1
+    if (( n == 0 )); then return 1; fi
     local idx=$(( (RANDOM<<15 | RANDOM) % n ))
-    echo "${vals[idx]}"
+    printf '%s\n' "${vals[idx]}"
 }
 
 # IsNan / IsInfinite: test for the nan / +/-inf tokens the engine emits. Pure-bash.
-math.isNan()      { local re='^[+-]?[nN]a[nN]$';            [[ $1 =~ $re ]] && echo true || echo false; }
-math.isInfinite() { local re='^[+-]?([iI]nf|[iI]nfinity)$'; [[ $1 =~ $re ]] && echo true || echo false; }
+math.isNan()      { local re='^[+-]?[nN]a[nN]$';            [[ $1 =~ $re ]] && printf '%s\n' true || printf '%s\n' false; }
+math.isInfinite() { local re='^[+-]?([iI]nf|[iI]nfinity)$'; [[ $1 =~ $re ]] && printf '%s\n' true || printf '%s\n' false; }
 
 # FPU control — WONTFIX: bash has no FPU control word. Getters report the
 # conventional default (informational only); setters return 1; clearExceptions
 # is a no-op (there are no pending FPU exceptions in bash). See PLAN.md / ledger.
-math.getRoundMode()     { echo "rmNearest"; }
+math.getRoundMode()     { printf '%s\n' "rmNearest"; }
 math.setRoundMode()     { return 1; }
-math.getPrecisionMode() { echo "pmDouble"; }
+math.getPrecisionMode() { printf '%s\n' "pmDouble"; }
 math.setPrecisionMode() { return 1; }
-math.getExceptionMask() { echo "[exInvalidOp,exDenormalized,exZeroDivide,exOverflow,exUnderflow,exPrecision]"; }
+math.getExceptionMask() { printf '%s\n' "[exInvalidOp,exDenormalized,exZeroDivide,exOverflow,exUnderflow,exPrecision]"; }
 math.setExceptionMask() { return 1; }
 math.clearExceptions()  { return 0; }
 

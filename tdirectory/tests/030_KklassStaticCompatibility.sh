@@ -42,17 +42,18 @@ else
 fi
 
 kt_test_start "TDirectory internal recursive helpers stay namespaced"
-get_dirs_recursive() { :; }
-get_files_recursive() { :; }
-get_entries_recursive() { :; }
-source "$TDIRECTORY_DIR/tdirectory.sh"
-
+# Asked in a PRISTINE child shell: what does sourcing the unit actually define?
+# The old form planted decoys with these names here and re-sourced the unit,
+# relying on the unit's `unset -f` to remove them — which stopped being a test
+# the moment the unit got a re-source guard (kcl P1, X-SETU/D7). What matters is
+# that the unit never defines these un-namespaced names in the first place.
 leaked_helpers=()
-for helper_name in get_dirs_recursive get_files_recursive get_entries_recursive; do
-    if declare -F "$helper_name" >/dev/null; then
-        leaked_helpers+=("$helper_name")
-    fi
-done
+while IFS= read -r helper_name; do
+    [[ -n "$helper_name" ]] && leaked_helpers+=("$helper_name")
+done < <(bash -c "source '$TDIRECTORY_DIR/tdirectory.sh'
+for h in get_dirs_recursive get_files_recursive get_entries_recursive; do
+    declare -F \"\$h\" >/dev/null && printf '%s\n' \"\$h\"
+done" 2>/dev/null)
 
 if (( ${#leaked_helpers[@]} == 0 )); then
     kt_test_pass "TDirectory internal recursive helpers stay namespaced"

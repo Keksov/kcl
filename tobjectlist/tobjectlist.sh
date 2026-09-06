@@ -38,7 +38,7 @@
 # ===========================================================================
 
 # Re-source guard.
-if [[ -n "$_TOBJECTLIST_SOURCED" ]]; then
+if [[ -n "${_TOBJECTLIST_SOURCED:-}" ]]; then
     return
 fi
 declare -g _TOBJECTLIST_SOURCED=1
@@ -122,6 +122,7 @@ TObjectList.Delete() {
     # FPC: Delete -> Notify(old, lnDeleted) -> freed when OwnsObjects.
     if [[ "$owns_objects" == "true" ]]; then
         local __tol_index="$1"
+        kk.isInt "$__tol_index" __tol_index || return 1
         if (( __tol_index >= 0 && __tol_index < count )); then
             local __tol_items_var="${__inst__}_items"
             declare -n __tol_items_ref="$__tol_items_var"
@@ -163,6 +164,7 @@ TObjectList.Put() {
     # notifies when the pointer actually changes).
     if [[ "$owns_objects" == "true" ]]; then
         local __tol_index="$1" __tol_new="$2"
+        kk.isInt "$__tol_index" __tol_index || return 1
         if (( __tol_index >= 0 && __tol_index < count )); then
             local __tol_items_var="${__inst__}_items"
             declare -n __tol_items_ref="$__tol_items_var"
@@ -181,8 +183,10 @@ TObjectList.BatchDelete() {
     # gets freed, then let the parent do the actual work.
     if [[ "$owns_objects" == "true" ]]; then
         local __tol_index="$1" __tol_cnt="$2"
+        kk.isInt "$__tol_index" __tol_index || return 1
+        kk.isInt "$__tol_cnt" __tol_cnt || return 1
         if (( __tol_index >= 0 && __tol_index < count )); then
-            (( __tol_index + __tol_cnt > count )) && __tol_cnt=$(( count - __tol_index ))
+            if (( __tol_index + __tol_cnt > count )); then __tol_cnt=$(( count - __tol_index )); fi
             if (( __tol_cnt > 0 )); then
                 local __tol_i __tol_items_var="${__inst__}_items"
                 declare -n __tol_items_ref="$__tol_items_var"
@@ -228,7 +232,8 @@ TObjectList.FindInstanceOf() {
     # func trailer only fires on fall-through; see Extract).
     local __tol_cls="$1" __tol_exact="${2:-true}" __tol_start="${3:-0}"
     if [[ -z "$__tol_cls" ]]; then kk._return "-1"; return 2; fi
-    (( __tol_start < 0 )) && __tol_start=0
+    if ! kk.isInt "$__tol_start" __tol_start; then kk._return "-1"; return 2; fi
+    if (( __tol_start < 0 )); then __tol_start=0; fi
     local __tol_i __tol_h __tol_c __tol_cvar __tol_pvar
     local __tol_items_var="${__inst__}_items"
     declare -n __tol_items_ref="$__tol_items_var"

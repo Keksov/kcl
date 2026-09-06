@@ -14,13 +14,18 @@ kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 kt_test_section "030: TCustomApplication kklass RESULT compatibility"
 
 kt_test_start "TCustomApplication uses shared kklass silent call helper"
-tcustomapplication._call_silent() { :; }
-source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
-
-if declare -F kk.call_silent >/dev/null && ! declare -F tcustomapplication._call_silent >/dev/null; then
+# Asked in a PRISTINE child shell: what does sourcing the unit actually define?
+# The old form planted a decoy `tcustomapplication._call_silent` here and
+# re-sourced the unit, relying on the unit's `unset -f` to remove it — which
+# stopped being a test the moment the unit got a re-source guard (kcl P1,
+# X-SETU/D7). What matters is that the unit defines no such helper at all.
+probe="$(bash -c "source '$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh'
+declare -F kk.call_silent >/dev/null && printf shared
+declare -F tcustomapplication._call_silent >/dev/null && printf '+local'" 2>&1)"
+if [[ "$probe" == "shared" ]]; then
     kt_test_pass "TCustomApplication uses shared kklass silent call helper"
 else
-    kt_test_fail "TCustomApplication silent helper mismatch: kk.call_silent=$(declare -F kk.call_silent >/dev/null && echo yes || echo no), local_helper=$(declare -F tcustomapplication._call_silent >/dev/null && echo yes || echo no)"
+    kt_test_fail "TCustomApplication silent helper mismatch: probe='$probe' (expected 'shared')"
 fi
 
 kt_test_start "TCustomApplication exposes expected kklass instance metadata"

@@ -1,10 +1,16 @@
 #!/bin/bash
 
+# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
+# sourceable — and re-sourceable — from a script running `set -eu`, and building
+# the class a second time is pure waste.
+if [[ -n "${_TSTOPWATCH_SOURCED:-}" ]]; then
+    return
+fi
+declare -g _TSTOPWATCH_SOURCED=1
+
 # Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
 TSTOPWATCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TSTOPWATCH_DIR/../../kklass/kklass_pascal.sh"
-source "$TSTOPWATCH_DIR/../../kkore/klib.sh"
-source "$TSTOPWATCH_DIR/../../kkore/kerr.sh"
 
 # ---------------------------------------------------------------------------
 # TStopwatch: elapsed-time measurement, an INSTANTIABLE class.

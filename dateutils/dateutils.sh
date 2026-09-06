@@ -45,7 +45,7 @@
 
 # Re-source guard: the __KDT_* constants below are readonly, and the class only
 # needs to be built once per process.
-if [[ -n "$_DATEUTILS_SOURCED" ]]; then
+if [[ -n "${_DATEUTILS_SOURCED:-}" ]]; then
     return
 fi
 declare -g _DATEUTILS_SOURCED=1
@@ -294,7 +294,11 @@ end
 
 # _days_from_civil Y M D -> REPLY = days since 1970-01-01 (day 0 = Thu).
 dateutils._days_from_civil() {
-    local y=$1 m=$2 d=$3 era yoe doy doe
+    local y m d era yoe doy doe
+    REPLY=0
+    kk.isInt "${1:-}" y || return 1
+    kk.isInt "${2:-}" m || return 1
+    kk.isInt "${3:-}" d || return 1
     (( y -= (m <= 2) ))
     if (( y >= 0 )); then era=$(( y / 400 )); else era=$(( (y - 399) / 400 )); fi
     yoe=$(( y - era * 400 ))                     # [0, 399]
@@ -318,12 +322,16 @@ dateutils._civil_from_days() {
     mp=$(( (5*doy + 2) / 153 ))                  # [0, 11]
     __kdt_d=$(( doy - (153*mp + 2)/5 + 1 ))      # [1, 31]
     if (( mp < 10 )); then __kdt_mo=$(( mp + 3 )); else __kdt_mo=$(( mp - 9 )); fi
-    (( __kdt_mo <= 2 )) && (( __kdt_y += 1 ))
+    if (( __kdt_mo <= 2 )); then (( __kdt_y += 1 )); fi
 }
 
 # _split_kdt KDT -> sets __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms.
 dateutils._split_kdt() {
-    local kdt=$1 total_days ms_of_day rem
+    local kdt total_days ms_of_day rem
+    if ! kk.isInt "${1:-}" kdt; then
+        __kdt_y=0 __kdt_mo=1 __kdt_d=1 __kdt_h=0 __kdt_mi=0 __kdt_s=0 __kdt_ms=0
+        return 1
+    fi
     total_days=$(( kdt / 86400000 ))
     ms_of_day=$(( kdt - total_days * 86400000 ))
     if (( ms_of_day < 0 )); then                 # floor division for pre-1970
@@ -350,7 +358,7 @@ dateutils._join_kdt() {
 dateutils._weekday_iso() {
     local kdt=$1 total_days
     total_days=$(( kdt / 86400000 ))
-    (( kdt - total_days*86400000 < 0 )) && total_days=$(( total_days - 1 ))
+    if (( kdt - total_days*86400000 < 0 )); then total_days=$(( total_days - 1 )); fi
     REPLY=$(( ( (total_days + 3) % 7 + 7 ) % 7 + 1 ))
 }
 
@@ -443,8 +451,11 @@ dateutils._now_local_ms() {
 
 # _floor_day KDT -> REPLY = day number (floor(KDT / MS_PER_DAY)).
 dateutils._floor_day() {
-    local kdt=$1 d=$(( $1 / 86400000 ))
-    (( kdt - d*86400000 < 0 )) && d=$(( d - 1 ))
+    local kdt d
+    REPLY=0
+    kk.isInt "${1:-}" kdt || return 1
+    d=$(( kdt / 86400000 ))
+    if (( kdt - d*86400000 < 0 )); then d=$(( d - 1 )); fi
     REPLY=$d
 }
 
@@ -478,8 +489,16 @@ dateutils._weeks_in_year() {
 
 # _valid_date YEAR MONTH DAY -> REPLY = 1/0 (FPC IsValidDate: year 1..9999).
 dateutils._valid_date() {
-    local y=$1 m=$2 d=$3
+    # G3-01 / G3-04 (X-INJ, decision D1): these fields arrive straight from
+    # `IFS=- read y m d`, so `08`/`09` are the NORMAL case and an octal parse
+    # error here made `isValidDate 2011 08 15` answer false; a field shaped like
+    # `x[$(cmd)]` executed the command inside (( )). kk.isInt validates and
+    # rewrites the value as decimal.
+    local y m d
     REPLY=0
+    kk.isInt "${1:-}" y || return 0
+    kk.isInt "${2:-}" m || return 0
+    kk.isInt "${3:-}" d || return 0
     (( y >= 1 && y <= 9999 && m >= 1 && m <= 12 && d >= 1 )) || return
     dateutils._days_in_month "$y" "$m"
     (( d <= REPLY )) && REPLY=1 || REPLY=0
@@ -488,7 +507,13 @@ dateutils._valid_date() {
 # _valid_time HOUR MIN SEC MS -> REPLY = 1/0. FPC IsValidTime: 24:00:00.000 is
 # valid (whole-day marker), else h<24 & m<60 & s<60 & ms<1000.
 dateutils._valid_time() {
-    local h=$1 mi=$2 s=$3 ms=$4
+    # Same as _valid_date: `08`/`09` are ordinary time fields (G3-01, D1).
+    local h mi s ms
+    REPLY=0
+    kk.isInt "${1:-}" h  || return 0
+    kk.isInt "${2:-}" mi || return 0
+    kk.isInt "${3:-}" s  || return 0
+    kk.isInt "${4:-0}" ms || return 0
     if (( h == 24 && mi == 0 && s == 0 && ms == 0 )) || \
        (( h >= 0 && h < 24 && mi >= 0 && mi < 60 && s >= 0 && s < 60 && ms >= 0 && ms < 1000 )); then
         REPLY=1
@@ -498,7 +523,7 @@ dateutils._valid_time() {
 }
 
 # _debug MSG -> stderr, only under VERBOSE_KKLASS=debug (encode* error channel).
-dateutils._debug() { [[ "$VERBOSE_KKLASS" == debug ]] && echo "dateutils: $*" >&2; return 0; }
+dateutils._debug() { [[ "$VERBOSE_KKLASS" == debug ]] && printf '%s\n' "dateutils: $*" >&2; return 0; }
 
 # _decode_date_week KDT -> __kdt_wy_year __kdt_wy_week __kdt_wy_dow (ISO-8601).
 # Faithful port of FPC DecodeDateWeek (recurses once into the prior year for
@@ -518,11 +543,11 @@ dateutils._decode_date_week() {
         __kdt_wy_dow=$dow
         return
     fi
-    week=$(( doy / 7 )); (( doy % 7 != 0 )) && week=$(( week + 1 ))
+    week=$(( doy / 7 )); if (( doy % 7 != 0 )); then week=$(( week + 1 )); fi
     if (( week > 52 )); then                             # maybe first week of next year
         yedow=$ysdow
         dateutils._is_leap "$year"; leap=$REPLY
-        if (( leap )); then yedow=$(( yedow + 1 )); (( yedow > 7 )) && yedow=1; fi
+        if (( leap )); then yedow=$(( yedow + 1 )); if (( yedow > 7 )); then yedow=1; fi; fi
         if (( yedow < 4 )); then year=$(( year + 1 )); week=1; fi
     fi
     __kdt_wy_year=$year; __kdt_wy_week=$week; __kdt_wy_dow=$dow
@@ -538,19 +563,19 @@ dateutils._decode_date_month_week() {
     dateutils._weekday_iso "$kdt"; dow=$REPLY
     dateutils._days_from_civil "$year" "$month" 1; som_day=$REPLY
     sdom=$(( ( (som_day + 3) % 7 + 7 ) % 7 + 1 ))        # ISO weekday of the 1st
-    dom=$(( d - 1 + sdom )); (( sdom > 4 )) && dom=$(( dom - 7 ))
+    dom=$(( d - 1 + sdom )); if (( sdom > 4 )); then dom=$(( dom - 7 )); fi
     if (( dom <= 0 )); then                              # belongs to previous month
         dateutils._decode_date_month_week "$(( (som_day - 1) * 86400000 ))"
         __kdt_mw_dow=$dow
         return
     fi
-    week=$(( dom / 7 )); (( dom % 7 != 0 )) && week=$(( week + 1 ))
+    week=$(( dom / 7 )); if (( dom % 7 != 0 )); then week=$(( week + 1 )); fi
     dateutils._days_in_month "$year" "$month"; dim=$REPLY
     dateutils._days_from_civil "$year" "$month" "$dim"; eom_day=$REPLY
     edom=$(( ( (eom_day + 3) % 7 + 7 ) % 7 + 1 ))        # ISO weekday of the last day
     if (( edom < 4 && (dim - d) < edom )); then          # tail days spill into next month
         week=1; month=$(( month + 1 ))
-        (( month == 13 )) && { month=1; year=$(( year + 1 )); }
+        if (( month == 13 )); then month=1; year=$(( year + 1 )); fi
     fi
     __kdt_mw_year=$year; __kdt_mw_month=$month; __kdt_mw_week=$week; __kdt_mw_dow=$dow
 }
@@ -565,7 +590,7 @@ dateutils._encode_date_week() {
     dateutils._days_from_civil "$y" 1 1
     base=$(( REPLY + 7*(w-1) ))
     dowb=$(( ( (base + 3) % 7 + 7 ) % 7 + 1 ))     # ISO weekday of that Monday-anchor
-    rest=$(( dow - dowb )); (( dowb > 4 )) && rest=$(( rest + 7 ))
+    rest=$(( dow - dowb )); if (( dowb > 4 )); then rest=$(( rest + 7 )); fi
     REPLY=$(( (base + rest) * 86400000 ))
 }
 
@@ -580,7 +605,7 @@ dateutils._period_between() {
     dateutils._split_kdt "$hi"; local y2=$__kdt_y m2=$__kdt_mo d2=$__kdt_d
     local years=$(( y2 - y1 )) months days
     if (( m1 > m2 || (m1 == m2 && d1 > d2) )); then years=$(( years - 1 )); fi
-    (( m1 > m2 )) && m2=$(( m2 + 12 ))
+    if (( m1 > m2 )); then m2=$(( m2 + 12 )); fi
     months=$(( m2 - m1 ))
     if (( d2 >= d1 )); then
         days=$(( d2 - d1 ))
@@ -594,6 +619,19 @@ dateutils._period_between() {
 
 # _span_fixed ABSDIFF_MS DIVISOR_MS -> REPLY = "whole.ffffff" (6 dp), computed
 # whole/remainder-wise so ABSDIFF*10^6 never overflows int64 (plan risk #3).
+# G3-04 (X-INJ, decision D1): the one-liner members below take two (sometimes
+# three) caller-supplied KDT values straight into `(( ))`, which EVALUATES an
+# array subscript — `incDay 'x[$(cmd)]'` ran the command, and an empty string
+# silently became the epoch. This validates and 10#-normalises them in one call;
+# the caller declares `local __du_a __du_b __du_c` and uses those.
+#
+# P1 covers the shared helpers plus the entry points the review reproduced. The
+# remaining public members get their guard in P6, where decision D3 rewrites
+# every body as `func` + kk._return and the boundary is touched once anyway
+# (finding G3-04 is therefore "partial" in the ledger until then).
+dateutils._two() { kk.isInt "${1:-}" __du_a && kk.isInt "${2:-}" __du_b; }
+dateutils._three() { dateutils._two "${1:-}" "${2:-}" && kk.isInt "${3:-}" __du_c; }
+
 dateutils._span_fixed() {
     local n=$1 div=$2 whole frac
     whole=$(( n / div ))
@@ -624,7 +662,7 @@ dateutils._encode_date_month_week() {
     dom=$(( (wom-1)*7 + dow - 1 ))
     s=$(( ( (base + 3) % 7 + 7 ) % 7 + 1 ))     # ISO weekday of the 1st
     dom=$(( dom - (s - 1) ))
-    (( s >= 5 )) && dom=$(( dom + 7 ))           # S in [Fri..Sun]
+    if (( s >= 5 )); then dom=$(( dom + 7 )); fi           # S in [Fri..Sun]
     REPLY=$(( (base + dom) * 86400000 ))
 }
 
@@ -637,7 +675,7 @@ dateutils._encode_dow_in_month() {
     dateutils._days_from_civil "$y" "$mo" 1
     som=$(( ( (REPLY + 3) % 7 + 7 ) % 7 + 1 ))   # ISO weekday of the 1st
     d=$(( 1 + dow - som + 7*(nth-1) ))
-    (( som > dow )) && d=$(( d + 7 ))
+    if (( som > dow )); then d=$(( d + 7 )); fi
     dateutils._valid_date "$y" "$mo" "$d"; (( REPLY )) || return 1
     dateutils._join_kdt "$y" "$mo" "$d" 0 0 0 0
 }
@@ -647,11 +685,17 @@ dateutils._encode_dow_in_month() {
 # i.e. KDT = REPLY - 210866760000000 (= 2440587.5 * 86400000). Frac parsed to
 # 9 digits (rounded); frac9*86400000 < 9.2e18 so no int64 overflow.
 dateutils._jd_str_to_ms() {
-    local s=$1 sign=1 whole frac
+    # G3-04 (X-INJ, D1): `whole` and `frac` end up under `10#` inside (( )),
+    # which evaluates an array subscript — a JD string shaped like `x[$(cmd)]`
+    # ran the command. kk.isNum accepts exactly the JD shape ([+-]d[.d]) and
+    # rejects everything else before the split.
+    local s sign=1 whole frac
+    REPLY=0
+    kk.isNum "${1:-}" s || return 1
     [[ "$s" == -* ]] && { sign=-1; s=${s#-}; }
     [[ "$s" == +* ]] && s=${s#+}
     if [[ "$s" == *.* ]]; then whole=${s%%.*}; frac=${s#*.}; else whole=$s; frac=0; fi
-    whole=${whole:-0}; frac=${frac}000000000; frac=${frac:0:9}
+    whole=${whole:-0}; frac=${frac:-0}; frac=${frac}000000000; frac=${frac:0:9}
     REPLY=$(( sign * (10#$whole * 86400000 + (10#$frac * 86400000 + 500000000) / 1000000000) ))
 }
 
@@ -678,26 +722,26 @@ dateutils._normalize_offset_min_east() {
 # ===========================================================================
 
 # --- wall clock & trivial constructors ---
-dateutils.now()    { dateutils._now_local_ms; echo "$REPLY"; }
-dateutils.nowUTC() { dateutils._now_utc_ms;   echo "$REPLY"; }
-dateutils.today()  { dateutils._now_local_ms; dateutils._floor_day "$REPLY"; echo $(( REPLY * 86400000 )); }
-dateutils.yesterday() { dateutils._now_local_ms; dateutils._floor_day "$REPLY"; echo $(( (REPLY - 1) * 86400000 )); }
-dateutils.tomorrow()  { dateutils._now_local_ms; dateutils._floor_day "$REPLY"; echo $(( (REPLY + 1) * 86400000 )); }
+dateutils.now()    { dateutils._now_local_ms; printf '%s\n' "$REPLY"; }
+dateutils.nowUTC() { dateutils._now_utc_ms;   printf '%s\n' "$REPLY"; }
+dateutils.today()  { dateutils._now_local_ms; dateutils._floor_day "$REPLY"; printf '%s\n' $(( REPLY * 86400000 )); }
+dateutils.yesterday() { dateutils._now_local_ms; dateutils._floor_day "$REPLY"; printf '%s\n' $(( (REPLY - 1) * 86400000 )); }
+dateutils.tomorrow()  { dateutils._now_local_ms; dateutils._floor_day "$REPLY"; printf '%s\n' $(( (REPLY + 1) * 86400000 )); }
 
 # dateOf: drop the time-of-day (floor to midnight). timeOf: keep only it.
-dateutils.dateOf() { dateutils._floor_day "$1"; echo $(( REPLY * 86400000 )); }
-dateutils.timeOf() { dateutils._floor_day "$1"; echo $(( $1 - REPLY * 86400000 )); }
+dateutils.dateOf() { dateutils._floor_day "$1"; printf '%s\n' $(( REPLY * 86400000 )); }
+dateutils.timeOf() { dateutils._floor_day "$1"; printf '%s\n' $(( $1 - REPLY * 86400000 )); }
 
 # --- public constant getters ---
-dateutils.msPerSecond()        { echo "$__KDT_MS_PER_SECOND"; }
-dateutils.msPerMinute()        { echo "$__KDT_MS_PER_MINUTE"; }
-dateutils.msPerHour()          { echo "$__KDT_MS_PER_HOUR"; }
-dateutils.msPerDay()           { echo "$__KDT_MS_PER_DAY"; }
-dateutils.msPerWeek()          { echo "$__KDT_MS_PER_WEEK"; }
-dateutils.approxMsPerMonth()   { echo "$__KDT_APPROX_MS_PER_MONTH"; }
-dateutils.approxMsPerYear()    { echo "$__KDT_APPROX_MS_PER_YEAR"; }
-dateutils.approxDaysPerMonth() { echo "$__KDT_APPROX_DAYS_PER_MONTH"; }
-dateutils.approxDaysPerYear()  { echo "$__KDT_APPROX_DAYS_PER_YEAR"; }
+dateutils.msPerSecond()        { printf '%s\n' "$__KDT_MS_PER_SECOND"; }
+dateutils.msPerMinute()        { printf '%s\n' "$__KDT_MS_PER_MINUTE"; }
+dateutils.msPerHour()          { printf '%s\n' "$__KDT_MS_PER_HOUR"; }
+dateutils.msPerDay()           { printf '%s\n' "$__KDT_MS_PER_DAY"; }
+dateutils.msPerWeek()          { printf '%s\n' "$__KDT_MS_PER_WEEK"; }
+dateutils.approxMsPerMonth()   { printf '%s\n' "$__KDT_APPROX_MS_PER_MONTH"; }
+dateutils.approxMsPerYear()    { printf '%s\n' "$__KDT_APPROX_MS_PER_YEAR"; }
+dateutils.approxDaysPerMonth() { printf '%s\n' "$__KDT_APPROX_DAYS_PER_MONTH"; }
+dateutils.approxDaysPerYear()  { printf '%s\n' "$__KDT_APPROX_DAYS_PER_YEAR"; }
 
 # --- P1: encode / decode ---------------------------------------------------
 # encode* echo the KDT (or time-of-day ms) and, on invalid input, log under
@@ -706,34 +750,34 @@ dateutils.approxDaysPerYear()  { echo "$__KDT_APPROX_DAYS_PER_YEAR"; }
 
 dateutils.tryEncodeDate() {
     dateutils._valid_date "$1" "$2" "$3"; (( REPLY )) || return 1
-    dateutils._join_kdt "$1" "$2" "$3" 0 0 0 0; echo "$REPLY"
+    dateutils._join_kdt "$1" "$2" "$3" 0 0 0 0; printf '%s\n' "$REPLY"
 }
 dateutils.encodeDate() {
     dateutils._valid_date "$1" "$2" "$3"
-    if (( REPLY )); then dateutils._join_kdt "$1" "$2" "$3" 0 0 0 0; echo "$REPLY"
+    if (( REPLY )); then dateutils._join_kdt "$1" "$2" "$3" 0 0 0 0; printf '%s\n' "$REPLY"
     else dateutils._debug "invalid date $1-$2-$3"; return 1; fi
 }
 
 dateutils.tryEncodeTime() {
     dateutils._valid_time "$1" "$2" "$3" "$4"; (( REPLY )) || return 1
-    echo $(( $1*3600000 + $2*60000 + $3*1000 + $4 ))
+    printf '%s\n' $(( $1*3600000 + $2*60000 + $3*1000 + $4 ))
 }
 dateutils.encodeTime() {
     dateutils._valid_time "$1" "$2" "$3" "$4"
-    if (( REPLY )); then echo $(( $1*3600000 + $2*60000 + $3*1000 + $4 ))
+    if (( REPLY )); then printf '%s\n' $(( $1*3600000 + $2*60000 + $3*1000 + $4 ))
     else dateutils._debug "invalid time $1:$2:$3.$4"; return 1; fi
 }
 
 dateutils.tryEncodeDateTime() {
     dateutils._valid_date "$1" "$2" "$3"; (( REPLY )) || return 1
     dateutils._valid_time "$4" "$5" "$6" "$7"; (( REPLY )) || return 1
-    dateutils._join_kdt "$1" "$2" "$3" "$4" "$5" "$6" "$7"; echo "$REPLY"
+    dateutils._join_kdt "$1" "$2" "$3" "$4" "$5" "$6" "$7"; printf '%s\n' "$REPLY"
 }
 dateutils.encodeDateTime() {
     dateutils._valid_date "$1" "$2" "$3"; local vd=$REPLY
     dateutils._valid_time "$4" "$5" "$6" "$7"
     if (( vd && REPLY )); then
-        dateutils._join_kdt "$1" "$2" "$3" "$4" "$5" "$6" "$7"; echo "$REPLY"
+        dateutils._join_kdt "$1" "$2" "$3" "$4" "$5" "$6" "$7"; printf '%s\n' "$REPLY"
     else
         dateutils._debug "invalid datetime $1-$2-$3 $4:$5:$6.$7"; return 1
     fi
@@ -741,16 +785,16 @@ dateutils.encodeDateTime() {
 
 dateutils.decodeDate() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
-    dateutils._split_kdt "$1"; echo "$__kdt_y $__kdt_mo $__kdt_d"
+    dateutils._split_kdt "$1"; printf '%s\n' "$__kdt_y $__kdt_mo $__kdt_d"
 }
 dateutils.decodeTime() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
-    dateutils._split_kdt "$1"; echo "$__kdt_h $__kdt_mi $__kdt_s $__kdt_ms"
+    dateutils._split_kdt "$1"; printf '%s\n' "$__kdt_h $__kdt_mi $__kdt_s $__kdt_ms"
 }
 dateutils.decodeDateTime() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
     dateutils._split_kdt "$1"
-    echo "$__kdt_y $__kdt_mo $__kdt_d $__kdt_h $__kdt_mi $__kdt_s $__kdt_ms"
+    printf '%s\n' "$__kdt_y $__kdt_mo $__kdt_d $__kdt_h $__kdt_mi $__kdt_s $__kdt_ms"
 }
 
 # encodeDateDay: date from (year, day-of-year 1..365/366). FPC's try* omits the
@@ -760,13 +804,13 @@ dateutils.tryEncodeDateDay() {
     local y=$1 doy=$2 dpy
     dateutils._is_leap "$y"; dpy=$(( 365 + REPLY ))
     (( y >= 1 && y <= 9999 && doy >= 1 && doy <= dpy )) || return 1
-    dateutils._days_from_civil "$y" 1 1; echo $(( (REPLY + doy - 1) * 86400000 ))
+    dateutils._days_from_civil "$y" 1 1; printf '%s\n' $(( (REPLY + doy - 1) * 86400000 ))
 }
 dateutils.encodeDateDay() {
     local y=$1 doy=$2 dpy
     dateutils._is_leap "$y"; dpy=$(( 365 + REPLY ))
     if (( y >= 1 && y <= 9999 && doy >= 1 && doy <= dpy )); then
-        dateutils._days_from_civil "$y" 1 1; echo $(( (REPLY + doy - 1) * 86400000 ))
+        dateutils._days_from_civil "$y" 1 1; printf '%s\n' $(( (REPLY + doy - 1) * 86400000 ))
     else
         dateutils._debug "invalid date-day $y/$doy"; return 1
     fi
@@ -776,75 +820,75 @@ dateutils.decodeDateDay() {
     dateutils._split_kdt "$1"
     dateutils._days_from_civil "$__kdt_y" 1 1; ys=$REPLY
     dateutils._floor_day "$1"
-    echo "$__kdt_y $(( REPLY - ys + 1 ))"
+    printf '%s\n' "$__kdt_y $(( REPLY - ys + 1 ))"
 }
 
 # --- P1: validity & calendar sizes -----------------------------------------
-dateutils.isValidDate() { dateutils._valid_date "$1" "$2" "$3"; (( REPLY )) && echo true || echo false; }
-dateutils.isValidTime() { dateutils._valid_time "$1" "$2" "$3" "$4"; (( REPLY )) && echo true || echo false; }
+dateutils.isValidDate() { dateutils._valid_date "$1" "$2" "$3"; (( REPLY )) && printf '%s\n' true || printf '%s\n' false; }
+dateutils.isValidTime() { dateutils._valid_time "$1" "$2" "$3" "$4"; (( REPLY )) && printf '%s\n' true || printf '%s\n' false; }
 dateutils.isValidDateTime() {
     dateutils._valid_date "$1" "$2" "$3"; local vd=$REPLY
     dateutils._valid_time "$4" "$5" "$6" "$7"
-    (( vd && REPLY )) && echo true || echo false
+    (( vd && REPLY )) && printf '%s\n' true || printf '%s\n' false
 }
 dateutils.isValidDateDay() {
     local y=$1 doy=$2 dpy
     dateutils._is_leap "$y"; dpy=$(( 365 + REPLY ))
-    (( y >= 1 && y <= 9999 && doy >= 1 && doy <= dpy )) && echo true || echo false
+    (( y >= 1 && y <= 9999 && doy >= 1 && doy <= dpy )) && printf '%s\n' true || printf '%s\n' false
 }
 dateutils.isValidDateWeek() {
     local y=$1 w=$2 dow=$3
     dateutils._weeks_in_year "$y"
-    (( y >= 1 && y <= 9999 && dow >= 1 && dow <= 7 && w >= 1 && w <= REPLY )) && echo true || echo false
+    (( y >= 1 && y <= 9999 && dow >= 1 && dow <= 7 && w >= 1 && w <= REPLY )) && printf '%s\n' true || printf '%s\n' false
 }
 dateutils.isValidDateMonthWeek() {
     local y=$1 m=$2 wom=$3 dow=$4
     (( y >= 1 && y <= 9999 && m >= 1 && m <= 12 && wom >= 1 && wom <= 5 && dow >= 1 && dow <= 7 )) \
-        && echo true || echo false
+        && printf '%s\n' true || printf '%s\n' false
 }
 dateutils.isInLeapYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
     dateutils._split_kdt "$1"; dateutils._is_leap "$__kdt_y"
-    (( REPLY )) && echo true || echo false
+    (( REPLY )) && printf '%s\n' true || printf '%s\n' false
 }
-dateutils.daysInAMonth() { dateutils._days_in_month "$1" "$2"; (( REPLY > 0 )) && echo "$REPLY" || return 1; }
+dateutils.daysInAMonth() { dateutils._days_in_month "$1" "$2"; (( REPLY > 0 )) && printf '%s\n' "$REPLY" || return 1; }
 dateutils.daysInMonth() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
-    dateutils._split_kdt "$1"; dateutils._days_in_month "$__kdt_y" "$__kdt_mo"; echo "$REPLY"
+    dateutils._split_kdt "$1"; dateutils._days_in_month "$__kdt_y" "$__kdt_mo"; printf '%s\n' "$REPLY"
 }
-dateutils.daysInAYear() { dateutils._is_leap "$1"; echo $(( 365 + REPLY )); }
+dateutils.daysInAYear() { dateutils._is_leap "$1"; printf '%s\n' $(( 365 + REPLY )); }
 dateutils.daysInYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
-    dateutils._split_kdt "$1"; dateutils._is_leap "$__kdt_y"; echo $(( 365 + REPLY ))
+    dateutils._split_kdt "$1"; dateutils._is_leap "$__kdt_y"; printf '%s\n' $(( 365 + REPLY ))
 }
-dateutils.weeksInAYear() { dateutils._weeks_in_year "$1"; echo "$REPLY"; }
+dateutils.weeksInAYear() { dateutils._weeks_in_year "$1"; printf '%s\n' "$REPLY"; }
 dateutils.weeksInYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
-    dateutils._split_kdt "$1"; dateutils._weeks_in_year "$__kdt_y"; echo "$REPLY"
+    dateutils._split_kdt "$1"; dateutils._weeks_in_year "$__kdt_y"; printf '%s\n' "$REPLY"
 }
 
 # --- P2: simple field extractors -------------------------------------------
-dateutils.yearOf()        { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo "$__kdt_y"; }
-dateutils.monthOf()       { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo "$__kdt_mo"; }
-dateutils.dayOf()         { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo "$__kdt_d"; }
-dateutils.hourOf()        { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo "$__kdt_h"; }
-dateutils.minuteOf()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo "$__kdt_mi"; }
-dateutils.secondOf()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo "$__kdt_s"; }
-dateutils.milliSecondOf() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo "$__kdt_ms"; }
+dateutils.yearOf()        { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' "$__kdt_y"; }
+dateutils.monthOf()       { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' "$__kdt_mo"; }
+dateutils.dayOf()         { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' "$__kdt_d"; }
+dateutils.hourOf()        { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' "$__kdt_h"; }
+dateutils.minuteOf()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' "$__kdt_mi"; }
+dateutils.secondOf()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' "$__kdt_s"; }
+dateutils.milliSecondOf() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' "$__kdt_ms"; }
 # aliases / ISO-week
 dateutils.monthOfTheYear() { dateutils.monthOf "$1"; }
 dateutils.dayOfTheMonth()  { dateutils.dayOf "$1"; }
-dateutils.dayOfTheWeek()   { dateutils._weekday_iso "$1"; echo "$REPLY"; }   # ISO Mon=1..Sun=7
+dateutils.dayOfTheWeek()   { dateutils._weekday_iso "$1"; printf '%s\n' "$REPLY"; }   # ISO Mon=1..Sun=7
 dateutils.dayOfTheYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms ys
     dateutils._split_kdt "$1"; dateutils._days_from_civil "$__kdt_y" 1 1; ys=$REPLY
-    dateutils._floor_day "$1"; echo $(( REPLY - ys + 1 ))
+    dateutils._floor_day "$1"; printf '%s\n' $(( REPLY - ys + 1 ))
 }
-dateutils.weekOfTheYear()  { dateutils._decode_date_week "$1"; echo "$__kdt_wy_week"; }
-dateutils.weekOf()         { dateutils._decode_date_week "$1"; echo "$__kdt_wy_week"; }
-dateutils.weekOfTheMonth() { dateutils._decode_date_month_week "$1"; echo "$__kdt_mw_week"; }
-dateutils.isAM() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; (( __kdt_h < 12 ))  && echo true || echo false; }
-dateutils.isPM() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; (( __kdt_h >= 12 )) && echo true || echo false; }
+dateutils.weekOfTheYear()  { dateutils._decode_date_week "$1"; printf '%s\n' "$__kdt_wy_week"; }
+dateutils.weekOf()         { dateutils._decode_date_week "$1"; printf '%s\n' "$__kdt_wy_week"; }
+dateutils.weekOfTheMonth() { dateutils._decode_date_month_week "$1"; printf '%s\n' "$__kdt_mw_week"; }
+dateutils.isAM() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; (( __kdt_h < 12 ))  && printf '%s\n' true || printf '%s\n' false; }
+dateutils.isPM() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; (( __kdt_h >= 12 )) && printf '%s\n' true || printf '%s\n' false; }
 
 # --- P2: OfThe* families (units elapsed since the start of the larger period)
 # Same-unit aliases:
@@ -853,148 +897,148 @@ dateutils.minuteOfTheHour()       { dateutils.minuteOf "$1"; }
 dateutils.secondOfTheMinute()     { dateutils.secondOf "$1"; }
 dateutils.milliSecondOfTheSecond(){ dateutils.milliSecondOf "$1"; }
 # ...of the day
-dateutils.minuteOfTheDay()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( __kdt_h*60 + __kdt_mi )); }
-dateutils.secondOfTheDay()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( (__kdt_h*60 + __kdt_mi)*60 + __kdt_s )); }
-dateutils.milliSecondOfTheDay() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( ((__kdt_h*60 + __kdt_mi)*60 + __kdt_s)*1000 + __kdt_ms )); }
+dateutils.minuteOfTheDay()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( __kdt_h*60 + __kdt_mi )); }
+dateutils.secondOfTheDay()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( (__kdt_h*60 + __kdt_mi)*60 + __kdt_s )); }
+dateutils.milliSecondOfTheDay() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( ((__kdt_h*60 + __kdt_mi)*60 + __kdt_s)*1000 + __kdt_ms )); }
 # ...of the hour
-dateutils.secondOfTheHour()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( __kdt_mi*60 + __kdt_s )); }
-dateutils.milliSecondOfTheHour() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( (__kdt_mi*60 + __kdt_s)*1000 + __kdt_ms )); }
+dateutils.secondOfTheHour()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( __kdt_mi*60 + __kdt_s )); }
+dateutils.milliSecondOfTheHour() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( (__kdt_mi*60 + __kdt_s)*1000 + __kdt_ms )); }
 # ...of the minute
-dateutils.milliSecondOfTheMinute() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( __kdt_s*1000 + __kdt_ms )); }
+dateutils.milliSecondOfTheMinute() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( __kdt_s*1000 + __kdt_ms )); }
 # ...of the week (Monday-based; dow 1..7)
 dateutils.hourOfTheWeek() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms dow
     dateutils._split_kdt "$1"; dateutils._weekday_iso "$1"; dow=$REPLY
-    echo $(( (dow-1)*24 + __kdt_h ))
+    printf '%s\n' $(( (dow-1)*24 + __kdt_h ))
 }
 dateutils.minuteOfTheWeek() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms dow
     dateutils._split_kdt "$1"; dateutils._weekday_iso "$1"; dow=$REPLY
-    echo $(( ((dow-1)*24 + __kdt_h)*60 + __kdt_mi ))
+    printf '%s\n' $(( ((dow-1)*24 + __kdt_h)*60 + __kdt_mi ))
 }
 dateutils.secondOfTheWeek() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms dow
     dateutils._split_kdt "$1"; dateutils._weekday_iso "$1"; dow=$REPLY
-    echo $(( (((dow-1)*24 + __kdt_h)*60 + __kdt_mi)*60 + __kdt_s ))
+    printf '%s\n' $(( (((dow-1)*24 + __kdt_h)*60 + __kdt_mi)*60 + __kdt_s ))
 }
 dateutils.milliSecondOfTheWeek() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms dow
     dateutils._split_kdt "$1"; dateutils._weekday_iso "$1"; dow=$REPLY
-    echo $(( ((((dow-1)*24 + __kdt_h)*60 + __kdt_mi)*60 + __kdt_s)*1000 + __kdt_ms ))
+    printf '%s\n' $(( ((((dow-1)*24 + __kdt_h)*60 + __kdt_mi)*60 + __kdt_s)*1000 + __kdt_ms ))
 }
 # ...of the month (D = day-of-month)
-dateutils.hourOfTheMonth()        { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( (__kdt_d-1)*24 + __kdt_h )); }
-dateutils.minuteOfTheMonth()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( ((__kdt_d-1)*24 + __kdt_h)*60 + __kdt_mi )); }
-dateutils.secondOfTheMonth()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( (((__kdt_d-1)*24 + __kdt_h)*60 + __kdt_mi)*60 + __kdt_s )); }
-dateutils.milliSecondOfTheMonth() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; echo $(( ((((__kdt_d-1)*24 + __kdt_h)*60 + __kdt_mi)*60 + __kdt_s)*1000 + __kdt_ms )); }
+dateutils.hourOfTheMonth()        { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( (__kdt_d-1)*24 + __kdt_h )); }
+dateutils.minuteOfTheMonth()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( ((__kdt_d-1)*24 + __kdt_h)*60 + __kdt_mi )); }
+dateutils.secondOfTheMonth()      { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( (((__kdt_d-1)*24 + __kdt_h)*60 + __kdt_mi)*60 + __kdt_s )); }
+dateutils.milliSecondOfTheMonth() { local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms; dateutils._split_kdt "$1"; printf '%s\n' $(( ((((__kdt_d-1)*24 + __kdt_h)*60 + __kdt_mi)*60 + __kdt_s)*1000 + __kdt_ms )); }
 # ...of the year (via day-of-year)
 dateutils.hourOfTheYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms ys doy
     dateutils._split_kdt "$1"; dateutils._days_from_civil "$__kdt_y" 1 1; ys=$REPLY
     dateutils._floor_day "$1"; doy=$(( REPLY - ys + 1 ))
-    echo $(( __kdt_h + (doy-1)*24 ))
+    printf '%s\n' $(( __kdt_h + (doy-1)*24 ))
 }
 dateutils.minuteOfTheYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms ys doy
     dateutils._split_kdt "$1"; dateutils._days_from_civil "$__kdt_y" 1 1; ys=$REPLY
     dateutils._floor_day "$1"; doy=$(( REPLY - ys + 1 ))
-    echo $(( __kdt_mi + (__kdt_h + (doy-1)*24)*60 ))
+    printf '%s\n' $(( __kdt_mi + (__kdt_h + (doy-1)*24)*60 ))
 }
 dateutils.secondOfTheYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms ys doy
     dateutils._split_kdt "$1"; dateutils._days_from_civil "$__kdt_y" 1 1; ys=$REPLY
     dateutils._floor_day "$1"; doy=$(( REPLY - ys + 1 ))
-    echo $(( (__kdt_mi + (__kdt_h + (doy-1)*24)*60)*60 + __kdt_s ))
+    printf '%s\n' $(( (__kdt_mi + (__kdt_h + (doy-1)*24)*60)*60 + __kdt_s ))
 }
 dateutils.milliSecondOfTheYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms ys doy
     dateutils._split_kdt "$1"; dateutils._days_from_civil "$__kdt_y" 1 1; ys=$REPLY
     dateutils._floor_day "$1"; doy=$(( REPLY - ys + 1 ))
-    echo $(( ((__kdt_mi + (__kdt_h + (doy-1)*24)*60)*60 + __kdt_s)*1000 + __kdt_ms ))
+    printf '%s\n' $(( ((__kdt_mi + (__kdt_h + (doy-1)*24)*60)*60 + __kdt_s)*1000 + __kdt_ms ))
 }
 # nth-weekday-in-month helpers
 dateutils.nthDayOfWeek() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
-    dateutils._split_kdt "$1"; echo $(( (__kdt_d - 1) / 7 + 1 ))
+    dateutils._split_kdt "$1"; printf '%s\n' $(( (__kdt_d - 1) / 7 + 1 ))
 }
 dateutils.decodeDayOfWeekInMonth() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms dow
     dateutils._split_kdt "$1"; dateutils._weekday_iso "$1"; dow=$REPLY
-    echo "$__kdt_y $__kdt_mo $(( (__kdt_d - 1) / 7 + 1 )) $dow"
+    printf '%s\n' "$__kdt_y $__kdt_mo $(( (__kdt_d - 1) / 7 + 1 )) $dow"
 }
 
 # --- P3: start/end of year --------------------------------------------------
 dateutils.startOfTheYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
-    dateutils._split_kdt "$1"; dateutils._days_from_civil "$__kdt_y" 1 1; echo $(( REPLY * 86400000 ))
+    dateutils._split_kdt "$1"; dateutils._days_from_civil "$__kdt_y" 1 1; printf '%s\n' $(( REPLY * 86400000 ))
 }
-dateutils.startOfAYear() { dateutils._days_from_civil "$1" 1 1; echo $(( REPLY * 86400000 )); }
+dateutils.startOfAYear() { dateutils._days_from_civil "$1" 1 1; printf '%s\n' $(( REPLY * 86400000 )); }
 dateutils.endOfTheYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
-    dateutils._split_kdt "$1"; dateutils._join_kdt "$__kdt_y" 12 31 23 59 59 999; echo "$REPLY"
+    dateutils._split_kdt "$1"; dateutils._join_kdt "$__kdt_y" 12 31 23 59 59 999; printf '%s\n' "$REPLY"
 }
-dateutils.endOfAYear() { dateutils._join_kdt "$1" 12 31 23 59 59 999; echo "$REPLY"; }
+dateutils.endOfAYear() { dateutils._join_kdt "$1" 12 31 23 59 59 999; printf '%s\n' "$REPLY"; }
 
 # --- P3: start/end of month -------------------------------------------------
 dateutils.startOfTheMonth() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
-    dateutils._split_kdt "$1"; dateutils._days_from_civil "$__kdt_y" "$__kdt_mo" 1; echo $(( REPLY * 86400000 ))
+    dateutils._split_kdt "$1"; dateutils._days_from_civil "$__kdt_y" "$__kdt_mo" 1; printf '%s\n' $(( REPLY * 86400000 ))
 }
-dateutils.startOfAMonth() { dateutils._days_from_civil "$1" "$2" 1; echo $(( REPLY * 86400000 )); }
+dateutils.startOfAMonth() { dateutils._days_from_civil "$1" "$2" 1; printf '%s\n' $(( REPLY * 86400000 )); }
 dateutils.endOfTheMonth() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms dim
     dateutils._split_kdt "$1"; dateutils._days_in_month "$__kdt_y" "$__kdt_mo"; dim=$REPLY
-    dateutils._join_kdt "$__kdt_y" "$__kdt_mo" "$dim" 23 59 59 999; echo "$REPLY"
+    dateutils._join_kdt "$__kdt_y" "$__kdt_mo" "$dim" 23 59 59 999; printf '%s\n' "$REPLY"
 }
 dateutils.endOfAMonth() {
     local dim; dateutils._days_in_month "$1" "$2"; dim=$REPLY
-    dateutils._join_kdt "$1" "$2" "$dim" 23 59 59 999; echo "$REPLY"
+    dateutils._join_kdt "$1" "$2" "$dim" 23 59 59 999; printf '%s\n' "$REPLY"
 }
 
 # --- P3: start/end of week (Monday-based, ISO) ------------------------------
 dateutils.startOfTheWeek() {
     local dow day; dateutils._weekday_iso "$1"; dow=$REPLY; dateutils._floor_day "$1"; day=$REPLY
-    echo $(( (day - dow + 1) * 86400000 ))
+    printf '%s\n' $(( (day - dow + 1) * 86400000 ))
 }
-dateutils.startOfAWeek() { dateutils._encode_date_week "$1" "$2" "${3:-1}" || return 1; echo "$REPLY"; }
+dateutils.startOfAWeek() { dateutils._encode_date_week "$1" "$2" "${3:-1}" || return 1; printf '%s\n' "$REPLY"; }
 dateutils.endOfTheWeek() {
     local dow day; dateutils._weekday_iso "$1"; dow=$REPLY; dateutils._floor_day "$1"; day=$REPLY
-    echo $(( (day - dow + 7) * 86400000 + 86399999 ))
+    printf '%s\n' $(( (day - dow + 7) * 86400000 + 86399999 ))
 }
-dateutils.endOfAWeek() { dateutils._encode_date_week "$1" "$2" "${3:-7}" || return 1; echo $(( REPLY + 86399999 )); }
+dateutils.endOfAWeek() { dateutils._encode_date_week "$1" "$2" "${3:-7}" || return 1; printf '%s\n' $(( REPLY + 86399999 )); }
 
 # --- P3: start/end of day (start/endOfADay overload on arg count) -----------
-dateutils.startOfTheDay() { dateutils._floor_day "$1"; echo $(( REPLY * 86400000 )); }
+dateutils.startOfTheDay() { dateutils._floor_day "$1"; printf '%s\n' $(( REPLY * 86400000 )); }
 dateutils.startOfADay() {
-    if (( $# == 3 )); then dateutils._days_from_civil "$1" "$2" "$3"; echo $(( REPLY * 86400000 ))
-    else dateutils._days_from_civil "$1" 1 1; echo $(( (REPLY + $2 - 1) * 86400000 )); fi
+    if (( $# == 3 )); then dateutils._days_from_civil "$1" "$2" "$3"; printf '%s\n' $(( REPLY * 86400000 ))
+    else dateutils._days_from_civil "$1" 1 1; printf '%s\n' $(( (REPLY + $2 - 1) * 86400000 )); fi
 }
-dateutils.endOfTheDay() { dateutils._floor_day "$1"; echo $(( REPLY * 86400000 + 86399999 )); }
+dateutils.endOfTheDay() { dateutils._floor_day "$1"; printf '%s\n' $(( REPLY * 86400000 + 86399999 )); }
 dateutils.endOfADay() {
-    if (( $# == 3 )); then dateutils._days_from_civil "$1" "$2" "$3"; echo $(( REPLY * 86400000 + 86399999 ))
-    else dateutils._days_from_civil "$1" 1 1; echo $(( (REPLY + $2 - 1) * 86400000 + 86399999 )); fi
+    if (( $# == 3 )); then dateutils._days_from_civil "$1" "$2" "$3"; printf '%s\n' $(( REPLY * 86400000 + 86399999 ))
+    else dateutils._days_from_civil "$1" 1 1; printf '%s\n' $(( (REPLY + $2 - 1) * 86400000 + 86399999 )); fi
 }
 
 # --- P3: day predicates -----------------------------------------------------
 # isSameDay truncates ONLY the basis (FPC quirk): value is in [floor(basis), +1day).
 dateutils.isSameDay() {
     local base; dateutils._floor_day "$2"; base=$(( REPLY * 86400000 ))
-    (( $1 >= base && $1 < base + 86400000 )) && echo true || echo false
+    (( $1 >= base && $1 < base + 86400000 )) && printf '%s\n' true || printf '%s\n' false
 }
 dateutils.isToday() {
     local n base; dateutils._now_local_ms; n=$REPLY; dateutils._floor_day "$n"; base=$(( REPLY * 86400000 ))
-    (( $1 >= base && $1 < base + 86400000 )) && echo true || echo false
+    (( $1 >= base && $1 < base + 86400000 )) && printf '%s\n' true || printf '%s\n' false
 }
 dateutils.isSameMonth() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms ya ma
     dateutils._split_kdt "$1"; ya=$__kdt_y; ma=$__kdt_mo
     dateutils._split_kdt "$2"
-    (( ya == __kdt_y && ma == __kdt_mo )) && echo true || echo false
+    (( ya == __kdt_y && ma == __kdt_mo )) && printf '%s\n' true || printf '%s\n' false
 }
 # previousDayOfWeek takes an ISO weekday NUMBER (1..7) and returns the prior one.
 dateutils.previousDayOfWeek() {
     local d=$1; (( d >= 1 && d <= 7 )) || { dateutils._debug "invalid day-of-week $d"; return 1; }
-    (( d == 1 )) && echo 7 || echo $(( d - 1 ))
+    (( d == 1 )) && printf '%s\n' 7 || printf '%s\n' $(( d - 1 ))
 }
 
 # --- P4: increment (default step = 1; time-of-day preserved) ----------------
@@ -1002,105 +1046,105 @@ dateutils.incYear() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
     dateutils._split_kdt "$1"; local n=${2:-1} y=$(( __kdt_y + ${2:-1} ))
     if (( __kdt_mo == 2 && __kdt_d == 29 )); then dateutils._is_leap "$y"; (( REPLY )) || __kdt_d=28; fi
-    dateutils._join_kdt "$y" "$__kdt_mo" "$__kdt_d" "$__kdt_h" "$__kdt_mi" "$__kdt_s" "$__kdt_ms"; echo "$REPLY"
+    dateutils._join_kdt "$y" "$__kdt_mo" "$__kdt_d" "$__kdt_h" "$__kdt_mi" "$__kdt_s" "$__kdt_ms"; printf '%s\n' "$REPLY"
 }
 dateutils.incMonth() {
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
     dateutils._split_kdt "$1"; local n=${2:-1} total newy newm dim
     total=$(( __kdt_y*12 + __kdt_mo - 1 + n ))
-    newy=$(( total / 12 )); (( total % 12 < 0 )) && newy=$(( newy - 1 ))   # floor division
+    newy=$(( total / 12 )); if (( total % 12 < 0 )); then newy=$(( newy - 1 )); fi   # floor division
     newm=$(( total - newy*12 + 1 ))
     dateutils._days_in_month "$newy" "$newm"; dim=$REPLY
-    (( __kdt_d > dim )) && __kdt_d=$dim                                    # clamp to month length
-    dateutils._join_kdt "$newy" "$newm" "$__kdt_d" "$__kdt_h" "$__kdt_mi" "$__kdt_s" "$__kdt_ms"; echo "$REPLY"
+    if (( __kdt_d > dim )); then __kdt_d=$dim; fi                                    # clamp to month length
+    dateutils._join_kdt "$newy" "$newm" "$__kdt_d" "$__kdt_h" "$__kdt_mi" "$__kdt_s" "$__kdt_ms"; printf '%s\n' "$REPLY"
 }
-dateutils.incWeek()        { echo $(( $1 + ${2:-1} * 604800000 )); }
-dateutils.incDay()         { echo $(( $1 + ${2:-1} * 86400000 )); }
-dateutils.incHour()        { echo $(( $1 + ${2:-1} * 3600000 )); }
-dateutils.incMinute()      { echo $(( $1 + ${2:-1} * 60000 )); }
-dateutils.incSecond()      { echo $(( $1 + ${2:-1} * 1000 )); }
-dateutils.incMilliSecond() { echo $(( $1 + ${2:-1} )); }
+dateutils.incWeek()        { local __du_a __du_b; dateutils._two "$1" "${2:-1}" || return 1; printf '%s\n' $(( __du_a + __du_b * 604800000 )); }
+dateutils.incDay()         { local __du_a __du_b; dateutils._two "$1" "${2:-1}" || return 1; printf '%s\n' $(( __du_a + __du_b * 86400000 )); }
+dateutils.incHour()        { local __du_a __du_b; dateutils._two "$1" "${2:-1}" || return 1; printf '%s\n' $(( __du_a + __du_b * 3600000 )); }
+dateutils.incMinute()      { local __du_a __du_b; dateutils._two "$1" "${2:-1}" || return 1; printf '%s\n' $(( __du_a + __du_b * 60000 )); }
+dateutils.incSecond()      { local __du_a __du_b; dateutils._two "$1" "${2:-1}" || return 1; printf '%s\n' $(( __du_a + __du_b * 1000 )); }
+dateutils.incMilliSecond() { local __du_a __du_b; dateutils._two "$1" "${2:-1}" || return 1; printf '%s\n' $(( __du_a + __du_b )); }
 
 # --- P4: between (|now-then| / unit; exact ones use periodBetween) -----------
-dateutils.milliSecondsBetween() { local d=$(( $1 - $2 )); echo $(( d < 0 ? -d : d )); }
-dateutils.secondsBetween()      { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); echo $(( d / 1000 )); }
-dateutils.minutesBetween()      { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); echo $(( d / 60000 )); }
-dateutils.hoursBetween()        { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); echo $(( d / 3600000 )); }
-dateutils.daysBetween()         { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); echo $(( d / 86400000 )); }
-dateutils.weeksBetween()        { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); echo $(( d / 86400000 / 7 )); }
+dateutils.milliSecondsBetween() { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); printf '%s\n' $(( d < 0 ? -d : d )); }
+dateutils.secondsBetween()      { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); printf '%s\n' $(( d / 1000 )); }
+dateutils.minutesBetween()      { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); printf '%s\n' $(( d / 60000 )); }
+dateutils.hoursBetween()        { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); printf '%s\n' $(( d / 3600000 )); }
+dateutils.daysBetween()         { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); printf '%s\n' $(( d / 86400000 )); }
+dateutils.weeksBetween()        { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); printf '%s\n' $(( d / 86400000 / 7 )); }
 # yearsBetween/monthsBetween: approximate by default (365.25 / 30.4375 days);
 # 3rd arg "exact"/"true"/"1" switches to the calendar-true periodBetween.
 dateutils.yearsBetween() {
     if [[ "$3" == exact || "$3" == true || "$3" == 1 ]]; then
-        dateutils._period_between "$1" "$2"; echo "$__kdt_pb_y"
+        dateutils._period_between "$1" "$2"; printf '%s\n' "$__kdt_pb_y"
     else
-        local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); echo $(( d / 31557600000 ))
+        local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); if (( d < 0 )); then d=$(( -d )); fi; printf '%s\n' $(( d / 31557600000 ))
     fi
 }
 dateutils.monthsBetween() {
     if [[ "$3" == exact || "$3" == true || "$3" == 1 ]]; then
-        dateutils._period_between "$1" "$2"; echo $(( __kdt_pb_y*12 + __kdt_pb_m ))
+        dateutils._period_between "$1" "$2"; printf '%s\n' $(( __kdt_pb_y*12 + __kdt_pb_m ))
     else
-        local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); echo $(( d / 2629800000 ))
+        local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); if (( d < 0 )); then d=$(( -d )); fi; printf '%s\n' $(( d / 2629800000 ))
     fi
 }
-dateutils.periodBetween() { dateutils._period_between "$1" "$2"; echo "$__kdt_pb_y $__kdt_pb_m $__kdt_pb_d"; }
-dateutils.dateTimeDiff()  { echo $(( $1 - $2 )); }   # signed ms
+dateutils.periodBetween() { dateutils._period_between "$1" "$2"; printf '%s\n' "$__kdt_pb_y $__kdt_pb_m $__kdt_pb_d"; }
+dateutils.dateTimeDiff()  { local __du_a __du_b; dateutils._two "$1" "$2" || return 1; printf '%s\n' $(( __du_a - __du_b )); }   # signed ms
 
 # --- P4: span (fractional ratio, 6 dp) --------------------------------------
-dateutils.milliSecondSpan() { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 1;           echo "$REPLY"; }
-dateutils.secondSpan()      { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 1000;        echo "$REPLY"; }
-dateutils.minuteSpan()      { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 60000;       echo "$REPLY"; }
-dateutils.hourSpan()        { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 3600000;     echo "$REPLY"; }
-dateutils.daySpan()         { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 86400000;    echo "$REPLY"; }
-dateutils.weekSpan()        { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 604800000;   echo "$REPLY"; }
-dateutils.monthSpan()       { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 2629800000;  echo "$REPLY"; }
-dateutils.yearSpan()        { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 31557600000; echo "$REPLY"; }
+dateutils.milliSecondSpan() { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 1;           printf '%s\n' "$REPLY"; }
+dateutils.secondSpan()      { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 1000;        printf '%s\n' "$REPLY"; }
+dateutils.minuteSpan()      { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 60000;       printf '%s\n' "$REPLY"; }
+dateutils.hourSpan()        { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 3600000;     printf '%s\n' "$REPLY"; }
+dateutils.daySpan()         { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 86400000;    printf '%s\n' "$REPLY"; }
+dateutils.weekSpan()        { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 604800000;   printf '%s\n' "$REPLY"; }
+dateutils.monthSpan()       { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 2629800000;  printf '%s\n' "$REPLY"; }
+dateutils.yearSpan()        { local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); dateutils._span_fixed "$d" 31557600000; printf '%s\n' "$REPLY"; }
 
 # --- P4: within-past (xxxBetween(now,then) <= range; approx for years/months)
-dateutils.withinPastMilliSeconds() { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); (( d           <= $3 )) && echo true || echo false; }
-dateutils.withinPastSeconds()      { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); (( d/1000      <= $3 )) && echo true || echo false; }
-dateutils.withinPastMinutes()      { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); (( d/60000     <= $3 )) && echo true || echo false; }
-dateutils.withinPastHours()        { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); (( d/3600000   <= $3 )) && echo true || echo false; }
-dateutils.withinPastDays()         { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); (( d/86400000  <= $3 )) && echo true || echo false; }
-dateutils.withinPastWeeks()        { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); (( d/86400000/7 <= $3 )) && echo true || echo false; }
-dateutils.withinPastMonths()       { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); (( d/2629800000  <= $3 )) && echo true || echo false; }
-dateutils.withinPastYears()        { local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); (( d/31557600000 <= $3 )) && echo true || echo false; }
+dateutils.withinPastMilliSeconds() { local __du_a __du_b __du_c d; dateutils._three "$1" "$2" "$3" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); (( d           <= __du_c )) && printf '%s\n' true || printf '%s\n' false; }
+dateutils.withinPastSeconds()      { local __du_a __du_b __du_c d; dateutils._three "$1" "$2" "$3" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); (( d/1000      <= __du_c )) && printf '%s\n' true || printf '%s\n' false; }
+dateutils.withinPastMinutes()      { local __du_a __du_b __du_c d; dateutils._three "$1" "$2" "$3" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); (( d/60000     <= __du_c )) && printf '%s\n' true || printf '%s\n' false; }
+dateutils.withinPastHours()        { local __du_a __du_b __du_c d; dateutils._three "$1" "$2" "$3" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); (( d/3600000   <= __du_c )) && printf '%s\n' true || printf '%s\n' false; }
+dateutils.withinPastDays()         { local __du_a __du_b __du_c d; dateutils._three "$1" "$2" "$3" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); (( d/86400000  <= __du_c )) && printf '%s\n' true || printf '%s\n' false; }
+dateutils.withinPastWeeks()        { local __du_a __du_b __du_c d; dateutils._three "$1" "$2" "$3" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); (( d/86400000/7 <= __du_c )) && printf '%s\n' true || printf '%s\n' false; }
+dateutils.withinPastMonths()       { local __du_a __du_b __du_c d; dateutils._three "$1" "$2" "$3" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); (( d/2629800000  <= __du_c )) && printf '%s\n' true || printf '%s\n' false; }
+dateutils.withinPastYears()        { local __du_a __du_b __du_c d; dateutils._three "$1" "$2" "$3" || return 1; d=$(( __du_a - __du_b )); (( d < 0 )) && d=$(( -d )); (( d/31557600000 <= __du_c )) && printf '%s\n' true || printf '%s\n' false; }
 
 # --- P4: compare (echo -1/0/1) / same (true/false) --------------------------
 # Integer KDT is linear, so compare = sign(a-b); FPC's frac/trunc branches only
 # exist to tame negative-TDateTime float weirdness that KDT does not have.
-dateutils.compareDateTime() { local r=0; (( $1 > $2 )) && r=1; (( $1 < $2 )) && r=-1; printf '%d\n' "$r"; }
+dateutils.compareDateTime() { local __du_a __du_b r=0; dateutils._two "$1" "$2" || return 1; (( __du_a > __du_b )) && r=1; (( __du_a < __du_b )) && r=-1; printf '%d\n' "$r"; }
 dateutils.compareDate() {
     local a b r=0; dateutils._floor_day "$1"; a=$REPLY; dateutils._floor_day "$2"; b=$REPLY
-    (( a > b )) && r=1; (( a < b )) && r=-1; printf '%d\n' "$r"
+    if (( a > b )); then r=1; fi; if (( a < b )); then r=-1; fi; printf '%d\n' "$r"
 }
 dateutils.compareTime() {
     local ta tb r=0
     dateutils._floor_day "$1"; ta=$(( $1 - REPLY*86400000 ))
     dateutils._floor_day "$2"; tb=$(( $2 - REPLY*86400000 ))
-    (( ta > tb )) && r=1; (( ta < tb )) && r=-1; printf '%d\n' "$r"
+    if (( ta > tb )); then r=1; fi; if (( ta < tb )); then r=-1; fi; printf '%d\n' "$r"
 }
-dateutils.sameDateTime() { (( $1 == $2 )) && echo true || echo false; }
+dateutils.sameDateTime() { (( $1 == $2 )) && printf '%s\n' true || printf '%s\n' false; }
 dateutils.sameDate() {
     local a b; dateutils._floor_day "$1"; a=$REPLY; dateutils._floor_day "$2"; b=$REPLY
-    (( a == b )) && echo true || echo false
+    (( a == b )) && printf '%s\n' true || printf '%s\n' false
 }
 dateutils.sameTime() {
-    local d=$(( $1 - $2 )); (( d < 0 )) && d=$(( -d )); (( d % 86400000 == 0 )) && echo true || echo false
+    local __du_a __du_b d; dateutils._two "$1" "$2" || return 1; d=$(( __du_a - __du_b )); if (( d < 0 )); then d=$(( -d )); fi; (( d % 86400000 == 0 )) && printf '%s\n' true || printf '%s\n' false
 }
 
 # --- P4: range (inclusive by default; timeInRange handles overnight wrap) ----
 dateutils.dateTimeInRange() {
     local dt=$1 s=$2 e=$3 inc=${4:-true}
-    if [[ "$inc" == true || "$inc" == 1 ]]; then (( s <= dt && dt <= e )) && echo true || echo false
-    else (( s < dt && dt < e )) && echo true || echo false; fi
+    if [[ "$inc" == true || "$inc" == 1 ]]; then (( s <= dt && dt <= e )) && printf '%s\n' true || printf '%s\n' false
+    else (( s < dt && dt < e )) && printf '%s\n' true || printf '%s\n' false; fi
 }
 dateutils.dateInRange() {
     local dd ds de inc=${4:-true}
     dateutils._floor_day "$1"; dd=$REPLY; dateutils._floor_day "$2"; ds=$REPLY; dateutils._floor_day "$3"; de=$REPLY
-    if [[ "$inc" == true || "$inc" == 1 ]]; then (( ds <= dd && dd <= de )) && echo true || echo false
-    else (( ds < dd && dd < de )) && echo true || echo false; fi
+    if [[ "$inc" == true || "$inc" == 1 ]]; then (( ds <= dd && dd <= de )) && printf '%s\n' true || printf '%s\n' false
+    else (( ds < dd && dd < de )) && printf '%s\n' true || printf '%s\n' false; fi
 }
 dateutils.timeInRange() {
     local lt ls le inc=${4:-true} res=false
@@ -1114,60 +1158,60 @@ dateutils.timeInRange() {
         if [[ "$inc" == true || "$inc" == 1 ]]; then (( ls <= lt && lt <= le )) && res=true
         else (( ls < lt && lt < le )) && res=true; fi
     fi
-    echo "$res"
+    printf '%s\n' "$res"
 }
 
 # --- P5: recode (field surgery; '-' keeps a field; recode* logs, try* silent)
-dateutils.recodeDateTime()    { dateutils._recode "$@"                     || { dateutils._debug "invalid recodeDateTime"; return 1; }; echo "$REPLY"; }
-dateutils.tryRecodeDateTime() { dateutils._recode "$@"                     || return 1; echo "$REPLY"; }
-dateutils.recodeYear()        { dateutils._recode "$1" "$2" -  -  -  -  -  -  || { dateutils._debug "invalid recodeYear";        return 1; }; echo "$REPLY"; }
-dateutils.recodeMonth()       { dateutils._recode "$1" -  "$2" -  -  -  -  -  || { dateutils._debug "invalid recodeMonth";       return 1; }; echo "$REPLY"; }
-dateutils.recodeDay()         { dateutils._recode "$1" -  -  "$2" -  -  -  -  || { dateutils._debug "invalid recodeDay";         return 1; }; echo "$REPLY"; }
-dateutils.recodeHour()        { dateutils._recode "$1" -  -  -  "$2" -  -  -  || { dateutils._debug "invalid recodeHour";        return 1; }; echo "$REPLY"; }
-dateutils.recodeMinute()      { dateutils._recode "$1" -  -  -  -  "$2" -  -  || { dateutils._debug "invalid recodeMinute";      return 1; }; echo "$REPLY"; }
-dateutils.recodeSecond()      { dateutils._recode "$1" -  -  -  -  -  "$2" -  || { dateutils._debug "invalid recodeSecond";      return 1; }; echo "$REPLY"; }
-dateutils.recodeMilliSecond() { dateutils._recode "$1" -  -  -  -  -  -  "$2" || { dateutils._debug "invalid recodeMilliSecond"; return 1; }; echo "$REPLY"; }
-dateutils.recodeDate()        { dateutils._recode "$1" "$2" "$3" "$4" -  -  -  -  || { dateutils._debug "invalid recodeDate"; return 1; }; echo "$REPLY"; }
-dateutils.recodeTime()        { dateutils._recode "$1" -  -  -  "$2" "$3" "$4" "$5" || { dateutils._debug "invalid recodeTime"; return 1; }; echo "$REPLY"; }
+dateutils.recodeDateTime()    { dateutils._recode "$@"                     || { dateutils._debug "invalid recodeDateTime"; return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.tryRecodeDateTime() { dateutils._recode "$@"                     || return 1; printf '%s\n' "$REPLY"; }
+dateutils.recodeYear()        { dateutils._recode "$1" "$2" -  -  -  -  -  -  || { dateutils._debug "invalid recodeYear";        return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.recodeMonth()       { dateutils._recode "$1" -  "$2" -  -  -  -  -  || { dateutils._debug "invalid recodeMonth";       return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.recodeDay()         { dateutils._recode "$1" -  -  "$2" -  -  -  -  || { dateutils._debug "invalid recodeDay";         return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.recodeHour()        { dateutils._recode "$1" -  -  -  "$2" -  -  -  || { dateutils._debug "invalid recodeHour";        return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.recodeMinute()      { dateutils._recode "$1" -  -  -  -  "$2" -  -  || { dateutils._debug "invalid recodeMinute";      return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.recodeSecond()      { dateutils._recode "$1" -  -  -  -  -  "$2" -  || { dateutils._debug "invalid recodeSecond";      return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.recodeMilliSecond() { dateutils._recode "$1" -  -  -  -  -  -  "$2" || { dateutils._debug "invalid recodeMilliSecond"; return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.recodeDate()        { dateutils._recode "$1" "$2" "$3" "$4" -  -  -  -  || { dateutils._debug "invalid recodeDate"; return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.recodeTime()        { dateutils._recode "$1" -  -  -  "$2" "$3" "$4" "$5" || { dateutils._debug "invalid recodeTime"; return 1; }; printf '%s\n' "$REPLY"; }
 
 # --- P5: week-date / day-of-week-in-month encodings -------------------------
-dateutils.encodeDateWeek()    { dateutils._encode_date_week "$1" "$2" "${3:-1}" || { dateutils._debug "invalid dateWeek $1/$2"; return 1; }; echo "$REPLY"; }
-dateutils.tryEncodeDateWeek() { dateutils._encode_date_week "$1" "$2" "${3:-1}" || return 1; echo "$REPLY"; }
-dateutils.decodeDateWeek()    { dateutils._decode_date_week "$1"; echo "$__kdt_wy_year $__kdt_wy_week $__kdt_wy_dow"; }
-dateutils.encodeDateMonthWeek()    { dateutils._encode_date_month_week "$1" "$2" "$3" "$4" || { dateutils._debug "invalid dateMonthWeek"; return 1; }; echo "$REPLY"; }
-dateutils.tryEncodeDateMonthWeek() { dateutils._encode_date_month_week "$1" "$2" "$3" "$4" || return 1; echo "$REPLY"; }
-dateutils.decodeDateMonthWeek()    { dateutils._decode_date_month_week "$1"; echo "$__kdt_mw_year $__kdt_mw_month $__kdt_mw_week $__kdt_mw_dow"; }
-dateutils.encodeDayOfWeekInMonth()    { dateutils._encode_dow_in_month "$1" "$2" "$3" "$4" || { dateutils._debug "invalid dayOfWeekInMonth"; return 1; }; echo "$REPLY"; }
-dateutils.tryEncodeDayOfWeekInMonth() { dateutils._encode_dow_in_month "$1" "$2" "$3" "$4" || return 1; echo "$REPLY"; }
+dateutils.encodeDateWeek()    { dateutils._encode_date_week "$1" "$2" "${3:-1}" || { dateutils._debug "invalid dateWeek $1/$2"; return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.tryEncodeDateWeek() { dateutils._encode_date_week "$1" "$2" "${3:-1}" || return 1; printf '%s\n' "$REPLY"; }
+dateutils.decodeDateWeek()    { dateutils._decode_date_week "$1"; printf '%s\n' "$__kdt_wy_year $__kdt_wy_week $__kdt_wy_dow"; }
+dateutils.encodeDateMonthWeek()    { dateutils._encode_date_month_week "$1" "$2" "$3" "$4" || { dateutils._debug "invalid dateMonthWeek"; return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.tryEncodeDateMonthWeek() { dateutils._encode_date_month_week "$1" "$2" "$3" "$4" || return 1; printf '%s\n' "$REPLY"; }
+dateutils.decodeDateMonthWeek()    { dateutils._decode_date_month_week "$1"; printf '%s\n' "$__kdt_mw_year $__kdt_mw_month $__kdt_mw_week $__kdt_mw_dow"; }
+dateutils.encodeDayOfWeekInMonth()    { dateutils._encode_dow_in_month "$1" "$2" "$3" "$4" || { dateutils._debug "invalid dayOfWeekInMonth"; return 1; }; printf '%s\n' "$REPLY"; }
+dateutils.tryEncodeDayOfWeekInMonth() { dateutils._encode_dow_in_month "$1" "$2" "$3" "$4" || return 1; printf '%s\n' "$REPLY"; }
 
 # --- P6: Unix (KDT 0 == Unix 0; conversion is a trivial ms<->s scaling) ------
 dateutils.dateTimeToUnix() {
     local dt=$1 utc=${2:-true} sec
     [[ "$utc" != true && "$utc" != 1 ]] && { dateutils._local_offset_ms; dt=$(( dt - REPLY )); }  # local -> UTC
-    sec=$(( dt / 1000 )); (( dt < 0 && dt % 1000 != 0 )) && sec=$(( sec - 1 ))   # floor to the second
-    echo "$sec"
+    sec=$(( dt / 1000 )); if (( dt < 0 && dt % 1000 != 0 )); then sec=$(( sec - 1 )); fi   # floor to the second
+    printf '%s\n' "$sec"
 }
 dateutils.unixToDateTime() {
     local kdt=$(( $1 * 1000 )) utc=${2:-true}
     [[ "$utc" != true && "$utc" != 1 ]] && { dateutils._local_offset_ms; kdt=$(( kdt + REPLY )); }  # UTC -> local
-    echo "$kdt"
+    printf '%s\n' "$kdt"
 }
 
 # --- P6: Julian / Modified Julian (6-dp decimal strings) --------------------
-dateutils.dateTimeToJulianDate()         { dateutils._span_fixed $(( 210866760000000 + $1 )) 86400000; echo "$REPLY"; }
-dateutils.dateTimeToModifiedJulianDate() { dateutils._span_fixed $(( 3506716800000 + $1 )) 86400000; echo "$REPLY"; }
+dateutils.dateTimeToJulianDate()         { dateutils._span_fixed $(( 210866760000000 + $1 )) 86400000; printf '%s\n' "$REPLY"; }
+dateutils.dateTimeToModifiedJulianDate() { dateutils._span_fixed $(( 3506716800000 + $1 )) 86400000; printf '%s\n' "$REPLY"; }
 dateutils.tryJulianDateToDateTime() {
     dateutils._jd_str_to_ms "$1"; local kdt=$(( REPLY - 210866760000000 ))
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
     dateutils._split_kdt "$kdt"; (( __kdt_y >= 1 && __kdt_y <= 9999 )) || return 1
-    echo "$kdt"
+    printf '%s\n' "$kdt"
 }
 dateutils.julianDateToDateTime() { dateutils.tryJulianDateToDateTime "$1" || { dateutils._debug "invalid JD $1"; return 1; }; }
 dateutils.tryModifiedJulianDateToDateTime() {
     dateutils._jd_str_to_ms "$1"; local kdt=$(( REPLY - 3506716800000 ))
     local __kdt_y __kdt_mo __kdt_d __kdt_h __kdt_mi __kdt_s __kdt_ms
     dateutils._split_kdt "$kdt"; (( __kdt_y >= 1 && __kdt_y <= 9999 )) || return 1
-    echo "$kdt"
+    printf '%s\n' "$kdt"
 }
 dateutils.modifiedJulianDateToDateTime() { dateutils.tryModifiedJulianDateToDateTime "$1" || { dateutils._debug "invalid MJD $1"; return 1; }; }
 
@@ -1176,27 +1220,27 @@ dateutils.universalTimeToLocal() {
     local ut=$1 off
     if (( $# >= 2 )); then dateutils._normalize_offset_min_east "$2" || return 1; off=$REPLY
     else dateutils._local_offset_ms; off=$(( REPLY / 60000 )); fi
-    echo $(( ut + off*60000 ))
+    printf '%s\n' $(( ut + off*60000 ))
 }
 dateutils.localTimeToUniversal() {
     local lt=$1 off
     if (( $# >= 2 )); then dateutils._normalize_offset_min_east "$2" || return 1; off=$REPLY
     else dateutils._local_offset_ms; off=$(( REPLY / 60000 )); fi
-    echo $(( lt - off*60000 ))
+    printf '%s\n' $(( lt - off*60000 ))
 }
 
 # --- P6: time interval (a duration; hours may exceed 24) --------------------
 dateutils.tryEncodeTimeInterval() {
     local h=$1 m=$2 s=$3 ms=$4
     (( m < 60 && s < 60 && ms <= 1000 )) || return 1      # FPC allows ms == 1000
-    echo $(( h*3600000 + m*60000 + s*1000 + ms ))
+    printf '%s\n' $(( h*3600000 + m*60000 + s*1000 + ms ))
 }
 dateutils.encodeTimeInterval() { dateutils.tryEncodeTimeInterval "$@" || { dateutils._debug "invalid interval"; return 1; }; }
 
 # --- P6: timezone-offset strings (FPC sign: '+03:00' -> -180) ---------------
 dateutils.tryISOTZStrToTZOffset() {
     local tz=$1 sign h m=0 off
-    if [[ "$tz" == Z || -z "$tz" ]]; then echo 0; return 0; fi
+    if [[ "$tz" == Z || -z "$tz" ]]; then printf '%s\n' 0; return 0; fi
     [[ "$tz" == [+-]* ]] || return 1
     sign=${tz:0:1}
     case ${#tz} in
@@ -1206,7 +1250,7 @@ dateutils.tryISOTZStrToTZOffset() {
         *) return 1 ;;
     esac
     off=$(( 10#$h*60 + 10#$m )); [[ "$sign" == + ]] && off=$(( -off ))   # FPC negates '+'
-    echo "$off"
+    printf '%s\n' "$off"
 }
 dateutils.isoTZStrToTZOffset() { dateutils.tryISOTZStrToTZOffset "$1" || { dateutils._debug "invalid TZ $1"; return 1; }; }
 
@@ -1223,7 +1267,7 @@ dateutils.tryISOStrToDate() {
         *)  return 1 ;;
     esac
     dateutils._valid_date "$((10#$y))" "$((10#$m))" "$((10#$d))"; (( REPLY )) || return 1
-    dateutils._join_kdt "$((10#$y))" "$((10#$m))" "$((10#$d))" 0 0 0 0; echo "$REPLY"
+    dateutils._join_kdt "$((10#$y))" "$((10#$m))" "$((10#$d))" 0 0 0 0; printf '%s\n' "$REPLY"
 }
 # tryISOStrToTime: hh:mm[:ss[.zzz]] with an optional trailing zone -> ms-of-day.
 dateutils.tryISOStrToTime() {
@@ -1232,18 +1276,18 @@ dateutils.tryISOStrToTime() {
     h=$((10#${BASH_REMATCH[1]})); m=$((10#${BASH_REMATCH[2]})); sec=$((10#${BASH_REMATCH[4]:-0}))
     msraw=${BASH_REMATCH[6]:-}; [[ -n "$msraw" ]] && { msraw=${msraw}000; ms=$((10#${msraw:0:3})); }
     (( h <= 23 && m <= 59 && sec <= 59 )) || return 1
-    echo $(( h*3600000 + m*60000 + sec*1000 + ms ))
+    printf '%s\n' $(( h*3600000 + m*60000 + sec*1000 + ms ))
 }
 # tryISOStrToDateTime: naive datetime as written (no zone conversion).
-dateutils.tryISOStrToDateTime() { dateutils._parse_iso "$1" || return 1; echo "$REPLY"; }
+dateutils.tryISOStrToDateTime() { dateutils._parse_iso "$1" || return 1; printf '%s\n' "$REPLY"; }
 
 # dateToISO8601: 'YYYY-MM-DDThh:mm:ss.zzz' + 'Z' (UTC) or '±hh:mm' (local).
 dateutils.dateToISO8601() {
     local dt=$1 utc=${2:-true} s off sign m
     dateutils._fmt_datetime "$dt"; s=${REPLY/ /T}
-    if [[ "$utc" == true || "$utc" == 1 ]]; then echo "${s}Z"; return; fi
+    if [[ "$utc" == true || "$utc" == 1 ]]; then printf '%s\n' "${s}Z"; return; fi
     dateutils._local_offset_ms; off=$REPLY
-    if (( off == 0 )); then echo "${s}Z"; return; fi
+    if (( off == 0 )); then printf '%s\n' "${s}Z"; return; fi
     sign=+; (( off < 0 )) && { sign=-; off=$(( -off )); }
     m=$(( off / 60000 )); printf '%s%s%02d:%02d\n' "$s" "$sign" "$(( m/60 ))" "$(( m%60 ))"
 }
@@ -1252,13 +1296,13 @@ dateutils.tryISO8601ToDate() {
     local str=$1 rutc=${2:-true} kdt
     dateutils._parse_iso "$str" || return 1        # REPLY=naive kdt, __kdt_has_tz, __kdt_tzoff_min (east+)
     kdt=$REPLY
-    (( __kdt_has_tz )) && kdt=$(( kdt - __kdt_tzoff_min*60000 ))   # zoned wall clock -> UTC
+    if (( __kdt_has_tz )); then kdt=$(( kdt - __kdt_tzoff_min*60000 )); fi   # zoned wall clock -> UTC
     [[ "$rutc" != true && "$rutc" != 1 ]] && { dateutils._local_offset_ms; kdt=$(( kdt + REPLY )); }
-    echo "$kdt"
+    printf '%s\n' "$kdt"
 }
 dateutils.iso8601ToDate() { dateutils.tryISO8601ToDate "$@" || { dateutils._debug "invalid ISO8601 $1"; return 1; }; }
 dateutils.iso8601ToDateDef() {
-    local r; if r=$(dateutils.tryISO8601ToDate "$1" "${3:-true}"); then echo "$r"; else echo "$2"; fi
+    local r; if r=$(dateutils.tryISO8601ToDate "$1" "${3:-true}"); then printf '%s\n' "$r"; else printf '%s\n' "$2"; fi
 }
 
 # --- P7: scanDateTime (practical subset of FPC ScanDateTime) ----------------
@@ -1284,7 +1328,7 @@ dateutils.scanDateTime() {
                 { (( ind < ilen )) && [[ "${inp:ind:1}" == "${pat:pind:1}" ]]; } || return 1
                 pind=$(( pind + 1 )); ind=$(( ind + 1 ))
             done
-            (( pind < plen )) && pind=$(( pind + 1 ))
+            if (( pind < plen )); then pind=$(( pind + 1 )); fi
             continue
         fi
         upc=${pc^^}
@@ -1323,7 +1367,7 @@ dateutils.scanDateTime() {
     done
     dateutils._valid_date "$yy" "$mm" "$dd"; (( REPLY )) || return 1
     dateutils._valid_time "$h" "$n" "$s" "$ms"; (( REPLY )) || return 1
-    dateutils._join_kdt "$yy" "$mm" "$dd" "$h" "$n" "$s" "$ms"; echo "$REPLY"
+    dateutils._join_kdt "$yy" "$mm" "$dd" "$h" "$n" "$s" "$ms"; printf '%s\n' "$REPLY"
 }
 
 # Finalize: extract the bodies above into the `dateutils` class and generate the

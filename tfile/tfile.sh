@@ -2,7 +2,7 @@
 
 # Re-source guard: the constant below is readonly, and the class only needs to
 # be built once per process.
-if [[ -n "$_TFILE_SOURCED" ]]; then
+if [[ -n "${_TFILE_SOURCED:-}" ]]; then
     return
 fi
 declare -g _TFILE_SOURCED=1
@@ -87,8 +87,8 @@ end
 # ---- method bodies (real bash functions; extracted by `build`) --------------
 tfile.appendAllText() {
 local file="$1"
-local text="$2"
-echo -n "$text" >> "$file"
+local text="${2:-}"
+printf '%s' "$text" >> "$file"
 }
 
 tfile.appendText() {
@@ -96,25 +96,25 @@ local file="$1"
 if ! : >> "$file" 2>/dev/null; then
 return 1
 fi
-echo "$1"
+printf '%s\n' "$1"
 }
 
 # Additional functions
-tfile.exists() { local file="$1" follow="${2:-true}"; if [[ "$follow" == "true" ]]; then [[ -f "$file" ]] && echo "true" || echo "false"; else [[ -L "$file" || -f "$file" ]] && echo "true" || echo "false"; fi ; }
-tfile.delete() { rm "$1" 2>/dev/null ; }
-tfile.copy() { local src="$1" dest="$2" overwrite="${3:-false}"; if [[ "$overwrite" == "false" && -e "$dest" ]]; then return 1; fi; if [[ "$TFILE_USE_CP" == "true" ]]; then cp "$src" "$dest" 2>/dev/null; else cat "$src" > "$dest" 2>/dev/null; fi ; }
-tfile.move() { if [[ -e "$2" ]]; then return 1; fi; mv "$1" "$2" 2>/dev/null ; }
+tfile.exists() { local file="$1" follow="${2:-true}"; if [[ "$follow" == "true" ]]; then [[ -f "$file" ]] && printf '%s\n' "true" || printf '%s\n' "false"; else [[ -L "$file" || -f "$file" ]] && printf '%s\n' "true" || printf '%s\n' "false"; fi ; }
+tfile.delete() { rm -- "$1" 2>/dev/null ; }
+tfile.copy() { local src="$1" dest="$2" overwrite="${3:-false}"; if [[ "$overwrite" == "false" && -e "$dest" ]]; then return 1; fi; if [[ "$TFILE_USE_CP" == "true" ]]; then cp -- "$src" "$dest" 2>/dev/null; else cat -- "$src" > "$dest" 2>/dev/null; fi ; }
+tfile.move() { if [[ -e "$2" ]]; then return 1; fi; mv -- "$1" "$2" 2>/dev/null ; }
 tfile.create() { : > "$1" ; }
 tfile.createSymLink() {
 local link="$1"
-local target="$2"
+local target="${2:-}"
 if [[ ! -e "$target" ]]; then
-echo "false"
+printf '%s\n' "false"
 return
 fi
 local link_dir="$(dirname "$link")"
 if [[ ! -d "$link_dir" ]]; then
-echo "false"
+printf '%s\n' "false"
 return 1
 fi
 case "$(uname -s)" in
@@ -124,23 +124,23 @@ MINGW*|CYGWIN*|MSYS*)
         dirflag="/d"
     fi
     if cmd /c mklink $dirflag "$link" "$target" > /dev/null 2>&1; then
-    echo "true"
+    printf '%s\n' "true"
     else
-    echo "false"
+    printf '%s\n' "false"
 return 1
 fi
 ;;
 *)
 if ln -s "$target" "$link" 2>/dev/null; then
-    echo "true"
+    printf '%s\n' "true"
         else
-                echo "false"
+                printf '%s\n' "false"
                 return 1
             fi
             ;;
     esac
 }
-tfile.createText() { if ! : > "$1" 2>/dev/null; then return 1; fi; echo "$1" ; }
+tfile.createText() { if ! : > "$1" 2>/dev/null; then return 1; fi; printf '%s\n' "$1" ; }
 tfile._crypto_password() {
 local password="${1:-${TFILE_CRYPTO_PASSWORD:-}}"
 [[ -n "$password" ]] || return 1
@@ -159,9 +159,9 @@ password="$REPLY"
 dir="${file%/*}"; [[ "$dir" == "$file" ]] && dir="."
 tmp_file=$(mktemp "$dir/.tfile_crypt.XXXXXXXX") || return 1
 if TFILE_CRYPTO_PASSWORD="$password" openssl enc $mode -aes-256-cbc -salt -pbkdf2 -in "$file" -out "$tmp_file" -pass env:TFILE_CRYPTO_PASSWORD 2>/dev/null; then
-    mv "$tmp_file" "$file"
+    mv -- "$tmp_file" "$file"
 else
-    rm -f "$tmp_file"
+    rm -f -- "$tmp_file"
     return 1
 fi
 }
@@ -176,9 +176,10 @@ attrs="${attrs#[}"
 attrs="${attrs%]}"
 attrs="${attrs// /}"
 if [[ -z "$attrs" ]]; then
-    echo 0
+    printf '%s\n' 0
     return
 fi
+local attr_parts               # X-LOCALS (G6-23)
 IFS=',' read -ra attr_parts <<< "$attrs"
 for attr_name in "${attr_parts[@]}"; do
     attr_name="${attr_name#fa}"
@@ -190,9 +191,9 @@ for attr_name in "${attr_parts[@]}"; do
         Archive) value=$((value | 32)) ;;
     esac
 done
-echo "$value"
+printf '%s\n' "$value"
 }
-tfile.getAttributes() { local file="$1" follow="${2:-true}"; if [[ "$follow" == "true" ]]; then if [[ ! -f "$file" ]]; then return 1; fi; else if [[ ! -e "$file" ]]; then return 1; fi; fi; echo "faNormal"; }
+tfile.getAttributes() { local file="$1" follow="${2:-true}"; if [[ "$follow" == "true" ]]; then if [[ ! -f "$file" ]]; then return 1; fi; else if [[ ! -e "$file" ]]; then return 1; fi; fi; printf '%s\n' "faNormal"; }
 tfile._format_time() {
 local file="$1" stat_field="$2" utc="${3:-false}"
 local epoch date_arg
@@ -213,11 +214,15 @@ tfile.getLastAccessTime() { tfile._format_time "$1" "%X" false ; }
 tfile.getLastAccessTimeUtc() { tfile._format_time "$1" "%X" true ; }
 tfile.getLastWriteTime() { tfile._format_time "$1" "%Y" false ; }
 tfile.getLastWriteTimeUtc() { tfile._format_time "$1" "%Y" true ; }
-tfile.getSymLinkTarget() { readlink "$1" 2>/dev/null ; }
+tfile.getSymLinkTarget() { readlink -- "$1" 2>/dev/null ; }
 tfile.integerToFileAttributes() {
-    local int="$1"
+    # G6-06 (X-INJ, decision D1): `int` reaches `-eq` and `$(( ))` below, both of
+    # which evaluate arithmetically — `integerToFileAttributes 'x[$(touch pwn)]'`
+    # ran the command.
+    local int
+    kk.isInt "${1:-}" int || return 1
     if [[ "$int" -eq 0 ]]; then
-        echo "[]"
+        printf '%s\n' "[]"
         return
     fi
     local attrs=""
@@ -227,42 +232,42 @@ tfile.integerToFileAttributes() {
     if [[ $((int & 16)) -ne 0 ]]; then attrs+="Directory, "; fi
     if [[ $((int & 32)) -ne 0 ]]; then attrs+="Archive, "; fi
     attrs="${attrs%, }"
-    echo "[$attrs]"
+    printf '%s\n' "[$attrs]"
 }
 tfile.open() {
 local file="$1" mode="$2"
 case "$mode" in
     fmOpenRead)
         [[ -f "$file" ]] || return 1
-        echo "$file"
+        printf '%s\n' "$file"
         ;;
     fmOpenWrite)
         : > "$file" || return 1
-        echo "$file"
+        printf '%s\n' "$file"
         ;;
     fmOpenReadWrite)
         [[ -f "$file" ]] || return 1
-        echo "$file"
+        printf '%s\n' "$file"
         ;;
     *)
         return 1
         ;;
 esac
 }
-tfile.openRead() { local file="$1"; if [[ -f "$file" ]]; then echo "$file"; else return 1; fi ; }
-tfile.openText() { local file="$1"; if [[ -f "$file" ]]; then echo "$file"; else return 1; fi ; }
-tfile.openWrite() { local file="$1"; : > "$file" || return 1; echo "$file" ; }
-tfile.readAllBytes() { cat "$1" 2>/dev/null ; }
-tfile.readAllLines() { cat "$1" 2>/dev/null ; }
-tfile.readAllText() { cat "$1" 2>/dev/null ; }
+tfile.openRead() { local file="$1"; if [[ -f "$file" ]]; then printf '%s\n' "$file"; else return 1; fi ; }
+tfile.openText() { local file="$1"; if [[ -f "$file" ]]; then printf '%s\n' "$file"; else return 1; fi ; }
+tfile.openWrite() { local file="$1"; : > "$file" || return 1; printf '%s\n' "$file" ; }
+tfile.readAllBytes() { cat -- "$1" 2>/dev/null ; }
+tfile.readAllLines() { cat -- "$1" 2>/dev/null ; }
+tfile.readAllText() { cat -- "$1" 2>/dev/null ; }
 tfile.replace() {
 local src="$1" dest="$2" backup="$3"
 [[ -f "$src" ]] || return 1
 [[ -f "$dest" ]] || return 1
 if [[ -n "$backup" ]]; then
-    cp "$dest" "$backup" 2>/dev/null || return 1
+    cp -- "$dest" "$backup" 2>/dev/null || return 1
 fi
-cp "$src" "$dest" 2>/dev/null
+cp -- "$src" "$dest" 2>/dev/null
 }
 tfile.setAttributes() { if [[ ! -e "$1" ]]; then return 1; fi; : ; }
 tfile.setCreationTime() { if [[ ! -e "$1" ]]; then return 1; fi; : ; }

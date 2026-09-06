@@ -74,7 +74,7 @@
 # ===========================================================================
 
 # Re-source guard.
-if [[ -n "$_TARRAY_SOURCED" ]]; then
+if [[ -n "${_TARRAY_SOURCED:-}" ]]; then
     return
 fi
 declare -g _TARRAY_SOURCED=1
@@ -138,11 +138,14 @@ TArray.sort() {
     fi
     local __ta_n=${#__ta_arr[@]}
     local __ta_start="${1:-0}" __ta_count="${2:-}"
-    (( __ta_start < 0 )) && __ta_start=0
-    (( __ta_start >= __ta_n )) && return 0
+    # X-INJ (G1-02, decision D1): start/count go into (( )) below.
+    kk.isInt "$__ta_start" __ta_start || return 2
+    if [[ -n "$__ta_count" ]]; then kk.isInt "$__ta_count" __ta_count || return 2; fi
+    if (( __ta_start < 0 )); then __ta_start=0; fi
+    if (( __ta_start >= __ta_n )); then return 0; fi
     [[ -z "$__ta_count" ]] && __ta_count=$(( __ta_n - __ta_start ))
-    (( __ta_start + __ta_count > __ta_n )) && __ta_count=$(( __ta_n - __ta_start ))
-    (( __ta_count <= 1 )) && return 0    # S8: nothing to sort
+    if (( __ta_start + __ta_count > __ta_n )); then __ta_count=$(( __ta_n - __ta_start )); fi
+    if (( __ta_count <= 1 )); then return 0; fi    # S8: nothing to sort
 
     # extract the range into a dense work array (elements are ORIGINAL strings)
     local -a __ta_w=() __ta_nw=() __ta_buf=() __ta_nbuf=()
@@ -168,35 +171,37 @@ TArray.sort() {
     # must NOT be forced (num uses (( )); fn may want the ambient locale).
     if [[ "$__ta_mode" == "str" ]]; then local LC_ALL=C; fi
 
+    local __ta_rc=0
     local __ta_width=1 __ta_lo __ta_mid __ta_hi __ta_l __ta_r __ta_k __ta_tr
     while (( __ta_width < __ta_count )); do
         __ta_lo=0
         while (( __ta_lo < __ta_count )); do
-            __ta_mid=$(( __ta_lo + __ta_width )); (( __ta_mid > __ta_count )) && __ta_mid=$__ta_count
-            __ta_hi=$(( __ta_lo + 2 * __ta_width )); (( __ta_hi > __ta_count )) && __ta_hi=$__ta_count
+            __ta_mid=$(( __ta_lo + __ta_width )); if (( __ta_mid > __ta_count )); then __ta_mid=$__ta_count; fi
+            __ta_hi=$(( __ta_lo + 2 * __ta_width )); if (( __ta_hi > __ta_count )); then __ta_hi=$__ta_count; fi
             __ta_l=$__ta_lo; __ta_r=$__ta_mid; __ta_k=$__ta_lo
             while (( __ta_l < __ta_mid && __ta_r < __ta_hi )); do
                 case "$__ta_mode" in
                     str) [[ "${__ta_w[__ta_l]}" > "${__ta_w[__ta_r]}" ]] && __ta_tr=1 || __ta_tr=0 ;;
                     num) (( __ta_nw[__ta_l] > __ta_nw[__ta_r] )) && __ta_tr=1 || __ta_tr=0 ;;
-                    fn)  "$__ta_cmp" "${__ta_w[__ta_l]}" "${__ta_w[__ta_r]}"; (( $? == 2 )) && __ta_tr=1 || __ta_tr=0 ;;
+                    fn)  __ta_rc=0; "$__ta_cmp" "${__ta_w[__ta_l]}" "${__ta_w[__ta_r]}" || __ta_rc=$?
+                         if (( __ta_rc == 2 )); then __ta_tr=1; else __ta_tr=0; fi ;;
                 esac
                 if (( __ta_tr )); then
                     __ta_buf[__ta_k]="${__ta_w[__ta_r]}"; [[ "$__ta_mode" == "num" ]] && __ta_nbuf[__ta_k]="${__ta_nw[__ta_r]}"
-                    (( __ta_r++ ))
+                    (( __ta_r += 1 )) || :
                 else
                     __ta_buf[__ta_k]="${__ta_w[__ta_l]}"; [[ "$__ta_mode" == "num" ]] && __ta_nbuf[__ta_k]="${__ta_nw[__ta_l]}"
-                    (( __ta_l++ ))
+                    (( __ta_l += 1 )) || :
                 fi
-                (( __ta_k++ ))
+                (( __ta_k += 1 )) || :
             done
             while (( __ta_l < __ta_mid )); do
                 __ta_buf[__ta_k]="${__ta_w[__ta_l]}"; [[ "$__ta_mode" == "num" ]] && __ta_nbuf[__ta_k]="${__ta_nw[__ta_l]}"
-                (( __ta_l++, __ta_k++ ))
+                (( __ta_l += 1, __ta_k += 1 )) || :
             done
             while (( __ta_r < __ta_hi )); do
                 __ta_buf[__ta_k]="${__ta_w[__ta_r]}"; [[ "$__ta_mode" == "num" ]] && __ta_nbuf[__ta_k]="${__ta_nw[__ta_r]}"
-                (( __ta_r++, __ta_k++ ))
+                (( __ta_r += 1, __ta_k += 1 )) || :
             done
             __ta_lo=$__ta_hi
         done
@@ -248,8 +253,13 @@ TArray._cmp3() {
             elif (( __na > __nb )); then __ta_sign=1
             else __ta_sign=0; fi ;;
         fn)
-            "$__ta_cmp" "$1" "$2"
-            case $? in 0) __ta_sign=-1 ;; 2) __ta_sign=1 ;; *) __ta_sign=0 ;; esac ;;
+            # X-SETE (D7): a user comparator carries its ANSWER in the exit
+            # status (0/1/2), so calling it bare aborts the whole script under
+            # `set -e`. `|| __ta_rc=$?` keeps the status and neutralises it —
+            # this is the one place kcl calls a status-as-value function.
+            local __ta_rc=0
+            "$__ta_cmp" "$1" "$2" || __ta_rc=$?
+            case $__ta_rc in 0) __ta_sign=-1 ;; 2) __ta_sign=1 ;; *) __ta_sign=0 ;; esac ;;
     esac
 }
 
@@ -265,6 +275,9 @@ TArray.binarySearch() {
     local -n __ta_arr="$__ta_name"
     local __ta_n=${#__ta_arr[@]}
     local __ta_start="${1:-0}" __ta_count="${2:-}"
+    # X-INJ (G1-02, decision D1): start/count go into (( )) below.
+    kk.isInt "$__ta_start" __ta_start || return 2
+    if [[ -n "$__ta_count" ]]; then kk.isInt "$__ta_count" __ta_count || return 2; fi
     [[ -z "$__ta_count" ]] && __ta_count=$(( __ta_n - __ta_start ))
     [[ "$__ta_mode" == "str" ]] && local LC_ALL=C
     if (( __ta_n == 0 || __ta_count <= 0 )); then      # S1 (empty / empty range)
@@ -380,7 +393,7 @@ TArray.reverse() {
     __ta_j=$(( __ta_n - 1 ))
     for (( __ta_i = 0; __ta_i < __ta_n; __ta_i++ )); do
         __ta_tmp[__ta_j]="${__ta_src[__ta_i]}"
-        (( __ta_j-- ))
+        (( __ta_j -= 1 )) || :
     done
     local -n __ta_dst="$2"
     __ta_dst=( "${__ta_tmp[@]}" )

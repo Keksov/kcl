@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
+# sourceable — and re-sourceable — from a script running `set -eu`, and building
+# the class a second time is pure waste.
+if [[ -n "${_TSTRINGLIST_SOURCED:-}" ]]; then
+    return
+fi
+declare -g _TSTRINGLIST_SOURCED=1
+
 # Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
 TSTRINGLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TSTRINGLIST_DIR/../../kklass/kklass_pascal.sh"
@@ -54,6 +62,7 @@ TStringList.Create() {
 # indexed access) and inherited unchanged. (Removed the duplicate overrides.)
 
 TStringList.IndexOf() {
+    local i                     # X-LOCALS (G1-08)
     local item="$1"
     local items_var="${__inst__}_items"
     local current_count="$count"
@@ -184,6 +193,7 @@ TStringList.AddStrings() {
 }
 
 TStringList.Remove() {
+    local i                     # X-LOCALS (G1-08)
     local item="$1"
     local index
     $this.IndexOf "$item" >/dev/null
@@ -211,12 +221,13 @@ TStringList.Remove() {
 }
 
 TStringList.Add() {
+    local j                     # X-LOCALS (G1-08)
     local item="$1"
     local current_count="$count"
 
     # Check for duplicates
     local dup_index
-    $__inst__.call IndexOf "$item" >/dev/null
+    $__inst__.call IndexOf "$item" >/dev/null || :   # rc is the found/not-found answer (README 1.3): never let it abort under set -e
     dup_index=$RESULT
 
     if [[ "$dup_index" != "-1" ]]; then
@@ -269,7 +280,7 @@ TStringList.Add() {
 
 TStringList.Insert() {
     local index="$1"
-    local item="$2"
+    local item="${2:-}"
     if [[ "$sorted" == "true" ]]; then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Cannot insert into sorted list" >&2
         return 1
@@ -286,8 +297,10 @@ TStringList.Insert() {
 TStringList._cmpCore() {
     local __a __b
     if [[ "$3" == "true" ]]; then __a="$1"; __b="$2"; else __a="${1,,}"; __b="${2,,}"; fi
-    [[ "$__a" < "$__b" ]] && return 0
-    [[ "$__a" == "$__b" ]] && return 1
+    # X-SETE (D7): `[[ ... ]] && return 0` returns 1 when the test is false, and
+    # under `set -e` that aborts the caller before the next line is reached.
+    if [[ "$__a" < "$__b" ]]; then return 0; fi
+    if [[ "$__a" == "$__b" ]]; then return 1; fi
     return 2
 }
 
@@ -295,7 +308,11 @@ TStringList._cmpCore() {
 # captured by Sort into __tsl_sortcs, so a comparison is one plain-function call
 # — NOT a per-element kklass CompareStrings dispatch (the point of delegating).
 TStringList._sortcmp() {
-    TStringList._cmpCore "$1" "$2" "$__tsl_sortcs"
+    # The comparator answers with its exit STATUS (0/1/2), so a bare call would
+    # abort the caller under `set -e`; capture it and re-return (X-SETE, D7).
+    local __rc=0
+    TStringList._cmpCore "$1" "$2" "$__tsl_sortcs" || __rc=$?
+    return $__rc
 }
 
 # CompareStrings (public method, unchanged contract) — now a thin wrapper over

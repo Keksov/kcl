@@ -56,7 +56,7 @@
 # ===========================================================================
 
 # Re-source guard.
-if [[ -n "$_TINIFILE_SOURCED" ]]; then
+if [[ -n "${_TINIFILE_SOURCED:-}" ]]; then
     return
 fi
 declare -g _TINIFILE_SOURCED=1
@@ -219,7 +219,7 @@ TIniFile._fill() {
             fi
             __tif_fl+=( "$__tif_acc" ); __tif_have=0; __tif_acc=""
         done
-        (( __tif_have )) && __tif_fl+=( "$__tif_acc" )
+        if (( __tif_have )); then __tif_fl+=( "$__tif_acc" ); fi
     else
         __tif_fl=( "${__tif_in[@]}" )
     fi
@@ -229,12 +229,12 @@ TIniFile._fill() {
     for __tif_line in "${__tif_fl[@]}"; do
         TIniFile._trim "$__tif_line"; __tif_line="$__tif_trim"
         __tif_len=${#__tif_line}
-        (( __tif_len == 0 )) && continue                    # blank: dropped (S2)
+        if (( __tif_len == 0 )); then continue; fi                    # blank: dropped (S2)
         if [[ "${__tif_line:0:1}" == ";" && $__tif_cursec -lt 0 ]]; then
             # comment before any section -> comment-SECTION (S2)
             if (( ! __tif_strip_c )); then
                 __tif_sn[__tif_nextsec]="$__tif_line"
-                (( __tif_nextsec++ ))
+                (( __tif_nextsec += 1 )) || :
             fi
             continue
         fi
@@ -242,17 +242,17 @@ TIniFile._fill() {
             # regular section: name = inside brackets, verbatim (S4)
             __tif_sn[__tif_nextsec]="${__tif_line:1:__tif_len-2}"
             __tif_cursec=$__tif_nextsec
-            (( __tif_nextsec++ ))
+            (( __tif_nextsec += 1 )) || :
             continue
         fi
-        (( __tif_cursec < 0 )) && continue                   # key before section: dropped (S4)
+        if (( __tif_cursec < 0 )); then continue; fi                   # key before section: dropped (S4)
         if [[ "${__tif_line:0:1}" == ";" ]]; then
             # comment within a section -> comment-KEY (S2)
             if (( ! __tif_strip_c )); then
                 __tif_ki[__tif_nextrow]="$__tif_line"
                 __tif_kv[__tif_nextrow]=""
                 __tif_ko[__tif_nextrow]=$__tif_cursec
-                (( __tif_nextrow++ ))
+                (( __tif_nextrow += 1 )) || :
             fi
             continue
         fi
@@ -262,7 +262,7 @@ TIniFile._fill() {
                 __tif_ki[__tif_nextrow]=""
                 __tif_kv[__tif_nextrow]="$__tif_line"
                 __tif_ko[__tif_nextrow]=$__tif_cursec
-                (( __tif_nextrow++ ))
+                (( __tif_nextrow += 1 )) || :
             fi
             continue
         fi
@@ -272,7 +272,7 @@ TIniFile._fill() {
         __tif_ki[__tif_nextrow]="$__tif_id"
         __tif_kv[__tif_nextrow]="$__tif_val"
         __tif_ko[__tif_nextrow]=$__tif_cursec
-        (( __tif_nextrow++ ))
+        (( __tif_nextrow += 1 )) || :
     done
 }
 
@@ -304,7 +304,7 @@ TIniFile._load() {
 # pinned verbatim: an invalid row (ident='') emits '=value' (:1372).
 TIniFile._compose() {
     local -n __tif_out="$1"; __tif_out=()
-    local __tif_mode="$2"
+    local __tif_mode="${2:-}"
     local -n __tif_sn="${__inst__}_secnames"
     local -n __tif_ki="${__inst__}_kident"
     local -n __tif_kv="${__inst__}_kvalue"
@@ -348,7 +348,7 @@ TIniFile._updateNow() {
     if [[ -n "$file_name" ]]; then
         local __tif_dir="${file_name%/*}"
         if [[ "$__tif_dir" != "$file_name" && -n "$__tif_dir" && ! -d "$__tif_dir" ]]; then
-            mkdir -p "$__tif_dir" 2>/dev/null || {
+            mkdir -p -- "$__tif_dir" 2>/dev/null || {
                 [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.UpdateFile: cannot create '$__tif_dir'" >&2
                 return 1
             }
@@ -366,7 +366,7 @@ TIniFile._updateNow() {
             }
         fi
         mv -f "$__tif_tmp" "$file_name" 2>/dev/null || {
-            rm -f "$__tif_tmp" 2>/dev/null
+            rm -f -- "$__tif_tmp" 2>/dev/null
             [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.UpdateFile: cannot replace '$file_name'" >&2
             return 1
         }
@@ -394,7 +394,7 @@ TIniFile._maybeUpdate() {
 # Write-path validation (PLAN 2.7 hardening — refuse what FPC would corrupt):
 # $1 kind (sec|ident|value), $2 text. rc 0 ok / 1 reject.
 TIniFile._validate() {
-    local __tif_v="$2"
+    local __tif_v="${2:-}"
     case "$1" in
         sec|ident)
             [[ -z "$__tif_v" ]] && return 1                      # FPC no-ops; we say why
@@ -631,7 +631,7 @@ TIniFile.ReadSectionValues() {
             svoIncludeQuotes)   __tif_inc_q=1 ;;
         esac
     done
-    (( $# == 0 )) && __tif_inc_i=1                      # FPC default
+    if (( $# == 0 )); then __tif_inc_i=1; fi                      # FPC default
     [[ " $options " == *" ifoStripComments "* ]] && __tif_inc_c=1
     [[ " $options " == *" ifoStripInvalid "* ]] && __tif_inc_i=1
     local __tif_do_q=0

@@ -78,8 +78,13 @@ Every unit is sourceable and usable from a script that runs `set -eu`:
 * re-source guards read `${_X_SOURCED:-}`, never `$_X_SOURCED`;
 * indirect reads of optional metadata use `${!var:-}`;
 * optional positional parameters use `${2:-}`;
-* counters are `(( x += 1 ))` or `x=$(( x + 1 ))`, never `(( x++ ))` (which
-  returns 1 when `x` was 0 and aborts the script under `set -e`);
+* a bare arithmetic statement ends with `|| :` — **any** `(( … ))` used as a
+  statement returns 1 when the expression evaluates to 0, which aborts the
+  caller: `(( i -= 1 ))` on the last step, `(( x++ ))` when `x` was 0,
+  `(( n = 0 ))` always. Inside `if`/`while`/`for` the status is the point and
+  no `|| :` belongs there;
+* a conditional action is `if (( c )); then a; fi`, not `(( c )) && a` — the
+  `&&` form returns 1 whenever the condition is false;
 * no member ends on a trailing `cmd && cmd` list whose last command may be false.
 
 Every unit suite carries a `NNN_Contract.sh` that loads the unit and exercises

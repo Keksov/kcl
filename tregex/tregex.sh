@@ -88,7 +88,7 @@
 # Re-source guard: the class need only be built once per process; a second
 # source is a clean no-op (returns BEFORE `build`, so the kklass duplicate-
 # class guard never trips on a legitimate re-source).
-if [[ -n "$_TREGEX_SOURCED" ]]; then
+if [[ -n "${_TREGEX_SOURCED:-}" ]]; then
     return
 fi
 declare -g _TREGEX_SOURCED=1
@@ -130,13 +130,15 @@ end
 # clobbers it; a FAILED match clears it — P0/ADJ).
 # ---------------------------------------------------------------------------
 TRegEx._match1() {
-    local __re="$2" __flags="${3:-}" __had=0
+    local __re="${2:-}" __flags="${3:-}" __had=0
     shopt -q nocasematch && __had=1
     if [[ "$__flags" == *i* ]]; then shopt -s nocasematch; else shopt -u nocasematch; fi
-    [[ "$1" =~ $__re ]] 2>/dev/null
-    __tre_rc=$?
+    # X-SETE (T1, D7): the match STATUS is the answer here, so a bare test would
+    # abort the caller under `set -e` on every no-match. Capture it instead.
+    __tre_rc=0
+    [[ "$1" =~ $__re ]] 2>/dev/null || __tre_rc=$?
     __tre_g=("${BASH_REMATCH[@]}")
-    __tre_m="${BASH_REMATCH[0]}"
+    __tre_m="${BASH_REMATCH[0]:-}"   # X-SETU (D7): unset when the match failed
     if (( __had )); then shopt -s nocasematch; else shopt -u nocasematch; fi
     return 0
 }
@@ -157,7 +159,7 @@ TRegEx._invalid() {
 TRegEx.isMatch() {
     local __tre_rc __tre_m; local -a __tre_g
     TRegEx._match1 "$1" "$2" "${3:-}"
-    (( __tre_rc == 2 )) && TRegEx._invalid isMatch "$2"
+    if (( __tre_rc == 2 )); then TRegEx._invalid isMatch "$2"; fi
     return $__tre_rc
 }
 
@@ -179,7 +181,7 @@ TRegEx.match() {
         RESULT_LENGTH=${#__tre_m}
         RESULT_GROUPS=("${__tre_g[@]:1}")
     else
-        (( __tre_rc == 2 )) && TRegEx._invalid match "$2"
+        if (( __tre_rc == 2 )); then TRegEx._invalid match "$2"; fi
         RESULT=""; RESULT_INDEX=-1; RESULT_LENGTH=0; RESULT_GROUPS=()
     fi
     return $__tre_rc
@@ -234,15 +236,15 @@ TRegEx.matches() {
         if (( __tre_rc == 2 )); then
             TRegEx._invalid matches "$2"; RESULT=0; return 2
         fi
-        (( __tre_rc != 0 )) && break
+        if (( __tre_rc != 0 )); then break; fi
         local __trx_m="$__tre_m" __trx_pre="${__trx_rem%%"$__tre_m"*}" __trx_loff
         __trx_loff=${#__trx_pre}
         __trx_texts+=("$__trx_m")
-        (( __trx_have_off )) && __trx_offs+=( "$(( __trx_consumed + __trx_loff ))" )
-        (( __trx_count++ ))
+        if (( __trx_have_off )); then __trx_offs+=( "$(( __trx_consumed + __trx_loff ))" ); fi
+        (( __trx_count += 1 )) || :
         local __trx_adv
         [[ -z "$__trx_m" ]] && __trx_adv=$(( __trx_loff + 1 )) || __trx_adv=$(( __trx_loff + ${#__trx_m} ))
-        (( __trx_adv > ${#__trx_rem} )) && break
+        if (( __trx_adv > ${#__trx_rem} )); then break; fi
         __trx_rem="${__trx_rem:__trx_adv}"
         __trx_consumed=$(( __trx_consumed + __trx_adv ))
     done
@@ -267,6 +269,7 @@ TRegEx.split() {
     local -n __trx_out="$3"; __trx_out=()
     local __trx_limit="${4:-0}" __trx_flags="${5:-}"
     [[ "$__trx_limit" == "-" || -z "$__trx_limit" ]] && __trx_limit=0
+    kk.isInt "$__trx_limit" __trx_limit || return 2
     local __trx_text="$1" __trx_rem="$1" __trx_consumed=0 __trx_prevEnd=0 __trx_done=0
     local __tre_rc __tre_m; local -a __tre_g
     while : ; do
@@ -274,8 +277,8 @@ TRegEx.split() {
         if (( __tre_rc == 2 )); then
             TRegEx._invalid split "$2"; __trx_out=(); RESULT=0; return 2
         fi
-        (( __tre_rc != 0 )) && break
-        (( __trx_limit > 0 && __trx_done >= __trx_limit - 1 )) && break
+        if (( __tre_rc != 0 )); then break; fi
+        if (( __trx_limit > 0 && __trx_done >= __trx_limit - 1 )); then break; fi
         local __trx_m="$__tre_m" __trx_pre="${__trx_rem%%"$__tre_m"*}" __trx_loff
         __trx_loff=${#__trx_pre}
         local __trx_p=$(( __trx_consumed + __trx_loff ))
@@ -285,10 +288,10 @@ TRegEx.split() {
             __trx_out+=( "${__tre_g[__trx_i]}" )
         done
         __trx_prevEnd=$(( __trx_p + ${#__trx_m} ))
-        (( __trx_done++ ))
+        (( __trx_done += 1 )) || :
         local __trx_adv
         [[ -z "$__trx_m" ]] && __trx_adv=$(( __trx_loff + 1 )) || __trx_adv=$(( __trx_loff + ${#__trx_m} ))
-        (( __trx_adv > ${#__trx_rem} )) && break
+        if (( __trx_adv > ${#__trx_rem} )); then break; fi
         __trx_rem="${__trx_rem:__trx_adv}"
         __trx_consumed=$(( __trx_consumed + __trx_adv ))
     done
@@ -314,7 +317,7 @@ TRegEx._expandRepl() {
     local __t="$1" __o="" __i=0 __len=${#1} __c __d __ng=$(( ${#__tre_g[@]} - 1 ))
     while (( __i < __len )); do
         __c="${__t:__i:1}"
-        if [[ "$__c" != '$' ]]; then __o+="$__c"; (( __i++ )); continue; fi
+        if [[ "$__c" != '$' ]]; then __o+="$__c"; (( __i += 1 )); continue; fi
         __d="${__t:__i+1:1}"
         case "$__d" in
             '$') __o+='$'; (( __i += 2 )) ;;
@@ -327,7 +330,7 @@ TRegEx._expandRepl() {
             '{')
                 local __j=$(( __i + 2 )) __num=""
                 while (( __j < __len )) && [[ "${__t:__j:1}" == [0-9] ]]; do
-                    __num+="${__t:__j:1}"; (( __j++ ))
+                    __num+="${__t:__j:1}"; (( __j += 1 ))
                 done
                 if [[ -n "$__num" && "${__t:__j:1}" == '}' ]]; then
                     if (( 10#$__num == 0 )); then __o+="${__tre_g[0]}"
@@ -335,9 +338,9 @@ TRegEx._expandRepl() {
                     else __o+="\${$__num}"; fi
                     __i=$(( __j + 1 ))
                 else
-                    __o+='$'; (( __i++ ))
+                    __o+='$'; (( __i += 1 ))
                 fi ;;
-            *) __o+='$'; (( __i++ )) ;;
+            *) __o+='$'; (( __i += 1 )) ;;
         esac
     done
     __trx_expanded="$__o"
@@ -350,6 +353,7 @@ TRegEx._replaceScan() {
     local __trx_text="$1" __trx_re="$2" __trx_mode="$3" __trx_arg="$4"
     local __trx_limit="${5:-0}" __trx_flags="${6:-}"
     [[ "$__trx_limit" == "-" || -z "$__trx_limit" ]] && __trx_limit=0
+    kk.isInt "$__trx_limit" __trx_limit || return 2
     local __trx_rem="$1" __trx_out="" __trx_done=0 __trx_expanded
     local __tre_rc __tre_m; local -a __tre_g
     while : ; do
@@ -357,8 +361,8 @@ TRegEx._replaceScan() {
         if (( __tre_rc == 2 )); then
             TRegEx._invalid "$__trx_mode" "$__trx_re"; RESULT="$__trx_text"; printf '%s\n' "$__trx_text"; return 2
         fi
-        (( __tre_rc != 0 )) && break
-        (( __trx_limit > 0 && __trx_done >= __trx_limit )) && break
+        if (( __tre_rc != 0 )); then break; fi
+        if (( __trx_limit > 0 && __trx_done >= __trx_limit )); then break; fi
         local __trx_m="$__tre_m" __trx_pre="${__trx_rem%%"$__tre_m"*}" __trx_loff
         __trx_loff=${#__trx_pre}
         __trx_out+="${__trx_rem:0:__trx_loff}"
@@ -370,7 +374,7 @@ TRegEx._replaceScan() {
             TRegEx._expandRepl "$__trx_arg"
             __trx_out+="$__trx_expanded"
         fi
-        (( __trx_done++ ))
+        (( __trx_done += 1 )) || :
         local __trx_adv
         if [[ -z "$__trx_m" ]]; then
             (( __trx_loff < ${#__trx_rem} )) && __trx_out+="${__trx_rem:__trx_loff:1}"

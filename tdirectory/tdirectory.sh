@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
+# sourceable — and re-sourceable — from a script running `set -eu`, and building
+# the class a second time is pure waste.
+if [[ -n "${_TDIRECTORY_SOURCED:-}" ]]; then
+    return
+fi
+declare -g _TDIRECTORY_SOURCED=1
+
 # Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
 TDIRECTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TDIRECTORY_DIR/../../kklass/kklass_pascal.sh"
@@ -70,10 +78,10 @@ end
 tdirectory.createDirectory() {
     local dir_path="$1"
     if [[ -z "$dir_path" ]]; then
-        echo "Error: Directory path cannot be empty" >&2
+        printf '%s\n' "Error: Directory path cannot be empty" >&2
         return 1
     fi
-    mkdir -p "$dir_path"
+    mkdir -p -- "$dir_path"
 }
 
 # Define tdirectory.delete function
@@ -82,23 +90,23 @@ tdirectory.delete() {
     local recursive="${2:-true}"
 
     if [[ -z "$dir_path" ]]; then
-        echo "Error: Directory path cannot be empty" >&2
+        printf '%s\n' "Error: Directory path cannot be empty" >&2
         return 1
     fi
 
     if [[ ! -d "$dir_path" ]]; then
-        echo "Error: Directory does not exist: $dir_path" >&2
+        printf '%s\n' "Error: Directory does not exist: $dir_path" >&2
         return 1
     fi
 
     if [[ "$recursive" == "true" ]]; then
-        rm -rf "$dir_path"
+        rm -rf -- "$dir_path"
     else
         # Check if directory is empty
         if [[ -z "$(ls -A "$dir_path" 2>/dev/null)" ]]; then
             rmdir "$dir_path"
         else
-            echo "Error: Directory is not empty: $dir_path" >&2
+            printf '%s\n' "Error: Directory is not empty: $dir_path" >&2
             return 1
         fi
     fi
@@ -108,40 +116,40 @@ tdirectory.delete() {
 tdirectory.exists() {
     local dir_path="$1"
     if [[ -d "$dir_path" ]]; then
-        echo -n "true"
+        printf '%s' "true"
     else
-        echo -n "false"
+        printf '%s' "false"
     fi
 }
 
 # Define tdirectory.copy function
 tdirectory.copy() {
     local source_dir="$1"
-    local dest_dir="$2"
+    local dest_dir="${2:-}"
 
     if [[ -z "$source_dir" || -z "$dest_dir" ]]; then
-        echo "Error: Source and destination paths cannot be empty" >&2
+        printf '%s\n' "Error: Source and destination paths cannot be empty" >&2
         return 1
     fi
 
     if [[ ! -d "$source_dir" ]]; then
-        echo "Error: Source directory does not exist: $source_dir" >&2
+        printf '%s\n' "Error: Source directory does not exist: $source_dir" >&2
         return 1
     fi
 
-    cp -r "$source_dir" "$dest_dir"
+    cp -r -- "$source_dir" "$dest_dir"
 }
 
 # Define tdirectory.isEmpty function
 tdirectory.isEmpty() {
     local dir_path="$1"
     if [[ -z "$dir_path" || ! -d "$dir_path" ]]; then
-    echo -n "false"
+    printf '%s' "false"
     else
     if [[ -z "$(ls -A "$dir_path" 2>/dev/null)" ]]; then
-    echo -n "true"
+    printf '%s' "true"
     else
-    echo -n "false"
+    printf '%s' "false"
     fi
     fi
 }
@@ -149,19 +157,19 @@ tdirectory.isEmpty() {
 # Define tdirectory.move function
 tdirectory.move() {
     local source_dir="$1"
-    local dest_dir="$2"
+    local dest_dir="${2:-}"
 
     if [[ -z "$source_dir" || -z "$dest_dir" ]]; then
-        echo "Error: Source and destination paths cannot be empty" >&2
+        printf '%s\n' "Error: Source and destination paths cannot be empty" >&2
         return 1
     fi
 
     if [[ ! -d "$source_dir" ]]; then
-        echo "Error: Source directory does not exist: $source_dir" >&2
+        printf '%s\n' "Error: Source directory does not exist: $source_dir" >&2
         return 1
     fi
 
-    mv "$source_dir" "$dest_dir"
+    mv -- "$source_dir" "$dest_dir"
 }
 
 # Define tdirectory.isRelativePath function
@@ -194,10 +202,10 @@ tdirectory.getCurrentDirectory() {
 tdirectory.setCurrentDirectory() {
     local dir_path="$1"
     if [[ -z "$dir_path" ]]; then
-        echo "Error: Directory path cannot be empty" >&2
+        printf '%s\n' "Error: Directory path cannot be empty" >&2
         return 1
     fi
-    cd "$dir_path"
+    cd -- "$dir_path"
 }
 
 # Define tdirectory.getLogicalDrives function
@@ -206,16 +214,17 @@ tdirectory.getLogicalDrives() {
         MINGW*|CYGWIN*|MSYS*)
             # Windows: return available drives
             local drives=""
+            local letter           # X-LOCALS (G6-23)
             for letter in {C..Z}; do
                 if [[ -d "/${letter,,}" ]]; then
                     drives="${drives}${letter}: "
                 fi
             done
-            echo "${drives% }"
+            printf '%s\n' "${drives% }"
             ;;
         *)
             # Unix: return root
-            echo "/"
+            printf '%s\n' "/"
             ;;
     esac
 }
@@ -223,7 +232,7 @@ tdirectory.getLogicalDrives() {
 # Helper function for recursive directory listing
 tdirectory._get_dirs_recursive() {
     local dir="$1"
-    local pattern="$2"
+    local pattern="${2:-}"
     local LC_ALL=
     local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
     local had_extglob=1
@@ -234,7 +243,7 @@ tdirectory._get_dirs_recursive() {
         if [[ -d "$directory_path" ]]; then
             base="${directory_path%/}"; base="${base##*/}"
             if [[ "$base" == $pattern ]]; then
-                echo "${directory_path%/}"
+                printf '%s\n' "${directory_path%/}"
             fi
             tdirectory._get_dirs_recursive "${directory_path%/}" "$pattern"
         fi
@@ -245,7 +254,7 @@ tdirectory._get_dirs_recursive() {
 # Helper function for recursive file listing
 tdirectory._get_files_recursive() {
     local dir="$1"
-    local pattern="$2"
+    local pattern="${2:-}"
     local LC_ALL=
     local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
     local had_extglob=1
@@ -256,7 +265,7 @@ tdirectory._get_files_recursive() {
         if [[ -f "$file_path" ]]; then
             base="${file_path##*/}"
             if [[ "$base" == $pattern ]]; then
-                echo "$file_path"
+                printf '%s\n' "$file_path"
             fi
         elif [[ -d "$file_path" ]]; then
             tdirectory._get_files_recursive "${file_path%/}" "$pattern"
@@ -268,7 +277,7 @@ tdirectory._get_files_recursive() {
 # Helper function for recursive filesystem entries listing
 tdirectory._get_entries_recursive() {
     local dir="$1"
-    local pattern="$2"
+    local pattern="${2:-}"
     local LC_ALL=
     local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
     local had_extglob=1
@@ -279,7 +288,7 @@ tdirectory._get_entries_recursive() {
         if [[ -f "$entry_path" || -d "$entry_path" ]]; then
             base="${entry_path##*/}"
             if [[ "$base" == $pattern ]]; then
-                echo "$entry_path"
+                printf '%s\n' "$entry_path"
             fi
         fi
         if [[ -d "$entry_path" ]]; then
@@ -301,12 +310,12 @@ tdirectory.getDirectories() {
     local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
 
     if [[ -z "$dir_path" ]]; then
-        echo "Error: Directory path cannot be empty" >&2
+        printf '%s\n' "Error: Directory path cannot be empty" >&2
         return 1
     fi
 
     if [[ ! -d "$dir_path" ]]; then
-        echo "Error: Directory does not exist: $dir_path" >&2
+        printf '%s\n' "Error: Directory does not exist: $dir_path" >&2
         return 1
     fi
 
@@ -323,7 +332,7 @@ tdirectory.getDirectories() {
                 base="${directory_path%/}"; base="${base##*/}"
                 # Pattern match
                 if [[ "$base" == $pattern ]]; then
-                    echo "${directory_path%/}"
+                    printf '%s\n' "${directory_path%/}"
                 fi
             fi
         done
@@ -345,12 +354,12 @@ tdirectory.getFiles() {
     local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
 
     if [[ -z "$dir_path" ]]; then
-        echo "Error: Directory path cannot be empty" >&2
+        printf '%s\n' "Error: Directory path cannot be empty" >&2
         return 1
     fi
 
     if [[ ! -d "$dir_path" ]]; then
-        echo "Error: Directory does not exist: $dir_path" >&2
+        printf '%s\n' "Error: Directory does not exist: $dir_path" >&2
         return 1
     fi
 
@@ -367,7 +376,7 @@ tdirectory.getFiles() {
                 base="${file_path##*/}"
                 # Pattern match
                 if [[ "$base" == $pattern ]]; then
-                    echo "$file_path"
+                    printf '%s\n' "$file_path"
                 fi
             fi
         done
@@ -389,12 +398,12 @@ tdirectory.getFileSystemEntries() {
     local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
 
     if [[ -z "$dir_path" ]]; then
-        echo "Error: Directory path cannot be empty" >&2
+        printf '%s\n' "Error: Directory path cannot be empty" >&2
         return 1
     fi
 
     if [[ ! -d "$dir_path" ]]; then
-        echo "Error: Directory does not exist: $dir_path" >&2
+        printf '%s\n' "Error: Directory does not exist: $dir_path" >&2
         return 1
     fi
 
@@ -411,7 +420,7 @@ tdirectory.getFileSystemEntries() {
                 base="${entry_path##*/}"
                 # Pattern match
                 if [[ "$base" == $pattern ]]; then
-                    echo "$entry_path"
+                    printf '%s\n' "$entry_path"
                 fi
             fi
         done
@@ -434,22 +443,22 @@ tdirectory.getAttributes() {
 # Define tdirectory.setAttributes function
 tdirectory.setAttributes() {
     local path="$1"
-    local attributes="$2"
+    local attributes="${2:-}"
 
     if [[ ! -d "$path" ]]; then
         return 1
     fi
 
     if [[ "$attributes" == *"faReadOnly"* ]]; then
-        chmod a-w "$path" 2>/dev/null || return 1
+        chmod a-w -- "$path" 2>/dev/null || return 1
     else
-        chmod u+w "$path" 2>/dev/null || return 1
+        chmod u+w -- "$path" 2>/dev/null || return 1
     fi
 }
 
 tdirectory._format_time() {
     local path="$1"
-    local stat_field="$2"
+    local stat_field="${2:-}"
     local utc="${3:-false}"
     local epoch date_arg
 
@@ -471,8 +480,8 @@ tdirectory._format_time() {
 
 tdirectory._touch_time() {
     local path="$1"
-    local time_value="$2"
-    local touch_flag="$3"
+    local time_value="${2:-}"
+    local touch_flag="${3:-}"
     local utc="${4:-false}"
     local date_arg timestamp touch_cmd
 
@@ -509,7 +518,7 @@ tdirectory.getCreationTime() {
 # Define tdirectory.setCreationTime function
 tdirectory.setCreationTime() {
     local path="$1"
-    local time="$2"
+    local time="${2:-}"
     tdirectory._touch_time "$path" "$time" "-m" false
 }
 
@@ -522,7 +531,7 @@ tdirectory.getCreationTimeUtc() {
 # Define tdirectory.setCreationTimeUtc function
 tdirectory.setCreationTimeUtc() {
     local path="$1"
-    local time="$2"
+    local time="${2:-}"
     tdirectory._touch_time "$path" "$time" "-m" true
 }
 
@@ -535,7 +544,7 @@ tdirectory.getLastAccessTime() {
 # Define tdirectory.setLastAccessTime function
 tdirectory.setLastAccessTime() {
     local path="$1"
-    local time="$2"
+    local time="${2:-}"
     tdirectory._touch_time "$path" "$time" "-a" false
 }
 
@@ -548,7 +557,7 @@ tdirectory.getLastAccessTimeUtc() {
 # Define tdirectory.setLastAccessTimeUtc function
 tdirectory.setLastAccessTimeUtc() {
     local path="$1"
-    local time="$2"
+    local time="${2:-}"
     tdirectory._touch_time "$path" "$time" "-a" true
 }
 
@@ -561,7 +570,7 @@ tdirectory.getLastWriteTime() {
 # Define tdirectory.setLastWriteTime function
 tdirectory.setLastWriteTime() {
     local path="$1"
-    local time="$2"
+    local time="${2:-}"
     tdirectory._touch_time "$path" "$time" "-m" false
 }
 
@@ -574,7 +583,7 @@ tdirectory.getLastWriteTimeUtc() {
 # Define tdirectory.setLastWriteTimeUtc function
 tdirectory.setLastWriteTimeUtc() {
     local path="$1"
-    local time="$2"
+    local time="${2:-}"
     tdirectory._touch_time "$path" "$time" "-m" true
 }
 

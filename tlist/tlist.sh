@@ -1,10 +1,16 @@
 #!/bin/bash
 
+# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
+# sourceable — and re-sourceable — from a script running `set -eu`, and building
+# the class a second time is pure waste.
+if [[ -n "${_TLIST_SOURCED:-}" ]]; then
+    return
+fi
+declare -g _TLIST_SOURCED=1
+
 # Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
 TLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TLIST_DIR/../../kklass/kklass_pascal.sh"
-source "$TLIST_DIR/../../kkore/klib.sh"
-source "$TLIST_DIR/../../kkore/kerr.sh"
 # TArray.sort/binarySearch — the delegation target for CustomSort here and for
 # TStringList.Sort (composition, exactly as FPC generics TList<T>.Sort delegates
 # to TArrayHelper.Sort(FItems, cmp, 0, Count)). Re-source-guarded + fork-free.
@@ -72,7 +78,9 @@ TList.Create() {
 }
 
 TList._setCapacity() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local new_capacity="$1"
+    kk.isInt "$new_capacity" new_capacity || return 1
     local items_var="${__inst__}_items"
     local current_count="$count"
     declare -n items_ref="$items_var"
@@ -89,7 +97,9 @@ TList._setCapacity() {
 }
 
 TList._setCount() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local new_count="$1"
+    kk.isInt "$new_count" new_count || return 1
     local items_var="${__inst__}_items"
     local current_count="$count"
     local current_capacity="$capacity"
@@ -108,7 +118,7 @@ TList._setCount() {
         local len=${#items_ref[@]}
         while (( len < new_count )); do
             items_ref[$len]=""
-            ((len++))
+            (( len += 1 )) || :
         done
     fi
     count="$new_count"
@@ -161,8 +171,10 @@ TList.Add() {
 }
 
 TList.Insert() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local index="$1"
-    local item="$2"
+    kk.isInt "$index" index || return 1
+    local item="${2:-}"
     local current_count=$count
     if (( index < 0 || index > current_count )); then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
@@ -184,7 +196,9 @@ TList.Insert() {
 }
 
 TList.Delete() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local index="$1"
+    kk.isInt "$index" index || return 1
     local current_count=$count
     if (( index < 0 || index >= current_count )); then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
@@ -204,7 +218,9 @@ TList.Delete() {
 
 TList.Exchange() {
     local index1="$1"
-    local index2="$2"
+    local index2="${2:-}"
+    kk.isInt "$index1" index1 || return 1
+    kk.isInt "$index2" index2 || return 1
     if (( index1 < 0 || index1 >= count || index2 < 0 || index2 >= count )); then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
         return 1
@@ -217,8 +233,11 @@ TList.Exchange() {
 }
 
 TList.Move() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local from_index="$1"
-    local to_index="$2"
+    local to_index="${2:-}"
+    kk.isInt "$from_index" from_index || return 1
+    kk.isInt "$to_index" to_index || return 1
     if (( from_index < 0 || from_index >= count || to_index < 0 || to_index >= count )); then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
         return 1
@@ -252,6 +271,7 @@ TList.Clear() {
 }
 
 TList.Pack() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local items_var="${__inst__}_items"
     declare -n items_ref="$items_var"
     local new_count=0
@@ -263,7 +283,7 @@ TList.Pack() {
         local item="${items_ref[$i]}"
         if [[ -n "$item" ]]; then
             items_ref[$write_index]="$item"
-            ((write_index++))
+            (( write_index += 1 )) || :
         fi
     done
 
@@ -308,6 +328,7 @@ TList.Get() {
     # this is meaningful here). Bounds are [0,count); out of range -> rc 1,
     # RESULT untouched. Same pattern as the already-real First/Last.
     local index="$1" current_count="$count"
+    kk.isInt "$index" index || return 1
     if (( index < 0 || index >= current_count )); then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
         return 1
@@ -320,6 +341,7 @@ TList.Get() {
 TList.Put() {
     # Real indexed write; bounds [0,count); out of range -> rc 1, no change.
     local index="$1" item="$2" current_count="$count"
+    kk.isInt "$index" index || return 1
     if (( index < 0 || index >= current_count )); then
         [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
         return 1
@@ -330,6 +352,7 @@ TList.Put() {
 }
 
 TList.IndexOf() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local item="$1"
     local items_var="${__inst__}_items"
     local current_count="$count"
@@ -345,6 +368,7 @@ TList.IndexOf() {
 }
 
 TList.Remove() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local item="$1"
     $this.IndexOf "$item" >/dev/null
     local index="$RESULT"
@@ -403,7 +427,9 @@ TList.Assign() {
 }
 
 TList.BatchInsert() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local index="$1"
+    kk.isInt "$index" index || return 1
     shift
     local items=("$@")
     local items_to_add=${#items[@]}
@@ -461,8 +487,11 @@ TList.BatchInsert() {
 }
 
 TList.BatchDelete() {
+    local i                     # X-LOCALS (G1-08): loop counter, never the caller's
     local index="$1"
-    local count_to_delete="$2"
+    local count_to_delete="${2:-}"
+    kk.isInt "$index" index || return 1
+    kk.isInt "$count_to_delete" count_to_delete || return 1
     local current_count=$count
 
     # Validate index

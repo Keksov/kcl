@@ -58,7 +58,7 @@
 # ===========================================================================
 
 # Re-source guard.
-if [[ -n "$_TQUEUESTACK_SOURCED" ]]; then
+if [[ -n "${_TQUEUESTACK_SOURCED:-}" ]]; then
     return
 fi
 declare -g _TQUEUESTACK_SOURCED=1

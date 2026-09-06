@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
+# sourceable — and re-sourceable — from a script running `set -eu`, and building
+# the class a second time is pure waste.
+if [[ -n "${_TCUSTOMAPPLICATION_SOURCED:-}" ]]; then
+    return
+fi
+declare -g _TCUSTOMAPPLICATION_SOURCED=1
+
 # Source kklass system (don't override SCRIPT_DIR)
 TCUSTOMAPPLICATION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TCUSTOMAPPLICATION_DIR/../../kklass/kklass_pascal.sh"
@@ -130,7 +138,7 @@ TCustomApplication.SetArgs() {
         local arg="${!i}"
         # Store arguments as-is, preserving their original form
         state["_TCUSTAPP_ARG_$arg_index"]="$arg"
-        ((arg_index++))
+        (( arg_index += 1 )) || :
     done
     state["_TCUSTAPP_ARGS_COUNT"]="$arg_index"
 
@@ -151,7 +159,7 @@ TCustomApplication._EnsureArgsInitialized() {
         local arg_index=0
         for arg in "$@"; do
             state["_TCUSTAPP_ARG_$arg_index"]="$arg"
-            ((arg_index++))
+            (( arg_index += 1 )) || :
         done
         state["_TCUSTAPP_ARGS_COUNT"]="$arg_index"
         state["_ArgsInitialized"]="true"
@@ -200,6 +208,8 @@ TCustomApplication.FindOptionIndex() {
     local short_opt="$1"
     local long_opt="${2:-}"
     local start_at="${3:--1}"
+    # TCA-05 (X-INJ, D1): start_at reaches `-ge` and the for-loop arithmetic.
+    kk.isInt "$start_at" start_at || return 1
 
     # Prepare arguments and common variables
     $this.call _PrepareArguments "$@"
@@ -282,7 +292,7 @@ TCustomApplication.GetOptionValues() {
         kk.call_silent "$this" _GetNextArgValue "$idx"
         if [[ $? -eq 0 ]]; then
             values[value_count]="$RESULT"
-            ((value_count++))
+            (( value_count += 1 )) || :
         fi
 
         i=$((idx + 1))
@@ -321,9 +331,9 @@ TCustomApplication._ValidateOption() {
     #        $4 = option prefix(es) (single char for short, double for long)
     # Output: found_opts array populated, or RESULT set and returns 1
     local option="$1"
-    local option_type="$2"
-    local allowed="$3"
-    local prefix="$4"
+    local option_type="${2:-}"
+    local allowed="${3:-}"
+    local prefix="${4:-}"
 
     if [[ "$option_type" == "short" ]]; then
         # Process short options: iterate through each character
@@ -365,7 +375,7 @@ TCustomApplication._ParseLongOpts() {
     # Input: $1 = should_fill_arrays flag, $2 = long_opts (string or ref name)
     # Output: long_opts_array populated
     local should_fill_arrays="$1"
-    local long_opts="$2"
+    local long_opts="${2:-}"
 
     long_opts_array=()
 
@@ -381,7 +391,7 @@ TCustomApplication._ParseLongOpts() {
 
 TCustomApplication.CheckOptions() {
     local short_opts="$1"
-    local long_opts="$2"
+    local long_opts="${2:-}"
     local opts_param="${3:-}"
     local non_opts_param="${4:-}"
     local all_errors="${5:-false}"
@@ -470,14 +480,14 @@ TCustomApplication.CheckOptions() {
 
 TCustomApplication.GetNonOptions() {
     local short_opts="$1"
-    local long_opts="$2"
+    local long_opts="${2:-}"
     local non_options_var="${3:-}"
 
     # Prepare arguments and common variables
     $this.call _PrepareArguments "$@"
 
     # Use CheckOptions to parse and extract non-options
-    local -a non_opts=()
+    local -a non_opts=() _dummy_opts=()   # X-LOCALS (TCA-14): was a global
     kk.call_silent "$this" CheckOptions "$short_opts" "$long_opts" "_dummy_opts" "non_opts"
 
     # Store results if variable provided
@@ -512,7 +522,7 @@ TCustomApplication.Run() {
 
 TCustomApplication.HandleException() {
     local sender="$1"
-    local exception_msg="$2"
+    local exception_msg="${2:-}"
 
     # If OnException handler is set, call it - using function call instead of eval
     if [[ -n "$OnException" ]]; then
@@ -549,21 +559,21 @@ TCustomApplication.GetEnvironmentList() {
         while IFS= read -r line; do
             local var_name="${line%%=*}"
             list_ref[$i]="$var_name"
-            ((i++))
+            (( i += 1 )) || :
         done < <(env | sort)
     else
         declare -n list_ref="$list_var" 2>/dev/null || return 0
         local i=0
         while IFS= read -r line; do
             list_ref[$i]="$line"
-            ((i++))
+            (( i += 1 )) || :
         done < <(env | sort)
     fi
 }
 
 TCustomApplication.Log() {
     local event_type="$1"
-    local msg="$2"
+    local msg="${2:-}"
     local arg1="${3:-}"
     local arg2="${4:-}"
 
@@ -614,10 +624,21 @@ TCustomApplication.Params() {
 }
 
 TCustomApplication.EnvironmentVariable() {
-    # Get environment variable value
-    local var_name="$1"
-    local var_value="${!var_name}"
-    RESULT="$var_value"
+    # Get environment variable value.
+    # TCA-05 (X-INJ): `${!var_name}` performs ARITHMETIC evaluation on an array
+    # subscript, so `EnvironmentVariable 'x[$(touch pwn)]'` ran the command; a
+    # name like 'not valid' printed a raw bash error with rc 0, and '@' returned
+    # the positional parameters. Only a plain identifier is a variable name.
+    local var_name="${1:-}"
+    case "$var_name" in
+        ""|*[!A-Za-z0-9_]*|[0-9]*)
+            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
+                printf '%s\n' "Error: EnvironmentVariable: '$var_name' is not a variable name" >&2
+            RESULT=""
+            return 1
+            ;;
+    esac
+    RESULT="${!var_name:-}"
 }
 
 build TCustomApplication

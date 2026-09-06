@@ -2,7 +2,7 @@
 
 # Re-source guard: constants below are readonly, and the class only needs to
 # be built once per process.
-if [[ -n "$_TPATH_SOURCED" ]]; then
+if [[ -n "${_TPATH_SOURCED:-}" ]]; then
     return
 fi
 declare -g _TPATH_SOURCED=1
@@ -109,23 +109,23 @@ end
 # ============================================================================
 
 tpath.getAltDirectorySeparatorChar() {
-    echo "$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR"
+    printf '%s\n' "$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR"
 }
 
 tpath.getDirectorySeparatorChar() {
-    echo "$__TPATH_DIRECTORY_SEPARATOR_CHAR"
+    printf '%s\n' "$__TPATH_DIRECTORY_SEPARATOR_CHAR"
 }
 
 tpath.getExtensionSeparatorChar() {
-    echo "$__TPATH_EXTENSION_SEPARATOR_CHAR"
+    printf '%s\n' "$__TPATH_EXTENSION_SEPARATOR_CHAR"
 }
 
 tpath.getPathSeparator() {
-    echo "$__TPATH_PATH_SEPARATOR"
+    printf '%s\n' "$__TPATH_PATH_SEPARATOR"
 }
 
 tpath.getVolumeSeparatorChar() {
-    echo "$__TPATH_VOLUME_SEPARATOR_CHAR"
+    printf '%s\n' "$__TPATH_VOLUME_SEPARATOR_CHAR"
 }
 
 # ============================================================================
@@ -134,21 +134,21 @@ tpath.getVolumeSeparatorChar() {
 
 tpath.combine() {
     local path1="$1"
-    local path2="$2"
+    local path2="${2:-}"
 
     if [[ "$path2" =~ ^[/\\\\] ]] || [[ "$path2" =~ ^[A-Za-z]: ]]; then
-        echo "$path2"
+        printf '%s\n' "$path2"
         return 0
     fi
 
     if [[ -z "$path1" ]]; then
-        echo "$path2"
+        printf '%s\n' "$path2"
     elif [[ -z "$path2" ]]; then
-        echo "$path1"
+        printf '%s\n' "$path1"
     else
         path1="${path1%$__TPATH_DIRECTORY_SEPARATOR_CHAR}"
         path1="${path1%$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR}"
-        echo "${path1}${__TPATH_DIRECTORY_SEPARATOR_CHAR}${path2}"
+        printf '%s\n' "${path1}${__TPATH_DIRECTORY_SEPARATOR_CHAR}${path2}"
     fi
 }
 
@@ -156,19 +156,19 @@ tpath.getFileName() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo ""
+        printf '%s\n' ""
         return 0
     fi
 
     local filename="${path##*[$__TPATH_DIRECTORY_SEPARATOR_CHAR$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR]}"
-    echo "$filename"
+    printf '%s\n' "$filename"
 }
 
 tpath.getDirectoryName() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo ""
+        printf '%s\n' ""
         return 0
     fi
 
@@ -183,9 +183,9 @@ tpath.getDirectoryName() {
     fi
 
     if [[ "$dir_path" == "$path" ]]; then
-        echo ""
+        printf '%s\n' ""
     else
-        echo "$dir_path"
+        printf '%s\n' "$dir_path"
     fi
 }
 
@@ -193,7 +193,7 @@ tpath.getExtension() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo ""
+        printf '%s\n' ""
         return 0
     fi
 
@@ -201,9 +201,9 @@ tpath.getExtension() {
     local extension="${filename##*.}"
 
     if [[ "$extension" == "$filename" ]]; then
-        echo ""
+        printf '%s\n' ""
     else
-        echo ".$extension"
+        printf '%s\n' ".$extension"
     fi
 }
 
@@ -211,7 +211,7 @@ tpath.getFileNameWithoutExtension() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo ""
+        printf '%s\n' ""
         return 0
     fi
 
@@ -219,20 +219,20 @@ tpath.getFileNameWithoutExtension() {
     filename="$(tpath.getFileName "$path")"
 
     if [[ -z "$filename" ]]; then
-        echo ""
+        printf '%s\n' ""
         return 0
     fi
 
     local name_without_ext="${filename%.*}"
-    echo "$name_without_ext"
+    printf '%s\n' "$name_without_ext"
 }
 
 tpath.changeExtension() {
     local path="$1"
-    local extension="$2"
+    local extension="${2:-}"
 
     if [[ -z "$path" ]]; then
-        echo ""
+        printf '%s\n' ""
         return 0
     fi
 
@@ -247,9 +247,9 @@ tpath.changeExtension() {
         if [[ "$extension" != .* ]]; then
             extension=".$extension"
         fi
-        echo "${base_path}${extension}"
+        printf '%s\n' "${base_path}${extension}"
     else
-        echo "$base_path"
+        printf '%s\n' "$base_path"
     fi
 }
 
@@ -257,7 +257,7 @@ tpath.hasExtension() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo "false"
+        printf '%s\n' "false"
         return 0
     fi
 
@@ -265,9 +265,9 @@ tpath.hasExtension() {
     filename="$(tpath.getFileName "$path")"
 
     if [[ "$filename" == *.* ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
@@ -279,42 +279,42 @@ tpath.getPathRoot() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo ""
+        printf '%s\n' ""
         return 0
     fi
 
     if [[ "$path" =~ ^[/\\\\][/\\\\] ]]; then
         local rest="${path#??}"
         local server_part="${rest%%[$__TPATH_DIRECTORY_SEPARATOR_CHAR$__TPATH_ALT_DIRECTORY_SEPARATOR_CHAR]*}"
-        echo "//$server_part"
+        printf '%s\n' "//$server_part"
         return 0
     fi
 
     if [[ "$path" =~ ^[A-Za-z]: ]]; then
-        echo "${path:0:2}"
+        printf '%s\n' "${path:0:2}"
         return 0
     fi
 
     if [[ "$path" =~ ^[/\\\\] ]]; then
-        echo "/"
+        printf '%s\n' "/"
         return 0
     fi
 
-    echo ""
+    printf '%s\n' ""
 }
 
 tpath.isPathRooted() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo "false"
+        printf '%s\n' "false"
         return 0
     fi
 
     if [[ "$path" =~ ^[/\\\\] ]] || [[ "$path" =~ ^[A-Za-z]: ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
@@ -322,7 +322,7 @@ tpath.isRelativePath() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo "true"
+        printf '%s\n' "true"
         return 0
     fi
 
@@ -330,9 +330,9 @@ tpath.isRelativePath() {
     rooted="$(tpath.isPathRooted "$path")"
 
     if [[ "$rooted" == "true" ]]; then
-        echo "false"
+        printf '%s\n' "false"
     else
-        echo "true"
+        printf '%s\n' "true"
     fi
 }
 
@@ -340,19 +340,19 @@ tpath.getFullPath() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo ""
+        printf '%s\n' ""
         return 0
     fi
 
     if command -v realpath >/dev/null 2>&1; then
-        realpath "$path" 2>/dev/null || echo "$path"
+        realpath "$path" 2>/dev/null || printf '%s\n' "$path"
     elif command -v readlink >/dev/null 2>&1; then
-        readlink -f "$path" 2>/dev/null || echo "$path"
+        readlink -f "$path" 2>/dev/null || printf '%s\n' "$path"
     else
         if [[ "$path" != /* ]]; then
-            echo "$(pwd)/$path"
+            printf '%s\n' "$(pwd)/$path"
         else
-            echo "$path"
+            printf '%s\n' "$path"
         fi
     fi
 }
@@ -365,14 +365,14 @@ tpath.isUNCPath() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo "false"
+        printf '%s\n' "false"
         return 0
     fi
 
     if [[ "$path" =~ ^[/\\\\][/\\\\] ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
@@ -385,14 +385,14 @@ tpath.isDriveRooted() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo "false"
+        printf '%s\n' "false"
         return 0
     fi
 
     if [[ "$path" =~ ^[A-Za-z]: ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
@@ -400,14 +400,14 @@ tpath.isExtendedPrefixed() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo "false"
+        printf '%s\n' "false"
         return 0
     fi
 
     if [[ "$path" =~ ^[/\\\\][/\\\\]\\? ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 }
 
@@ -415,20 +415,20 @@ tpath.driveExists() {
     local path="$1"
 
     if [[ -z "$path" ]]; then
-        echo "false"
+        printf '%s\n' "false"
         return 0
     fi
 
     case "$(uname -s)" in
         MINGW*|CYGWIN*|MSYS*)
             if [[ "$path" =~ ^[A-Za-z]: ]]; then
-                echo "true"
+                printf '%s\n' "true"
             else
-                echo "false"
+                printf '%s\n' "false"
             fi
             ;;
         *)
-            echo "false"
+            printf '%s\n' "false"
             ;;
     esac
 }
@@ -439,18 +439,18 @@ tpath.driveExists() {
 
 tpath.getTempPath() {
     if [[ -n "$TMPDIR" ]]; then
-        echo "$TMPDIR"
+        printf '%s\n' "$TMPDIR"
     elif [[ -n "$TEMP" ]]; then
-        echo "$TEMP"
+        printf '%s\n' "$TEMP"
     elif [[ -n "$TMP" ]]; then
-        echo "$TMP"
+        printf '%s\n' "$TMP"
     else
-        echo "/tmp"
+        printf '%s\n' "/tmp"
     fi
 }
 
 tpath.getHomePath() {
-    echo "$HOME"
+    printf '%s\n' "$HOME"
 }
 
 tpath.getDocumentsPath() {
@@ -459,13 +459,13 @@ tpath.getDocumentsPath() {
 
     case "$(uname -s)" in
         Darwin)
-            echo "$home/Documents"
+            printf '%s\n' "$home/Documents"
             ;;
         MINGW*|CYGWIN*|MSYS*)
-            echo "$home/Documents"
+            printf '%s\n' "$home/Documents"
             ;;
         *)
-            echo "$home/Documents"
+            printf '%s\n' "$home/Documents"
             ;;
     esac
 }
@@ -476,13 +476,13 @@ tpath.getDownloadsPath() {
 
     case "$(uname -s)" in
         Darwin)
-            echo "$home/Downloads"
+            printf '%s\n' "$home/Downloads"
             ;;
         MINGW*|CYGWIN*|MSYS*)
-            echo "$home/Downloads"
+            printf '%s\n' "$home/Downloads"
             ;;
         *)
-            echo "$home/Downloads"
+            printf '%s\n' "$home/Downloads"
             ;;
     esac
 }
@@ -505,7 +505,7 @@ tpath.getTempFileName() {
         touch "$temp_file" 2>/dev/null
     fi
 
-    echo "$temp_file"
+    printf '%s\n' "$temp_file"
 }
 
 tpath.getGUIDFileName() {
@@ -517,12 +517,12 @@ tpath.getGUIDFileName() {
         if [[ "$use_separator" == "false" ]]; then
             guid="${guid//-/}"
         fi
-        echo "$guid"
+        printf '%s\n' "$guid"
     else
         local timestamp
         timestamp="$(date +%s%N 2>/dev/null || date +%s)"
         local random_part
-        random_part="$(od -An -tx1 /dev/urandom 2>/dev/null | head -1 | tr -d ' ' || echo "random")"
+        random_part="$(od -An -tx1 /dev/urandom 2>/dev/null | head -1 | tr -d ' ' || printf '%s\n' "random")"
 
         if [[ "$use_separator" == "false" ]]; then
             printf "%x%s" "$timestamp" "$random_part"
@@ -551,16 +551,16 @@ tpath.isValidFileNameChar() {
     local char="$1"
 
     if [[ -z "$char" ]] || [[ ${#char} -ne 1 ]]; then
-        echo "false"
+        printf '%s\n' "false"
         return 0
     fi
 
     case "$char" in
         [[:cntrl:]] | "/" | "~")
-            echo "false"
+            printf '%s\n' "false"
             ;;
         *)
-            echo "true"
+            printf '%s\n' "true"
             ;;
     esac
 }
@@ -569,16 +569,16 @@ tpath.isValidPathChar() {
     local char="$1"
 
     if [[ -z "$char" ]] || [[ ${#char} -ne 1 ]]; then
-        echo "false"
+        printf '%s\n' "false"
         return 0
     fi
 
     case "$char" in
         [[:cntrl:]])
-            echo "false"
+            printf '%s\n' "false"
             ;;
         *)
-            echo "true"
+            printf '%s\n' "true"
             ;;
     esac
 }
@@ -588,7 +588,7 @@ tpath.hasValidFileNameChars() {
     local use_wildcards="${2:-false}"
 
     if [[ -z "$filename" ]]; then
-        echo "true"
+        printf '%s\n' "true"
         return 0
     fi
 
@@ -598,9 +598,9 @@ tpath.hasValidFileNameChars() {
     fi
 
     if [[ "$filename" =~ [$invalid_chars] ]]; then
-        echo "false"
+        printf '%s\n' "false"
     else
-        echo "true"
+        printf '%s\n' "true"
     fi
 }
 
@@ -609,7 +609,7 @@ tpath.hasValidPathChars() {
     local use_wildcards="${2:-false}"
 
     if [[ -z "$path" ]]; then
-        echo "true"
+        printf '%s\n' "true"
         return 0
     fi
 
@@ -619,19 +619,19 @@ tpath.hasValidPathChars() {
     fi
 
     if [[ "$path" =~ [$invalid_chars] ]]; then
-        echo "false"
+        printf '%s\n' "false"
     else
-        echo "true"
+        printf '%s\n' "true"
     fi
 }
 
 tpath.matchesPattern() {
     local filename="$1"
-    local pattern="$2"
+    local pattern="${2:-}"
     local case_sensitive="${3:-true}"
 
     if [[ -z "$filename" ]] || [[ -z "$pattern" ]]; then
-        echo "false"
+        printf '%s\n' "false"
         return 0
     fi
 
@@ -640,9 +640,9 @@ tpath.matchesPattern() {
     fi
 
     if [[ "$filename" == $pattern ]]; then
-        echo "true"
+        printf '%s\n' "true"
     else
-        echo "false"
+        printf '%s\n' "false"
     fi
 
     if [[ "$case_sensitive" == "false" ]]; then
@@ -659,7 +659,7 @@ tpath.getAttributes() {
     local follow_link="${2:-true}"
 
     if [[ -z "$path" ]]; then
-        echo ""
+        printf '%s\n' ""
         return 1
     fi
 
@@ -704,7 +704,7 @@ tpath.getAttributes() {
                 fi
             fi
 
-            echo "$attrs"
+            printf '%s\n' "$attrs"
         else
             return 1
         fi
@@ -718,7 +718,7 @@ tpath.getAttributes() {
                 attrs="faNormal"
             fi
 
-            echo "$attrs"
+            printf '%s\n' "$attrs"
         else
             return 1
         fi
