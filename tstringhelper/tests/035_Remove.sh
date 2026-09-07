@@ -102,3 +102,38 @@ if [[ "$result" == "h" ]]; then
 else
     kt_test_fail "Remove - keep only first (expected: 'h', got: '$result')"
 fi
+
+# --- P5: FPC Delete clamping (finding TSH-11) ------------------------------
+# FPC: Remove(I) = Remove(I, Length-I); Remove(I,C) = Delete(Result,I+1,C),
+# and Delete (rtl/inc/astrings.inc) does NOTHING when the 1-based index is
+# past the end or below 1, or when the count is <= 0.
+rm_is() {   # EXPECTED ARGS...
+    local want="$1"; shift
+    kt_test_start "remove $* -> '$want' [TSH-11]"
+    RESULT="__unset__"
+    string.remove "$@" >/dev/null 2>&1 || :
+    if [[ "$RESULT" == "$want" ]]; then
+        kt_test_pass "'$want'"
+    else
+        kt_test_fail "remove $* gave '$RESULT', expected '$want'"
+    fi
+}
+
+rm_is "hello" hello -1
+rm_is "hello" hello -1 3
+rm_is ""      hello 0
+rm_is "hello" hello 2 0
+rm_is "hello" hello 2 -3
+rm_is "hello" hello 5
+rm_is "hello" hello 6
+rm_is "hello" hello 99
+rm_is "he"    hello 2 99
+rm_is "hell"  hello 4 1
+
+kt_test_start "an empty startIndex is a rejected value, not 0 [TSH-11, D1]"
+rc=0; string.remove hello "" >/dev/null 2>&1 || rc=$?
+if (( rc == 1 )) && [[ -z "$RESULT" ]]; then
+    kt_test_pass "rc 1, RESULT empty"
+else
+    kt_test_fail "rc=$rc RESULT='$RESULT'"
+fi

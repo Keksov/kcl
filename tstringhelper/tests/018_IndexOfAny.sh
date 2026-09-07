@@ -67,13 +67,16 @@ else
     kt_test_fail "IndexOfAny - with start index (expected: 7, got: '$result')"
 fi
 
-# Test 7: With start index and count
+# Test 7: With start index and count.
+# P5: "10 or 13" accepted either answer. FPC scans I := StartIndex+1 through
+# L := I+ACount-1 (clamped to Length), i.e. 0-based 9..12 here, and the first
+# character of the set in that window is the 's' at 10.
 kt_test_start "IndexOfAny - start index and count"
 result=$(string.indexOfAny "This is a string" "is" 9 4)
-if [[ "$result" == "10" || "$result" == "13" ]]; then
+if [[ "$result" == "10" ]]; then
     kt_test_pass "IndexOfAny - start index and count"
 else
-    kt_test_fail "IndexOfAny - start index and count (expected: 10 or 13, got: '$result')"
+    kt_test_fail "IndexOfAny - start index and count (expected: 10, got: '$result')"
 fi
 
 # Test 8: Empty character array

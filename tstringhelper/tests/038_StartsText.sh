@@ -50,12 +50,12 @@ else
 fi
 
 # Test 5: Empty substring
-kt_test_start "StartsText - empty substring"
+kt_test_start "StartsText - empty substring is FALSE (TStringHelper rule)"
 result=$(string.startsText "" "hello")
-if [[ "$result" == "true" ]]; then
+if [[ "$result" == "false" ]]; then
     kt_test_pass "StartsText - empty substring"
 else
-    kt_test_fail "StartsText - empty substring (expected: true, got: '$result')"
+    kt_test_fail "StartsText - empty substring (expected: false, got: <$result>)"
 fi
 
 # Test 6: Empty text
@@ -68,12 +68,12 @@ else
 fi
 
 # Test 7: Both empty
-kt_test_start "StartsText - both empty"
+kt_test_start "StartsText - both empty is FALSE (TStringHelper rule)"
 result=$(string.startsText "" "")
-if [[ "$result" == "true" ]]; then
+if [[ "$result" == "false" ]]; then
     kt_test_pass "StartsText - both empty"
 else
-    kt_test_fail "StartsText - both empty (expected: true, got: '$result')"
+    kt_test_fail "StartsText - both empty (expected: false, got: <$result>)"
 fi
 
 # Test 8: Substring longer than text
@@ -102,3 +102,32 @@ if [[ "$result" == "true" ]]; then
 else
     kt_test_fail "StartsText - single character (expected: true, got: '$result')"
 fi
+
+# --- P5 review remark 2: the EndsText rule, applied to its sibling ---------
+# TStringHelper has no StartsText member at all (only the EndsText class
+# function), and StrUtils.AnsiStartsText answers TRUE for an empty subtext.
+# Since this unit ports TStringHelper, startsText follows its sibling
+# EndsText — an empty subtext is FALSE — so the two Text predicates agree.
+# StartsWith/EndsWith are TStringHelper members and keep their own rule
+# (`Result := L<=0`, i.e. an empty value is TRUE).
+bool_is() {   # TITLE EXPECTED-RC EXPECTED-RESULT MEMBER ARGS...
+    local title="$1" wantrc="$2" wantres="$3"; shift 3
+    kt_test_start "$title"
+    RESULT="__unset__"
+    local rc=0
+    "$@" >/dev/null 2>&1 || rc=$?
+    if (( rc == wantrc )) && [[ "$RESULT" == "$wantres" ]]; then
+        kt_test_pass "rc $rc / $RESULT"
+    else
+        kt_test_fail "$title: rc=$rc RESULT='$RESULT' (wanted rc $wantrc / '$wantres')"
+    fi
+}
+
+bool_is "an EMPTY subtext is false, like endsText [P5-F2]" \
+    1 false string.startsText "" "hello world"
+bool_is "an empty subtext against an empty text is false too [P5-F2]" \
+    1 false string.startsText "" ""
+bool_is "a non-empty subtext still matches case-insensitively [P5-F2]" \
+    0 true string.startsText "HELLO" "hello world"
+bool_is "an empty TEXT with a non-empty subtext is false [P5-F2]" \
+    1 false string.startsText "x" ""

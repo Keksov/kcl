@@ -57,3 +57,46 @@ if [[ "$result" == "" ]]; then
 else
     kt_test_fail "Empty string substring (expected: '', got: '$result')"
 fi
+
+# --- P5: FPC Copy clamping (finding TSH-11) --------------------------------
+# FPC: Substring(I) = Substring(I, Length-I); Substring(I,L) = Copy(Self,I+1,L),
+# and Copy (rtl/inc/astrings.inc, fpc_ansistr_copy) clamps like this:
+#     dec(index); if Index<0 then Index:=0;
+#     if (Size>Length(S)) or (Index+Size>Length(S)) then Size:=Length(S)-Index;
+#     if Size<=0 then Result:='';
+# so a negative start reads from the beginning, a negative length is empty and
+# a start past the end is empty. The old member handed the raw numbers to
+# ${s:i:n}, where a negative offset counts from the END of the string.
+sub_is() {   # EXPECTED ARGS...
+    local want="$1"; shift
+    kt_test_start "substring $* -> '$want' [TSH-11]"
+    RESULT="__unset__"
+    string.substring "$@" >/dev/null 2>&1 || :
+    if [[ "$RESULT" == "$want" ]]; then
+        kt_test_pass "'$want'"
+    else
+        kt_test_fail "substring $* gave '$RESULT', expected '$want'"
+    fi
+}
+
+sub_is "hello" hello -3
+sub_is "hello" hello -1
+sub_is ""      hello 1 -1
+sub_is ""      hello 0 -5
+sub_is ""      hello 10
+sub_is ""      hello 10 2
+sub_is ""      hello 5
+sub_is ""      hello 0 0
+sub_is "lo"    hello 3 10
+sub_is "hello" hello 0 99
+sub_is "ello"  hello 1
+sub_is "el"    hello 1 2
+sub_is "hel"   hello -2 3
+
+kt_test_start "an empty startIndex is a rejected value, not 0 [D1]"
+rc=0; string.substring hello "" >/dev/null 2>&1 || rc=$?
+if (( rc == 1 )) && [[ -z "$RESULT" ]]; then
+    kt_test_pass "rc 1, RESULT empty"
+else
+    kt_test_fail "rc=$rc RESULT='$RESULT'"
+fi

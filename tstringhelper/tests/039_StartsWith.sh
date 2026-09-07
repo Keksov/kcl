@@ -30,3 +30,24 @@ if [[ "$result" == "false" ]]; then
 else
     kt_test_fail "Does not start with (expected: false, got: '$result')"
 fi
+
+# --- P5 review remark 2: StartsWith keeps TStringHelper's own rule ---------
+# syshelp.inc: `L:=System.Length(AValue); Result:=L<=0;` — an EMPTY value is
+# TRUE, the opposite of startsText (test 038). Both rules are upstream's.
+kt_test_start "an empty value is TRUE for startsWith (TStringHelper) [P5-F2]"
+RESULT="__unset__"; rc=0
+string.startsWith "hello" "" >/dev/null 2>&1 || rc=$?
+if (( rc == 0 )) && [[ "$RESULT" == "true" ]]; then
+    kt_test_pass "rc 0 / true"
+else
+    kt_test_fail "rc=$rc RESULT='$RESULT'"
+fi
+
+kt_test_start "an empty value against an empty string is TRUE [P5-F2]"
+RESULT="__unset__"; rc=0
+string.startsWith "" "" >/dev/null 2>&1 || rc=$?
+if (( rc == 0 )) && [[ "$RESULT" == "true" ]]; then
+    kt_test_pass "rc 0 / true"
+else
+    kt_test_fail "rc=$rc RESULT='$RESULT'"
+fi

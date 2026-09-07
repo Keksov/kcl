@@ -1,6 +1,26 @@
 #!/bin/bash
-# LastIndexOfAny
-# Auto-migrated to ktests framework
+# 028_LastIndexOfAny.sh — rewritten in P5 for finding TSH-06.
+#
+# Two of the old assertions accepted either of two answers ("4 or 7",
+# "4 or -1"), which hid the same StartIndex/ACount arithmetic defect as in
+# lastIndexOf.
+#
+# FPC (rtl/objpas/sysutils/syshelp.inc, LastIndexOfAny(AnyOf, AStartIndex,
+# ACount)):
+#
+#     Result := AStartIndex+1;            // 1-based scan position
+#     Min := Result-ACount+1; if Min<1 then Min:=1;
+#     while (Result>=Min) and not HaveChar(Self[Result],AnyOf) do Dec(Result);
+#     if Result<Min then Result:=-1 else Result:=Result-1;
+#
+# so AStartIndex is the INCLUSIVE upper end of the window and ACount its
+# length. Defaults: AStartIndex = Length-1, ACount = Length. AnyOf is a SET of
+# characters; an empty set never matches.
+#
+# One documented deviation: FPC does not clamp the scan position to the end of
+# the string (Self[Result] past Length is undefined memory in Pascal); this
+# port clamps to the last character, so a StartIndex past the end behaves like
+# the last character rather than reading out of bounds.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -8,115 +28,69 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 
 kt_test_init "LastIndexOfAny" "$SCRIPT_DIR" "$@"
 
-# Source tstringhelper if needed
-TSTRINGHELPER_DIR="$SCRIPT_DIR/.."
-[[ -f "$TSTRINGHELPER_DIR/tstringhelper.sh" ]] && source "$TSTRINGHELPER_DIR/tstringhelper.sh"
+# A directory of our own: the ktests fixture temp dir is named after $0, which
+# is "bash" for every file the runner starts, and the runner runs files in
+# PARALLEL — a neighbour's teardown deletes it while we are using it, and a
+# redirect into a vanished directory means the member never runs at all
+# (kcl_ledger.json, found_in_P4/P4-F2).
+PRIVTMP="$SCRIPT_DIR/.tmp/$(basename "${BASH_SOURCE[0]}" .sh)"
+mkdir -p "$PRIVTMP"
 
+source "$SCRIPT_DIR/../tstringhelper.sh"
 
-# Test 1: Find last of matching characters
-kt_test_start "LastIndexOfAny - find last matching"
-result=$(string.lastIndexOfAny "hello world" "aeiou")
-if [[ "$result" == "7" ]]; then
-    kt_test_pass "LastIndexOfAny - find last matching"
+la_is() {   # EXPECTED ARGS...
+    local want="$1"; shift
+    kt_test_start "lastIndexOfAny $* -> $want [TSH-06]"
+    RESULT="__unset__"
+    string.lastIndexOfAny "$@" >/dev/null 2>&1 || :
+    if [[ "$RESULT" == "$want" ]]; then
+        kt_test_pass "$want"
+    else
+        kt_test_fail "lastIndexOfAny $* gave '$RESULT', expected '$want'"
+    fi
+}
+
+# --- defaults ---------------------------------------------------------------
+la_is 7  "hello world" "aeiou"
+la_is -1 "hello" "xyz"
+la_is 4  "hello" "o"
+la_is 5  "aabbcc" "bc"
+la_is 0  "hello" "h"
+la_is 7  "beautiful" "aeiou"
+la_is 4  "Hello" "aeiou"
+la_is 2  "aaa" "a"
+la_is -1 "hello" ""
+la_is -1 "" "a"
+
+# --- StartIndex is the inclusive upper end ----------------------------------
+la_is 4  "hello world" "aeiou" 5
+la_is 4  "hello world" "aeiou" 4
+la_is 1  "hello world" "aeiou" 3
+la_is 7  "hello world" "aeiou" 7
+la_is -1 "hello world" "aeiou" 0
+
+# --- ACount is the window length --------------------------------------------
+la_is 4  "hello world" "aeiou" 5 5
+la_is 4  "hello world" "aeiou" 5 2
+la_is -1 "hello world" "aeiou" 5 1
+la_is 7  "hello world" "aeiou" 8 2
+la_is -1 "hello world" "aeiou" 8 1
+la_is -1 "hello" "o" 4 0
+
+# --- a StartIndex past the end clamps to the last character (deviation) -----
+la_is 4  "hello" "o" 99 99
+la_is -1 "hello" "o" 99
+
+kt_test_start "a non-numeric StartIndex is rc 1 [D1]"
+rc=0; string.lastIndexOfAny "hello" "l" "abc" >/dev/null 2>&1 || rc=$?
+if (( rc == 1 )); then kt_test_pass "rc 1"; else kt_test_fail "rc=$rc"; fi
+
+kt_test_start "an injected ACount executes nothing [X-INJ]"
+canary="$PRIVTMP/pwn028"
+rm -f "$canary"
+string.lastIndexOfAny "hello" "l" 4 'a[$(touch '"$canary"')]' >/dev/null 2>&1 || :
+if [[ ! -e "$canary" ]]; then
+    kt_test_pass "no canary"
 else
-    kt_test_fail "LastIndexOfAny - find last matching (expected: 7, got: '$result')"
-fi
-
-# Test 2: No matching characters
-kt_test_start "LastIndexOfAny - no match"
-result=$(string.lastIndexOfAny "hello" "xyz")
-if [[ "$result" == "-1" ]]; then
-    kt_test_pass "LastIndexOfAny - no match"
-else
-    kt_test_fail "LastIndexOfAny - no match (expected: -1, got: '$result')"
-fi
-
-# Test 3: Single character array
-kt_test_start "LastIndexOfAny - single character"
-result=$(string.lastIndexOfAny "hello" "o")
-if [[ "$result" == "4" ]]; then
-    kt_test_pass "LastIndexOfAny - single character"
-else
-    kt_test_fail "LastIndexOfAny - single character (expected: 4, got: '$result')"
-fi
-
-# Test 4: Multiple matching characters
-kt_test_start "LastIndexOfAny - multiple matches"
-result=$(string.lastIndexOfAny "aabbcc" "bc")
-if [[ "$result" == "5" ]]; then
-    kt_test_pass "LastIndexOfAny - multiple matches"
-else
-    kt_test_fail "LastIndexOfAny - multiple matches (expected: 5, got: '$result')"
-fi
-
-# Test 5: Character at end
-kt_test_start "LastIndexOfAny - character at end"
-result=$(string.lastIndexOfAny "hello" "o")
-if [[ "$result" == "4" ]]; then
-    kt_test_pass "LastIndexOfAny - character at end"
-else
-    kt_test_fail "LastIndexOfAny - character at end (expected: 4, got: '$result')"
-fi
-
-# Test 6: Character at start
-kt_test_start "LastIndexOfAny - character at start"
-result=$(string.lastIndexOfAny "hello" "h")
-if [[ "$result" == "0" ]]; then
-    kt_test_pass "LastIndexOfAny - character at start"
-else
-    kt_test_fail "LastIndexOfAny - character at start (expected: 0, got: '$result')"
-fi
-
-# Test 7: With start index
-kt_test_start "LastIndexOfAny - with start index"
-result=$(string.lastIndexOfAny "hello world" "aeiou" 5)
-if [[ "$result" == "4" || "$result" == "7" ]]; then
-    kt_test_pass "LastIndexOfAny - with start index"
-else
-    kt_test_fail "LastIndexOfAny - with start index (expected: 4 or 7, got: '$result')"
-fi
-
-# Test 8: With start index and count
-kt_test_start "LastIndexOfAny - start and count"
-result=$(string.lastIndexOfAny "hello world" "aeiou" 5 5)
-if [[ "$result" == "4" || "$result" == "-1" ]]; then
-    kt_test_pass "LastIndexOfAny - start and count"
-else
-    kt_test_fail "LastIndexOfAny - start and count (expected: 4 or -1, got: '$result')"
-fi
-
-# Test 9: Vowels in string
-kt_test_start "LastIndexOfAny - vowels"
-result=$(string.lastIndexOfAny "beautiful" "aeiou")
-if [[ "$result" == "7" ]]; then
-    kt_test_pass "LastIndexOfAny - vowels"
-else
-    kt_test_fail "LastIndexOfAny - vowels (expected: 7, got: '$result')"
-fi
-
-# Test 10: Case sensitive
-kt_test_start "LastIndexOfAny - case sensitive"
-result=$(string.lastIndexOfAny "Hello" "aeiou")
-if [[ "$result" == "4" ]]; then
-    kt_test_pass "LastIndexOfAny - case sensitive"
-else
-    kt_test_fail "LastIndexOfAny - case sensitive (expected: -1, got: '$result')"
-fi
-
-# Test 11: Empty array
-kt_test_start "LastIndexOfAny - empty array"
-result=$(string.lastIndexOfAny "hello" "")
-if [[ "$result" == "-1" ]]; then
-    kt_test_pass "LastIndexOfAny - empty array"
-else
-    kt_test_fail "LastIndexOfAny - empty array (expected: -1, got: '$result')"
-fi
-
-# Test 12: All characters match
-kt_test_start "LastIndexOfAny - all match"
-result=$(string.lastIndexOfAny "aaa" "a")
-if [[ "$result" == "2" ]]; then
-    kt_test_pass "LastIndexOfAny - all match"
-else
-    kt_test_fail "LastIndexOfAny - all match (expected: 2, got: '$result')"
+    rm -f "$canary"; kt_test_fail "the injected command ran"
 fi

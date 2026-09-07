@@ -92,3 +92,28 @@ echo "--- S22 getHashCode locale-dependent"
 echo "hash 'aé' -> $(string.getHashCode 'aé'); C: $(LC_ALL=C string.getHashCode 'aé')"
 echo "--- S23 echo -n/-e data"
 echo "copy '-n' -> [$(string.copy -n)]; toUpper '-e' -> [$(string.toUpper -e)]; trim '-n' -> [$(string.trim ' -n ')]"
+
+# ---------------------------------------------------------------------------
+# P5 (2026-09-07): the API of `split` changed while closing TSH-03 — it now
+# fills a caller array by nameref and returns the count in RESULT, so the S3
+# block above (which uses the pre-P5 signature) prints nothing and answers
+# rc 2. The section below is the same evidence in the new shape; the original
+# lines are left untouched on purpose.
+# ---------------------------------------------------------------------------
+echo "--- S3b split output (P5 API: split STR SEP ARRAY [COUNT] [OPTIONS])"
+show() { local -a a=(); string.split "$1" "$2" a "${3:-0}" "${4:-None}"; printf "%-28s -> %s parts:" "split '$1' '$2'" "$RESULT"; local e; for e in "${a[@]}"; do printf " [%s]" "$e"; done; echo; }
+show 'a,b,c' ','
+show 'a b,c' ','
+show 'a,b,' ','
+show $'a,b\nc,d' ','
+show 'a, b' ', '
+show 'a,b,c,d' ',' 2
+show 'a,,c' ',' 0 ExcludeEmpty
+show 'a,b,' ',' 0 ExcludeLastEmpty
+echo "--- S24 (P5) direct calls are silent and answer in RESULT"
+out=$(string.trim '  hi  ' ; printf '|%s' "$RESULT")
+echo "trim direct: printed+RESULT = [$out]  (inside \$( ) the member prints the value once AND sets RESULT, so [hi|hi])"
+string.length abc; echo "length direct: RESULT=[$RESULT] (nothing printed above)"
+echo "--- S25 (P5) booleans answer with rc"
+if string.contains abc b; then echo "contains abc b: rc 0, RESULT=$RESULT"; fi
+string.contains abc z || echo "contains abc z: rc 1, RESULT=$RESULT"

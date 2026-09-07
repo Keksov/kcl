@@ -85,13 +85,18 @@ else
     kt_test_fail "IndexOf - with start index and count (expected: 10, got: '$result')"
 fi
 
-# Test 9: Empty string search
-kt_test_start "IndexOf - empty search string"
+# Test 9: Empty string search.
+# P5 / TSH-13: FPC 3.2 answers -1, not the StartIndex. IndexOf is
+# `Pos(AValue, Copy(Self,StartIndex+1,ACount)) - 1`, and FPC's Pos returns 0
+# for an empty substring (`if (Length(SubStr)>0) and ...`), so the result is
+# -1 and the `Result+StartIndex` correction is skipped. Returning StartIndex
+# is the Delphi/.NET answer; this file used to pin it (twice).
+kt_test_start "IndexOf - empty search string is -1 (FPC 3.2)"
 result=$(string.indexOf "hello" "")
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "-1" ]]; then
     kt_test_pass "IndexOf - empty search string"
 else
-    kt_test_fail "IndexOf - empty search string (expected: 0, got: '$result')"
+    kt_test_fail "IndexOf - empty search string (expected: -1, got: '$result')"
 fi
 
 # Test 10: Case sensitive search
@@ -121,13 +126,35 @@ else
     kt_test_fail "IndexOf - invalid start index (expected: -1, got: '$result')"
 fi
 
-# Test 13: Negative start index
-kt_test_start "IndexOf - negative start index"
-result=$(string.indexOf "hello world" "o" -3)
-if [[ "$result" == "4" ]]; then
+# Test 13: Negative start index — a rejected VALUE (P5 review remark 1).
+# FPC computes `S := Copy(Self,StartIndex+1,ACount); Result := Pos(V,S)-1;
+# if Result<>-1 then Result := Result+StartIndex`, so Copy clamps the window
+# to the start of the string while the correction still adds the RAW
+# StartIndex: `indexOf 'hello world' o -3` would be 4-3 = 1, and with an
+# explicit ACount the shift can even land on -1, i.e. "not found". That is
+# undefined-by-accident, not a semantic worth reproducing. A negative index or
+# count in the SEARCH family is a malformed value: rc 1 + RESULT='' (the same
+# class as the P1 index guards, kcl/README.md 1.2 and 1.5).
+# Where FPC actually DEFINES the clamping — substring/remove, i.e. Copy and
+# Delete — the clamping is kept (tests 040 and 035).
+kt_test_start "IndexOf - a negative start index is rc 1, RESULT empty"
+RESULT="__unset__"
+rc=0
+string.indexOf "hello world" "o" -3 >/dev/null 2>&1 || rc=$?
+if (( rc == 1 )) && [[ -z "$RESULT" ]]; then
     kt_test_pass "IndexOf - negative start index"
 else
-    kt_test_fail "IndexOf - negative start index (expected: 4, got: '$result')"
+    kt_test_fail "IndexOf - negative start index (rc=$rc RESULT='$RESULT')"
+fi
+
+kt_test_start "IndexOf - a negative count is rc 1, RESULT empty"
+RESULT="__unset__"
+rc=0
+string.indexOf "hello world" "o" 0 -3 >/dev/null 2>&1 || rc=$?
+if (( rc == 1 )) && [[ -z "$RESULT" ]]; then
+    kt_test_pass "IndexOf - negative count"
+else
+    kt_test_fail "IndexOf - negative count (rc=$rc RESULT='$RESULT')"
 fi
 
 # Test 14: Unicode character search
@@ -157,13 +184,14 @@ else
     kt_test_fail "IndexOf - special characters (expected: 5, got: '$result')"
 fi
 
-# Test 17: Null/empty search string edge case
+# Test 17: Null/empty search string edge case, with an explicit StartIndex —
+# still -1, i.e. the StartIndex correction is not applied (TSH-13).
 kt_test_start "IndexOf - null search string handling"
-result=$(string.indexOf "hello" "")
-if [[ "$result" == "0" ]]; then
+result=$(string.indexOf "hello" "" 3)
+if [[ "$result" == "-1" ]]; then
     kt_test_pass "IndexOf - null search string handling"
 else
-    kt_test_fail "IndexOf - null search string handling (expected: 0, got: '$result')"
+    kt_test_fail "IndexOf - null search string handling (expected: -1, got: '$result')"
 fi
 
 # Test 18: Very long string search

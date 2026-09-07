@@ -40,22 +40,25 @@ else
     kt_test_fail "Parse - negative integer (expected: '-123', got: '$result')"
 fi
 
-# Test 4: Parse boolean true
+# Test 4 and 5: Parse of a boolean token.
+# P5: both assertions used to accept either of two answers. `parse` is the
+# identity in this port (see the README: FPC's Parse overloads convert a
+# Pascal Boolean/Integer/Extended to its string form, and in bash the argument
+# is ALREADY that string), so the answer is exactly what was passed in.
 kt_test_start "Parse - boolean true"
 result=$(string.parse "true")
-if [[ "$result" == "true" || "$result" == "True" ]]; then
+if [[ "$result" == "true" ]]; then
     kt_test_pass "Parse - boolean true"
 else
-    kt_test_fail "Parse - boolean true (expected: 'true' or 'True', got: '$result')"
+    kt_test_fail "Parse - boolean true (expected: 'true', got: '$result')"
 fi
 
-# Test 5: Parse boolean false
 kt_test_start "Parse - boolean false"
 result=$(string.parse "false")
-if [[ "$result" == "false" || "$result" == "False" ]]; then
+if [[ "$result" == "false" ]]; then
     kt_test_pass "Parse - boolean false"
 else
-    kt_test_fail "Parse - boolean false (expected: 'false' or 'False', got: '$result')"
+    kt_test_fail "Parse - boolean false (expected: 'false', got: '$result')"
 fi
 
 # Test 6: Parse floating point
@@ -70,10 +73,10 @@ fi
 # Test 7: Parse scientific notation
 kt_test_start "Parse - scientific notation"
 result=$(string.parse 1.23e-4)
-if [[ "$result" == *"1.23"* ]]; then
+if [[ "$result" == "1.23e-4" ]]; then
     kt_test_pass "Parse - scientific notation"
 else
-    kt_test_fail "Parse - scientific notation (expected: contains '1.23', got: '$result')"
+    kt_test_fail "Parse - scientific notation (expected: '1.23e-4', got: '$result')"
 fi
 
 # Test 8: Parse large integer

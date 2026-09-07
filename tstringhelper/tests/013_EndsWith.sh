@@ -102,3 +102,25 @@ if [[ "$result" == "true" ]]; then
 else
     kt_test_fail "EndsWith - special characters (expected: true, got: '$result')"
 fi
+
+# --- P5 review remark 2: EndsWith keeps TStringHelper's own rule -----------
+# syshelp.inc: `L:=system.Length(AValue); Result:=L=0;` — an EMPTY value is
+# TRUE here, the opposite of EndsText (test 012). Both are TStringHelper's,
+# and the asymmetry is upstream's, so both are pinned.
+kt_test_start "an empty value is TRUE for endsWith (TStringHelper) [P5-F2]"
+RESULT="__unset__"; rc=0
+string.endsWith "hello" "" >/dev/null 2>&1 || rc=$?
+if (( rc == 0 )) && [[ "$RESULT" == "true" ]]; then
+    kt_test_pass "rc 0 / true"
+else
+    kt_test_fail "rc=$rc RESULT='$RESULT'"
+fi
+
+kt_test_start "an empty value against an empty string is TRUE [P5-F2]"
+RESULT="__unset__"; rc=0
+string.endsWith "" "" >/dev/null 2>&1 || rc=$?
+if (( rc == 0 )) && [[ "$RESULT" == "true" ]]; then
+    kt_test_pass "rc 0 / true"
+else
+    kt_test_fail "rc=$rc RESULT='$RESULT'"
+fi

@@ -200,20 +200,25 @@ string1=$'line1
 line2'
 string2=$'line3
 line4'
-result=$(string.join "," "$string1" "$string2")
-if [[ "$result" == *$'\nline2'* && "$result" == *$'\nline4'* ]]; then
+# P5: was two substring containment checks; the whole answer is knowable.
+string.join "," "$string1" "$string2" >/dev/null 2>&1 || :
+result="$RESULT"
+if [[ "$result" == $'line1\nline2,line3\nline4' ]]; then
     kt_test_pass "Join - newline characters"
 else
-    kt_test_fail "Join - newline characters (expected: newlines preserved, got: '$result')"
+    kt_test_fail "Join - newline characters (expected 'line1\\nline2,line3\\nline4', got: $(printf '%q' "$result"))"
 fi
 
 # Test 22: Tab characters
 kt_test_start "Join - tab characters"
-result=$(string.join "," "field1	" "	 field2" "	")
-if [[ "$result" == *"field1	"* && "$result" == *"	 field2"* ]]; then
+# P5: was two substring containment checks; the whole answer is knowable, and
+# a direct call keeps the trailing tab that `$( )` would strip.
+string.join "," "field1	" "	 field2" "	" >/dev/null 2>&1 || :
+result="$RESULT"
+if [[ "$result" == $'field1\t,\t field2,\t' ]]; then
     kt_test_pass "Join - tab characters"
 else
-    kt_test_fail "Join - tab characters (expected: tabs preserved, got: '$result')"
+    kt_test_fail "Join - tab characters (expected 'field1<TAB>,<TAB> field2,<TAB>', got: $(printf '%q' "$result"))"
 fi
 
 # Test 23: Leading/trailing spaces in separator

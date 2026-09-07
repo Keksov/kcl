@@ -1,3 +1,21 @@
+> **Upstream reference, ported: all 57 members** — every member described below
+> exists in `kcl/tstringhelper/tstringhelper.sh` and is exercised by
+> `kcl/tstringhelper/tests/`. This page is a scrape of the **Embarcadero
+> (Delphi) DocWiki**, kept as reference material; the port follows **FPC 3.2.2**
+> where the two disagree, and `../README.md` is the normative API and contract
+> for this unit. The differences worth knowing before you read on:
+>
+> * indexing is 0-based over **characters**, and the unit requires a UTF-8
+>   locale to make that true (`kcl/README.md` 1.6);
+> * a member returns through `RESULT` and prints nothing on a direct call;
+>   predicates answer with their exit status (`kcl/README.md` 1.1-1.3);
+> * `Replace(Old,New)` without a flag argument replaces **all** occurrences
+>   (FPC), `IndexOf('')` is **-1** (FPC 3.2, Delphi returns StartIndex), and
+>   `ToBoolean` follows FPC's `TryStrToBool`;
+> * `Split` and `ToCharArray` write into a caller array by name and return the
+>   count in `RESULT`, `Format` is bash `printf` and not Pascal `Format`, and
+>   `Parse` is the identity — see "Differences from FPC" in `../README.md`.
+
 # TStringHelper Properties (System.SysUtils.TStringHelper)
 
 Automatically extracted from [Embarcadero DocWiki](https://docwiki.embarcadero.com/Libraries/Sydney/en/System.SysUtils.TStringHelper_Properties).
