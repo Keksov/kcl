@@ -55,13 +55,13 @@ myapp.delete
 kt_test_start "FindOptionIndex recognizes + as option prefix"
 TCustomApplication.new myapp
 myapp.property OptionChar = "+"
-myapp.SetArgs -- +v file.txt ++verbose
-myapp.FindOptionIndex "v" "" 0
+myapp.SetArgs +v file.txt ++verbose
+myapp.FindOptionIndex "v" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "FindOptionIndex works with + prefix"
 else
-    kt_test_fail "FindOptionIndex with + failed: $result (expected 0)"
+    kt_test_fail "FindOptionIndex with + failed: $result (expected 1)"
 fi
 myapp.delete
 
@@ -69,13 +69,13 @@ myapp.delete
 kt_test_start "FindOptionIndex recognizes / as option prefix"
 TCustomApplication.new myapp
 myapp.property OptionChar = "/"
-myapp.SetArgs -- /v file.txt //verbose
-myapp.FindOptionIndex "v" "" 0
+myapp.SetArgs /v file.txt //verbose
+myapp.FindOptionIndex "v" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "FindOptionIndex works with / prefix"
 else
-    kt_test_fail "FindOptionIndex with / failed: $result (expected 0)"
+    kt_test_fail "FindOptionIndex with / failed: $result (expected 1)"
 fi
 myapp.delete
 
@@ -83,7 +83,7 @@ myapp.delete
 kt_test_start "GetOptionValue with + as OptionChar"
 TCustomApplication.new myapp
 myapp.property OptionChar = "+"
-myapp.SetArgs -- +c config.ini file.txt
+myapp.SetArgs +c config.ini file.txt
 myapp.GetOptionValue "c" ""
 value=$RESULT
 if [[ "$value" == "config.ini" ]]; then
@@ -97,7 +97,7 @@ myapp.delete
 kt_test_start "HasOption with / as OptionChar"
 TCustomApplication.new myapp
 myapp.property OptionChar = "/"
-myapp.SetArgs -- /h file.txt
+myapp.SetArgs /h file.txt
 myapp.HasOption "h" ""
 result=$RESULT
 if [[ "$result" == "true" ]]; then
@@ -111,14 +111,14 @@ myapp.delete
 kt_test_start "Long options with ++ prefix"
 TCustomApplication.new myapp
 myapp.property OptionChar = "+"
-myapp.SetArgs -- file.txt ++verbose data.txt
+myapp.SetArgs file.txt ++verbose data.txt
 # Arguments: 0=file.txt, 1=++verbose, 2=data.txt
-myapp.FindOptionIndex "" "verbose" 0
+myapp.FindOptionIndex "" "verbose"
 result=$RESULT
-if [[ "$result" == "1" ]]; then
+if [[ "$result" == "2" ]]; then
     kt_test_pass "Long options work with ++ prefix"
 else
-    kt_test_fail "Long options with ++ failed: $result (expected 1)"
+    kt_test_fail "Long options with ++ failed: $result (expected 2)"
 fi
 myapp.delete
 
@@ -126,7 +126,7 @@ myapp.delete
 kt_test_start "CheckOptions validates options with custom OptionChar"
 TCustomApplication.new myapp
 myapp.property OptionChar = "+"
-myapp.SetArgs -- +h +v file.txt
+myapp.SetArgs +h +v file.txt
 myapp.CheckOptions "hv" ""
 error_msg=$RESULT
 if [[ -z "$error_msg" ]]; then
@@ -140,7 +140,7 @@ myapp.delete
 kt_test_start "GetNonOptions with custom OptionChar"
 TCustomApplication.new myapp
 myapp.property OptionChar = "+"
-myapp.SetArgs -- +v file1.txt file2.txt +h
+myapp.SetArgs +v file1.txt file2.txt +h
 myapp.GetNonOptions "vh" ""
 result=$RESULT
 # Should find file1.txt and file2.txt as non-options
@@ -155,8 +155,8 @@ myapp.delete
 kt_test_start "OptionChar change doesn't affect dash-prefixed args"
 TCustomApplication.new myapp
 myapp.property OptionChar = "/"
-myapp.SetArgs -- -v file.txt  # Using - but app expects /
-myapp.FindOptionIndex "v" "" 0
+myapp.SetArgs -v file.txt  # Using - but app expects /
+myapp.FindOptionIndex "v" ""
 result=$RESULT
 if [[ "$result" == "-1" ]]; then
     kt_test_pass "Changed OptionChar correctly ignores different prefix"
@@ -169,13 +169,33 @@ myapp.delete
 kt_test_start "GetOptionValues with + as OptionChar"
 TCustomApplication.new myapp
 myapp.property OptionChar = "+"
-myapp.SetArgs -- +f file1 +f file2 +f file3
-myapp.GetOptionValues "f" ""
+myapp.SetArgs +f file1 +f file2 +f file3
+declare -a oc_vals=()
+myapp.GetOptionValues "f" "" oc_vals
 result=$RESULT
-if [[ "$result" == "3:"* ]]; then
+# FPC GetOptionAtIndex compares the next argument's first character with
+# OptionChar, so a '+' prefix is honoured there too (the report's A15 note that
+# FPC hard-codes '-' is wrong: custapp.pp uses the OptionChar property).
+if [[ "$result" == "3" && "${oc_vals[*]}" == "file3 file2 file1" ]]; then
     kt_test_pass "GetOptionValues works with custom OptionChar"
 else
-    kt_test_fail "GetOptionValues with custom OptionChar failed: $result (expected 3)"
+    kt_test_fail "GetOptionValues with custom OptionChar failed: $result (${oc_vals[*]:-})"
+fi
+myapp.delete
+
+kt_test_start "a value starting with the custom OptionChar is not a value"
+TCustomApplication.new myapp
+myapp.property OptionChar = "+"
+myapp.SetArgs +c +v
+myapp.GetOptionValue "c" ""
+plus_value=$RESULT
+myapp.SetArgs +c -v
+myapp.GetOptionValue "c" ""
+dash_value=$RESULT
+if [[ -z "$plus_value" && "$dash_value" == "-v" ]]; then
+    kt_test_pass "GetOptionAtIndex compares against OptionChar, not a hard-coded '-'"
+else
+    kt_test_fail "OptionChar in GetOptionAtIndex: '+c +v'='$plus_value' (expected empty), '+c -v'='$dash_value' (expected -v)"
 fi
 myapp.delete
 
@@ -183,13 +203,15 @@ myapp.delete
 kt_test_start "Long options with = and custom OptionChar"
 TCustomApplication.new myapp
 myapp.property OptionChar = "+"
-myapp.SetArgs -- ++config=value.conf
-myapp.FindOptionIndex "" "config=value.conf" 0
+myapp.SetArgs ++config=value.conf
+myapp.FindOptionIndex "" "config"
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+myapp.GetOptionValue "" "config"
+value=$RESULT
+if [[ "$result" == "1" && "$value" == "value.conf" ]]; then
     kt_test_pass "Long option with = works with custom OptionChar"
 else
-    kt_test_fail "Long option with custom OptionChar and = failed: $result"
+    kt_test_fail "Long option with custom OptionChar and =: index=$result (expected 1), value='$value' (expected value.conf)"
 fi
 myapp.delete
 

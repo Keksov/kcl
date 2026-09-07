@@ -1,3 +1,43 @@
+# TCustomApplication (FCL CustApp)
+
+> **Upstream reference, not the port's API.** This file is an automatic dump of
+> the Free Pascal documentation for `CustApp.TCustomApplication`. What
+> `kcl/tcustomapplication` actually implements — and how its arguments are
+> shaped in bash — is in **[../README.md](../README.md)**; this table is the map
+> between the two (review 2026-09-06, decision D4, phase P4).
+>
+> Ported from FPC 3.2.2 `packages/fcl-base/src/custapp.pp`; the option parser is
+> a line-by-line port of that file.
+>
+> | Upstream member | kcl/tcustomapplication |
+> |---|---|
+> | `Create`, `Destroy` | `TCustomApplication.new app [ARG…]` / `app.delete`. The constructor's arguments are the application's argv, as `Create "$@"` |
+> | `Initialize` | `app.Initialize` — sets `Terminated` false. The FPC single-instance machinery (`SingleInstance*`) is **not ported** |
+> | `Run` | `app.Run` — `repeat DoRun until Terminated`, in-process, no forks. A non-zero status from `DoRun` is what `HandleException` is given (bash has no exceptions) |
+> | `DoRun` | `app.DoRun` — override it in a descendant. The base class **terminates**; FPC's is empty, which would make `Run` spin forever |
+> | `Terminate`, `Terminate(AExitCode)` | `app.Terminate [CODE]` — sets `Terminated` and the plain (non-exported) global `EXITCODE` |
+> | `HandleException(Sender)` | `app.HandleException SENDER [MESSAGE]` — bash carries the message, not an exception object; `OnException` must name a shell **function** |
+> | `ShowException(E)` | `app.ShowException MESSAGE` — `Exception: MESSAGE` on stderr |
+> | `FindOptionIndex(S, var LongOpt, StartAt)` | `app.FindOptionIndex SHORT LONG [STARTAT]` — the two names of FPC's two calls in one member; `RESULT` is the 1-based `ParamStr` index or `-1`. Scans **downward**: the last occurrence wins |
+> | `GetOptionAtIndex` (protected) | `app.GetOptionAtIndex INDEX ISLONG` — public here, because the merged signature above hides which name matched |
+> | `GetOptionValue(S)`, `GetOptionValue(C,S)` | `app.GetOptionValue SHORT LONG` — an empty name means "not given". A long option has a value only as `--name=value` |
+> | `GetOptionValues(C,S)` | `app.GetOptionValues SHORT LONG [ARRAY]` — count in `RESULT`, values in the named array, in FPC's order (last occurrence first) |
+> | `HasOption(S)`, `HasOption(C,S)` | `app.HasOption SHORT LONG` — the answer is the **exit status**; `true`/`false` is also left in `RESULT` |
+> | `CheckOptions` (five overloads) | `app.CheckOptions SHORT LONG [OPTS\|ALLERRORS] [NONOPTS] [ALLERRORS]`. `LONG` is either the name of an array or a separated string — FPC's `TStrings`/`array of string`/`String` overloads. Error texts are FPC's `SErrInvalidOption` / `SErrNoOptionAllowed` / `SErrOptionNeeded` verbatim |
+> | `GetNonOptions` (function and procedure) | `app.GetNonOptions SHORT LONG [ARRAY]` — count in `RESULT`; where FPC raises `EListError` this returns **rc 1** with the array untouched |
+> | `GetEnvironmentList(List[,NamesOnly])` | `app.GetEnvironmentList ARRAY [NAMESONLY]` — built from `compgen -e`, so a value containing a newline stays one entry |
+> | `Log(EventType,Msg)`, `Log(EventType,Fmt,Args)` | `app.Log TYPE FMT [ARG…]` — formatted with `printf -v`, filtered by `EventLogFilter` (exact membership), written to **stderr**. FPC's `DoLog` is empty |
+> | `ExeName`, `Location` | `app.ExeName` = `$0`; `app.Location` = its directory, **without** the trailing separator `ExtractFilePath` would keep |
+> | `Params[Index]`, `ParamCount` | `app.Params INDEX` / `app.ParamCount` over the stored argv: `Params[0]` is `ExeName`, `Params[1..ParamCount]` the arguments |
+> | `EnvironmentVariable[Name]` | `app.EnvironmentVariable NAME` — `NAME` must be a plain identifier (rc 1 otherwise) |
+> | `Title`, `HelpFile`, `Terminated`, `OptionChar`, `CaseSensitiveOptions`, `StopOnException`, `ExceptionExitCode`, `OnException`, `EventLogFilter` | stored properties, same names. Defaults differ: `StopOnException` is `true`, `ExceptionExitCode` `1`, `Title` `Application` |
+> | `ConsoleApplication` | `app.ConsoleApplication` — always `true` |
+> | `SingleInstance`, `SingleInstanceClass`, `SingleInstanceEnabled` | **not ported** — they need FPC's `singleinstance` unit and an OS mutex |
+> | `GetTitle`, `SetTitle`, `GetParams`, `GetParamCount`, `DoLog`, `GetConsoleApplication` | internal FPC accessors; the port has the properties and members above instead |
+>
+> bash-only member with no FPC counterpart: `app.SetArgs ARG…` (FPC reads the
+> real process command line) and its alias `app._GetArgs`.
+
 Automatically extracted from [freepascal.org](https://www.freepascal.org/docs-html/fcl/custapp/tcustomapplication.html).
 
 ## Methods

@@ -43,7 +43,7 @@ kt_test_section "012: TCustomApplication GetNonOptions Procedure Overload"
 kt_test_start "GetNonOptions procedure with basic options"
 TCustomApplication.new myapp
 declare -a non_options_list
-myapp.SetArgs -- -h file1.txt --help file2.txt --version
+myapp.SetArgs -h file1.txt --help file2.txt --version
 myapp.GetNonOptions "h" "help version" non_options_list
 result=$RESULT
 if [[ "$result" == "2" ]]; then
@@ -57,13 +57,14 @@ myapp.delete
 kt_test_start "GetNonOptions procedure with required value options"
 TCustomApplication.new myapp
 declare -a non_options_req
-myapp.SetArgs -- -h help.txt -v version.txt tail.txt
+myapp.SetArgs -h help.txt -v version.txt tail.txt
 myapp.GetNonOptions "h:v:" "help version" non_options_req
 result=$RESULT
-if [[ "$result" == "3" ]]; then
-    expect_array "GetNonOptions procedure with required value options" non_options_req "help.txt" "version.txt" "tail.txt"
+# help.txt and version.txt are the values of -h and -v and are consumed (TCA-02).
+if [[ "$result" == "1" ]]; then
+    expect_array "GetNonOptions procedure with required value options" non_options_req "tail.txt"
 else
-    kt_test_fail "GetNonOptions procedure with required value options count mismatch: $result"
+    kt_test_fail "GetNonOptions procedure with required value options count mismatch: $result (expected 1)"
 fi
 myapp.delete
 
@@ -71,11 +72,12 @@ myapp.delete
 kt_test_start "GetNonOptions procedure with optional value options"
 TCustomApplication.new myapp
 declare -a non_options_opt
-myapp.SetArgs -- -h -v maybe.txt tail.txt
+myapp.SetArgs -h -v maybe.txt tail.txt
 myapp.GetNonOptions "h::v::" "help version" non_options_opt
 result=$RESULT
-if [[ "$result" == "2" ]]; then
-    expect_array "GetNonOptions procedure with optional value options" non_options_opt "maybe.txt" "tail.txt"
+# -h gets no value (the next argument is an option), -v takes maybe.txt (TCA-02).
+if [[ "$result" == "1" ]]; then
+    expect_array "GetNonOptions procedure with optional value options" non_options_opt "tail.txt"
 else
     kt_test_fail "GetNonOptions procedure with optional value options count mismatch: $result"
 fi
@@ -85,7 +87,7 @@ myapp.delete
 kt_test_start "GetNonOptions procedure with complex option string"
 TCustomApplication.new myapp
 declare -a non_options_complex
-myapp.SetArgs -- -a alpha.txt --alpha beta.txt -d delta.txt gamma.txt
+myapp.SetArgs -a alpha.txt --alpha beta.txt -d delta.txt gamma.txt
 myapp.GetNonOptions "abc:def::ghi" "alpha beta gamma" non_options_complex
 result=$RESULT
 if [[ "$result" == "4" ]]; then
@@ -99,7 +101,7 @@ myapp.delete
 kt_test_start "GetNonOptions procedure with empty short options"
 TCustomApplication.new myapp
 declare -a non_options_empty_short
-myapp.SetArgs -- --help file1.txt --version file2.txt
+myapp.SetArgs --help file1.txt --version file2.txt
 myapp.GetNonOptions "" "help version" non_options_empty_short
 result=$RESULT
 if [[ "$result" == "2" ]]; then
@@ -113,7 +115,7 @@ myapp.delete
 kt_test_start "GetNonOptions procedure with empty long options"
 TCustomApplication.new myapp
 declare -a non_options_empty_long
-myapp.SetArgs -- -h file1.txt file2.txt
+myapp.SetArgs -h file1.txt file2.txt
 myapp.GetNonOptions "h" "" non_options_empty_long
 result=$RESULT
 if [[ "$result" == "2" ]]; then
@@ -127,7 +129,7 @@ myapp.delete
 kt_test_start "GetNonOptions procedure with both empty"
 TCustomApplication.new myapp
 declare -a non_options_both_empty
-myapp.SetArgs -- file1.txt file2.txt
+myapp.SetArgs file1.txt file2.txt
 myapp.GetNonOptions "" "" non_options_both_empty
 result=$RESULT
 if [[ "$result" == "2" ]]; then
@@ -142,10 +144,10 @@ kt_test_start "GetNonOptions procedure multiple calls"
 TCustomApplication.new myapp
 declare -a non_options1
 declare -a non_options2
-myapp.SetArgs -- -h first.txt
+myapp.SetArgs -h first.txt
 myapp.GetNonOptions "h" "help" non_options1
 first_result=$RESULT
-myapp.SetArgs -- -v second.txt
+myapp.SetArgs -v second.txt
 myapp.GetNonOptions "v" "version" non_options2
 second_result=$RESULT
 if [[ "$first_result" == "1" && "$second_result" == "1" && "${non_options1[0]}" == "first.txt" && "${non_options2[0]}" == "second.txt" ]]; then
@@ -159,7 +161,7 @@ myapp.delete
 kt_test_start "GetNonOptions procedure with case sensitivity"
 TCustomApplication.new myapp
 declare -a non_options_case
-myapp.SetArgs -- -H upper.txt --HELP long.txt
+myapp.SetArgs -H upper.txt --HELP long.txt
 myapp.GetNonOptions "H" "HELP" non_options_case
 result=$RESULT
 if [[ "$result" == "2" ]]; then

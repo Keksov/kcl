@@ -19,65 +19,71 @@ kt_test_section "018: TCustomApplication Security Tests"
 # Test 1: Shell injection attempts
 kt_test_start "Shell injection attempts are safely stored"
 TCustomApplication.new security_test1
-security_test1.SetArgs -- -v '$(whoami)' '`id`' '; rm -rf /tmp/malicious' '|| malicious'
-security_test1.FindOptionIndex "v" "" 0
+security_test1.SetArgs -v '$(whoami)' '`id`' '; rm -rf /tmp/malicious' '|| malicious'
+security_test1.FindOptionIndex "v" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Shell injection attempts safely stored without execution"
 else
-    kt_test_fail "Shell injection test failed: $result (expected 0)"
+    kt_test_fail "Shell injection test failed: $result (expected 1)"
 fi
 security_test1.delete
 
 # Test 2: Arguments with quotes and special characters
 kt_test_start "Arguments with quotes and special characters"
 TCustomApplication.new security_test2
-security_test2.SetArgs -- -c "arg with 'quotes'" 'arg with "double quotes"' 'arg\;with\;semicolons'
-security_test2.FindOptionIndex "c" "" 0
+security_test2.SetArgs -c "arg with 'quotes'" 'arg with "double quotes"' 'arg\;with\;semicolons'
+security_test2.FindOptionIndex "c" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Arguments with quotes stored correctly"
 else
-    kt_test_fail "Quote handling test failed: $result (expected 0)"
+    kt_test_fail "Quote handling test failed: $result (expected 1)"
 fi
 security_test2.delete
 
 # Test 3: Arguments with newlines and tabs
 kt_test_start "Arguments with newlines and tabs"
 TCustomApplication.new security_test3
-security_test3.SetArgs -- -n $'arg with\nnewline' $'arg with\ttab'
-security_test3.FindOptionIndex "n" "" 0
+security_test3.SetArgs -n $'arg with\nnewline' $'arg with\ttab'
+security_test3.FindOptionIndex "n" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Arguments with newlines and tabs stored correctly"
 else
-    kt_test_fail "Newline/tab test failed: $result (expected 0)"
+    kt_test_fail "Newline/tab test failed: $result (expected 1)"
 fi
 security_test3.delete
 
 # Test 4: Arguments that look like options
 kt_test_start "Arguments that look like options"
 TCustomApplication.new security_test4
-security_test4.SetArgs -- "-v" "real value" "--option=value"
-security_test4.FindOptionIndex "" "option=value" 0
+security_test4.SetArgs "-v" "real value" "--option=value"
+# The long option's NAME stops at the '=' (FPC FindOptionIndex), so the option
+# is `option` and its value is `value`; the whole token is not a name.
+security_test4.FindOptionIndex "" "option"
 result=$RESULT
-if [[ "$result" == "2" ]]; then
+security_test4.GetOptionValue "" "option"
+value=$RESULT
+security_test4.FindOptionIndex "" "option=value"
+whole=$RESULT
+if [[ "$result" == "3" && "$value" == "value" && "$whole" == "-1" ]]; then
     kt_test_pass "Options with values found correctly"
 else
-    kt_test_fail "Option value test failed: $result (expected 2)"
+    kt_test_fail "Option value test failed: name=$result (expected 3), value='$value' (expected 'value'), whole-token=$whole (expected -1)"
 fi
 security_test4.delete
 
 # Test 5: Empty arguments
 kt_test_start "Empty arguments handling"
 TCustomApplication.new security_test5
-security_test5.SetArgs -- "" "-v" "" "value"
-security_test5.FindOptionIndex "v" "" 0
+security_test5.SetArgs "" "-v" "" "value"
+security_test5.FindOptionIndex "v" ""
 result=$RESULT
-if [[ "$result" == "1" ]]; then
+if [[ "$result" == "2" ]]; then
     kt_test_pass "Empty arguments handled correctly"
 else
-    kt_test_fail "Empty argument test failed: $result (expected 1)"
+    kt_test_fail "Empty argument test failed: $result (expected 2)"
 fi
 security_test5.delete
 
@@ -86,46 +92,46 @@ kt_test_start "Very long arguments (10KB)"
 # Create 10KB argument
 long_arg=$(python3 -c "print('a' * 10000)" 2>/dev/null || printf 'a%.0s' {1..10000})
 TCustomApplication.new security_test6
-security_test6.SetArgs -- -l "$long_arg"
-security_test6.FindOptionIndex "l" "" 0
+security_test6.SetArgs -l "$long_arg"
+security_test6.FindOptionIndex "l" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Very long arguments handled correctly"
 else
-    kt_test_fail "Long argument test failed: $result (expected 0)"
+    kt_test_fail "Long argument test failed: $result (expected 1)"
 fi
 security_test6.delete
 
 # Test 7: Arguments with backslashes
 kt_test_start "Arguments with backslashes"
 TCustomApplication.new security_test7
-security_test7.SetArgs -- -b 'arg\\with\\backslashes' 'normal_arg'
-security_test7.FindOptionIndex "b" "" 0
+security_test7.SetArgs -b 'arg\\with\\backslashes' 'normal_arg'
+security_test7.FindOptionIndex "b" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Arguments with backslashes stored correctly"
 else
-    kt_test_fail "Backslash test failed: $result (expected 0)"
+    kt_test_fail "Backslash test failed: $result (expected 1)"
 fi
 security_test7.delete
 
 # Test 8: Arguments with Unicode and special characters
 kt_test_start "Arguments with Unicode and special characters"
 TCustomApplication.new security_test8
-security_test8.SetArgs -- -u 'café naïve 日本語 🚀'
-security_test8.FindOptionIndex "u" "" 0
+security_test8.SetArgs -u 'café naïve 日本語 🚀'
+security_test8.FindOptionIndex "u" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Unicode and special characters handled correctly"
 else
-    kt_test_fail "Unicode test failed: $result (expected 0)"
+    kt_test_fail "Unicode test failed: $result (expected 1)"
 fi
 security_test8.delete
 
 # Test 9: GetOptionValue with problematic values
 kt_test_start "GetOptionValue with quotes and spaces"
 TCustomApplication.new security_test9
-security_test9.SetArgs -- -c 'value with spaces and "quotes"'
+security_test9.SetArgs -c 'value with spaces and "quotes"'
 security_test9.GetOptionValue "c" ""
 value=$RESULT
 if [[ "$value" == 'value with spaces and "quotes"' ]]; then
@@ -138,41 +144,43 @@ security_test9.delete
 # Test 10: Multiple shell injection attempts
 kt_test_start "Multiple shell injection attempts"
 TCustomApplication.new security_test10
-security_test10.SetArgs -- -s '$(echo PWNED1)' '`echo PWNED2`' '$(rm /tmp/pwned_test 2>/dev/null || echo safe)'
-security_test10.FindOptionIndex "s" "" 0
+security_test10.SetArgs -s '$(echo PWNED1)' '`echo PWNED2`' '$(rm /tmp/pwned_test 2>/dev/null || echo safe)'
+security_test10.FindOptionIndex "s" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Multiple injection attempts safely handled"
 else
-    kt_test_fail "Multiple injection test failed: $result (expected 0)"
+    kt_test_fail "Multiple injection test failed: $result (expected 1)"
 fi
 security_test10.delete
 
 # Test 11: Argument with equals sign in value
 kt_test_start "Long options with equals sign"
 TCustomApplication.new security_test11
-security_test11.SetArgs -- --config=myfile.conf data.txt
-security_test11.FindOptionIndex "" "config=myfile.conf" 0
+security_test11.SetArgs --config=myfile.conf data.txt
+security_test11.FindOptionIndex "" "config"
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+security_test11.GetOptionValue "" "config"
+value=$RESULT
+if [[ "$result" == "1" && "$value" == "myfile.conf" ]]; then
     kt_test_pass "Long options with equals sign found correctly"
 else
-    kt_test_fail "Equals sign test failed: $result (expected 0)"
+    kt_test_fail "Equals sign test failed: index=$result (expected 1), value='$value' (expected myfile.conf)"
 fi
 security_test11.delete
 
 # Test 12: Mixed injection and normal arguments
 kt_test_start "Mixed injection attempts and normal arguments"
 TCustomApplication.new security_test12
-security_test12.SetArgs -- --verbose '$(malicious)' normal_file.txt --debug '`badcommand`'
-security_test12.FindOptionIndex "" "verbose" 0
-result1=$?
-security_test12.FindOptionIndex "" "debug" 0
-result2=$?
-if [[ "$result1" == "0" && "$result2" == "0" ]]; then
+security_test12.SetArgs --verbose '$(malicious)' normal_file.txt --debug '`badcommand`'
+security_test12.FindOptionIndex "" "verbose"
+result1=$RESULT
+security_test12.FindOptionIndex "" "debug"
+result2=$RESULT
+if [[ "$result1" == "1" && "$result2" == "4" ]]; then
     kt_test_pass "Mixed arguments with injection attempts handled correctly"
 else
-    kt_test_fail "Mixed argument test failed"
+    kt_test_fail "Mixed argument test failed: --verbose at $result1 (expected 1), --debug at $result2 (expected 4)"
 fi
 security_test12.delete
 
@@ -188,7 +196,7 @@ fi
 # Test 14: HasOption with malicious arguments
 kt_test_start "HasOption with malicious arguments"
 TCustomApplication.new security_test14
-security_test14.SetArgs -- -v '$(whoami)' 'safe_argument'
+security_test14.SetArgs -v '$(whoami)' 'safe_argument'
 security_test14.HasOption "v" ""
 result=$RESULT
 if [[ "$result" == "true" ]]; then
@@ -201,13 +209,18 @@ security_test14.delete
 # Test 15: GetOptionValues with complex arguments
 kt_test_start "GetOptionValues with complex arguments"
 TCustomApplication.new security_test15
-security_test15.SetArgs -- -f file1.txt -f 'file$(echo pwn).txt' -f 'file`whoami`.txt'
-security_test15.GetOptionValues "f" ""
+security_test15.SetArgs -f file1.txt -f 'file$(echo pwn).txt' -f 'file`whoami`.txt'
+declare -a sec_vals=()
+security_test15.GetOptionValues "f" "" sec_vals
 result=$RESULT
-if [[ "$result" == "3:"* ]]; then
+# FPC scans downward, so the values come back last-first (R10).
+if [[ "$result" == "3" \
+   && "${sec_vals[0]}" == 'file`whoami`.txt' \
+   && "${sec_vals[1]}" == 'file$(echo pwn).txt' \
+   && "${sec_vals[2]}" == "file1.txt" ]]; then
     kt_test_pass "GetOptionValues handles complex arguments correctly"
 else
-    kt_test_fail "GetOptionValues test failed: $result (expected 3 values)"
+    kt_test_fail "GetOptionValues test failed: count=$result values=(${sec_vals[*]:-})"
 fi
 security_test15.delete
 
@@ -215,12 +228,12 @@ security_test15.delete
 kt_test_start "Argument storage persistence"
 TCustomApplication.new security_test16
 test_arg='$(malicious_command); safe_content'
-security_test16.SetArgs -- -p "$test_arg"
-security_test16.FindOptionIndex "p" "" 0
+security_test16.SetArgs -p "$test_arg"
+security_test16.FindOptionIndex "p" ""
 index_result=$RESULT
 security_test16.GetOptionValue "p" ""
 value_result=$RESULT
-if [[ "$index_result" == "0" && "$value_result" == "$test_arg" ]]; then
+if [[ "$index_result" == "1" && "$value_result" == "$test_arg" ]]; then
     kt_test_pass "Argument storage preserves exact content without execution"
 else
     kt_test_fail "Storage persistence test failed"
@@ -232,10 +245,10 @@ kt_test_start "Malicious argument with quotes and injection"
 TCustomApplication.new security_test17
 # This combines quotes, injection, and special characters
 malicious_arg='my"file$(whoami); rm -rf /tmp; `id`'
-security_test17.SetArgs -- -m "$malicious_arg"
-security_test17.FindOptionIndex "m" "" 0
+security_test17.SetArgs -m "$malicious_arg"
+security_test17.FindOptionIndex "m" ""
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Complex malicious argument safely stored"
 else
     kt_test_fail "Complex malicious argument test failed: $result"
@@ -245,7 +258,7 @@ security_test17.delete
 # Test 18: CheckOptions with malicious arguments
 kt_test_start "CheckOptions validation with malicious arguments"
 TCustomApplication.new security_test18
-security_test18.SetArgs -- -v '$(injection)' -h 'normal_help'
+security_test18.SetArgs -v '$(injection)' -h 'normal_help'
 security_test18.CheckOptions "vh" ""
 error_msg=$RESULT
 if [[ -z "$error_msg" ]]; then
@@ -258,26 +271,24 @@ security_test18.delete
 # Test 19: Boundary testing - arguments at limits
 kt_test_start "Boundary testing - various argument lengths"
 TCustomApplication.new security_test19
-security_test19.SetArgs -- -z "a" -z "aa" -z "aaa" -z "aaaa"
-security_test19.FindOptionIndex "z" "" 0
-result1=$RESULT
-security_test19.FindOptionIndex "z" "" 1
-result2=$RESULT
-security_test19.FindOptionIndex "z" "" 2
-result3=$RESULT
-security_test19.FindOptionIndex "z" "" 3
-result4=$RESULT
-# Just check that we found the options (indices may vary based on implementation details)
-found_count=0
-[[ "$result1" != "-1" ]] && found_count=$((found_count + 1))
-[[ "$result2" != "-1" ]] && found_count=$((found_count + 1))
-[[ "$result3" != "-1" ]] && found_count=$((found_count + 1))
-[[ "$result4" != "-1" ]] && found_count=$((found_count + 1))
-
-if [[ "$found_count" == "4" ]]; then
-    kt_test_pass "Boundary testing with various argument lengths passed"
+security_test19.SetArgs -z "a" -z "aa" -z "aaa" -z "aaaa"
+# -z is at 1, 3, 5 and 7; the downward scan visits them in that order when the
+# caller keeps stepping StartAt below the previous hit (FPC GetOptionValues).
+found=()
+idx=-1
+while : ; do
+    security_test19.FindOptionIndex "z" "" "$idx"
+    idx=$RESULT
+    if [[ "$idx" == "-1" ]]; then
+        break
+    fi
+    found+=("$idx")
+    idx=$((idx - 1))
+done
+if [[ "${found[*]}" == "7 5 3 1" ]]; then
+    kt_test_pass "all four -z occurrences found, last one first"
 else
-    kt_test_pass "Boundary testing passed - all $found_count/4 options found (implementation dependent)"
+    kt_test_fail "Boundary testing failed: found=(${found[*]:-}), expected (7 5 3 1)"
 fi
 security_test19.delete
 
@@ -285,7 +296,7 @@ security_test19.delete
 kt_test_start "Final security verification"
 # Run a comprehensive test with the most dangerous inputs
 TCustomApplication.new security_test20
-security_test20.SetArgs -- \
+security_test20.SetArgs \
     --config 'myconfig; cat /etc/passwd; rm -rf /' \
     --user 'admin`whoami`' \
     --debug "$(cat /etc/passwd 2>/dev/null || echo safe)" \
@@ -293,26 +304,19 @@ security_test20.SetArgs -- \
     'normal_file.txt'
 
 # Verify all options are found using their full long names
-security_test20.FindOptionIndex "" "config" 0
+security_test20.FindOptionIndex "" "config"
 config_found=$RESULT
-security_test20.FindOptionIndex "" "user" 0  
+security_test20.FindOptionIndex "" "user"
 user_found=$RESULT
-security_test20.FindOptionIndex "" "debug" 0
+security_test20.FindOptionIndex "" "debug"
 debug_found=$RESULT
-security_test20.FindOptionIndex "" "output" 0
+security_test20.FindOptionIndex "" "output"
 output_found=$RESULT
 
-# Just check that we found the options (indices may vary)
-found_count=0
-[[ "$config_found" != "-1" ]] && found_count=$((found_count + 1))
-[[ "$user_found" != "-1" ]] && found_count=$((found_count + 1))
-[[ "$debug_found" != "-1" ]] && found_count=$((found_count + 1))
-[[ "$output_found" != "-1" ]] && found_count=$((found_count + 1))
-
-if [[ "$found_count" == "4" ]]; then
+if [[ "$config_found" == "1" && "$user_found" == "3" && "$debug_found" == "5" && "$output_found" == "7" ]]; then
     kt_test_pass "Final comprehensive security test passed - no code execution"
 else
-    kt_test_pass "Final security test passed - $found_count/4 options found (security maintained)"
+    kt_test_fail "Final security test failed: config=$config_found user=$user_found debug=$debug_found output=$output_found (expected 1/3/5/7)"
 fi
 
 # Final system check

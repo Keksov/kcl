@@ -19,7 +19,7 @@ kt_test_section "026: TCustomApplication Mixed/Combined Short Options"
 # Test: Single option -v
 kt_test_start "Single short option -v"
 TCustomApplication.new myapp
-myapp.SetArgs -- -v file.txt
+myapp.SetArgs -v file.txt
 myapp.HasOption "v" ""
 result=$RESULT
 if [[ "$result" == "true" ]]; then
@@ -32,7 +32,7 @@ myapp.delete
 # Test: Combined options -vh without separate args (via CheckOptions)
 kt_test_start "Combined short options -vh (two chars)"
 TCustomApplication.new myapp
-myapp.SetArgs -- -vh file.txt
+myapp.SetArgs -vh file.txt
 # In standard processing, -vh is treated as one argument with multiple options
 myapp.CheckOptions "vh" ""
 error_msg=$RESULT
@@ -46,7 +46,7 @@ myapp.delete
 # Test: Three combined options -vhd
 kt_test_start "Combined short options -vhd (three chars)"
 TCustomApplication.new myapp
-myapp.SetArgs -- -vhd file.txt
+myapp.SetArgs -vhd file.txt
 myapp.CheckOptions "vhd" ""
 error_msg=$RESULT
 if [[ -z "$error_msg" ]]; then
@@ -59,7 +59,7 @@ myapp.delete
 # Test: Combined options with colons (options that take values)
 kt_test_start "Combined options including those with values"
 TCustomApplication.new myapp
-myapp.SetArgs -- -hvc config.ini file.txt
+myapp.SetArgs -hvc config.ini file.txt
 # -h (no value), -v (no value), -c (takes value: config.ini)
 myapp.CheckOptions "hvc:" ""
 error_msg=$RESULT
@@ -73,11 +73,11 @@ myapp.delete
 # Test: Long option doesn't get treated as combined
 kt_test_start "Long option -dash is not combined short options"
 TCustomApplication.new myapp
-myapp.SetArgs -- --verbose file.txt
+myapp.SetArgs --verbose file.txt
 # --verbose should be one long option, not "v" "e" "r" "b" "o" "s" "e"
-myapp.FindOptionIndex "" "verbose" 0
+myapp.FindOptionIndex "" "verbose"
 result=$RESULT
-if [[ "$result" == "0" ]]; then
+if [[ "$result" == "1" ]]; then
     kt_test_pass "Long options correctly distinguished from combined short"
 else
     kt_test_fail "Long option handling failed: $result"
@@ -87,7 +87,7 @@ myapp.delete
 # Test: GetNonOptions with combined options
 kt_test_start "GetNonOptions excludes combined short options"
 TCustomApplication.new myapp
-myapp.SetArgs -- -vh file1.txt -a file2.txt
+myapp.SetArgs -vh file1.txt -a file2.txt
 myapp.GetNonOptions "vha" ""
 result=$RESULT
 if [[ "$result" == "2" ]]; then
@@ -100,7 +100,7 @@ myapp.delete
 # Test: Multiple separate combined options
 kt_test_start "Multiple separate combined short options"
 TCustomApplication.new myapp
-myapp.SetArgs -- -vh -ab -cd
+myapp.SetArgs -vh -ab -cd
 myapp.CheckOptions "vhabcd" ""
 error_msg=$RESULT
 if [[ -z "$error_msg" ]]; then
@@ -113,7 +113,7 @@ myapp.delete
 # Test: Combined with invalid char mixed in
 kt_test_start "Combined option with one invalid char"
 TCustomApplication.new myapp
-myapp.SetArgs -- -vxh
+myapp.SetArgs -vxh
 myapp.CheckOptions "vh" ""
 error_msg=$RESULT
 if [[ -n "$error_msg" ]]; then
@@ -126,7 +126,7 @@ myapp.delete
 # Test: Single dash with multiple chars vs long option
 kt_test_start "Distinguish -abc (combined) from --abc (long)"
 TCustomApplication.new myapp
-myapp.SetArgs -- -abc --abc
+myapp.SetArgs -abc --abc
 # -abc could be combined short, --abc is definitely long
 myapp.CheckOptions "abc" "abc"
 error_msg=$RESULT
@@ -137,24 +137,40 @@ else
 fi
 myapp.delete
 
-# Test: Empty combined option string
-kt_test_start "Treat single dash as non-option"
+# Test: a lone '-' is an INVALID OPTION in FPC, not a non-option: CheckOptions
+# takes the `Length(O)<2` branch and reports SErrInvalidOption (finding TCA-13).
+kt_test_start "A lone dash is an invalid option, not a file name [TCA-13]"
 TCustomApplication.new myapp
-myapp.SetArgs -- - file.txt
+myapp.SetArgs - file.txt
+myapp.CheckOptions "vh" ""
+check_err=$RESULT
+RESULT="untouched"
+if myapp.GetNonOptions "vh" ""; then
+    kt_test_fail "GetNonOptions accepted a lone '-' (RESULT=$RESULT)"
+elif [[ "$check_err" == 'Invalid option at position 1: "-"' && -z "$RESULT" ]]; then
+    kt_test_pass "CheckOptions names the position, GetNonOptions returns rc 1"
+else
+    kt_test_fail "single dash: CheckOptions='$check_err' GetNonOptions RESULT='$RESULT'"
+fi
+myapp.delete
+
+kt_test_start "Non-option arguments are still collected around options"
+TCustomApplication.new myapp
+myapp.SetArgs x file.txt
 myapp.GetNonOptions "vh" ""
 result=$RESULT
-# Single "-" should be treated as non-option (file argument)
+# Two plain arguments, no options.
 if [[ "$result" == "2" ]]; then
-    kt_test_pass "Single dash treated as non-option argument"
+    kt_test_pass "Both plain arguments are non-options"
 else
-    kt_test_fail "Single dash test failed: $result"
+    kt_test_fail "Non-option collection failed: $result"
 fi
 myapp.delete
 
 # Test: Case sensitivity in combined options
 kt_test_start "Combined options respect case sensitivity"
 TCustomApplication.new myapp
-myapp.SetArgs -- -VH
+myapp.SetArgs -VH
 myapp.CheckOptions "vh" ""
 error_msg=$RESULT
 if [[ -n "$error_msg" ]]; then
@@ -167,7 +183,7 @@ myapp.delete
 # Test: Individual chars in combined - CheckOptions extracts them
 kt_test_start "CheckOptions identifies individual chars in combined -vh"
 TCustomApplication.new myapp
-myapp.SetArgs -- -vh
+myapp.SetArgs -vh
 # CheckOptions should see this as -v and -h
 myapp.CheckOptions "vh" ""
 error_msg=$RESULT
@@ -181,7 +197,7 @@ myapp.delete
 # Test: Combined options at different positions
 kt_test_start "Combined options at different positions"
 TCustomApplication.new myapp
-myapp.SetArgs -- file.txt -vhd -c config.ini
+myapp.SetArgs file.txt -vhd -c config.ini
 myapp.CheckOptions "vhdc:" ""
 error_msg=$RESULT
 if [[ -z "$error_msg" ]]; then

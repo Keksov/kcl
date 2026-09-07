@@ -1,6 +1,11 @@
 #!/bin/bash
-# 004_RunOperations.sh - Test TCustomApplication Run method
-# Auto-generated for ktests framework
+# 004_RunOperations.sh - Run / DoRun / Terminate.
+#
+# FPC: `Run` is `Repeat Try DoRun except HandleException(Self) Until Terminated`.
+# Before P4 there was no DoRun at all and Run was a `$( )`-per-10ms busy loop
+# that could not be stopped from a background job (finding TCA-10); every test
+# here was written as "start Run in the background, kill it, pass either way".
+# The loop is now observable and fork-free, so the tests assert on it directly.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -14,114 +19,146 @@ source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
+# A descendant that overrides DoRun, which is the FPC way to give an
+# application a body. It counts its passes and terminates on the third.
+class TCountingApp : TCustomApplication
+    public
+        override proc DoRun
+end
+
+TCountingApp.DoRun() {
+    TCA_RUNS=$(( TCA_RUNS + 1 ))
+    TCA_RUN_PIDS+=("$BASHPID")
+    if (( TCA_RUNS >= 3 )); then
+        $this.Terminate 0
+    fi
+    return 0
+}
+
+build TCountingApp
+
+# A descendant whose DoRun fails, to reach Run's exception path.
+class TFailingApp : TCustomApplication
+    public
+        override proc DoRun
+end
+
+TFailingApp.DoRun() {
+    TCA_RUNS=$(( TCA_RUNS + 1 ))
+    return 1
+}
+
+build TFailingApp
 
 kt_test_section "004: TCustomApplication Run Operations"
 
-# Test: Run method exists and can be called
-kt_test_start "Run method can be called"
+kt_test_start "the base DoRun exists and terminates the application"
 TCustomApplication.new myapp
 myapp.Initialize
-# Note: Run method would typically loop until terminated, so we test it exists
-# In real implementation, Run would be overridden in descendants
-myapp.Run &
-run_pid=$!
-sleep 0.1  # Give it a moment to start
-if kill -0 $run_pid 2>/dev/null; then
-    kt_test_pass "Run method started successfully"
-    kill $run_pid 2>/dev/null
+myapp.DoRun
+rc=$?
+terminated=$(myapp.Terminated)
+if [[ $rc -eq 0 && "$terminated" == "true" ]]; then
+    kt_test_pass "the default DoRun terminates, so the base Run is not an infinite loop"
 else
-    kt_test_pass "Run method completed (may be synchronous in base class)"
+    kt_test_fail "DoRun rc=$rc terminated=$terminated (expected 0 / true)"
 fi
 myapp.delete
 
-# Test: Run method respects terminated flag
-kt_test_start "Run method respects terminated flag"
-TCustomApplication.new myapp
-myapp.Initialize
-myapp.Terminate
-# Run should exit quickly if terminated is true
-start_time=$(date +%s)
-myapp.Run
-end_time=$(date +%s)
-duration=$((end_time - start_time))
-if [[ $duration -lt 2 ]]; then  # Should complete quickly
-    kt_test_pass "Run method respects terminated flag"
+kt_test_start "Run calls DoRun until Terminated [TCA-10]"
+TCountingApp.new counter
+counter.Initialize
+declare -g TCA_RUNS=0
+declare -ga TCA_RUN_PIDS=()
+counter.Run
+rc=$?
+terminated=$(counter.Terminated)
+if [[ $rc -eq 0 && "$TCA_RUNS" == "3" && "$terminated" == "true" ]]; then
+    kt_test_pass "DoRun ran three times and the loop stopped on Terminate"
 else
-    kt_test_fail "Run method did not respect terminated flag (took ${duration}s)"
+    kt_test_fail "Run loop: rc=$rc runs=$TCA_RUNS terminated=$terminated (expected 0/3/true)"
 fi
-myapp.delete
+counter.delete
 
-# Test: Run after Initialize
-kt_test_start "Run after Initialize"
-TCustomApplication.new myapp
-myapp.Initialize
-terminated_before=$(myapp.Terminated)
-myapp.Run &
-run_pid=$!
-sleep 0.1
-if kill -0 $run_pid 2>/dev/null; then
-    kill $run_pid 2>/dev/null
-fi
-terminated_after=$(myapp.Terminated)
-if [[ "$terminated_before" == "false" ]]; then
-    kt_test_pass "Run works after Initialize"
+kt_test_start "Run does not fork [TCA-10, kcl README 1.8]"
+TCountingApp.new counter
+counter.Initialize
+declare -g TCA_RUNS=0
+declare -ga TCA_RUN_PIDS=()
+caller_pid=$BASHPID
+counter.Run
+same=1
+for p in "${TCA_RUN_PIDS[@]}"; do
+    [[ "$p" == "$caller_pid" ]] || same=0
+done
+if [[ "$same" == "1" && ${#TCA_RUN_PIDS[@]} -eq 3 ]]; then
+    kt_test_pass "every DoRun ran in the caller's own process (BASHPID unchanged)"
 else
-    kt_test_fail "Run failed after Initialize"
+    kt_test_fail "Run forked: caller=$caller_pid pids=(${TCA_RUN_PIDS[*]:-})"
 fi
-myapp.delete
+counter.delete
 
-# Test: Multiple Run calls
-kt_test_start "Multiple Run calls"
-TCustomApplication.new myapp
-myapp.Initialize
-myapp.Run &
-pid1=$!
-sleep 0.1
-kill $pid1 2>/dev/null
-myapp.Run &
-pid2=$!
-sleep 0.1
-if kill -0 $pid2 2>/dev/null; then
-    kill $pid2 2>/dev/null
-    kt_test_pass "Multiple Run calls work"
+kt_test_start "Run returns immediately when DoRun terminates on the first pass"
+TCountingApp.new counter
+counter.Initialize
+declare -g TCA_RUNS=2      # the next pass is the third
+declare -ga TCA_RUN_PIDS=()
+counter.Run
+if [[ "$TCA_RUNS" == "3" ]]; then
+    kt_test_pass "one DoRun call, then the loop ends"
 else
-    kt_test_pass "Multiple Run calls completed"
+    kt_test_fail "Run made $((TCA_RUNS - 2)) passes, expected 1"
 fi
-myapp.delete
+counter.delete
 
-# Test: Run with exception handling integration
-kt_test_start "Run with exception handling integration"
-TCustomApplication.new myapp
-myapp.Initialize
-# Set StopOnException (would be via property)
-myapp.Run &
-run_pid=$!
-sleep 0.1
-# Simulate exception that would trigger termination
-myapp.HandleException "test_sender" "test_exception"
-sleep 0.1
-if ! kill -0 $run_pid 2>/dev/null; then
-    kt_test_pass "Run properly handles exceptions"
+kt_test_start "Run hands a failing DoRun to HandleException"
+TMPD="$SCRIPT_DIR/.tmp/$(basename "${BASH_SOURCE[0]}" .sh)"
+mkdir -p "$TMPD"
+TFailingApp.new failing
+failing.Initialize
+failing.property StopOnException = "true"
+failing.property ExceptionExitCode = 5
+declare -g TCA_RUNS=0
+# NOT `$(failing.Run)`: a subshell would throw away every mutation the loop makes.
+failing.Run 2>"$TMPD/run.err"
+err="$(<"$TMPD/run.err")"
+terminated=$(failing.Terminated)
+if [[ "$TCA_RUNS" == "1" && "$terminated" == "true" && "$err" == Exception:* && "${EXITCODE:-}" == "5" ]]; then
+    kt_test_pass "the failing pass became an exception, which terminated the loop"
 else
-    kill $run_pid 2>/dev/null
-    kt_test_pass "Run continued after exception (StopOnException=false)"
+    kt_test_fail "exception path: runs=$TCA_RUNS terminated=$terminated exitcode=${EXITCODE:-} stderr='$err'"
 fi
-myapp.delete
+failing.delete
 
-# Test: Run method termination via Terminate
-kt_test_start "Run method termination via Terminate"
-TCustomApplication.new myapp
-myapp.Initialize
-myapp.Terminate  # Set terminated before running
-start_time=$(date +%s)
-myapp.Run  # Should exit immediately since Terminated=true
-end_time=$(date +%s)
-duration=$((end_time - start_time))
-if [[ $duration -lt 2 ]]; then
-    kt_test_pass "Run respects Terminated flag on Terminate"
+kt_test_start "Run stops at once when Terminated was already set"
+TCountingApp.new counter
+counter.Initialize
+counter.Terminate
+declare -g TCA_RUNS=0
+declare -ga TCA_RUN_PIDS=()
+counter.Run
+# FPC's Run is a REPEAT loop: DoRun always runs at least once.
+if [[ "$TCA_RUNS" == "1" ]]; then
+    kt_test_pass "one pass, as FPC's repeat/until requires"
 else
-    kt_test_fail "Run did not respect Terminated flag"
+    kt_test_fail "Run made $TCA_RUNS passes with Terminated already true, expected 1"
 fi
-myapp.delete
+counter.delete
+
+kt_test_start "Terminate from outside the loop is visible to Run"
+TCountingApp.new counter
+counter.Initialize
+declare -g TCA_RUNS=0
+declare -ga TCA_RUN_PIDS=()
+counter.property Terminated = "true"
+counter.Run
+if [[ "$TCA_RUNS" == "1" ]]; then
+    kt_test_pass "Run reads the live property, not a copy"
+else
+    kt_test_fail "Run made $TCA_RUNS passes, expected 1"
+fi
+counter.delete
+
+rm -rf "$TMPD"
 
 kt_test_log "004_RunOperations.sh completed"

@@ -113,4 +113,29 @@ else
 fi
 myapp.delete
 
+# Test: EXITCODE is a program global, NOT an environment variable [TCA-12]
+kt_test_start "Terminate does not export EXITCODE to child processes [TCA-12]"
+TCustomApplication.new myapp
+myapp.Terminate 77
+child_value="$(bash -c 'printf "%s" "${EXITCODE:-<unset>}"')"
+if [[ "${EXITCODE:-}" == "77" && "$child_value" == "<unset>" ]]; then
+    kt_test_pass "the shell sees 77, a child process sees nothing"
+else
+    kt_test_fail "EXITCODE=${EXITCODE:-} but a child saw '$child_value' (expected '<unset>')"
+fi
+myapp.delete
+
+kt_test_start "Terminate rejects a non-numeric exit code [D1]"
+TCustomApplication.new myapp
+myapp.Terminate 5
+before="${EXITCODE:-}"
+if myapp.Terminate "abc"; then
+    kt_test_fail "a non-numeric exit code was accepted"
+elif [[ "${EXITCODE:-}" == "$before" ]]; then
+    kt_test_pass "rc 1 and EXITCODE untouched"
+else
+    kt_test_fail "EXITCODE changed from '$before' to '${EXITCODE:-}'"
+fi
+myapp.delete
+
 kt_test_log "015_TerminateExitCode.sh completed"

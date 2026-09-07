@@ -1,6 +1,11 @@
 #!/bin/bash
-# 025_LongOptionsEqualSign.sh - Test long options with equals sign syntax
-# Tests --option=value format for command-line parsing
+# 025_LongOptionsEqualSign.sh - Long options with an equals sign.
+#
+# `--name=value` is the ONLY way a long option carries a value in FPC: the
+# option NAME stops at the first '=' and the value is what follows it. Before
+# P4 the whole token was the option name, so every test in this file had to
+# search for `config=settings.ini` and the workaround `verbose=true` was
+# enshrined as an option name (finding TCA-01).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -14,220 +19,212 @@ source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
+eq() {   # LABEL ACTUAL EXPECTED
+    if [[ "$2" == "$3" ]]; then
+        kt_test_pass "$1"
+    else
+        kt_test_fail "$1: got '$2', expected '$3'"
+    fi
+}
+
 kt_test_section "025: TCustomApplication Long Options with Equals Sign"
 
-# Test: FindOptionIndex with --option=value syntax
-kt_test_start "FindOptionIndex recognizes --option=value"
+kt_test_start "FindOptionIndex matches the name before the equals sign [TCA-01]"
 TCustomApplication.new myapp
-myapp.SetArgs -- --config=settings.ini file.txt
-myapp.FindOptionIndex "" "config=settings.ini" 0
-result=$RESULT
-if [[ "$result" == "0" ]]; then
-    kt_test_pass "FindOptionIndex finds --option=value format"
+myapp.SetArgs --config=settings.ini file.txt
+myapp.FindOptionIndex "" "config"
+by_name=$RESULT
+myapp.FindOptionIndex "" "config=settings.ini"
+by_token=$RESULT
+if [[ "$by_name" == "1" && "$by_token" == "-1" ]]; then
+    kt_test_pass "the option is 'config'; the whole token is not a name"
 else
-    kt_test_fail "FindOptionIndex with = failed: $result (expected 0)"
+    kt_test_fail "name=$by_name (expected 1), whole token=$by_token (expected -1)"
 fi
 myapp.delete
 
-# Test: GetOptionValue with separate format vs equals format
-kt_test_start "GetOptionValue with separate args vs equals"
+kt_test_start "GetOptionValue: equals carries the value, a space does not [TCA-01]"
 TCustomApplication.new myapp1
-myapp1.SetArgs -- --config settings.ini
+myapp1.SetArgs --config settings.ini
 myapp1.GetOptionValue "" "config"
 val_separate=$RESULT
-
 TCustomApplication.new myapp2
-myapp2.SetArgs -- --config=settings.ini
-myapp2.GetOptionValue "" "config=settings.ini"
+myapp2.SetArgs --config=settings.ini
+myapp2.GetOptionValue "" "config"
 val_equals=$RESULT
-
-if [[ "$val_separate" == "settings.ini" && "$val_equals" == "" ]]; then
-    kt_test_pass "Equals format requires exact match with equals in option name"
+if [[ -z "$val_separate" && "$val_equals" == "settings.ini" ]]; then
+    kt_test_pass "'--config settings.ini' has no value, '--config=settings.ini' has one"
 else
-    kt_test_fail "Value extraction failed: separate=$val_separate, equals=$val_equals"
+    kt_test_fail "value extraction failed: separate='$val_separate', equals='$val_equals'"
 fi
 myapp1.delete
 myapp2.delete
 
-# Test: CheckOptions with --option=value arguments
-kt_test_start "CheckOptions with --option=value syntax"
+kt_test_start "CheckOptions accepts --name=value for a 'name:' long option"
 TCustomApplication.new myapp
-myapp.SetArgs -- --input=file.txt --output=result.txt
-myapp.CheckOptions "" "input=file.txt output=result.txt"
-error_msg=$RESULT
-if [[ -z "$error_msg" ]]; then
-    kt_test_pass "CheckOptions validates --option=value arguments"
+myapp.SetArgs --input=file.txt --output=result.txt
+myapp.CheckOptions "" "input: output:"
+eq "no error" "$RESULT" ""
+myapp.delete
+
+kt_test_start "CheckOptions rejects a value on a switch long option [TCA-02]"
+TCustomApplication.new myapp
+myapp.SetArgs --input=file.txt
+myapp.CheckOptions "" "input"
+eq "SErrNoOptionAllowed" "$RESULT" "Option at position 1 does not allow an argument: input"
+myapp.delete
+
+kt_test_start "HasOption with --name=value matches the name"
+TCustomApplication.new myapp
+myapp.SetArgs --verbose=true
+if myapp.HasOption "" "verbose"; then
+    myapp.GetOptionValue "" "verbose"
+    eq "value of --verbose=true" "$RESULT" "true"
 else
-    kt_test_fail "CheckOptions with = failed: $error_msg"
+    kt_test_fail "HasOption did not find --verbose in '--verbose=true'"
 fi
 myapp.delete
 
-# Test: HasOption with equals format
-kt_test_start "HasOption with --option=value"
+kt_test_start "Mixed --name=value and --name value formats"
 TCustomApplication.new myapp
-myapp.SetArgs -- --verbose=true
-myapp.HasOption "" "verbose=true"
-result=$RESULT
-if [[ "$result" == "true" ]]; then
-    kt_test_pass "HasOption finds --option=value"
-else
-    kt_test_fail "HasOption with = failed: $result"
-fi
-myapp.delete
-
-# Test: Mixed equals and space-separated options
-kt_test_start "Mixed --option=value and --option value formats"
-TCustomApplication.new myapp
-myapp.SetArgs -- --config=settings.ini --output results.txt --verbose=true --debug
-myapp.FindOptionIndex "" "config=settings.ini" 0
+myapp.SetArgs --config=settings.ini --output results.txt --verbose=true --debug
+myapp.FindOptionIndex "" "config"
 result1=$RESULT
-myapp.FindOptionIndex "" "output" 0
+myapp.FindOptionIndex "" "output"
 result2=$RESULT
-myapp.FindOptionIndex "" "verbose=true" 0
+myapp.FindOptionIndex "" "verbose"
 result3=$RESULT
-myapp.FindOptionIndex "" "debug" 0
+myapp.FindOptionIndex "" "debug"
 result4=$RESULT
-# Arguments: 0=--config=settings.ini, 1=--output, 2=results.txt, 3=--verbose=true, 4=--debug
-if [[ "$result1" == "0" && "$result2" == "1" && "$result3" == "3" && "$result4" == "4" ]]; then
-    kt_test_pass "Mixed formats are all recognized"
+if [[ "$result1" == "1" && "$result2" == "2" && "$result3" == "4" && "$result4" == "5" ]]; then
+    kt_test_pass "all four long options are found at their ParamStr indices"
 else
-    kt_test_fail "Mixed format test failed: $result1, $result2, $result3, $result4 (expected 0,1,3,4)"
+    kt_test_fail "mixed format test failed: $result1, $result2, $result3, $result4 (expected 1,2,4,5)"
 fi
 myapp.delete
 
-# Test: Long option with equals and space-separated value
-kt_test_start "GetNonOptions with equals format options"
+kt_test_start "GetNonOptions with equals-format options"
 TCustomApplication.new myapp
-myapp.SetArgs -- --input=file.txt arg1 arg2 --output=result.txt arg3
-# GetNonOptions needs to be called with short and long opts that match the actual option names
-# For equals format, the full string including = is the option name
-myapp.GetNonOptions "" "input=file.txt output=result.txt"
-result=$RESULT
-# arg1, arg2, arg3 = 3 non-options, but GetNonOptions may need different format
-# Let's test with simpler approach - find the options first
-myapp.FindOptionIndex "" "input=file.txt" 0
-idx1=$RESULT
-myapp.FindOptionIndex "" "output=result.txt" 0
-idx2=$RESULT
-if [[ "$idx1" == "0" && "$idx2" == "3" ]]; then
-    kt_test_pass "Equals format options are found at correct positions (non-options at 1,2,4)"
+myapp.SetArgs --input=file.txt arg1 arg2 --output=result.txt arg3
+declare -a non=()
+myapp.GetNonOptions "" "input: output:" non
+if [[ "$RESULT" == "3" && "${non[*]}" == "arg1 arg2 arg3" ]]; then
+    kt_test_pass "the three plain arguments are the non-options"
 else
-    kt_test_fail "GetNonOptions with = format failed: input at $idx1 (expected 0), output at $idx2 (expected 3)"
+    kt_test_fail "GetNonOptions with = format failed: count=$RESULT non=(${non[*]:-})"
 fi
 myapp.delete
 
-# Test: Equals sign with empty value
-kt_test_start "Long option with --option= (empty value)"
+kt_test_start "Long option with --name= (empty value)"
 TCustomApplication.new myapp
-myapp.SetArgs -- --empty=
-myapp.FindOptionIndex "" "empty=" 0
-result=$RESULT
-if [[ "$result" == "0" ]]; then
-    kt_test_pass "FindOptionIndex finds --option= with empty value"
+myapp.SetArgs --empty=
+myapp.FindOptionIndex "" "empty"
+idx=$RESULT
+myapp.GetOptionValue "" "empty"
+value=$RESULT
+myapp.CheckOptions "" "empty:"
+err=$RESULT
+if [[ "$idx" == "1" && -z "$value" && -z "$err" ]]; then
+    kt_test_pass "--empty= is the option 'empty' with an empty value, and it satisfies 'empty:'"
 else
-    kt_test_fail "Empty value option failed: $result"
+    kt_test_fail "empty value option: idx=$idx value='$value' err='$err'"
 fi
 myapp.delete
 
-# Test: Equals sign with multiple equals signs
 kt_test_start "Long option with multiple equals signs"
 TCustomApplication.new myapp
-myapp.SetArgs -- --equation=a=b
-myapp.FindOptionIndex "" "equation=a=b" 0
-result=$RESULT
-if [[ "$result" == "0" ]]; then
-    kt_test_pass "FindOptionIndex handles multiple equals signs"
+myapp.SetArgs --equation=a=b
+myapp.FindOptionIndex "" "equation"
+idx=$RESULT
+myapp.GetOptionValue "" "equation"
+value=$RESULT
+if [[ "$idx" == "1" && "$value" == "a=b" ]]; then
+    kt_test_pass "the name stops at the FIRST '=' and the rest is the value"
 else
-    kt_test_fail "Multiple equals signs failed: $result"
+    kt_test_fail "multiple equals signs: idx=$idx value='$value' (expected 1 / a=b)"
 fi
 myapp.delete
 
-# Test: URL-like value with equals format
-kt_test_start "Long option with URL containing ="
+kt_test_start "Long option with a URL value containing ="
 TCustomApplication.new myapp
-myapp.SetArgs -- --url=http://example.com?key=value
-myapp.FindOptionIndex "" "url=http://example.com?key=value" 0
-result=$RESULT
-if [[ "$result" == "0" ]]; then
-    kt_test_pass "FindOptionIndex handles URL with query parameters"
+myapp.SetArgs --url=http://example.com?key=value
+myapp.GetOptionValue "" "url"
+eq "URL with a query string" "$RESULT" "http://example.com?key=value"
+myapp.delete
+
+kt_test_start "Long option with spaces in the value"
+TCustomApplication.new myapp
+myapp.SetArgs "--title=My Application Name" file.txt
+myapp.FindOptionIndex "" "title"
+idx=$RESULT
+myapp.GetOptionValue "" "title"
+value=$RESULT
+if [[ "$idx" == "1" && "$value" == "My Application Name" ]]; then
+    kt_test_pass "a quoted value with spaces survives whole"
 else
-    kt_test_fail "URL with = failed: $result"
+    kt_test_fail "spaces in equals value: idx=$idx value='$value'"
 fi
 myapp.delete
 
-# Test: Equals format with spaces in value
-kt_test_start "Long option with spaces in value (equals format)"
+kt_test_start "Multiple consecutive --name=value arguments"
 TCustomApplication.new myapp
-myapp.SetArgs -- "--title=My Application Name" file.txt
-myapp.FindOptionIndex "" "title=My Application Name" 0
-result=$RESULT
-if [[ "$result" == "0" ]]; then
-    kt_test_pass "FindOptionIndex handles value with spaces using quotes"
-else
-    kt_test_fail "Spaces in equals value failed: $result"
-fi
-myapp.delete
-
-# Test: Consecutive options with equals format
-kt_test_start "Multiple consecutive --option=value arguments"
-TCustomApplication.new myapp
-myapp.SetArgs -- --a=1 --b=2 --c=3 --d=4
-count=0
-for opt in "a=1" "b=2" "c=3" "d=4"; do
-    myapp.FindOptionIndex "" "$opt" 0
-    [[ "$RESULT" != "-1" ]] && count=$((count + 1))
+myapp.SetArgs --a=1 --b=2 --c=3 --d=4
+missing=""
+i=0
+for opt in a b c d; do
+    i=$((i + 1))
+    myapp.FindOptionIndex "" "$opt"
+    [[ "$RESULT" == "$i" ]] || missing+="$opt@$RESULT "
+    myapp.GetOptionValue "" "$opt"
+    [[ "$RESULT" == "$i" ]] || missing+="$opt=$RESULT "
 done
-if [[ $count == 4 ]]; then
-    kt_test_pass "All consecutive --option=value arguments found"
+if [[ -z "$missing" ]]; then
+    kt_test_pass "a=1 b=2 c=3 d=4 all found at indices 1..4 with their values"
 else
-    kt_test_fail "Consecutive equals options failed: found $count/4"
+    kt_test_fail "consecutive equals options failed: $missing"
 fi
 myapp.delete
 
-# Test: GetOptionValues with equals format
-kt_test_start "GetOptionValues with --option=value syntax"
+kt_test_start "GetOptionValues with repeated --name=value"
 TCustomApplication.new myapp
-myapp.SetArgs -- "--file=f1.txt" "--file=f2.txt" "--file=f3.txt"
-# GetOptionValues searches for individual options, not the full equals format
-# Since each --file=f1.txt is a different option name, can't find multiple with same name
-myapp.FindOptionIndex "" "file=f1.txt" 0
-result_f1=$RESULT
-myapp.FindOptionIndex "" "file=f2.txt" 0
-result_f2=$RESULT
-if [[ "$result_f1" == "0" && "$result_f2" == "1" ]]; then
-    kt_test_pass "FindOptionIndex finds each equals-format option separately"
+myapp.SetArgs "--file=f1.txt" "--file=f2.txt" "--file=f3.txt"
+declare -a vals=()
+myapp.GetOptionValues "" "file" vals
+if [[ "$RESULT" == "3" && "${vals[*]}" == "f3.txt f2.txt f1.txt" ]]; then
+    kt_test_pass "three values collected (FPC order: last first)"
 else
-    kt_test_fail "GetOptionValues equals format: $result_f1 (expected 0), $result_f2 (expected 1)"
+    kt_test_fail "GetOptionValues equals format: count=$RESULT values=(${vals[*]:-})"
 fi
 myapp.delete
 
-# Test: Equals format with special characters
-kt_test_start "Long option with special characters in value"
+kt_test_start "Long option with regex metacharacters in the value"
 TCustomApplication.new myapp
-myapp.SetArgs -- "--pattern=^[a-z]+@[a-z]+\\.com$"
-myapp.FindOptionIndex "" 'pattern=^[a-z]+@[a-z]+\.com$' 0
-result=$RESULT
-if [[ "$result" == "0" ]]; then
-    kt_test_pass "FindOptionIndex handles special regex characters"
+myapp.SetArgs '--pattern=^[a-z]+@[a-z]+\.com$'
+myapp.FindOptionIndex "" "pattern"
+idx=$RESULT
+myapp.GetOptionValue "" "pattern"
+value=$RESULT
+if [[ "$idx" == "1" && "$value" == '^[a-z]+@[a-z]+\.com$' ]]; then
+    kt_test_pass "the value is matched literally, not as a pattern"
 else
-    kt_test_fail "Special characters in equals value failed: $result"
+    kt_test_fail "special characters in equals value: idx=$idx value='$value'"
 fi
 myapp.delete
 
-# Test: Pure equals option name parsing
-kt_test_start "Distinguishing option name from value in = format"
+kt_test_start "--name=value and a bare --name are the SAME option [TCA-01, R10]"
 TCustomApplication.new myapp
-myapp.SetArgs -- --verbose=true --verbose false
-# First one is --verbose=true, second is --verbose followed by false
-myapp.FindOptionIndex "" "verbose=true" 0
-result1=$RESULT
-myapp.FindOptionIndex "" "verbose" 0
-result2=$RESULT
-# Both should be found - verbose=true at position 0, verbose at position 1
-if [[ "$result1" == "0" && "$result2" == "1" ]]; then
-    kt_test_pass "Correctly distinguishes --verbose=value from --verbose"
+myapp.SetArgs --verbose=true --verbose false
+myapp.FindOptionIndex "" "verbose"
+last=$RESULT
+myapp.FindOptionIndex "" "verbose" $((last - 1))
+first=$RESULT
+myapp.GetOptionValue "" "verbose"
+value=$RESULT
+# The last occurrence wins and it is the bare `--verbose`, which has no value.
+if [[ "$last" == "2" && "$first" == "1" && -z "$value" ]]; then
+    kt_test_pass "both occurrences are 'verbose'; the last one wins and carries no value"
 else
-    kt_test_fail "Equals vs space-separated distinction failed: verbose=true at $result1 (expected 0), verbose at $result2 (expected 1)"
+    kt_test_fail "equals vs bare: last=$last (expected 2), first=$first (expected 1), value='$value' (expected empty)"
 fi
 myapp.delete
 

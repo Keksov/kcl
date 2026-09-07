@@ -62,40 +62,93 @@ else
 fi
 myapp.delete
 
-# Test: Location property
-kt_test_start "Location property"
+# Test: Location property — FPC ExtractFilePath(ParamStr(0)). The old body read
+# BASH_SOURCE[0], which inside an eval'd kklass method body is kklass.sh, so
+# Location answered with the framework's directory (finding TCA-11).
+kt_test_start "Location is the directory of the running script [TCA-11]"
 TCustomApplication.new myapp
-location=$(myapp.Location)
-if [[ -n "$location" ]]; then
-    kt_test_pass "Location property returns directory: $location"
+myapp.Location
+location=$RESULT
+myapp.ExeName
+exe=$RESULT
+kklass_dir="$(cd "$TCUSTOMAPPLICATION_DIR/../../kklass" && pwd)"
+# ExeName is $0. Whether the runner started this file by path or by name, the
+# answer must be its directory part (or '.' when it has none) — never kklass's.
+if [[ "$exe" == */* ]]; then
+    expected="${exe%/*}"
 else
-    kt_test_fail "Location property failed"
+    expected="."
+fi
+if [[ "$location" == "$expected" && "$location" != "$kklass_dir" && -d "$location" ]]; then
+    kt_test_pass "Location is the directory part of ExeName: $location"
+else
+    kt_test_fail "Location='$location' (expected '$expected') ExeName='$exe' kklass_dir='$kklass_dir'"
 fi
 myapp.delete
 
-# Test: ParamCount property
-kt_test_start "ParamCount property"
-TCustomApplication.new myapp
-param_count=$(myapp.ParamCount)
-if [[ "$param_count" -ge 0 ]]; then
-    kt_test_pass "ParamCount property returns non-negative integer: $param_count"
+kt_test_start "Location follows \$0 in a script of its own [TCA-11]"
+TMPD="$SCRIPT_DIR/.tmp/$(basename "${BASH_SOURCE[0]}" .sh)"
+mkdir -p "$TMPD/sub"
+{
+    printf '%s\n' '#!/bin/bash'
+    printf 'source %q\n' "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
+    printf '%s\n' 'TCustomApplication.new app'
+    printf '%s\n' 'app.Location; printf "%s" "$RESULT"'
+    printf '%s\n' 'app.delete'
+} > "$TMPD/sub/probe.sh"
+loc="$(bash "$TMPD/sub/probe.sh" 2>&1)"
+if [[ "$loc" == "$TMPD/sub" ]]; then
+    kt_test_pass "a script in another directory reports its own directory"
 else
-    kt_test_fail "ParamCount property failed: got '$param_count'"
+    kt_test_fail "Location from a foreign directory: '$loc' (expected '$TMPD/sub')"
+fi
+rm -rf "$TMPD"
+myapp.delete 2>/dev/null || true
+
+# Test: ParamCount property — a fresh instance has NO arguments (TCA-04), and
+# SetArgs is what gives it some. The old test accepted any non-negative number
+# and the Params test below was skipped entirely because ParamCount was 0.
+kt_test_start "ParamCount is 0 on a fresh instance and the argument count after SetArgs [TCA-03]"
+TCustomApplication.new myapp
+fresh=$(myapp.ParamCount)
+myapp.SetArgs -v file.txt out.txt
+after=$(myapp.ParamCount)
+myapp.SetArgs
+cleared=$(myapp.ParamCount)
+if [[ "$fresh" == "0" && "$after" == "3" && "$cleared" == "0" ]]; then
+    kt_test_pass "0 -> 3 -> 0"
+else
+    kt_test_fail "ParamCount: fresh=$fresh after=$after cleared=$cleared (expected 0/3/0)"
 fi
 myapp.delete
 
 # Test: Params property
-kt_test_start "Params property"
+kt_test_start "Params[0] is the executable name, Params[1..N] the arguments [TCA-03]"
 TCustomApplication.new myapp
-if [[ "$(myapp.ParamCount)" -gt 0 ]]; then
-    param0=$(myapp.Params 0)
-    if [[ -n "$param0" ]]; then
-        kt_test_pass "Params property returns parameter: $param0"
-    else
-        kt_test_fail "Params property failed"
-    fi
+myapp.SetArgs -v file.txt out.txt
+param0=$(myapp.Params 0)
+param1=$(myapp.Params 1)
+param2=$(myapp.Params 2)
+param3=$(myapp.Params 3)
+param4=$(myapp.Params 4)
+exe=$(myapp.ExeName)
+if [[ "$param0" == "$exe" && -n "$param0" && "$param1" == "-v" && "$param2" == "file.txt" && "$param3" == "out.txt" && -z "$param4" ]]; then
+    kt_test_pass "Params returns the stored argv, not the method's own arguments"
 else
-    kt_test_pass "Params property works (no parameters to test)"
+    kt_test_fail "Params: 0='$param0' (exe='$exe') 1='$param1' 2='$param2' 3='$param3' 4='$param4'"
+fi
+myapp.delete
+
+kt_test_start "Params ignores extra arguments of its own [TCA-03]"
+TCustomApplication.new myapp
+myapp.SetArgs -v file.txt out.txt
+# The old body returned ${!index} over the METHOD's parameters, so
+# `Params 1 2 3` answered "1". The index is the only parameter that counts.
+param_extra=$(myapp.Params 1 2 3)
+if [[ "$param_extra" == "-v" ]]; then
+    kt_test_pass "only the first argument is the index"
+else
+    kt_test_fail "Params 1 2 3 returned '$param_extra', expected '-v'"
 fi
 myapp.delete
 

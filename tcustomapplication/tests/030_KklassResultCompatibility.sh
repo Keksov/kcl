@@ -29,7 +29,7 @@ else
 fi
 
 kt_test_start "TCustomApplication exposes expected kklass instance metadata"
-expected_methods=(Initialize SetArgs FindOptionIndex GetOptionValue GetOptionValues HasOption CheckOptions GetNonOptions Terminate Run HandleException ShowException GetEnvironmentList Log ConsoleApplication Location ParamCount Params EnvironmentVariable)
+expected_methods=(Initialize SetArgs FindOptionIndex GetOptionAtIndex GetOptionValue GetOptionValues HasOption CheckOptions GetNonOptions Terminate DoRun Run HandleException ShowException GetEnvironmentList Log ConsoleApplication Location ParamCount Params EnvironmentVariable)
 expected_properties=(Terminated Title HelpFile OptionChar CaseSensitiveOptions StopOnException ExceptionExitCode OnException EventLogFilter ExeName)
 missing_metadata=()
 
@@ -63,13 +63,13 @@ fi
 
 kt_test_start "FindOptionIndex preserves RESULT on found path"
 TCustomApplication.new kklass_result_app
-kklass_result_app.SetArgs -- -v input.txt --config settings.ini
-kklass_result_app.FindOptionIndex "v" "" 0
+kklass_result_app.SetArgs -v input.txt --config=settings.ini
+kklass_result_app.FindOptionIndex "v" ""
 short_index="$RESULT"
-kklass_result_app.FindOptionIndex "" "config" 0
+kklass_result_app.FindOptionIndex "" "config"
 long_index="$RESULT"
 
-if [[ "$short_index" == "0" && "$long_index" == "2" ]]; then
+if [[ "$short_index" == "1" && "$long_index" == "3" ]]; then
     kt_test_pass "FindOptionIndex preserves RESULT on found path"
 else
     kt_test_fail "FindOptionIndex RESULT mismatch: short=$short_index, long=$long_index"
@@ -92,18 +92,18 @@ get_value_output=$(kklass_result_app.GetOptionValue "v" "")
 has_option_output=$(kklass_result_app.HasOption "v" "")
 get_values_output=$(kklass_result_app.GetOptionValues "v" "")
 
-if [[ "$get_value_output" == "input.txt" && "$has_option_output" == "true" && "$get_values_output" == "1:input.txt" ]]; then
+if [[ "$get_value_output" == "input.txt" && "$has_option_output" == "true" && "$get_values_output" == "1" ]]; then
     kt_test_pass "Public option methods do not leak nested helper output"
 else
     kt_test_fail "Nested helper output leaked: GetOptionValue='$get_value_output', HasOption='$has_option_output', GetOptionValues='$get_values_output'"
 fi
 
 kt_test_start "CheckOptions preserves invalid option message"
-kklass_result_app.SetArgs -- -x bad
+kklass_result_app.SetArgs -x bad
 kklass_result_app.CheckOptions "v" "config"
 error_message="$RESULT"
 
-if [[ "$error_message" == "Invalid option: -x" ]]; then
+if [[ "$error_message" == 'Invalid option at position 1: "x"' ]]; then
     kt_test_pass "CheckOptions preserves invalid option message"
 else
     kt_test_fail "CheckOptions invalid option mismatch: '$error_message'"
@@ -112,7 +112,7 @@ fi
 kt_test_start "CheckOptions command substitution emits only final error"
 check_options_output=$(kklass_result_app.CheckOptions "v" "config")
 
-if [[ "$check_options_output" == "Invalid option: -x" ]]; then
+if [[ "$check_options_output" == 'Invalid option at position 1: "x"' ]]; then
     kt_test_pass "CheckOptions command substitution emits only final error"
 else
     kt_test_fail "CheckOptions command substitution leaked output: '$check_options_output'"
@@ -123,8 +123,8 @@ kklass_result_app.delete
 kt_test_start "TCustomApplication argument storage is isolated per instance"
 TCustomApplication.new first_app
 TCustomApplication.new second_app
-first_app.SetArgs -- -c first.conf
-second_app.SetArgs -- -c second.conf
+first_app.SetArgs -c first.conf
+second_app.SetArgs -c second.conf
 first_app.GetOptionValue "c" ""
 first_value="$RESULT"
 second_app.GetOptionValue "c" ""
@@ -146,8 +146,8 @@ first_complex_value='first value with spaces and "quotes"'
 second_complex_value=$'second\tvalue\nline'
 first_newline_value=$'first line\nnext line'
 second_newline_value=$'second line\nother line'
-complex_first_app.SetArgs -- -c "$first_complex_value" -n "$first_newline_value" --empty ""
-complex_second_app.SetArgs -- -c "$second_complex_value" -n "$second_newline_value" --empty "not-empty"
+complex_first_app.SetArgs -c "$first_complex_value" -n "$first_newline_value" --empty=
+complex_second_app.SetArgs -c "$second_complex_value" -n "$second_newline_value" --empty=not-empty
 
 complex_first_app.GetOptionValue "c" ""
 first_complex_result="$RESULT"
@@ -157,10 +157,11 @@ complex_first_app.GetOptionValue "n" ""
 first_newline_result="$RESULT"
 complex_second_app.GetOptionValue "n" ""
 second_newline_result="$RESULT"
-complex_first_app.GetOptionValues "" "empty"
-first_empty_values="$RESULT"
-complex_second_app.GetOptionValues "" "empty"
-second_empty_values="$RESULT"
+declare -a first_empty_arr=() second_empty_arr=()
+complex_first_app.GetOptionValues "" "empty" first_empty_arr
+first_empty_values="$RESULT:${first_empty_arr[0]:-}"
+complex_second_app.GetOptionValues "" "empty" second_empty_arr
+second_empty_values="$RESULT:${second_empty_arr[0]:-}"
 
 if [[ "$first_complex_result" == "$first_complex_value" && "$second_complex_result" == "$second_complex_value" && "$first_newline_result" == "$first_newline_value" && "$second_newline_result" == "$second_newline_value" && "$first_empty_values" == "1:" && "$second_empty_values" == "1:not-empty" ]]; then
     kt_test_pass "TCustomApplication isolates complex argument values per instance"

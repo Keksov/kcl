@@ -56,14 +56,14 @@ _app_test_003.delete
 # Test 4: Constructor SetArgs preserves argument order
 kt_test_start "Constructor SetArgs preserves exact argument order"
 TCustomApplication.new _app_test_004 "--verbose" "-h"
-_app_test_004.FindOptionIndex "" "verbose" 0
+_app_test_004.FindOptionIndex "" "verbose"
 verbose_idx="$RESULT"
-_app_test_004.FindOptionIndex "h" "" 0
+_app_test_004.FindOptionIndex "h" ""
 h_idx="$RESULT"
-if [[ "$verbose_idx" == "0" && "$h_idx" == "1" ]]; then
+if [[ "$verbose_idx" == "1" && "$h_idx" == "2" ]]; then
     kt_test_pass "Constructor SetArgs preserves argument order"
 else
-    kt_test_fail "Expected order 0:1, but got: $verbose_idx:$h_idx"
+    kt_test_fail "Expected order 1:2, but got: $verbose_idx:$h_idx"
 fi
 _app_test_004.delete
 
@@ -84,14 +84,14 @@ kt_test_start "Constructor receives mixed arguments and preserves them all"
 TCustomApplication.new _app_test_006 "-v" "--output" "result.txt" "input.txt"
 _app_test_006._GetArgs
 arg_count="$RESULT"
-_app_test_006.FindOptionIndex "v" "" 0
+_app_test_006.FindOptionIndex "v" ""
 v_idx="$RESULT"
-_app_test_006.FindOptionIndex "" "output" 0
+_app_test_006.FindOptionIndex "" "output"
 output_idx="$RESULT"
-if [[ "$arg_count" == "4" && "$v_idx" == "0" && "$output_idx" == "1" ]]; then
+if [[ "$arg_count" == "4" && "$v_idx" == "1" && "$output_idx" == "2" ]]; then
     kt_test_pass "Constructor SetArgs preserves all mixed arguments"
 else
-    kt_test_fail "Expected 4:0:1, but got: $arg_count:$v_idx:$output_idx"
+    kt_test_fail "Expected 4:1:2, but got: $arg_count:$v_idx:$output_idx"
 fi
 _app_test_006.delete
 
@@ -99,12 +99,12 @@ _app_test_006.delete
 kt_test_start "Constructor SetArgs called with real parameters from $@"
 TCustomApplication.new _app_test_007 "--help" "file.txt"
 # Access the stored arguments through FindOptionIndex
-_app_test_007.FindOptionIndex "" "help" 0
+_app_test_007.FindOptionIndex "" "help"
 help_idx="$RESULT"
-if [[ "$help_idx" == "0" ]]; then
+if [[ "$help_idx" == "1" ]]; then
     kt_test_pass "Constructor correctly invoked SetArgs with script parameters"
 else
-    kt_test_fail "Constructor failed to invoke SetArgs: help option not found at index 0"
+    kt_test_fail "Constructor failed to invoke SetArgs: help option not found at index 1"
 fi
 _app_test_007.delete
 
