@@ -47,6 +47,24 @@ Static (class) methods that mutate static properties leave their value in
 `REPLY` as well, because `$(Class.m)` would run them in a subshell and throw the
 mutation away: call them as `Class.m >/dev/null` and read `$REPLY`.
 
+**A static unit reaches this contract through `static proc`, not `static
+func`.** kklass's *thin* static dispatcher — the one a class without static
+variables receives — re-prints `kk._return`'s value **unconditionally**, i.e.
+on a direct call too, so a `static func` echoes on every call. The pattern the
+converted static units use (P3: tpath, tfile, tdirectory; `tregex` records the
+same measurement) is a `static proc` plus a two-line unit-local helper that is
+`kk._return`'s contract without the dispatcher's printf:
+
+```bash
+unit._ret() {                       # $1 = value, $2 = exit status (default 0)
+    RESULT="$1"
+    if (( BASH_SUBSHELL > 0 )); then printf '%s' "$1"; fi
+    return "${2:-0}"
+}
+```
+
+An instance `func` needs none of this — `kk._return` is already correct there.
+
 ### 1.2 Errors
 
 * **rc 1** and **`RESULT=""`** — nothing is printed on stdout or stderr.

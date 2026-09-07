@@ -5,6 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
 source "$KTESTS_LIB_DIR/ktest.sh"
+source "$SCRIPT_DIR/symlink_helper.sh"
 
 # Source tfile module
 TFILE_DIR="$SCRIPT_DIR/.."
@@ -17,12 +18,16 @@ kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 # Set up temp directory for this test
 
-# Check if symlinks are supported
-if ln -s "$_KT_TMPDIR/nonexist.tmp" "$_KT_TMPDIR/test_link.tmp" 2>/dev/null; then
-SYMLINK_SUPPORTED=true
-rm -f "$_KT_TMPDIR/test_link.tmp"
+# Symlink support probe (review 2026-09-06, G6-05).
+# The old probe was `ln -s <NONEXISTENT> link`, which fails in MSYS copy mode
+# even where real symlinks work — so SYMLINK_SUPPORTED was always false and
+# every symlink assertion in this file reported "PASS (skipped)" while
+# createSymLink was in fact broken. kt_symlinks_supported asks for a NATIVE
+# link and verifies it with [[ -L ]].
+if kt_symlinks_supported "$_KT_TMPDIR"; then
+    SYMLINK_SUPPORTED=true
 else
-SYMLINK_SUPPORTED=false
+    SYMLINK_SUPPORTED=false
 fi
 
 # Create test file for test 4
@@ -31,7 +36,7 @@ echo "target" > "$_KT_TMPDIR/sym_target.tmp"
 if [[ "$SYMLINK_SUPPORTED" == "true" ]]; then
     # Test 1: Get target of valid symlink
 kt_test_start "Get target of valid symlink"
-ln -s "$_KT_TMPDIR/sym_target.tmp" "$_KT_TMPDIR/sym.tmp"
+kt_make_symlink "$_KT_TMPDIR/sym.tmp" "$_KT_TMPDIR/sym_target.tmp" || :
     result=$(tfile.getSymLinkTarget "$_KT_TMPDIR/sym.tmp")
     if [[ -n "$result" ]]; then
         kt_test_pass "Get target of valid symlink"
@@ -50,7 +55,7 @@ fi
 
     # Test 3: Get target of broken symlink
     kt_test_start "Get target of broken symlink"
-    ln -s "$_KT_TMPDIR/nonexist.tmp" "$_KT_TMPDIR/broken_sym.tmp"
+    kt_make_symlink "$_KT_TMPDIR/broken_sym.tmp" "$_KT_TMPDIR/nonexist.tmp" || :
     result=$(tfile.getSymLinkTarget "$_KT_TMPDIR/broken_sym.tmp")
     if [[ -n "$result" ]]; then
         kt_test_pass "Get target of broken symlink"

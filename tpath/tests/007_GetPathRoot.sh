@@ -31,10 +31,12 @@ else
     kt_test_fail "Get root from Windows drive path (expected: C:, got: '$result')"
 fi
 
-# Test 3: UNC path
+# Test 3: UNC path — the root is server AND share (G6-22).
+# FPC ExtractFileDrive skips the server name, then the share name, and returns
+# both; the old '//server' was not a usable root.
 kt_test_start "Get root from UNC path"
 result=$(tpath.getPathRoot "//server/share/file.txt")
-expected="//server"
+expected="//server/share"
 if [[ "$result" == "$expected" ]]; then
     kt_test_pass "Get root from UNC path"
 else

@@ -1,5 +1,31 @@
 # TFile Methods (System.IOUtils.TFile)
 
+> **Upstream reference, not the port's API.** This file is the Embarcadero
+> DocWiki dump for `TFile`; the bash port covers a subset of it. What IS
+> ported (see [../README.md](../README.md) for the semantics and the
+> divergences):
+>
+> * writing — `appendAllText`, `appendText`, `create`, `createText`,
+>   `writeAllBytes`
+> * lifecycle — `exists`, `delete`, `copy`, `move`, `replace`
+> * attributes — `fileAttributesToInteger`, `integerToFileAttributes`,
+>   `getAttributes`, `setAttributes`
+> * timestamps — `get`/`set` × `CreationTime`, `LastAccessTime`,
+>   `LastWriteTime`, each with a `Utc` twin (`setCreationTime*` answers rc 1:
+>   a creation time cannot be set here)
+> * links — `createSymLink`, `getSymLinkTarget`
+> * reading — `open`, `openRead`, `openText`, `openWrite`, `readAllBytes`,
+>   `readAllLines`, `readAllText`, and the bash extra `readAllTextVar`
+> * bash extras — `encrypt`, `decrypt` (openssl)
+>
+> NOT ported: everything that returns a `TStream`/`TStreamReader`/
+> `TStreamWriter` object (`Open*` here answer the file NAME as a handle),
+> `TEncoding` parameters, `AppendAllLines`, `WriteAllLines`, `WriteAllText`
+> as separate members, `GetAttributes` as a `TFileAttributes` SET, and the
+> `Integer`↔`TFileAttributes` conversions beyond the five tokens the port
+> knows.
+
+
 Automatically extracted from [Embarcadero DocWiki](https://docwiki.embarcadero.com/Libraries/Sydney/en/System.IOUtils.TFile_Methods).
 
 ## `System.IOUtils.TFile.AppendAllText`

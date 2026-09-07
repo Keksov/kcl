@@ -1,5 +1,32 @@
 # TPath Properties (System.IOUtils) — RAD Studio 10.4 Sydney
 
+> **Upstream reference, not the port's API.** This file is the Embarcadero
+> DocWiki dump for `TPath`; the bash port covers a subset of it. What IS
+> ported (see [../README.md](../README.md) for the semantics and the
+> divergences):
+>
+> * separators — `getDirectorySeparatorChar`, `getAltDirectorySeparatorChar`,
+>   `getExtensionSeparatorChar`, `getPathSeparator`, `getVolumeSeparatorChar`
+> * parsing — `combine`, `getFileName`, `getDirectoryName`, `getExtension`,
+>   `getFileNameWithoutExtension`, `changeExtension`, `hasExtension`
+> * roots — `getPathRoot`, `isPathRooted`, `isRelativePath`, `getFullPath`,
+>   `isUNCPath`, `isUNCRooted`, `isDriveRooted`, `isExtendedPrefixed`,
+>   `driveExists`
+> * system paths — `getTempPath`, `getHomePath`, `getDocumentsPath`,
+>   `getDownloadsPath`, `getTempFileName`, `getGUIDFileName`,
+>   `getRandomFileName`
+> * validation — `isValidFileNameChar`, `isValidPathChar`,
+>   `hasValidFileNameChars`, `hasValidPathChars`, `matchesPattern`
+> * `getAttributes`
+>
+> NOT ported: `GetSharedDocumentsPath`, `GetLibraryPath`, `GetCachePath`,
+> `GetPublicPath`, `GetPicturesPath` and the rest of the Android/iOS special
+> folders, `GetInvalidFileNameChars`/`GetInvalidPathChars` as ARRAYS,
+> `IsPathValid`, `DriveExists` over a mount table, and the `TPath` record's
+> class constants as constants (the getters above are the public way to read
+> them).
+
+
 This document lists the properties of the `TPath` record defined in the `System.IOUtils` unit, along with their descriptions and default values for POSIX platforms (Linux, macOS, iOS, Android).
 Automatically extracted from [Embarcadero DocWiki](https://docwiki.embarcadero.com/Libraries/Sydney/en/System.IOUtils.TPath_Properties).
 

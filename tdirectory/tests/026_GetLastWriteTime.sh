@@ -71,6 +71,7 @@ else
     kt_test_fail "GetLastWriteTime - directory with spaces (expected: valid datetime)"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
+kt_fixture_teardown
 
 

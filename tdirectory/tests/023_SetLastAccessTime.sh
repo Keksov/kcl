@@ -65,6 +65,7 @@ else
     kt_test_fail "SetLastAccessTime - accepts datetime (expected: time to be set)"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
+kt_fixture_teardown
 
 

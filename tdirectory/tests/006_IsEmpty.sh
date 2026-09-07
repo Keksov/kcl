@@ -105,6 +105,7 @@ else
     kt_test_fail "IsEmpty - directory with nested empty subdirectories returns false (expected: false)"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
+kt_fixture_teardown
 
 

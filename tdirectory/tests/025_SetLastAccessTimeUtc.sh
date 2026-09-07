@@ -53,6 +53,7 @@ else
     kt_test_fail "SetLastAccessTimeUtc - nested directory (expected: UTC time to be set)"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
+kt_fixture_teardown
 
 

@@ -102,15 +102,17 @@ echo "data" > "$test_dir/file3.tmp"
 result=$(tdirectory.getFiles "$test_dir")
 tdirectory_test_expect_lines "GetFiles - multiple extension types" "$result" "$test_dir/file1.txt" "$test_dir/file2.log" "$test_dir/file3.tmp"
 
-# Test 8: GetFiles with special characters
+# Test 8: names whose ordering the collation decides - see the note in
+# 013_GetDirectories.sh. The ambient locale (C.UTF-8 under the runners) sorts
+# by codepoint, so `-` (0x2D) comes before `_` (0x5F).
 kt_test_start "GetFiles - special characters in names"
 test_dir="$_KT_TMPDIR/special"
 tdirectory.createDirectory "$test_dir"
 echo "data" > "$test_dir/file-with-dash.txt"
 echo "data" > "$test_dir/file_with_underscore.txt"
 result=$(tdirectory.getFiles "$test_dir")
-tdirectory_test_expect_lines "GetFiles - special characters in names" "$result" "$test_dir/file_with_underscore.txt" "$test_dir/file-with-dash.txt"
+tdirectory_test_expect_lines "GetFiles - special characters in names" "$result" "$test_dir/file-with-dash.txt" "$test_dir/file_with_underscore.txt"
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
 
 

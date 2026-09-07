@@ -110,6 +110,7 @@ echo "file" > "$test_dir/a/b/c/file3.txt"
 result=$(tdirectory.getFileSystemEntries "$test_dir" "*" "AllDirectories")
 tdirectory_test_expect_lines "GetFileSystemEntries - recursive search" "$result" "$test_dir/a" "$test_dir/a/b" "$test_dir/a/b/c" "$test_dir/a/b/c/file3.txt" "$test_dir/a/b/file2.txt" "$test_dir/a/file1.txt" "$test_dir/root.txt"
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
+kt_fixture_teardown
 
 

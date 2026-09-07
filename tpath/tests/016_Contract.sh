@@ -69,11 +69,68 @@ tpath.getDirectoryName /a/b.txt >/dev/null
 tpath.combine /a b >/dev/null
 tpath.changeExtension /a/b.txt .md >/dev/null'
 
-# --- 5. the error path under set -e (D7) -----------------------------------
-# tpath has NO failing path today: every member answers rc 0, including empty
-# and malformed input (review table X-CONTRACT). That is the unit's current
-# contract, not an oversight of this test — decision D3 converts tpath to
-# func + kk._return in P3 and gives it the rc-1 error contract, and the
-# "a failing member returns to the caller" assertion every other suite carries
-# lands here at the same time. Until then the `set -eu` main path above is the
-# whole D7 story for this unit.
+expect_clean "a predicate under set -eu, called the documented way [1.3, D7]" '
+if tpath.isPathRooted /a; then :; else :; fi
+tpath.isPathRooted rel || :
+! tpath.isPathRooted rel
+tpath.hasExtension a.txt >/dev/null'
+
+# --- 2. the return contract (D3) -------------------------------------------
+kt_test_start "a direct call is silent and answers through RESULT [D3, 1.1]"
+out_file="$TMP/direct.out"
+: > "$out_file"
+RESULT="__unset__"
+tpath.getFileName /a/b.txt > "$out_file"
+printed="$(<"$out_file")"
+if [[ -z "$printed" && "$RESULT" == "b.txt" ]]; then
+    kt_test_pass "RESULT=b.txt, nothing printed"
+else
+    kt_test_fail "printed='$printed' RESULT='$RESULT'"
+fi
+
+kt_test_start "\$( ) prints the value exactly once [D3, 1.1]"
+got="$(tpath.getFileName /a/b.txt)"
+if [[ "$got" == "b.txt" ]]; then
+    kt_test_pass "b.txt"
+else
+    kt_test_fail "got '$got'"
+fi
+
+kt_test_start "a value that looks like an echo option round-trips [X-ECHO]"
+got="$(tpath.getFileName /a/-neE)"
+RESULT="__unset__"
+tpath.getFileName /a/-neE >/dev/null
+if [[ "$got" == "-neE" && "$RESULT" == "-neE" ]]; then
+    kt_test_pass "-neE both ways"
+else
+    kt_test_fail "captured='$got' RESULT='$RESULT'"
+fi
+
+# --- 3. the locale self-heal (D6) ------------------------------------------
+kt_test_start "a bare environment gets a UTF-8 LC_CTYPE at load [D6, 1.6]"
+out="$(env -u LC_ALL -u LC_CTYPE -u LANG bash -c "
+source '$UNIT'
+tpath.getFileName '/a/дом.txt' >/dev/null
+printf '%s|%s' \"\${LC_CTYPE:-}\" \"\${#RESULT}\"" 2>&1)"
+if [[ "$out" == "C.UTF-8|7" ]]; then
+    kt_test_pass "$out"
+else
+    kt_test_fail "got '$out', expected 'C.UTF-8|7'"
+fi
+
+# --- 5. the error path reaches the caller under set -e (D7) ----------------
+# Direct proof, instead of auditing the code for `&&` lists: bash exits only
+# for the command following the FINAL && or ||, so a list in mid-body is safe;
+# only a TRAILING list (the last statement of a function) turns a member into a
+# script-killer. Since P3 tpath HAS a failing path (kcl/README.md 1.2), so the
+# assertion every other suite carries lands here too.
+kt_test_start "a failing member returns to the caller under set -e [D7, M7/T1]"
+out="$(bash -c "set -e
+source '$UNIT'
+tpath.getAttributes /no/such/path >/dev/null 2>&1 || printf 'reached rc=%s' \$?
+printf ' end'" 2>&1)"
+if [[ "$out" == *"reached rc=1"* && "$out" == *"end"* ]]; then
+    kt_test_pass "$out"
+else
+    kt_test_fail "caller never regained control: '$out'"
+fi

@@ -39,14 +39,21 @@ fi
 kt_test_start "GetLastAccessTime - consistent results"
 test_dir="$_KT_TMPDIR/access_consistent"
 tdirectory.createDirectory "$test_dir"
+# Windows rewrites a stored access time on the NEXT access, and reading the
+# directory is itself an access — so two reads are not required to be byte
+# identical (the old assertion passed only by luck). What must hold is that
+# both answers are well-formed and describe the same moment, give or take the
+# clock tick between them.
 result1=$(tdirectory.getLastAccessTime "$test_dir")
-# Note: do not sleep between calls - access time may be updated by filesystem
-# Just verify that immediate calls return consistent results
 result2=$(tdirectory.getLastAccessTime "$test_dir")
-if [[ "$result1" == "$result2" ]]; then
-    kt_test_pass "GetLastAccessTime - consistent results"
+e1=$(date -d "$result1" +%s 2>/dev/null || printf 0)
+e2=$(date -d "$result2" +%s 2>/dev/null || printf 0)
+delta=$(( e2 > e1 ? e2 - e1 : e1 - e2 ))
+if [[ "$result1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]] \
+   && (( e1 > 0 && delta <= 2 )); then
+    kt_test_pass "GetLastAccessTime - consistent results (delta ${delta}s)"
 else
-    kt_test_fail "GetLastAccessTime - consistent results (expected same time)"
+    kt_test_fail "GetLastAccessTime - consistent results ('$result1' vs '$result2', delta ${delta}s)"
 fi
 
 # Test 4: GetLastAccessTime on nested directory
@@ -71,6 +78,6 @@ else
     kt_test_fail "GetLastAccessTime - directory with spaces (expected: valid datetime)"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
 
 

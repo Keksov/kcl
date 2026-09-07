@@ -118,3 +118,67 @@ if [[ "$out" == *"reached rc="* && "$out" == *"end"* ]]; then
 else
     kt_test_fail "caller never regained control: '$out'"
 fi
+
+# --- 6. the return contract (decision D3, added in P3) ---------------------
+kt_test_start "a direct call is silent and answers through RESULT [D3, 1.1]"
+f6="$TMP/contract_direct.txt"
+printf 'hello' > "$f6"
+out_file="$TMP/direct.out"
+: > "$out_file"
+RESULT="__unset__"
+tfile.readAllText "$f6" > "$out_file"
+printed="$(<"$out_file")"
+if [[ -z "$printed" && "$RESULT" == "hello" ]]; then
+    kt_test_pass "RESULT=hello, nothing printed"
+else
+    kt_test_fail "printed='$printed' RESULT='$RESULT'"
+fi
+
+kt_test_start "\$( ) prints the value exactly once [D3, 1.1]"
+got="$(tfile.readAllText "$f6")"
+if [[ "$got" == "hello" ]]; then
+    kt_test_pass "hello"
+else
+    kt_test_fail "got '$got'"
+fi
+
+kt_test_start "a predicate answers with its exit status [R8, 1.3]"
+rc_true=0; tfile.exists "$f6" >/dev/null || rc_true=$?
+rc_false=0; tfile.exists "$TMP/no_such_contract" >/dev/null || rc_false=$?
+if (( rc_true == 0 && rc_false == 1 )); then
+    kt_test_pass "rc 0 / rc 1"
+else
+    kt_test_fail "rc_true=$rc_true rc_false=$rc_false"
+fi
+
+kt_test_start "a bad output-variable name is rc 2, nothing written [1.7]"
+rc=0
+tfile.readAllTextVar "$f6" IFS >/dev/null 2>&1 || rc=$?
+if (( rc == 2 )) && [[ "$IFS" == $' \t\n' ]]; then
+    kt_test_pass "rc 2, IFS intact"
+else
+    kt_test_fail "rc=$rc IFS=$(printf '%q' "$IFS")"
+fi
+
+kt_test_start "a predicate under set -eu, called the documented way [1.3, D7]"
+out="$(bash -c "set -eu
+source '$UNIT'
+if tfile.exists /no/such/file; then printf 'yes'; else printf 'no'; fi
+tfile.exists /no/such/file || printf ' or'
+! tfile.exists /no/such/file
+printf ' end'" 2>&1)"
+if [[ "$out" == "no or end" ]]; then
+    kt_test_pass "$out"
+else
+    kt_test_fail "got '$out'"
+fi
+
+kt_test_start "a bare environment gets a UTF-8 LC_CTYPE at load [D6, 1.6]"
+out="$(env -u LC_ALL -u LC_CTYPE -u LANG bash -c "
+source '$UNIT'
+printf '%s' \"\${LC_CTYPE:-}\"" 2>&1)"
+if [[ "$out" == "C.UTF-8" ]]; then
+    kt_test_pass "$out"
+else
+    kt_test_fail "got '$out'"
+fi

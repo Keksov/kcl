@@ -1,6 +1,13 @@
 #!/bin/bash
 # SetCreationTimeUtc
-# Auto-migrated to ktests framework
+#
+# Rewritten for P3 (review 2026-09-06, G6-08 / R13): the body mapped this to
+# `touch -m`, i.e. it silently set the WRITE time and answered rc 0, and this
+# file asserted only that the GETTER afterwards was non-empty — which a no-op
+# satisfies too. A creation time cannot be SET here (POSIX has no API and
+# Windows' is not reachable through touch), so the member answers rc 1, the
+# way .NET's Directory.SetCreationTime does on Unix. What the file pins is
+# that it fails CLEANLY.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -12,59 +19,61 @@ kt_test_init "SetCreationTimeUtc" "$SCRIPT_DIR" "$@"
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
 
+EPOCH=1700000000
 
-# Test 1: SetCreationTimeUtc changes UTC creation time
-kt_test_start "SetCreationTimeUtc - changes UTC creation time"
-test_dir="$_KT_TMPDIR/utc_set_001"
+# Test 1: an epoch argument is refused, silently, and the write time does not move
+kt_test_start "SetCreationTimeUtc - refuses an epoch and touches nothing"
+test_dir="$_KT_TMPDIR/creation_set_001"
 tdirectory.createDirectory "$test_dir"
-new_time=$(date +%s)
-tdirectory.setCreationTimeUtc "$test_dir" "$new_time"
-result=$(tdirectory.getCreationTimeUtc "$test_dir")
-if [[ -n "$result" ]]; then
-    kt_test_pass "SetCreationTimeUtc - changes UTC creation time"
+tdirectory.setLastWriteTime "$test_dir" "$EPOCH" || :
+rc=0
+out="$(tdirectory.setCreationTimeUtc "$test_dir" "$EPOCH" 2>&1)" || rc=$?
+mtime="$(stat -c %Y "$test_dir")"
+if (( rc == 1 )) && [[ -z "$out" && "$mtime" == "$EPOCH" ]]; then
+    kt_test_pass "SetCreationTimeUtc - rc 1, silent, write time untouched"
 else
-    kt_test_fail "SetCreationTimeUtc - changes UTC creation time (expected: UTC time to be set)"
+    kt_test_fail "SetCreationTimeUtc - rc=$rc out='$out' mtime=$mtime (the old body set the WRITE time here)"
 fi
 
-# Test 2: SetCreationTimeUtc persists
-kt_test_start "SetCreationTimeUtc - persists after operation"
-test_dir="$_KT_TMPDIR/utc_persist"
-tdirectory.createDirectory "$test_dir"
-new_time=$(date +%s)
-tdirectory.setCreationTimeUtc "$test_dir" "$new_time"
-echo "file" > "$test_dir/file.txt"
-result=$(tdirectory.getCreationTimeUtc "$test_dir")
-if [[ -n "$result" ]]; then
-    kt_test_pass "SetCreationTimeUtc - persists after operation"
+# Test 2: a datetime string is refused the same way
+kt_test_start "SetCreationTimeUtc - refuses a datetime string"
+rc=0
+tdirectory.setCreationTimeUtc "$test_dir" "2001-02-03 04:05:06" >/dev/null 2>&1 || rc=$?
+mtime="$(stat -c %Y "$test_dir")"
+if (( rc == 1 )) && [[ "$mtime" == "$EPOCH" ]]; then
+    kt_test_pass "SetCreationTimeUtc - rc 1, write time untouched"
 else
-    kt_test_fail "SetCreationTimeUtc - persists after operation (expected: UTC time persists)"
+    kt_test_fail "SetCreationTimeUtc - rc=$rc mtime=$mtime"
 fi
 
-# Test 3: SetCreationTimeUtc on nested directory
-kt_test_start "SetCreationTimeUtc - nested directory"
-test_dir="$_KT_TMPDIR/utc/nested/path"
-tdirectory.createDirectory "$test_dir"
-new_time=$(date +%s)
-tdirectory.setCreationTimeUtc "$test_dir" "$new_time"
-result=$(tdirectory.getCreationTimeUtc "$test_dir")
-if [[ -n "$result" ]]; then
-    kt_test_pass "SetCreationTimeUtc - nested directory"
+# Test 3: RESULT is empty on the failure path (kcl/README.md 1.2)
+kt_test_start "SetCreationTimeUtc - leaves RESULT empty"
+RESULT="__unset__"
+tdirectory.setCreationTimeUtc "$test_dir" "$EPOCH" >/dev/null 2>&1 || :
+if [[ -z "$RESULT" ]]; then
+    kt_test_pass "SetCreationTimeUtc - RESULT empty"
 else
-    kt_test_fail "SetCreationTimeUtc - nested directory (expected: UTC time to be set)"
+    kt_test_fail "SetCreationTimeUtc - RESULT='$RESULT'"
 fi
 
-# Test 4: SetCreationTimeUtc with datetime format
-kt_test_start "SetCreationTimeUtc - accepts UTC datetime"
-test_dir="$_KT_TMPDIR/utc_format"
-tdirectory.createDirectory "$test_dir"
-tdirectory.setCreationTimeUtc "$test_dir" "2024-01-01 12:00:00"
-result=$(tdirectory.getCreationTimeUtc "$test_dir")
-if [[ -n "$result" ]]; then
-    kt_test_pass "SetCreationTimeUtc - accepts UTC datetime"
+# Test 4: a missing directory is the same rc 1, and nothing is created
+kt_test_start "SetCreationTimeUtc - missing directory"
+rc=0
+tdirectory.setCreationTimeUtc "$_KT_TMPDIR/nosuch" "$EPOCH" >/dev/null 2>&1 || rc=$?
+if (( rc == 1 )) && [[ ! -e "$_KT_TMPDIR/nosuch" ]]; then
+    kt_test_pass "SetCreationTimeUtc - rc 1, nothing created"
 else
-    kt_test_fail "SetCreationTimeUtc - accepts UTC datetime (expected: UTC time to be set)"
+    kt_test_fail "SetCreationTimeUtc - rc=$rc"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Test 5: the GETTER still answers a well-formed timestamp
+kt_test_start "SetCreationTimeUtc - the getter still answers"
+got="$(tdirectory.getCreationTimeUtc "$test_dir")"
+if [[ "$got" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
+    kt_test_pass "SetCreationTimeUtc - the getter still answers ($got)"
+else
+    kt_test_fail "SetCreationTimeUtc - the getter answered '$got'"
+fi
 
-
+# Cleanup
+kt_fixture_teardown

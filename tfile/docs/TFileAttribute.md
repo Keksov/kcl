@@ -1,4 +1,13 @@
 
+
+> **Upstream reference, not the port's API.** This file is the Embarcadero
+> DocWiki dump for `TFileAttribute`. The bash port has no attribute SET type:
+> `tfile`/`tdirectory`/`tpath` speak the five FPC tokens `faNormal`,
+> `faDirectory`, `faReadOnly`, `faHidden` and `faSystem`, derived from the
+> POSIX mode, and `tfile.fileAttributesToInteger` /
+> `tfile.integerToFileAttributes` convert between that token list and the FPC
+> bit values (1, 2, 4, 16, 32). See [../README.md](../README.md).
+
 ### Description
 
 Enumerates the possible file and directory attributes.

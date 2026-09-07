@@ -103,6 +103,7 @@ else
     kt_test_fail "SetAttributes - nested directory (expected attributes on nested dir)"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
+kt_fixture_teardown
 
 

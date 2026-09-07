@@ -103,6 +103,7 @@ else
     kt_test_fail "GetAttributes - after creation (expected: non-empty after creation)"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
+kt_fixture_teardown
 
 

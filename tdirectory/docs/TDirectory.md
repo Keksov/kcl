@@ -1,5 +1,29 @@
 # TDirectory Methods (System.IOUtils.TDirectory)
 
+> **Upstream reference, not the port's API.** This file is the Embarcadero
+> DocWiki dump for `TDirectory`; the bash port covers a subset of it. What IS
+> ported (see [../README.md](../README.md) for the semantics and the
+> divergences):
+>
+> * lifecycle — `createDirectory`, `delete`, `exists`, `copy`, `move`,
+>   `isEmpty`
+> * path analysis — `isRelativePath`, `getDirectoryRoot`, `getParent`
+> * current directory / drives — `getCurrentDirectory`, `setCurrentDirectory`,
+>   `getLogicalDrives`
+> * listing — `getDirectories`, `getFiles`, `getFileSystemEntries`, each with
+>   an optional output-ARRAY argument
+> * attributes — `getAttributes`, `setAttributes`
+> * timestamps — `get`/`set` × `CreationTime`, `LastAccessTime`,
+>   `LastWriteTime`, each with a `Utc` twin (`setCreationTime*` answers rc 1:
+>   a creation time cannot be set here)
+>
+> NOT ported: the `TFilterPredicate`/`TSearchOption` overloads as CALLBACKS
+> (a glob pattern is the only filter), `GetDirectories` etc. returning
+> `TStringDynArray` objects, `GetFileSystemEntries` with a predicate,
+> `Delete(Path, Recursive)` raising `EDirectoryNotEmpty`, and
+> `GetLogicalDrives` over a real mount table.
+
+
 Automatically extracted from [Embarcadero DocWiki](https://docwiki.embarcadero.com/Libraries/Sydney/en/System.IOUtils.TDirectory_Methods).
 
 ## `System.IOUtils.TDirectory.Copy`

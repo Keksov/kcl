@@ -49,13 +49,15 @@ else
     kt_test_fail "GetParent - parent of root (expected: / or empty, got: '$result')"
 fi
 
-# Test 5: Get parent from path with trailing slash
+# Test 5: a trailing separator is stripped, it does not cost a component
+# (G6-12; FPC ExtractFileDir('/home/user/') is '/home/user' and .NET's
+# Path.GetDirectoryName agrees).
 kt_test_start "GetParent - parent of path with trailing slash"
 result=$(tdirectory.getParent "/home/user/")
-if [[ "$result" == "/home" ]]; then
+if [[ "$result" == "/home/user" ]]; then
     kt_test_pass "GetParent - parent of path with trailing slash"
 else
-    kt_test_fail "GetParent - parent of path with trailing slash (expected: /home, got: '$result')"
+    kt_test_fail "GetParent - parent of path with trailing slash (expected: /home/user, got: '$result')"
 fi
 
 # Test 6: Get parent from deep path

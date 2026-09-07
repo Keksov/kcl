@@ -8,30 +8,53 @@ if [[ -n "${_TDIRECTORY_SOURCED:-}" ]]; then
 fi
 declare -g _TDIRECTORY_SOURCED=1
 
+# Locale self-heal (decision D6, kcl/README.md 1.6). Listings sort and match
+# in the ambient locale; an empty environment means the C locale, where a
+# multi-byte name is a string of bytes.
+if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
+    export LC_CTYPE=C.UTF-8
+fi
+
 # Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
 TDIRECTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TDIRECTORY_DIR/../../kklass/kklass_pascal.sh"
 
-# Source tpath module (required by several tdirectory functions)
+# tpath carries the path parsers that understand both separators (decision D5),
+# the SHARED filesystem helpers (R13: _statTime, _touchTime, _chmodAttrs,
+# _attrs — the same code tfile uses) and the return helper _ret / _retBool.
 source "$TDIRECTORY_DIR/../tpath/tpath.sh"
 
 # ---------------------------------------------------------------------------
 # TDirectory: a static utility namespace (Free Pascal's TDirectory).
 #
-# Pascal DSL form: the class STRUCTURE (interface) first, then the method
-# BODIES as real bash functions, then `build tdirectory`. Every member is
-# `static` — no per-instance state — so the public API stays
-# `tdirectory.<Method>` and results are returned by `echo` / exit status
-# (hence `proc`, not `func`; see tpath.sh for the convention notes).
+# ---- Return contract (decision D3, kcl/README.md 1.1) ----------------------
+# A DIRECT call prints NOTHING and leaves the value in RESULT; inside `$( )`
+# the value is printed exactly once, so every `v=$(tdirectory.x ...)` caller
+# keeps working. Predicates answer with their exit status as well (R8), with
+# true/false still in RESULT:
 #
-# The class declares NO static variables, so every method gets the thin,
-# capture-free dispatcher — fast on bash 5.2 and 5.3 alike. This also means
-# `setCurrentDirectory` still runs its `cd` in the CALLER's shell when invoked
-# bare (the body is inlined into the dispatcher, not run in a subshell).
+#     tdirectory.getFiles "$d"; use "$RESULT"      # no fork
+#     if tdirectory.exists "$d"; then ...          # rc; RESULT is true/false
 #
-# Internal helpers (_get_dirs_recursive, _get_files_recursive,
-# _get_entries_recursive, _format_time, _touch_time) are NOT class members —
-# they stay plain functions used by the methods.
+# Errors are rc 1 + RESULT='' and print nothing unless VERBOSE_KKLASS=debug is
+# set (kcl/README.md 1.2 — the old bodies wrote "Error: ..." to stderr on every
+# miss); a bad output-array name is rc 2 (1.7).
+#
+# Members are `static proc` and answer through tpath._ret rather than being
+# `static func` + kk._return, because kklass's THIN static dispatcher re-prints
+# kk._return's value on a DIRECT call too; see the note in tpath.sh.
+#
+# ---- Listings --------------------------------------------------------------
+# getFiles / getDirectories / getFileSystemEntries take an optional FOURTH
+# argument: the name of a caller array to fill, with the entry COUNT in RESULT
+# (kcl/README.md 1.7). That is the only newline-safe form — without it the
+# entries come back newline-joined in RESULT, exactly as they used to be
+# printed. Listings INCLUDE dot-entries (R13, FPC/.NET parity) and recursion
+# does NOT descend into a directory symlink (R13, finding G6-17).
+#
+# ---- Internal helpers ------------------------------------------------------
+# tdirectory._* are NOT class members: plain functions, so members share logic
+# without a nested `$( )`. `__td_*` is this unit's reserved variable prefix.
 # ---------------------------------------------------------------------------
 class tdirectory
     public
@@ -72,520 +95,488 @@ class tdirectory
         static proc setLastWriteTimeUtc
 end
 
-# ---- method bodies (real bash functions; extracted by `build`) --------------
+# ===========================================================================
+# Internal helpers (plain functions, never class members)
+# ===========================================================================
 
-# Define tdirectory.createDirectory function
-tdirectory.createDirectory() {
-    local dir_path="$1"
-    if [[ -z "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory path cannot be empty" >&2
-        return 1
+# A diagnostic goes to stderr ONLY under VERBOSE_KKLASS=debug (kcl/README 1.2).
+tdirectory._debug() {
+    if [[ "${VERBOSE_KKLASS:-}" == "debug" ]]; then
+        printf '%s\n' "$1" >&2
     fi
-    mkdir -p -- "$dir_path"
 }
 
-# Define tdirectory.delete function
-tdirectory.delete() {
-    local dir_path="$1"
-    local recursive="${2:-true}"
+# -> __td_r = $1 without its trailing separators of either kind. A path that is
+#    nothing BUT separators comes back empty, which every caller treats as a
+#    refusal — deleting or listing "/" by accident is not a service.
+tdirectory._trimSeps() {
+    __td_r="$1"
+    while [[ "$__td_r" == */ ]] || [[ "$__td_r" == *"$__TPATH_BS" ]]; do
+        __td_r="${__td_r%?}"
+    done
+}
 
+# Turn on the globbing options a listing needs and remember what was there:
+# dotglob ON (R13 — dot-entries belong to the listing, G6-09), failglob OFF
+# (a caller's failglob used to abort the listing, G6-25), extglob ON (patterns).
+# The saved state lands in the caller's __td_g_dot / __td_g_fail / __td_g_ext.
+tdirectory._globOn() {
+    __td_g_dot=1; shopt -q dotglob  || __td_g_dot=0
+    __td_g_fail=1; shopt -q failglob || __td_g_fail=0
+    __td_g_ext=1; shopt -q extglob  || __td_g_ext=0
+    shopt -s dotglob extglob
+    shopt -u failglob
+}
+
+tdirectory._globOff() {
+    if (( __td_g_dot == 0 )); then shopt -u dotglob; fi
+    if (( __td_g_fail == 1 )); then shopt -s failglob; fi
+    if (( __td_g_ext == 0 )); then shopt -u extglob; fi
+}
+
+# The one walker behind all three listings. $1 dir, $2 pattern, $3 kind
+# (d = directories, f = files, e = both), $4 = 1 for AllDirectories.
+# Appends to the caller's __td_acc array.
+#
+# G6-17: `[[ -L ]]` is what stops the recursion at a directory symlink. With
+# `loop/a/back -> loop` the old helpers walked the cycle and returned 21
+# entries for one real subdirectory.
+tdirectory._walk() {
+    local __td_d="$1" __td_pat="$2" __td_kind="$3" __td_rec="$4"
+    local __td_p __td_base
+    for __td_p in "$__td_d"/*; do
+        if [[ ! -e "$__td_p" && ! -L "$__td_p" ]]; then
+            continue
+        fi
+        __td_base="${__td_p##*/}"
+        if [[ -d "$__td_p" ]]; then
+            if [[ "$__td_kind" != "f" ]] && [[ "$__td_base" == $__td_pat ]]; then
+                __td_acc+=( "$__td_p" )
+            fi
+            if (( __td_rec )) && [[ ! -L "$__td_p" ]]; then
+                tdirectory._walk "$__td_p" "$__td_pat" "$__td_kind" 1
+            fi
+        elif [[ -f "$__td_p" ]]; then
+            if [[ "$__td_kind" != "d" ]] && [[ "$__td_base" == $__td_pat ]]; then
+                __td_acc+=( "$__td_p" )
+            fi
+        fi
+    done
+}
+
+# The shared body of getDirectories / getFiles / getFileSystemEntries.
+# KIND DIR PATTERN SEARCH-OPTION [OUTARRAY]
+tdirectory._list() {
+    local __td_kind="$1" __td_dir="${2:-}" __td_pat="${3:-*}"
+    local __td_opt="${4:-TopDirectoryOnly}" __td_out="${5:-}"
+    local __td_r __td_rec=0
+    local __td_g_dot __td_g_fail __td_g_ext
+    local -a __td_acc=()
+
+    if [[ -z "$__td_dir" ]]; then
+        tdirectory._debug "Error: Directory path cannot be empty"
+        tpath._ret "" 1
+        return 1
+    fi
+    if [[ -n "$__td_out" ]] && tpath._badOutName "$__td_out"; then
+        tdirectory._debug "Error: bad output array name '$__td_out'"
+        tpath._ret "" 2
+        return 2
+    fi
+    # G6-24: a trailing separator used to come out DOUBLED in every path.
+    tdirectory._trimSeps "$__td_dir"
+    if [[ -n "$__td_r" ]]; then
+        __td_dir="$__td_r"
+    fi
+    if [[ ! -d "$__td_dir" ]]; then
+        tdirectory._debug "Error: Directory does not exist: $__td_dir"
+        tpath._ret "" 1
+        return 1
+    fi
+    if [[ "$__td_opt" != "TopDirectoryOnly" ]]; then
+        __td_rec=1
+    fi
+
+    tdirectory._globOn
+    tdirectory._walk "$__td_dir" "$__td_pat" "$__td_kind" "$__td_rec"
+    tdirectory._globOff
+
+    if [[ -n "$__td_out" ]]; then
+        local -n __td_ref="$__td_out"
+        __td_ref=( ${__td_acc[@]+"${__td_acc[@]}"} )
+        tpath._ret "${#__td_acc[@]}"
+        return 0
+    fi
+    local IFS=$'\n'
+    tpath._ret "${__td_acc[*]}"
+}
+
+# ===========================================================================
+# Method bodies (real bash functions; extracted by `build`)
+# ===========================================================================
+
+# ---- lifecycle ------------------------------------------------------------
+
+tdirectory.createDirectory() {
+    local dir_path="${1:-}"
     if [[ -z "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory path cannot be empty" >&2
+        tdirectory._debug "Error: Directory path cannot be empty"
+        tpath._ret "" 1
         return 1
     fi
+    if ! mkdir -p -- "$dir_path" 2>/dev/null; then
+        tdirectory._debug "Error: cannot create directory: $dir_path"
+        tpath._ret "" 1
+        return 1
+    fi
+    tpath._ret ""
+}
 
+# G6-04: `rm -rf -- "lnk/"` on a DIRECTORY SYMLINK deletes the TARGET's
+# contents and leaves the link — a trailing slash makes rm follow the link.
+# R13: strip the trailing separators first, and if what is left is a symlink,
+# remove the LINK and nothing else.
+tdirectory.delete() {
+    local dir_path="${1:-}" recursive="${2:-true}" __td_r
+    local __td_g_dot __td_g_fail __td_g_ext __td_p __td_empty=0
+    if [[ -z "$dir_path" ]]; then
+        tdirectory._debug "Error: Directory path cannot be empty"
+        tpath._ret "" 1
+        return 1
+    fi
+    tdirectory._trimSeps "$dir_path"
+    if [[ -z "$__td_r" ]]; then
+        # the argument was nothing but separators - refuse, do not delete /
+        tdirectory._debug "Error: refusing to delete the root: $dir_path"
+        tpath._ret "" 1
+        return 1
+    fi
+    dir_path="$__td_r"
+    if [[ -L "$dir_path" ]]; then
+        if rm -- "$dir_path" 2>/dev/null; then
+            tpath._ret ""
+            return 0
+        fi
+        tdirectory._debug "Error: cannot remove link: $dir_path"
+        tpath._ret "" 1
+        return 1
+    fi
     if [[ ! -d "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory does not exist: $dir_path" >&2
+        tdirectory._debug "Error: Directory does not exist: $dir_path"
+        tpath._ret "" 1
         return 1
     fi
-
     if [[ "$recursive" == "true" ]]; then
-        rm -rf -- "$dir_path"
+        if rm -rf -- "$dir_path" 2>/dev/null; then
+            tpath._ret ""
+            return 0
+        fi
+        tdirectory._debug "Error: cannot remove directory: $dir_path"
+        tpath._ret "" 1
+        return 1
+    fi
+    # non-recursive: the directory must be empty, dot-entries included (G6-09)
+    tdirectory._globOn
+    for __td_p in "$dir_path"/*; do
+        if [[ -e "$__td_p" || -L "$__td_p" ]]; then
+            __td_empty=1
+            break
+        fi
+    done
+    tdirectory._globOff
+    if (( __td_empty )); then
+        tdirectory._debug "Error: Directory is not empty: $dir_path"
+        tpath._ret "" 1
+        return 1
+    fi
+    if rmdir -- "$dir_path" 2>/dev/null; then
+        tpath._ret ""
+        return 0
+    fi
+    tdirectory._debug "Error: cannot remove directory: $dir_path"
+    tpath._ret "" 1
+    return 1
+}
+
+# exists PATH [FOLLOWLINK=true]
+# G6-24: the FollowLink argument was accepted and ignored. `[[ -d ]]` always
+# follows, so "do not follow" has to exclude a symlink itself.
+tdirectory.exists() {
+    local dir_path="${1:-}" follow="${2:-true}"
+    if [[ -z "$dir_path" ]]; then
+        tpath._retBool 1
+        return $?
+    fi
+    if [[ "$follow" == "false" ]] && [[ -L "$dir_path" ]]; then
+        tpath._retBool 1
+        return $?
+    fi
+    if [[ -d "$dir_path" ]]; then
+        tpath._retBool 0
     else
-        # Check if directory is empty
-        if [[ -z "$(ls -A "$dir_path" 2>/dev/null)" ]]; then
-            rmdir "$dir_path"
-        else
-            printf '%s\n' "Error: Directory is not empty: $dir_path" >&2
+        tpath._retBool 1
+    fi
+}
+
+# G6-10: `cp -r -- src dst` NESTS the source when dst already exists
+# (dst/src/a.txt). R13: an existing destination receives the CONTENTS.
+tdirectory.copy() {
+    local source_dir="${1:-}" dest_dir="${2:-}"
+    if [[ -z "$source_dir" || -z "$dest_dir" ]]; then
+        tdirectory._debug "Error: Source and destination paths cannot be empty"
+        tpath._ret "" 1
+        return 1
+    fi
+    if [[ ! -d "$source_dir" ]]; then
+        tdirectory._debug "Error: Source directory does not exist: $source_dir"
+        tpath._ret "" 1
+        return 1
+    fi
+    if [[ -e "$dest_dir" ]]; then
+        if [[ ! -d "$dest_dir" ]]; then
+            tdirectory._debug "Error: Destination is not a directory: $dest_dir"
+            tpath._ret "" 1
             return 1
         fi
+        # `src/.` copies the CONTENTS, dot-entries included
+        if ! cp -r -- "$source_dir/." "$dest_dir" 2>/dev/null; then
+            tdirectory._debug "Error: copy failed: $source_dir -> $dest_dir"
+            tpath._ret "" 1
+            return 1
+        fi
+        tpath._ret ""
+        return 0
     fi
-}
-
-# Define tdirectory.exists function
-tdirectory.exists() {
-    local dir_path="$1"
-    if [[ -d "$dir_path" ]]; then
-        printf '%s' "true"
-    else
-        printf '%s' "false"
-    fi
-}
-
-# Define tdirectory.copy function
-tdirectory.copy() {
-    local source_dir="$1"
-    local dest_dir="${2:-}"
-
-    if [[ -z "$source_dir" || -z "$dest_dir" ]]; then
-        printf '%s\n' "Error: Source and destination paths cannot be empty" >&2
+    if ! cp -r -- "$source_dir" "$dest_dir" 2>/dev/null; then
+        tdirectory._debug "Error: copy failed: $source_dir -> $dest_dir"
+        tpath._ret "" 1
         return 1
     fi
-
-    if [[ ! -d "$source_dir" ]]; then
-        printf '%s\n' "Error: Source directory does not exist: $source_dir" >&2
-        return 1
-    fi
-
-    cp -r -- "$source_dir" "$dest_dir"
+    tpath._ret ""
 }
 
-# Define tdirectory.isEmpty function
+# G6-16: `$(ls -A "$dir")` forked on every call — 73 ms per 200. A glob loop
+# with dotglob answers the same question with no process at all, and agrees
+# with the listings about dot-entries (G6-09).
 tdirectory.isEmpty() {
-    local dir_path="$1"
+    local dir_path="${1:-}" __td_p __td_empty=0
+    local __td_g_dot __td_g_fail __td_g_ext
     if [[ -z "$dir_path" || ! -d "$dir_path" ]]; then
-    printf '%s' "false"
-    else
-    if [[ -z "$(ls -A "$dir_path" 2>/dev/null)" ]]; then
-    printf '%s' "true"
-    else
-    printf '%s' "false"
+        tpath._retBool 1
+        return $?
     fi
+    tdirectory._globOn
+    for __td_p in "$dir_path"/*; do
+        if [[ -e "$__td_p" || -L "$__td_p" ]]; then
+            __td_empty=1
+            break
+        fi
+    done
+    tdirectory._globOff
+    if (( __td_empty )); then
+        tpath._retBool 1
+    else
+        tpath._retBool 0
     fi
 }
 
-# Define tdirectory.move function
+# G6-10: an existing destination made `mv` nest the source inside it. R13: an
+# existing destination is rc 1, the source is left alone.
 tdirectory.move() {
-    local source_dir="$1"
-    local dest_dir="${2:-}"
-
+    local source_dir="${1:-}" dest_dir="${2:-}"
     if [[ -z "$source_dir" || -z "$dest_dir" ]]; then
-        printf '%s\n' "Error: Source and destination paths cannot be empty" >&2
+        tdirectory._debug "Error: Source and destination paths cannot be empty"
+        tpath._ret "" 1
         return 1
     fi
-
     if [[ ! -d "$source_dir" ]]; then
-        printf '%s\n' "Error: Source directory does not exist: $source_dir" >&2
+        tdirectory._debug "Error: Source directory does not exist: $source_dir"
+        tpath._ret "" 1
         return 1
     fi
-
-    mv -- "$source_dir" "$dest_dir"
+    if [[ -e "$dest_dir" ]]; then
+        tdirectory._debug "Error: Destination already exists: $dest_dir"
+        tpath._ret "" 1
+        return 1
+    fi
+    if ! mv -- "$source_dir" "$dest_dir" 2>/dev/null; then
+        tdirectory._debug "Error: move failed: $source_dir -> $dest_dir"
+        tpath._ret "" 1
+        return 1
+    fi
+    tpath._ret ""
 }
 
-# Define tdirectory.isRelativePath function
+# ---- path analysis (delegates to the tpath helpers, not to its members, so
+#      nothing forks and nothing prints twice under $( ) — G6-16) ------------
+
 tdirectory.isRelativePath() {
-    local path="$1"
-    tpath.isRelativePath "$path"
-}
-
-# Define tdirectory.getDirectoryRoot function
-tdirectory.getDirectoryRoot() {
-    local path="$1"
-    tpath.getPathRoot "$path"
-}
-
-# Define tdirectory.getParent function
-tdirectory.getParent() {
-    local path="$1"
-    if [[ "$path" == "." ]]; then
-        path="$(pwd)"
+    if tpath._rooted "${1:-}"; then
+        tpath._retBool 1
+    else
+        tpath._retBool 0
     fi
-    tpath.getDirectoryName "$path"
 }
 
-# Define tdirectory.getCurrentDirectory function
+tdirectory.getDirectoryRoot() {
+    local __tp_r
+    tpath._pathRoot "${1:-}"
+    tpath._ret "$__tp_r"
+}
+
+tdirectory.getParent() {
+    local path="${1:-}" __tp_r
+    if [[ "$path" == "." ]]; then
+        path="$PWD"
+    fi
+    tpath._dirName "$path"
+    tpath._ret "$__tp_r"
+}
+
+# ---- current directory / drives -------------------------------------------
+
 tdirectory.getCurrentDirectory() {
-    pwd
+    tpath._ret "$PWD"
 }
 
-# Define tdirectory.setCurrentDirectory function
+# The thin static dispatcher does not run the body in a subshell, so this `cd`
+# still takes effect in the CALLER's shell. `--`, so a leading-dash path is a
+# path and not an option (G6-11: `setCurrentDirectory -` used to mean $OLDPWD).
 tdirectory.setCurrentDirectory() {
-    local dir_path="$1"
+    local dir_path="${1:-}"
     if [[ -z "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory path cannot be empty" >&2
+        tdirectory._debug "Error: Directory path cannot be empty"
+        tpath._ret "" 1
         return 1
     fi
-    cd -- "$dir_path"
+    # `cd -- -` still means $OLDPWD: unlike rm/cp/mv, bash's cd reads a lone
+    # `-` as the previous directory even after `--` (measured on 5.2 and 5.3).
+    # A path API must mean the DIRECTORY named `-`, so spell it out. This is
+    # the half of G6-11 that adding `--` in P1 could not fix.
+    if [[ "$dir_path" == "-" ]]; then
+        dir_path="./-"
+    fi
+    if ! cd -- "$dir_path" >/dev/null 2>&1; then
+        tdirectory._debug "Error: cannot change directory: $dir_path"
+        tpath._ret "" 1
+        return 1
+    fi
+    tpath._ret "$PWD"
 }
 
-# Define tdirectory.getLogicalDrives function
+# G6-16: `$(uname -s)` forked on every call; the platform is a load-time
+# constant that tpath already computed.
 tdirectory.getLogicalDrives() {
-    case "$(uname -s)" in
-        MINGW*|CYGWIN*|MSYS*)
-            # Windows: return available drives
-            local drives=""
-            local letter           # X-LOCALS (G6-23)
-            for letter in {C..Z}; do
-                if [[ -d "/${letter,,}" ]]; then
-                    drives="${drives}${letter}: "
-                fi
-            done
-            printf '%s\n' "${drives% }"
-            ;;
-        *)
-            # Unix: return root
-            printf '%s\n' "/"
-            ;;
-    esac
-}
-
-# Helper function for recursive directory listing
-tdirectory._get_dirs_recursive() {
-    local dir="$1"
-    local pattern="${2:-}"
-    local LC_ALL=
-    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
-    local had_extglob=1
-    shopt -q extglob || had_extglob=0
-    shopt -s extglob
-    local directory_path base
-    for directory_path in "$dir"/*/; do
-        if [[ -d "$directory_path" ]]; then
-            base="${directory_path%/}"; base="${base##*/}"
-            if [[ "$base" == $pattern ]]; then
-                printf '%s\n' "${directory_path%/}"
-            fi
-            tdirectory._get_dirs_recursive "${directory_path%/}" "$pattern"
+    local drives="" letter
+    if (( __TPATH_IS_WINDOWS == 0 )); then
+        tpath._ret "/"
+        return 0
+    fi
+    for letter in {C..Z}; do
+        if [[ -d "/${letter,}" ]]; then
+            drives="${drives}${letter}: "
         fi
     done
-    (( had_extglob )) || shopt -u extglob
+    tpath._ret "${drives% }"
 }
 
-# Helper function for recursive file listing
-tdirectory._get_files_recursive() {
-    local dir="$1"
-    local pattern="${2:-}"
-    local LC_ALL=
-    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
-    local had_extglob=1
-    shopt -q extglob || had_extglob=0
-    shopt -s extglob
-    local file_path base
-    for file_path in "$dir"/*; do
-        if [[ -f "$file_path" ]]; then
-            base="${file_path##*/}"
-            if [[ "$base" == $pattern ]]; then
-                printf '%s\n' "$file_path"
-            fi
-        elif [[ -d "$file_path" ]]; then
-            tdirectory._get_files_recursive "${file_path%/}" "$pattern"
-        fi
-    done
-    (( had_extglob )) || shopt -u extglob
+# ---- listing ---------------------------------------------------------------
+# DIR [PATTERN] [TopDirectoryOnly|AllDirectories] [OUTARRAY]
+
+tdirectory.getDirectories() {
+    tdirectory._list d "${1:-}" "${2:-*}" "${3:-TopDirectoryOnly}" "${4:-}"
 }
 
-# Helper function for recursive filesystem entries listing
-tdirectory._get_entries_recursive() {
-    local dir="$1"
-    local pattern="${2:-}"
-    local LC_ALL=
-    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
-    local had_extglob=1
-    shopt -q extglob || had_extglob=0
-    shopt -s extglob
-    local entry_path base
-    for entry_path in "$dir"/*; do
-        if [[ -f "$entry_path" || -d "$entry_path" ]]; then
-            base="${entry_path##*/}"
-            if [[ "$base" == $pattern ]]; then
-                printf '%s\n' "$entry_path"
-            fi
-        fi
-        if [[ -d "$entry_path" ]]; then
-            tdirectory._get_entries_recursive "${entry_path%/}" "$pattern"
-        fi
-    done
-    (( had_extglob )) || shopt -u extglob
+tdirectory.getFiles() {
+    tdirectory._list f "${1:-}" "${2:-*}" "${3:-TopDirectoryOnly}" "${4:-}"
 }
+
+tdirectory.getFileSystemEntries() {
+    tdirectory._list e "${1:-}" "${2:-*}" "${3:-TopDirectoryOnly}" "${4:-}"
+}
+
+# ---- attributes ------------------------------------------------------------
+
+tdirectory.getAttributes() {
+    local path="${1:-}" follow="${2:-true}" __tp_r
+    if [[ -z "$path" ]] || [[ ! -e "$path" && ! -L "$path" ]]; then
+        tpath._ret "" 1
+        return 1
+    fi
+    if tpath._attrs "$path" "$follow"; then
+        tpath._ret "$__tp_r"
+    else
+        tpath._ret "" 1
+        return 1
+    fi
+}
+
+tdirectory.setAttributes() {
+    local path="${1:-}"
+    if [[ ! -d "$path" ]]; then
+        tpath._ret "" 1
+        return 1
+    fi
+    if tpath._chmodAttrs "$path" "${2:-}"; then
+        tpath._ret ""
+    else
+        tpath._ret "" 1
+        return 1
+    fi
+}
+
+# ---- timestamps ------------------------------------------------------------
+# The getters and the two settable setters go through the SHARED tpath helpers
+# (R13) — the same code tfile uses, so a fix lands in both units at once.
+# Creation time is NOT settable (R13): POSIX has no API and Windows' is not
+# reachable through touch, so it answers rc 1 the way .NET does on Unix. The
+# old body mapped it to `touch -m`, i.e. it silently set the WRITE time.
+
+tdirectory._getTime() {   # STAT-FIELD UTC PATH
+    local __tp_r
+    if [[ ! -d "$3" ]]; then
+        tpath._ret "" 1
+        return 1
+    fi
+    if tpath._statTime "$3" "$1" "$2"; then
+        tpath._ret "$__tp_r"
+    else
+        tpath._ret "" 1
+        return 1
+    fi
+}
+
+tdirectory._setTime() {   # TOUCH-FLAG UTC PATH VALUE
+    if [[ ! -d "$3" ]]; then
+        tpath._ret "" 1
+        return 1
+    fi
+    if tpath._touchTime "$3" "$4" "$1" "$2"; then
+        tpath._ret ""
+    else
+        tpath._ret "" 1
+        return 1
+    fi
+}
+
+tdirectory.getCreationTime()      { tdirectory._getTime "%W" false "${1:-}"; }
+tdirectory.getCreationTimeUtc()   { tdirectory._getTime "%W" true  "${1:-}"; }
+tdirectory.getLastAccessTime()    { tdirectory._getTime "%X" false "${1:-}"; }
+tdirectory.getLastAccessTimeUtc() { tdirectory._getTime "%X" true  "${1:-}"; }
+tdirectory.getLastWriteTime()     { tdirectory._getTime "%Y" false "${1:-}"; }
+tdirectory.getLastWriteTimeUtc()  { tdirectory._getTime "%Y" true  "${1:-}"; }
+
+tdirectory.setCreationTime()      { tpath._ret "" 1; return 1; }
+tdirectory.setCreationTimeUtc()   { tpath._ret "" 1; return 1; }
+tdirectory.setLastAccessTime()    { tdirectory._setTime "-a" false "${1:-}" "${2:-}"; }
+tdirectory.setLastAccessTimeUtc() { tdirectory._setTime "-a" true  "${1:-}" "${2:-}"; }
+tdirectory.setLastWriteTime()     { tdirectory._setTime "-m" false "${1:-}" "${2:-}"; }
+tdirectory.setLastWriteTimeUtc()  { tdirectory._setTime "-m" true  "${1:-}" "${2:-}"; }
 
 # Remove helper names leaked by older sourced versions of this module.
 unset -f get_dirs_recursive get_files_recursive get_entries_recursive 2>/dev/null || true
-
-# Define tdirectory.getDirectories function
-tdirectory.getDirectories() {
-    local dir_path="$1"
-    local pattern="${2:-*}"
-    local search_option="${3:-TopDirectoryOnly}"
-    local LC_ALL=
-    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
-
-    if [[ -z "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory path cannot be empty" >&2
-        return 1
-    fi
-
-    if [[ ! -d "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory does not exist: $dir_path" >&2
-        return 1
-    fi
-
-    # Enable extglob for pattern matching
-    local had_extglob=1
-    shopt -q extglob || had_extglob=0
-    shopt -s extglob
-
-    if [[ "$search_option" == "TopDirectoryOnly" ]]; then
-        # Top level only
-        local directory_path base
-        for directory_path in "$dir_path"/*/; do
-            if [[ -d "$directory_path" ]]; then
-                base="${directory_path%/}"; base="${base##*/}"
-                # Pattern match
-                if [[ "$base" == $pattern ]]; then
-                    printf '%s\n' "${directory_path%/}"
-                fi
-            fi
-        done
-    else
-        # Recursive
-        tdirectory._get_dirs_recursive "$dir_path" "$pattern"
-    fi
-
-    # Restore extglob
-    (( had_extglob )) || shopt -u extglob
-}
-
-# Define tdirectory.getFiles function
-tdirectory.getFiles() {
-    local dir_path="$1"
-    local pattern="${2:-*}"
-    local search_option="${3:-TopDirectoryOnly}"
-    local LC_ALL=
-    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
-
-    if [[ -z "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory path cannot be empty" >&2
-        return 1
-    fi
-
-    if [[ ! -d "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory does not exist: $dir_path" >&2
-        return 1
-    fi
-
-    # Enable extglob for pattern matching
-    local had_extglob=1
-    shopt -q extglob || had_extglob=0
-    shopt -s extglob
-
-    if [[ "$search_option" == "TopDirectoryOnly" ]]; then
-        # Top level only
-        local file_path base
-        for file_path in "$dir_path"/*; do
-            if [[ -f "$file_path" ]]; then
-                base="${file_path##*/}"
-                # Pattern match
-                if [[ "$base" == $pattern ]]; then
-                    printf '%s\n' "$file_path"
-                fi
-            fi
-        done
-    else
-        # Recursive
-        tdirectory._get_files_recursive "$dir_path" "$pattern"
-    fi
-
-    # Restore extglob
-    (( had_extglob )) || shopt -u extglob
-}
-
-# Define tdirectory.getFileSystemEntries function
-tdirectory.getFileSystemEntries() {
-    local dir_path="$1"
-    local pattern="${2:-*}"
-    local search_option="${3:-TopDirectoryOnly}"
-    local LC_ALL=
-    local LC_COLLATE="${TDIRECTORY_COLLATE:-en_US.UTF-8}"
-
-    if [[ -z "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory path cannot be empty" >&2
-        return 1
-    fi
-
-    if [[ ! -d "$dir_path" ]]; then
-        printf '%s\n' "Error: Directory does not exist: $dir_path" >&2
-        return 1
-    fi
-
-    # Enable extglob for pattern matching
-    local had_extglob=1
-    shopt -q extglob || had_extglob=0
-    shopt -s extglob
-
-    if [[ "$search_option" == "TopDirectoryOnly" ]]; then
-        # Top level only
-        local entry_path base
-        for entry_path in "$dir_path"/*; do
-            if [[ -e "$entry_path" ]]; then
-                base="${entry_path##*/}"
-                # Pattern match
-                if [[ "$base" == $pattern ]]; then
-                    printf '%s\n' "$entry_path"
-                fi
-            fi
-        done
-    else
-        # Recursive
-        tdirectory._get_entries_recursive "$dir_path" "$pattern"
-    fi
-
-    # Restore extglob
-    (( had_extglob )) || shopt -u extglob
-}
-
-# Define tdirectory.getAttributes function
-tdirectory.getAttributes() {
-    local path="$1"
-    local follow_link="${2:-true}"
-    tpath.getAttributes "$path" "$follow_link"
-}
-
-# Define tdirectory.setAttributes function
-tdirectory.setAttributes() {
-    local path="$1"
-    local attributes="${2:-}"
-
-    if [[ ! -d "$path" ]]; then
-        return 1
-    fi
-
-    if [[ "$attributes" == *"faReadOnly"* ]]; then
-        chmod a-w -- "$path" 2>/dev/null || return 1
-    else
-        chmod u+w -- "$path" 2>/dev/null || return 1
-    fi
-}
-
-tdirectory._format_time() {
-    local path="$1"
-    local stat_field="${2:-}"
-    local utc="${3:-false}"
-    local epoch date_arg
-
-    [[ -d "$path" ]] || return 1
-    epoch=$(stat -c "$stat_field" "$path" 2>/dev/null) || return 1
-    if [[ "$stat_field" == "%W" && "$epoch" == "-1" ]]; then
-        epoch=$(stat -c "%Y" "$path" 2>/dev/null) || return 1
-    fi
-    [[ "$epoch" =~ ^-?[0-9]+$ ]] || return 1
-
-    if [[ "$utc" == "true" ]]; then
-        date_arg="-u"
-    else
-        date_arg=""
-    fi
-
-    date $date_arg -d "@$epoch" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || return 1
-}
-
-tdirectory._touch_time() {
-    local path="$1"
-    local time_value="${2:-}"
-    local touch_flag="${3:-}"
-    local utc="${4:-false}"
-    local date_arg timestamp touch_cmd
-
-    [[ -d "$path" ]] || return 1
-    [[ -n "$time_value" ]] || return 1
-
-    if [[ "$utc" == "true" ]]; then
-        date_arg="-u"
-    else
-        date_arg=""
-    fi
-
-    if [[ "$time_value" =~ ^[0-9]+$ ]]; then
-        timestamp=$(date $date_arg -d "@$time_value" +%Y%m%d%H%M.%S 2>/dev/null) || return 1
-    else
-        timestamp=$(date $date_arg -d "$time_value" +%Y%m%d%H%M.%S 2>/dev/null) || return 1
-    fi
-
-    # Prefer POSIX/GNU touch to avoid PATH collisions with vendor touch binaries on Windows.
-    touch_cmd="/usr/bin/touch"
-    if [[ ! -x "$touch_cmd" ]]; then
-        touch_cmd="$(command -v touch 2>/dev/null)" || return 1
-    fi
-
-    "$touch_cmd" "$touch_flag" -t "$timestamp" "$path" 2>/dev/null
-}
-
-# Define tdirectory.getCreationTime function
-tdirectory.getCreationTime() {
-    local path="$1"
-    tdirectory._format_time "$path" "%W" false
-}
-
-# Define tdirectory.setCreationTime function
-tdirectory.setCreationTime() {
-    local path="$1"
-    local time="${2:-}"
-    tdirectory._touch_time "$path" "$time" "-m" false
-}
-
-# Define tdirectory.getCreationTimeUtc function
-tdirectory.getCreationTimeUtc() {
-    local path="$1"
-    tdirectory._format_time "$path" "%W" true
-}
-
-# Define tdirectory.setCreationTimeUtc function
-tdirectory.setCreationTimeUtc() {
-    local path="$1"
-    local time="${2:-}"
-    tdirectory._touch_time "$path" "$time" "-m" true
-}
-
-# Define tdirectory.getLastAccessTime function
-tdirectory.getLastAccessTime() {
-    local path="$1"
-    tdirectory._format_time "$path" "%X" false
-}
-
-# Define tdirectory.setLastAccessTime function
-tdirectory.setLastAccessTime() {
-    local path="$1"
-    local time="${2:-}"
-    tdirectory._touch_time "$path" "$time" "-a" false
-}
-
-# Define tdirectory.getLastAccessTimeUtc function
-tdirectory.getLastAccessTimeUtc() {
-    local path="$1"
-    tdirectory._format_time "$path" "%X" true
-}
-
-# Define tdirectory.setLastAccessTimeUtc function
-tdirectory.setLastAccessTimeUtc() {
-    local path="$1"
-    local time="${2:-}"
-    tdirectory._touch_time "$path" "$time" "-a" true
-}
-
-# Define tdirectory.getLastWriteTime function
-tdirectory.getLastWriteTime() {
-    local path="$1"
-    tdirectory._format_time "$path" "%Y" false
-}
-
-# Define tdirectory.setLastWriteTime function
-tdirectory.setLastWriteTime() {
-    local path="$1"
-    local time="${2:-}"
-    tdirectory._touch_time "$path" "$time" "-m" false
-}
-
-# Define tdirectory.getLastWriteTimeUtc function
-tdirectory.getLastWriteTimeUtc() {
-    local path="$1"
-    tdirectory._format_time "$path" "%Y" true
-}
-
-# Define tdirectory.setLastWriteTimeUtc function
-tdirectory.setLastWriteTimeUtc() {
-    local path="$1"
-    local time="${2:-}"
-    tdirectory._touch_time "$path" "$time" "-m" true
-}
+unset -f tdirectory._get_dirs_recursive tdirectory._get_files_recursive \
+         tdirectory._get_entries_recursive 2>/dev/null || true
 
 # Finalize: extract the bodies above into the `tdirectory` class and generate
 # the thin static dispatchers (see the header note). The class is named

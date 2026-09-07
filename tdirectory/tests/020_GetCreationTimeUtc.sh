@@ -71,6 +71,7 @@ else
     kt_test_fail "GetCreationTimeUtc - directory with spaces (expected: valid datetime)"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
+kt_fixture_teardown
 
 

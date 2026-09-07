@@ -22,19 +22,23 @@ else
     kt_test_fail "Get directory from simple path (expected: /home/user, got: '$result')"
 fi
 
-# Test 2: Path with trailing separator
+# Test 2: Path with trailing separator.
+# G6-12 / decision D5: a trailing separator is stripped, it does not cost the
+# path a component. FPC ExtractFileDir('/home/user/') = '/home/user', and
+# .NET Path.GetDirectoryName agrees.
 kt_test_start "Get directory with trailing separator"
 result=$(tpath.getDirectoryName "/home/user/")
-if [[ "$result" == "/home" ]]; then
+if [[ "$result" == "/home/user" ]]; then
     kt_test_pass "Get directory with trailing separator"
 else
-    kt_test_fail "Get directory with trailing separator (expected: /home, got: '$result')"
+    kt_test_fail "Get directory with trailing separator (expected: /home/user, got: '$result')"
 fi
 
-# Test 3: Root path
+# Test 3: Root path — the root SURVIVES (G6-12; FPC ExtractFileDir('/file.txt')
+# is '/', it is not empty).
 kt_test_start "Get directory from root path"
 result=$(tpath.getDirectoryName "/file.txt")
-expected=""
+expected="/"
 if [[ "$result" == "$expected" ]]; then
     kt_test_pass "Get directory from root path"
 else

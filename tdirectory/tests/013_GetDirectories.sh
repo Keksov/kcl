@@ -87,15 +87,19 @@ tdirectory.createDirectory "$test_dir/x/y"
 result=$(tdirectory.getDirectories "$test_dir" "*" "AllDirectories")
 tdirectory_test_expect_lines "GetDirectories - AllDirectories recursive" "$result" "$test_dir/a" "$test_dir/a/b" "$test_dir/a/b/c" "$test_dir/x" "$test_dir/x/y"
 
-# Test 7: GetDirectories with special characters in names
+# Test 7: names whose ordering the collation decides.
+# The unit used to force LC_COLLATE=en_US.UTF-8 (with LC_ALL blanked) inside
+# every listing, so the order depended on a locale nobody asked for. It now
+# uses the AMBIENT locale, which the test runners pin to C.UTF-8 - codepoint
+# order, so `-` (0x2D) sorts before `.` (0x2E) before `_` (0x5F).
 kt_test_start "GetDirectories - special characters in names"
 test_dir="$_KT_TMPDIR/special_chars"
 tdirectory.createDirectory "$test_dir/dir-with-dash"
 tdirectory.createDirectory "$test_dir/dir_with_underscore"
 tdirectory.createDirectory "$test_dir/dir.with.dots"
 result=$(tdirectory.getDirectories "$test_dir")
-tdirectory_test_expect_lines "GetDirectories - special characters in names" "$result" "$test_dir/dir.with.dots" "$test_dir/dir_with_underscore" "$test_dir/dir-with-dash"
+tdirectory_test_expect_lines "GetDirectories - special characters in names" "$result" "$test_dir/dir-with-dash" "$test_dir/dir.with.dots" "$test_dir/dir_with_underscore"
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
 
 

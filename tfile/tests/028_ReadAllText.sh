@@ -15,13 +15,13 @@ TEST_NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 
-# Set up temp directory for this test
-_KT_TMPDIR=$(kt_fixture_tmpdir)
+# _KT_TMPDIR is already set by kt_test_init; re-assigning it (and then using
+# it unquoted) hid the fact that the fixture is per-test.
 
 
 # Test 1: Read text from existing file
 kt_test_start "Read text from existing file"
-echo "text content" > $_KT_TMPDIR/readtext.tmp
+printf '%s\n' "text content" > "$_KT_TMPDIR/readtext.tmp"
 text=$(tfile.readAllText "$_KT_TMPDIR/readtext.tmp")
 if [[ "$text" == "text content" ]]; then
     kt_test_pass "Read text from existing file"
@@ -29,7 +29,8 @@ else
     kt_test_fail "Read text from existing file (got: $text)"
 fi
 
-# Test 2: Read text with encoding
+# Test 2: a trailing argument is IGNORED — this port has no TEncoding, and
+# readAllText takes only the file name.
 kt_test_start "Read text with encoding"
 text=$(tfile.readAllText "$_KT_TMPDIR/readtext.tmp" "TEncoding.UTF8")
 if [[ "$text" == "text content" ]]; then

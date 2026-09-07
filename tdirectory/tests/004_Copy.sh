@@ -127,6 +127,7 @@ else
 kt_test_fail "Copy - copy empty directory (expected destination directory to exist)"
 fi
 
-# Cleanup\nkt_fixture_teardown
+# Cleanup
+kt_fixture_teardown
 
 

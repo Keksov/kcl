@@ -40,13 +40,15 @@ else
     kt_test_fail "GetDirectoryRoot - relative path (expected: empty, got: '$result')"
 fi
 
-# Test 4: Root for UNC path
+# Test 4: Root for UNC path — server AND share (G6-22).
+# FPC ExtractFileDrive skips the server name, then the share name, and returns
+# both; '//server' alone is not a usable root.
 kt_test_start "GetDirectoryRoot - UNC path"
 result=$(tdirectory.getDirectoryRoot "//server/share/file")
-if [[ "$result" == "//server" ]]; then
+if [[ "$result" == "//server/share" ]]; then
     kt_test_pass "GetDirectoryRoot - UNC path"
 else
-    kt_test_fail "GetDirectoryRoot - UNC path (expected: //server, got: '$result')"
+    kt_test_fail "GetDirectoryRoot - UNC path (expected: //server/share, got: '$result')"
 fi
 
 # Test 5: Root for empty path
@@ -85,13 +87,16 @@ else
     kt_test_fail "GetDirectoryRoot - deep Unix path (expected: /, got: '$result')"
 fi
 
-# Test 9: Root for Windows UNC share
+# Test 9: Root for Windows UNC share — the input characters are preserved
+# (FPC returns a Copy of the input), so the answer keeps its backslashes.
+# The old assertion was a `*server*` substring, which the buggy '//server'
+# answer satisfied too.
 kt_test_start "GetDirectoryRoot - Windows UNC share"
 result=$(tdirectory.getDirectoryRoot "\\\\server\\share\\file")
-if [[ "$result" == *"server"* ]]; then
+if [[ "$result" == "\\\\server\\share" ]]; then
     kt_test_pass "GetDirectoryRoot - Windows UNC share"
 else
-    kt_test_fail "GetDirectoryRoot - Windows UNC share (expected server in root, got: '$result')"
+    kt_test_fail "GetDirectoryRoot - Windows UNC share (expected: \\\\server\\share, got: '$result')"
 fi
 
 # Test 10: Root for current directory

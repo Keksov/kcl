@@ -84,14 +84,5 @@ if [[ -d "$test_dir" ]]; then
 else
     kt_test_fail "CreateDirectory - create long path (expected long nested structure to exist)"
 fi
-# Cleanup\nkt_fixture_teardown
+# Cleanup
 kt_fixture_teardown
-echo "DEBUG: Temporary directories created during test: $_KT_TMPDIR" >&2
-echo "DEBUG: Checking if cleanup is needed..." >&2
-if [[ -d "$_KT_TMPDIR" ]]; then
-    echo "DEBUG: $_KT_TMPDIR still exists - cleanup missing!" >&2
-else
-    echo "DEBUG: $_KT_TMPDIR cleaned up properly" >&2
-fi
-
-
