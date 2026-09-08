@@ -410,31 +410,158 @@
          ]
       },
       "P7" : {
-         "status" : "todo",
-         "findings" : [
-            "M1",
-            "M2",
-            "M3",
-            "M5",
-            "M6",
-            "M8",
-            "M9",
-            "M10",
-            "M11",
-            "M13",
-            "M14",
-            "M15",
-            "tregex T3",
-            "tregex T4",
-            "tregex T5",
-            "tregex T6",
-            "tregex T7",
-            "tregex T8",
-            "tregex T9",
-            "tregex T10"
-         ],
+         "status" : "done",
+         "done" : "2026-09-08",
+         "committed" : false,
          "size" : "M",
-         "title" : "math + tregex: engine lifecycle (R11), overflow, tokens, D3 conversion; tregex flags/escape/docs/nameref validation"
+         "title" : "math + tregex: engine lifecycle (R11), overflow, tokens, D3 conversion; tregex flags/escape/docs/nameref validation",
+         "findings" : [
+            "M1", "M2", "M3", "M5", "M6", "M8", "M9", "M10", "M11", "M13", "M14", "M15",
+            "tregex T3", "tregex T4", "tregex T5", "tregex T6", "tregex T7", "tregex T8",
+            "tregex T9", "tregex T10"
+         ],
+         "gate" : {
+            "math_5.2.37" : "177/177, 0 FAIL (was 90)",
+            "math_5.3.9" : "177/177, 0 FAIL",
+            "tregex_5.2.37" : "246/246, 0 FAIL (was 197)",
+            "tregex_5.3.9" : "246/246, 0 FAIL",
+            "master_5.2.37" : "see the phase report",
+            "master_5.3.9" : "see the phase report",
+            "bench" : "math: caller cost 17690 -> 96 us/call (184x, the D3 win); callee +10-25% from argument validation and math._ret, intPower 76 -> 111 us (a real overflow check replaced a bare **). tregex: escape 471 -> 112 us (4x, T6); isMatch 105 -> 118 and match 129 -> 139 us (strict flag validation, T5); matches/split/replace within run noise.",
+            "tempfiles" : "0 — the engine program goes through process substitution; a child shell that used the engine leaves no /tmp/.math_fe_*.awk"
+         },
+         "verified_not_redone" : {
+            "M4" : "kk.isInt guards on divMod/sumInt/minIntValue/maxIntValue/randomRange are in place from P1; re-asserted by math/tests/013 and 016 and extended to EVERY numeric entry point by M14.",
+            "M7" : "math._dec_cmp, math._trunc and math._num_cmp still end with an explicit `return 0`; math/tests/013 and 016 assert the caller survives under set -e.",
+            "M12 (echo half)" : "P1's echo -> printf sweep holds; the SECOND half of M12 (`ifThen c x ''` answering 0 because of `${3:-0}`) was still open and is closed here.",
+            "tregex T1" : "TRegEx._match1 still captures the [[ =~ ]] status with `|| __tre_rc=$?`; the bare arithmetic still ends with `|| :`.",
+            "tregex T2" : "kk.isInt on maxCount is in place; the rc changed from 1 to 2 (a malformed CALL, README §1.2) and tests/012 pins it."
+         },
+         "closed" : {
+            "M1" : {
+               "red_before" : "014: the file DIED at the first row with SIGPIPE (rc 141) — a write to the pipe of the awk that `fmod 5 0` had just killed. With SIGPIPE ignored so the count could be taken: 55 FAIL / 0 PASS.",
+               "test" : "math/tests/014_M1_EngineDomain.sh — 43 domain rows, each asserting the FPC/IEEE value AND that the co-process pid is unchanged AND that the next call is still correct, plus a structural check that the awk program divides only through the guarded helper",
+               "fix" : "The awk prelude was rewritten so that EVERY division goes through `_dv(a,b)`, which returns _NAN for 0/0 and +-_INF otherwise instead of letting gawk take its fatal 'division by zero attempted' path. The non-finite constants are built in BEGIN (1e308*10 overflows to +inf) because gawk parses a bare `inf` literal as 0. 44 divisions were converted, including the ones hidden in _tan/_hypot/_ipow/_cosh/_sinh/_tnh/_artanh/_lnxp1/_expm1/_power/_amean/_fv/_pvf/_pmtf/_irate and in 30 dispatch arms."
+            },
+            "M2" : {
+               "red_before" : "014 (same file): `frexp +inf|inf|-inf|nan|1e308|0` each timed out at 20 s",
+               "test" : "math/tests/014 — one child shell under `timeout` runs 10 frexp inputs: +-inf, nan, 1e308, 0, -8, 0.75, the smallest denormal and the smallest normal",
+               "fix" : "`_frexp` special-cases 0 and the non-finite values (FPC's own loop at math.pp:1118 halves X until |X|<1 and therefore never terminates for +-Inf; the port takes C frexp's answer, the value itself with exponent 0) and scales by 2^256 / 2^32 / 2 instead of one step at a time, so the loop is bounded at ~45 iterations for any double. NB gawk's `x != x` is FALSE for NaN — its comparisons order NaN above every number — so non-finiteness is detected with sprintf(\"%g\") + index()."
+            },
+            "M3" : {
+               "red_before" : "015: 15 FAIL / 0 PASS — after `math.sin $'0\\n2'` the next answer was `ERR` and every later one was shifted by one",
+               "test" : "math/tests/015_M3_EngineProtocol.sh (a newline, a space, a tab, an empty and a multi-value argument, plus a rejected stats element, each followed by an assertion on the NEXT answer) and math/tests/014 ('a newline inside an argument never reaches the engine')",
+               "fix" : "Every argument is validated by math._is_num / kk.isInt BEFORE the request is written, so nothing containing a newline can be sent; math._fe additionally refuses a request line containing one. On any rejection the member is rc 1 + RESULT='' and nothing is written to the pipe at all."
+            },
+            "M5" : {
+               "red_before" : "014: the token rows failed — `max inf 1` was 1, `sign inf` 0, `isZero inf` true",
+               "test" : "math/tests/014 sections 2 (15 rows through max/min/sign/isZero/sameValue/ceil/floor/compareValue/inRange/ensureRange/maxValue) and 'isNan/isInfinite recognise what the engine emits'",
+               "fix" : "math._is_num normalises the unit's tokens to the signed spelling gawk understands (`inf` -> `+inf`, `nan` -> `+nan`, any case, `infinity` accepted), and math._fe_norm maps gawk's `+inf`/`-nan` back to the unit's `inf`/`nan` on the way out, field by field for the multi-value answers. The engine's `cmp` op returns 2 for an UNORDERED pair, and each member then follows the FPC rule for it: Min/Max take the second operand (math.pp:2033), Sign is 0 (:729), InRange is false (:2157), EnsureRange passes the value through (:2185), CompareValue is 1 (:2576)."
+            },
+            "M6" : {
+               "red_before" : "015: the temp-file rows failed — a child shell that made one Tier-B call left a /tmp/.math_fe_$$.awk behind (38 such files had accumulated on this machine)",
+               "test" : "math/tests/015 — three rows counting .math_fe_*.awk in TMPDIR, MATH_DIR and /tmp before and after a child shell: a plain exit, an exit through the CALLER'S OWN EXIT trap (which must still run), and a shell that never touches Tier B (which must start no engine at all)",
+               "fix" : "The program reaches awk through process substitution (`awk -f <(printf ...)`), so there is no file to leak. Both bashes were probed with the real 8.4 KB program: awk reads /dev/fd/N at start-up and the co-process then lives independently. The temp-file path survives as a fallback and arms an EXIT trap that CHAINS the caller's existing handler (`trap -p EXIT` is parsed and re-installed after math._fe_cleanup) instead of replacing it."
+            },
+            "M8" : {
+               "red_before" : "017: 8 FAIL / 0 PASS — `intPower 2 63` was -9223372036854775808, `2 64` was 0, `sumInt 9223372036854775807 1` was negative",
+               "test" : "math/tests/017_M8_OverflowAndRng.sh — 9 exact rows inside int64, 7 rows past it, and 5 sumInt rows in both directions",
+               "fix" : "math._ipow_i multiplies with an overflow check (`t/b != r`) and reports the overflow; math.intPower then falls through to the engine's ipow, which answers the FPC Double — IntPower RETURNS A FLOAT in FPC (math.pp:1044), so the exact integer path was only ever an optimisation. math.sumInt checks each addition for sign overflow and switches to the engine's asum. NOTE: FPC's SumInt (math.pp:1224) accumulates in Int64 and WRAPS, exactly as bash's $(( )) did, so the Double answer is a deliberate divergence chosen by the plan — a wrapped bash integer is indistinguishable from a real total. Recorded in the README's 'Differences from FPC'."
+            },
+            "M9" : {
+               "red_before" : "015: 5 restarts printed `warning: execute_coproc: coproc [pid:MATH_FE] still exists` on stderr (also visible in the reviewer's m1.sh, once per domain error)",
+               "test" : "math/tests/015 — 'restarting the engine prints no coproc warning' (5 feStop/call cycles, stderr must be empty) and 'an engine killed from outside is replaced silently and correctly'",
+               "fix" : "math._fe_drop kills the co-process, WAITS for it (which is what frees bash's coproc slot) and closes both fds before any respawn; math._fe_start calls it whenever a stale pid is recorded."
+            },
+            "M10" : {
+               "red_before" : "015: with PATH= every Tier-B member returned rc 0 and printed an empty line",
+               "test" : "math/tests/015 — 22 Tier-B members under PATH= must be rc != 0, print nothing and leave RESULT empty; feStart/feActive rc 1; and a second row asserting the Tier-A core still answers exactly",
+               "fix" : "math._fe returns 1 when the engine cannot start, and the four Tier-B shims (math._fe1/_fe2/_feN/_feFin) propagate that as rc 1 + RESULT='' instead of printing REPLY."
+            },
+            "M11" : {
+               "red_before" : "014: the negative-zero row failed (`roundTo -0.4 0` was -0)",
+               "test" : "math/tests/014 — 11 rounding paths asserted not to produce -0 in any spelling",
+               "fix" : "The prelude's `_pn` printer folds -0 to +0 before printing (`if (x == 0) x = 0`), which covers every single-field answer; math._fe_norm folds it in the multi-field answers."
+            },
+            "M12 (second half)" : {
+               "red_before" : "016: `math.ifThen false x ''` answered 0",
+               "test" : "math/tests/016_D3_ReturnContract.sh — 'ifThen with an explicit empty third argument answers empty' (4 rows)",
+               "fix" : "`${3-0}` instead of `${3:-0}`: an explicitly empty argument is a value the caller chose, an absent one still defaults to 0. P1 had closed only the echo half of M12."
+            },
+            "M13" : {
+               "red_before" : "017 (same file): a 2^40 span never produced a value above 2^35",
+               "test" : "math/tests/017 — bounds over 2000 draws, both halves of a 2^40 span, an 8-bucket uniformity check on n = 3*2^28 over 4000 draws, the edge cases (equal/reversed/negative/straddling bounds), an int64-overflowing span, randomFrom reaching all 5 elements, and a fork-free assertion",
+               "fix" : "randomRange and randomFrom draw 63 bits from five $RANDOM, smear n-1 into an all-ones mask inside ONE (( )) and reject-sample, which is exactly uniform. A span that overflows int64 is rc 1 rather than a wrapped negative (FPC computes Abs(aFrom-aTo) in Int64 too, math.pp:1405, and wraps)."
+            },
+            "M14" : {
+               "red_before" : "014: the garbage table failed — `min abc 5` was 5, `sqrt abc` 0, `ceil 0x10` -1, `sin '1 2'` sin(1)",
+               "test" : "math/tests/014 — 20 members x 9 garbage shapes ('', abc, 0x10, '1 2', 1.2.3, -, +-5, 1e, an injection), each asserting rc != 0 AND no output AND RESULT=''",
+               "fix" : "math._is_num gates every float entry point (kk.isNum per D1, plus this unit's own inf/nan tokens, which kkore deliberately refuses). The Tier-A comparator validates inline with case globs rather than a call, because _num_cmp is the hottest helper in the unit: an ERE costs ~12 us against ~6 us for the two case tests."
+            },
+            "M15" : {
+               "red_before" : "015: the locale rows failed together with the rest of the file (0 PASS)",
+               "test" : "math/tests/015 — sin/mean/roundTo under LC_ALL=de_DE.UTF-8, under de_DE + POSIXLY_CORRECT, under LC_NUMERIC=de_DE.UTF-8 and in an empty environment; plus 'a comma-decimal argument is rejected, not silently truncated'",
+               "fix" : "The co-process is started as `LC_ALL=C awk ...`. NB POSIXLY_CORRECT has to be exported AFTER the unit is sourced: assigning it puts bash itself into posix mode, where a function name containing a dot is a syntax error and no kcl unit can load."
+            },
+            "D3 + R8" : {
+               "red_before" : "016: 6 FAIL / 0 PASS (all 10 sections)",
+               "test" : "math/tests/016_D3_ReturnContract.sh — silence on a direct call for 19 members, exactly-once printing under $( ) for 10, 14 boolean rows, boolean usability under set -eu, echo-option round-trips, 12 error rows asserting RESULT is CLEARED, BASHPID unchanged over 18 Tier-A members, no command substitution in 27 bodies, and a completeness check that reads the class interface out of the source",
+               "fix" : "All 123 members converted from `printf '%s\\n'` to `math._ret` (static proc + the unit-local form of kk._return — a static func would echo on every call, kcl/README.md §1.1). The six predicates answer with their exit status and carry true/false in RESULT (R8). Measured caller cost: 17690 us for the $( ) form the old contract forced against 96 us for the direct call, i.e. 184x."
+            },
+            "tregex T3" : {
+               "red_before" : "011: 3 FAIL — the self-heal row (`got '1||-1|'`) and the two documentation rows",
+               "test" : "tregex/tests/011_T3_T4_LocaleAndAnchors.sh — the same match under C.UTF-8 and under C, the two-dot form that proves byte semantics, the empty-environment self-heal, 'a locale the caller chose is not overridden', character offsets, and greps asserting the corrected claims are in the unit and in docs/ERE-vs-PCRE.md",
+               "fix" : "The S9 note and docs §5 said bash byte-counts WHILE THE ENGINE CHAR-COUNTS, i.e. that only the number was wrong. Both byte-count: `match \"héllo wörld\" \"w.rld\"` misses under LC_ALL=C. Docs rewritten with the three worked commands, and the unit exports LC_CTYPE=C.UTF-8 when LC_ALL, LC_CTYPE and LANG are ALL empty (D6)."
+            },
+            "tregex T4" : {
+               "red_before" : "011 (same file): the docs rows failed; the behaviour rows were characterisation pins, which is exactly what R12 asks for",
+               "test" : "tregex/tests/011 — 6 scan rows, 4 replace rows, 2 split rows, the S6 offset row and the 'unanchored is exact' counterweight, each naming the .NET answer in its message",
+               "fix" : "R12: documented, not emulated. A zero-length match carries no position information (stripping '' off a string leaves the string), so an anchored empty pattern reports offset 0 in every remainder and the scan yields len+1 matches. The S6 header note, docs §4 (now with a .NET comparison table) and the README all say so; recovering the real offset would need something bash does not expose."
+            },
+            "tregex T5" : {
+               "red_before" : "012: the file TIMED OUT at 600 s — `split \"a,b\" \",\" IFS` bound the caller's IFS to an array and word splitting collapsed; 4 FAIL had been emitted first",
+               "test" : "tregex/tests/012_T5_T8_FlagsAndNamerefs.sh — 11 flag words x 5 members, 'a rejected flag performs nothing', silent-unless-debug, the accepted spellings, and nocasematch restoration on the rejected path",
+               "fix" : "TRegEx._flags accepts exactly `i`, `-` and the empty string; anything else is rc 2 and the member does nothing. The resolved 0/1 is passed to _match1, so the scans no longer re-parse a string per iteration. isMatch and match inline the three-case test (a function call is ~10 us and they are the hot members)."
+            },
+            "tregex T6" : {
+               "red_before" : "013: 'still super-linear', 10k=964 ms 80k=52.3 s (ratio 54x); 50 000 chars took 22 s",
+               "test" : "tregex/tests/013_T6_T7_Scaling.sh — 14 exact escape rows, 17 round-trips, a RELATIVE gate against the char loop it replaced (the old body is kept in the test as the reference), a 50 000-char ceiling and a fork-free check",
+               "fix" : "14 whole-string `${s//x/\\x}` substitutions with the BACKSLASH FIRST. Patterns and replacements are SINGLE-QUOTED: unquoted, `${s//./x}` treats `.` as the glob 'any character' and `${s//\\\\/...}` does not match a literal backslash at all. Result: bench 471 -> 112 us, 50 000 chars 14.3 s -> ~0.6 s. It is still not linear, because bash's own ${var//pat/rep} is quadratic on BOTH bashes (one substitution over 10/20/40/80 kB: 11/48/183/712 ms) — hence the relative gate."
+            },
+            "tregex T7" : {
+               "red_before" : "013: '_replaceScan still slices the remainder twice per match'",
+               "test" : "tregex/tests/013 — a scaling row (4x the matches on 4x the text costs at most 24x), 2000-occurrence correctness for matches and split, and a structural row asserting the double slice is gone",
+               "fix" : "Documented with measured numbers in the README (a scan is O(n*k) because bash cannot match from an offset), and the second copy per match removed: `__trx_pre` IS text[0:loff], so `${__trx_rem:0:__trx_loff}` was recomputing what the prefix-strip had already produced."
+            },
+            "tregex T8" : {
+               "red_before" : "012 (same file): `matches \"abc\" \"b\" \"1bad\"` printed a bash diagnostic and returned rc 0 with RESULT=1; `__tre_g` returned rc 0; `__trx_texts` produced circular-reference warnings",
+               "test" : "tregex/tests/012 — 8 invalid names (including an injection shape) x 2 members, 20 reserved names x 2 members, argument 4 validated like argument 3, RESULT=0 with no collateral writes, and 'names that only LOOK reserved still work'",
+               "fix" : "TRegEx._outName validates before any `local -n`: a plain identifier outside `this __inst__ __class__ RESULT RESULT_INDEX RESULT_LENGTH RESULT_GROUPS REPLY IFS __kk_* __KK_* __tre_* __trx_*`. rc 2, silent unless VERBOSE_KKLASS=debug, nothing written."
+            },
+            "tregex T9" : {
+               "red_before" : "014: 'README does not mention the trailing-newline caveat'",
+               "test" : "tregex/tests/014_T9_T10_Replacement.sh — RESULT keeps the trailing newlines that $( ) strips, an interior newline survives both paths, and a grep on the README",
+               "fix" : "Documented in the README with both access paths shown; it is command substitution's behaviour, not the unit's, so nothing in the code changed."
+            },
+            "tregex T10" : {
+               "red_before" : "014 (same file): `$10` with 11 groups gave `[a0]`, `$12` gave `[a2]` only by accident of the same fallback",
+               "test" : "tregex/tests/014 — group 10/11 with 11 groups, the one-digit fallback with 2 groups, the brace form unchanged, 9 regression rows on the rest of the grammar, and the callback",
+               "fix" : "Extended to two digits with .NET's rule: the longest digit run that names an EXISTING group wins, so `$10` is group 10 when there are >= 10 groups and group 1 followed by a literal 0 otherwise. `${n}` is unchanged and still takes any width."
+            }
+         },
+         "deviations" : [
+            "read -t is NOT used on every engine call, against the letter of R11. Measured on both bashes: `read -t` costs ~410 us a call (independent of the timeout value — bash's timed read polls per byte) against ~105 us for the whole round trip, i.e. a 4.9x regression on every Tier-B metric. It IS used on the start probe, and per call when __MATH_FE_STRICT is set. The case R11 is really about — an engine that died — needs no timeout at all: the pipe closes and `read` fails at once, and the prelude that used to hang (M2's frexp) is now bounded. Reviewer approval requested.",
+            "The bench gate 'no metric slower' is met for tregex on every metric except isMatch (+12 us) and match (+10 us), which is the cost of validating the flag word (T5), and it is NOT met for math's callee-side metrics (+10-25%, intPower 76 -> 111 us). Both are the phase's own subject matter: every numeric argument is now validated (M14) and every member routes through math._ret (D3). The number a program actually pays fell 184x, because the direct call no longer needs a subshell; bench.sh grew a 'Caller cost' section that measures both, as dateutils' did in P6.",
+            "math.sumInt answers the Double on overflow rather than wrapping like FPC's Int64 SumInt (math.pp:1224). The plan (P7/M8) asks for the engine path; FPC's own behaviour is recorded in the README and in this ledger so the reviewer can reverse it in one line if strict parity is preferred.",
+            "tregex T4 is closed by documentation and pins only, per R12 — detection is not trivial (bash exposes no match offset), so nothing in the scanning code changed."
+         ],
+         "found_in_P7" : {
+            "P7-F1" : "gawk (5.0.0 here) does not follow IEEE for NaN comparisons: `x != x` is FALSE and `nan > 1` is TRUE, because its scalar comparison uses a total order. Any awk code in this repo that tests for NaN with self-inequality is wrong; math.sh now uses sprintf(\"%g\") + index(s,\"nan\"). Not a defect in kcl code outside math.",
+            "P7-F2" : "bash's `${var//pat/rep}` is QUADRATIC in the subject length on 5.2.37 and 5.3.9 (one substitution over 10/20/40/80 kB: 11/48/183/712 ms). Several kcl units use it on caller data (tstringhelper's replace/split, tregex's escape). Not fixed: there is no linear pure-bash alternative; recorded so a future 'this is O(n)' claim is not written.",
+            "P7-F3" : "bash's `read -t` costs ~410 us per call on this platform whatever the timeout value, i.e. ~4x a plain read on a pipe. Any kcl code that reaches for a timed read in a hot path pays it.",
+            "P7-F4" : "The two idle bash trees under the harness dated 2026-09-07 (winpids 2812 and 13524, parent = the claude process) were checked before every measurement in this phase: CPU delta ~0 over 4 s, so they are NOT the runaway trees P6 saw and were left alone.",
+            "P7-F5" : "tstringlist/tests/013_AssignOptimization.sh line 234 is an ABSOLUTE millisecond wall — `if (( elapsed_ms < 200 ))` around a 50-item Assign — which is exactly the shape PLAN section 4 rules out. It passes 3/3 when the FILE is run on its own and fails under the suite runner's 8 parallel workers and in the master sweep (432 ms standalone-under-load, 203 ms in the sweep). Its neighbour tstringlist/tests/018_ReviewP2.sh ('IndexOf 170ms vs Find 46ms, limit 138ms') is relative but calibrated just as tightly and flaked once in the same sweep. Both are P2 territory, outside this phase, and NOT caused by it: tstringlist neither sources nor calls math or tregex (grep: only two mentions, both in comments). P7 does make them more likely to trip, because it lengthens the sweep (math 90 -> 177 tests, tregex 197 -> 246) and so raises contention. Repro: `bash kcl/tstringlist/tests/tests.sh` (fails) vs `bash kcl/tstringlist/tests/013_AssignOptimization.sh` (passes). Fix belongs with P2/P9: turn the wall into a relative gate."
+         }
       },
       "P3" : {
          "closed" : {

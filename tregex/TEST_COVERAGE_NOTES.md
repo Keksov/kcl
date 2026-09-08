@@ -166,3 +166,70 @@ Cross-checks against FPC's Delphi-compatible `TRegEx` (`utcregexapi.pas` /
 | 009.cb-maxCount | replaceCb | maxCount limits callback invocations | behavior | Delphi Replace(eval,count) |
 | 009.cb-empty | replaceCb | empty REPLY deletes the match | behavior | replacement semantics |
 | 009.zero-fork | replace/replaceCb | complete under `PATH=''` | contract | builtins only |
+
+## 010 — the kcl contract (P1, 2026-09-06)
+
+| ID | Functions | Case | Class | Basis |
+|---|---|---|---|---|
+| 010.parse | — | `bash -n` on the unit + no unterminated `printf '` format | integrity | PLAN §4 (two mechanical sweeps corrupted sources) |
+| 010.setu | all | loads, RE-loads and runs its main path under `set -eu` | contract | D7, X-SETU |
+| 010.inj | split/replace | `maxCount` never reaches `(( ))` raw (canary file) | security | T2, D1 |
+| 010.sete | match | a failing member returns control under `set -e` | contract | D7, T1 |
+
+## 011 — locale and zero-length anchors (P7, 2026-09-08 — T3, T4/R12)
+
+| ID | Functions | Case | Class | Basis |
+|---|---|---|---|---|
+| 011.locale-utf8 | match | `C.UTF-8`: `w.rld` matches `wörld`, idx 6, len 5 | behavior | S9 |
+| 011.locale-c | match | `LC_ALL=C`: the engine matches BYTES, `w.rld` MISSES; `w..rld` matches, len 6 | delta | T3 — the old docs claimed the opposite |
+| 011.locale-heal | match | an empty environment self-heals to `LC_CTYPE=C.UTF-8` | contract | D6, §1.6 |
+| 011.locale-respect | — | a locale the caller CHOSE is not overridden | contract | D6 |
+| 011.offsets-utf8 | match/matches | offsets and lengths are CHARACTERS under UTF-8 | behavior | S9 |
+| 011.anchor-scan | matches | `$` `^` `\b` `\<` `\>` each yield len+1 matches at 0..len; `x*` agrees with .NET | delta | T4/R12 — pinned, not fixed |
+| 011.anchor-replace | replace | `$`→`!a!b!c!`, `^`→`>a>b>c>`, `\b`→`\|a\|b\| \|c\|d` (.NET: `abc!`, `>abc`, `\|ab\| \|cd\|`) | delta | T4/R12 |
+| 011.anchor-split | split | `$` → `[][a][b][c][]`; `\b` → 6 pieces | delta | T4/R12 |
+| 011.s6-offset | match | `match "ab ab" 'ab$'` reports index 0 (the true match is at 3) | delta | S6 |
+| 011.unanchored | match/matches | unanchored offsets are EXACT (the other half of the delta) | behavior | S5 |
+| 011.docs | — | the two corrected claims are present in `tregex.sh`, `docs/ERE-vs-PCRE.md` and `README.md` | docs | T3/T4 |
+
+## 012 — strict flags and output-array validation (P7 — T5, T8)
+
+| ID | Functions | Case | Class | Basis |
+|---|---|---|---|---|
+| 012.flag-unknown | all 5 flag-taking members | 11 flag words (`Multiline`, `m`, `x`, `I`, `ii`, `-i`, …) → rc 2 | contract | T5, §1.2 |
+| 012.flag-noop | matches/replace | a rejected flag performs NOTHING (arrays and text untouched) | contract | T5 |
+| 012.flag-silent | isMatch | silent by default, speaks under `VERBOSE_KKLASS=debug` | contract | §1.2 |
+| 012.flag-accepted | all | `i`, `''`, `-` and absent behave as documented | behavior | T5 |
+| 012.flag-shopt | isMatch | the ambient `nocasematch` is restored after a REJECTED flag too | contract | S4 |
+| 012.name-invalid | matches/split | 8 invalid names (incl. an injection shape) → rc 2, silent, nothing written | security | T8, §1.7 |
+| 012.name-reserved | matches/split | 20 reserved names (`__tre_*`, `__trx_*`, `RESULT*`, `REPLY`, `IFS`, `this`, `__kk_*`) → rc 2 | contract | T8, §1.7 |
+| 012.name-offsets | matches | argument 4 (the offsets array) is validated like argument 3 | contract | T8 |
+| 012.name-state | matches | a rejected name leaves `RESULT=0` and no collateral writes | contract | T8 |
+| 012.name-valid | matches | normal identifiers, incl. one that only LOOKS reserved, still work | regression | T8 |
+| 012.maxcount | split/replace | a bad `maxCount` is rc **2**, not rc 1, and is never evaluated | contract | T2, §1.2 |
+
+## 013 — escape and scan scaling (P7 — T6, T7)
+
+| ID | Functions | Case | Class | Basis |
+|---|---|---|---|---|
+| 013.esc-table | escape | 14 exact rows incl. `\`, `\`, `\.`, `.\` and the full metaset | behavior | T6 |
+| 013.esc-roundtrip | escape/match | 17 literals match themselves, backslash-terminal included | behavior | T6 |
+| 013.esc-speed | escape | >= 8x faster than the char loop it replaced, same output on 20 000 chars | perf | T6 (relative gate, PLAN §4) |
+| 013.esc-50k | escape | 50 000 characters under 2 s (was 14.3 s) | perf | T6 |
+| 013.esc-fork | escape | fork-free, no command substitution | contract | §1.8 |
+| 013.scan-scale | replace | 4x the matches on 4x the text costs <= 24x (i.e. no worse than the remainder copy) | perf | T7 |
+| 013.scan-2000 | matches/split | 2000 occurrences are all found and all pieces kept | behavior | T7 |
+| 013.scan-copy | _replaceScan | the prefix-strip result is REUSED, not re-sliced (one copy per match, not two) | perf | T7 |
+
+## 014 — capture caveat and two-digit group refs (P7 — T9, T10)
+
+| ID | Functions | Case | Class | Basis |
+|---|---|---|---|---|
+| 014.trailing-nl | replace/escape | `RESULT` keeps trailing newlines that `$( )` strips | delta | T9 |
+| 014.interior-nl | replace | an interior newline survives both paths | behavior | T9 |
+| 014.g10 | replace | with 11 groups `$10`/`$11` are groups 10 and 11 | behavior | T10 (.NET rule) |
+| 014.g10-fallback | replace | with 2 groups `$10` is group 1 + literal `0`; `$12`/`$99` fall back one digit | behavior | T10 |
+| 014.braces | replace | `${n}` unchanged, wins over the bare form, out-of-range stays literal | regression | S11 |
+| 014.grammar | replace | the other 9 grammar rows unchanged | regression | S11 |
+| 014.cb | replaceCb | the callback still receives the whole match and every group | regression | S11 |
+| 014.docs | — | README documents the capture caveat and the `$10` rule | docs | T9/T10 |

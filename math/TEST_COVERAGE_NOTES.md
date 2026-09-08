@@ -210,3 +210,80 @@ exactly one awk co-process reused across calls.
   FPC Mersenne).
 - A statistics array passes through the request pipe as one line — fine for
   hundreds of elements; a very large array would need chunking.
+
+---
+
+## 013 — the kcl contract (P1, 2026-09-06)
+
+| ID | Functions | Case | Class |
+|---|---|---|---|
+| 013.parse | — | `bash -n` on the unit + no unterminated `printf '` format | integrity |
+| 013.setu | all | loads, RE-loads and runs its main path under `set -eu` | contract |
+| 013.inj | divMod/sumInt/minIntValue/maxIntValue/randomRange | an injection-shaped index never reaches `(( ))` (canary file) | security |
+| 013.octal | min/sumInt/minIntValue | `08`/`09` are decimal, not octal | contract |
+| 013.sete | min/max/sign/compareValue/divMod | Tier-A helpers do not abort the caller under `set -e` | contract |
+
+## 014 — the engine never dies (P7, 2026-09-08 — M1, M2, M5, M11, M14)
+
+Every domain row asserts the value AND that the co-process is the same live
+process afterwards AND that the next call is still right: a dead engine used to
+answer `''` with rc 0, which is invisible in the failing call itself.
+
+| ID | Functions | Case | Class |
+|---|---|---|---|
+| 014.domain | 43 rows across fmod, cotan/cot/csc/cosecant, cscH/cotH, arcSec/arcCsc, arcSecH/arcCscH/arcCotH, arcTanH/arTanH, logN, log10/log2/ln, sqrt, exp, power, intPower, roundTo, simpleRoundTo, mean/variance/popnVariance/totalVariance/stdDev/popnStdDev/sum/sumOfSquares/norm, payment, numberOfPeriods, presentValue, ldexp, lnXP1, arcSin/arcCos/arcCosH | every zero denominator the prelude can be asked for: the FPC/IEEE value + the engine still alive | contract (M1/R11) |
+| 014.tokens | max/min/sign/isZero/sameValue/ceil/floor/compareValue/inRange/ensureRange/maxValue | the unit's own `inf`/`nan` tokens are VALUES, not zeros; the FPC rule for an unordered operand in each member | behavior (M5) |
+| 014.predicates | isNan/isInfinite | what the engine emits feeds the predicates back | behavior (M5) |
+| 014.frexp | frexp | `+inf`/`inf`/`-inf`/`nan`/`1e308`/`0`/`-8`/`0.75`/denormal/smallest-normal — all answer, under `timeout` | contract (M2) |
+| 014.negzero | roundTo/simpleRoundTo/ceil/floor/fmod/sign/degNormalize/logN | no `-0` on any rounding path | behavior (M11) |
+| 014.garbage | 20 members x 9 shapes (`abc`, `0x10`, `1 2`, `''`, `1.2.3`, `-`, `+-5`, `1e`, an injection) | rc 1 + `RESULT=''` + no output | security (M14) |
+| 014.newline | sin/mean/roundTo | a newline argument is rejected BEFORE the write and the pipe stays in step | contract (M3) |
+| 014.prelude | — | structurally: the awk program divides only through the guarded helper | integrity (M1) |
+
+## 015 — engine protocol and process lifecycle (P7 — M3, M6, M9, M10, M15)
+
+| ID | Functions | Case | Class |
+|---|---|---|---|
+| 015.desync | sin/cos/sqrt | after a newline argument the NEXT three answers are still correct | contract (M3) |
+| 015.desync-shapes | sin/cos | space, tab, empty, multi-value arguments each leave the pipe in step | contract (M3) |
+| 015.desync-stats | mean | a rejected element does not eat the next answer | contract (M3) |
+| 015.tempfile | sin/roundTo | a child shell that used the engine leaves NO `.math_fe_*.awk` behind | contract (M6) |
+| 015.tempfile-trap | sin | the same when the caller has its own EXIT trap — which still runs | contract (M6) |
+| 015.lazy | min/divMod | a shell that never touches Tier B starts no engine at all | behavior (M6) |
+| 015.respawn | feStop/sin | 5 restarts, empty stderr (no `execute_coproc` warning) | contract (M9) |
+| 015.killed | sin/cos/sqrt | an engine killed from outside is replaced silently and answers correctly | contract (M9/R11) |
+| 015.noawk | 22 Tier-B members | `PATH=` → rc 1, silent, `RESULT=''`; `feStart`/`feActive` rc 1 | contract (M10) |
+| 015.noawk-tiera | min/max/sign/divMod/sumInt/ceil/intPower | the Tier-A core still answers exactly with no awk | contract (M10) |
+| 015.locale | sin/mean/roundTo | `de_DE.UTF-8`, `de_DE.UTF-8`+`POSIXLY_CORRECT`, `LC_NUMERIC=de_DE`, empty env → C-decimal output | contract (M15) |
+| 015.comma | sin/min | a comma-decimal argument is REJECTED, not truncated | contract (M14/M15) |
+| 015.one-process | sin/sqrt/feActive | one co-process serves 200 calls and every `$( )` subshell | behavior (R11) |
+
+## 016 — the return contract (P7 — D3, R8, M12)
+
+| ID | Functions | Case | Class |
+|---|---|---|---|
+| 016.silent | 19 members | a direct call prints nothing on stdout or stderr and sets `RESULT` | contract (D3) |
+| 016.captured | 10 members | inside `$( )` the value is printed EXACTLY once | contract (D3) |
+| 016.bool | inRange/isZero/sameValue/isNan/isInfinite/feActive | 14 rows: the exit status IS the answer, `RESULT` carries the word | contract (R8) |
+| 016.bool-sete | inRange/isNan/isZero | usable from `if` / `\|\|` / `!` under `set -eu` | contract (R8, D7) |
+| 016.ifthen | ifThen | an EXPLICIT empty argument is a value; an absent one still defaults to 0 | behavior (M12) |
+| 016.echo-opts | ifThen/randomFrom | `-n`, `-e`, `-E`, `-neE` round-trip verbatim both ways | contract (X-ECHO) |
+| 016.errors | 12 error rows | rc != 0, `RESULT` CLEARED, nothing printed | contract (§1.2) |
+| 016.forkfree | 18 Tier-A members | `BASHPID` unchanged across a direct call | perf (§1.8) |
+| 016.nosubst | 27 Tier-A bodies | no `$( )` or backtick in any body | perf (§1.8) |
+| 016.complete | every declared member | the interface is read from the source: all 123 are on the return contract | completeness |
+
+## 017 — integer overflow and the RNG (P7 — M8, M13)
+
+| ID | Functions | Case | Class |
+|---|---|---|---|
+| 017.ipow-exact | intPower | 9 rows exact inside int64 (`2^62`, `-2^63`, `10^18`, `0^0`, …) | behavior (M8) |
+| 017.ipow-float | intPower | 7 rows past int64 answer the FPC Double, not a wrap | behavior (M8) |
+| 017.sumint | sumInt | exact below the boundary, Double above, in both directions | behavior (M8) |
+| 017.rng-bounds | randomRange | 2000 draws inside `[lo,hi)` | behavior (M13) |
+| 017.rng-wide | randomRange | a 2^40 span reaches BOTH halves (the old 30-bit draw could not) | behavior (M13) |
+| 017.rng-uniform | randomRange | 8 buckets over 4000 draws on `n = 3*2^28`, each within 2x of its share | behavior (M13) |
+| 017.rng-edges | randomRange | equal, reversed, negative and straddling bounds; upper end exclusive | behavior (M13) |
+| 017.rng-overflow | randomRange | a span wider than int64 is rc 1; the maximal legal span is accepted | contract (M13) |
+| 017.randomfrom | randomFrom | every element of a 5-element list is reachable | behavior (M13) |
+| 017.rng-fork | randomRange/randomFrom | fork-free, no command substitution | perf (§1.8) |

@@ -224,18 +224,26 @@ for i in {1..50}; do
     perf_source.Add "performance_test_item_$i"
 done
 
+# RELATIVE gate (PLAN §4: no absolute ms walls â€” this one flaked under the
+# 8-worker runner at 203-232 ms while the code was fine). Assign of 50 items
+# must not cost more than 3x adding those 50 items one by one (+50 ms slack);
+# the pre-P2 Assign forked per item and was ~20x.
+start_time=$(date +%s%N)
+TStringList.new perf_ref
+for i in {1..50}; do perf_ref.Add "performance_test_item_$i"; done
+end_time=$(date +%s%N)
+add_ms=$(( (end_time - start_time) / 1000000 ))
 start_time=$(date +%s%N)
 TStringList.new perf_dest
 perf_dest.Assign "perf_source"
 end_time=$(date +%s%N)
 elapsed_ms=$(( (end_time - start_time) / 1000000 ))
-
-# Optimized version should complete in < 100ms for 50 items
-if (( elapsed_ms < 200 )); then
-    kt_test_pass "Assign completed in ${elapsed_ms}ms (acceptable performance)"
+if (( elapsed_ms <= add_ms * 3 + 50 )); then
+    kt_test_pass "Assign ${elapsed_ms}ms vs 50 Adds ${add_ms}ms (limit $(( add_ms * 3 + 50 ))ms)"
 else
-    kt_test_fail "Assign took ${elapsed_ms}ms (expected < 200ms)"
+    kt_test_fail "Assign took ${elapsed_ms}ms vs 50 Adds ${add_ms}ms (limit $(( add_ms * 3 + 50 ))ms)"
 fi
+perf_ref.delete
 
 # Cleanup
 source_list.delete

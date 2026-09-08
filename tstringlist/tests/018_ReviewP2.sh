@@ -231,16 +231,22 @@ SS.sorted = true
 for (( i = 0; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.Add "$tag"; done
 # look the LAST 20 items up: a linear scan is then worst-case, a binary search
 # is not (searching the first 20 would hide the difference).
-t0=$(ms); for (( i = 280; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.IndexOf "$tag" >/dev/null; done; t1=$(ms)
-io=$(( t1 - t0 ))
-t0=$(ms); for (( i = 280; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.Find "$tag" >/dev/null; done; t1=$(ms)
-fnd=$(( t1 - t0 )); (( fnd < 1 )) && fnd=1
+# best of 3 on each side and a 6x ceiling: the linear scan was 24x (824 vs
+# 34 ms) and this gate flaked once at 3x under the parallel runner.
+io=0; fnd=0
+for rep in 1 2 3; do
+    t0=$(ms); for (( i = 280; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.IndexOf "$tag" >/dev/null; done; t1=$(ms)
+    (( io == 0 || t1 - t0 < io )) && io=$(( t1 - t0 ))
+    t0=$(ms); for (( i = 280; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.Find "$tag" >/dev/null; done; t1=$(ms)
+    (( fnd == 0 || t1 - t0 < fnd )) && fnd=$(( t1 - t0 ))
+done
+(( fnd < 1 )) && fnd=1
 SS.IndexOf item017; hit="$RESULT"
 SS.IndexOf nothere;  miss="$RESULT"
-if [[ "$hit" == "17" && "$miss" == "-1" ]] && (( io < fnd * 3 )); then
+if [[ "$hit" == "17" && "$miss" == "-1" ]] && (( io <= fnd * 6 )); then
     kt_test_pass "IndexOf ${io}ms vs Find ${fnd}ms; hit 17, miss -1"
 else
-    kt_test_fail "IndexOf ${io}ms vs Find ${fnd}ms (limit $(( fnd * 3 ))ms); hit=$hit miss=$miss"
+    kt_test_fail "IndexOf ${io}ms vs Find ${fnd}ms (limit $(( fnd * 6 ))ms); hit=$hit miss=$miss"
 fi
 SS.delete
 

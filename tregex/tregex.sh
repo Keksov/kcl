@@ -32,17 +32,29 @@
 #   S3  invalid pattern  -> rc=2 (distinct from rc=1 no-match).
 #   S4  nocasematch affects =~ (and ==); `shopt -q` is a fork-free query.
 #   S5  offset recovery via prefix-strip is EXACT for unanchored patterns.
-#   S6  offset recovery is a documented CAVEAT for ^ $ \b \< \> anchored
-#       patterns whose matched TEXT recurs earlier (prefix-strip finds the
-#       earlier copy). Global scans advance by STRING ops, so match
-#       CORRECTNESS is unaffected — only the reported numeric index.
+#   S6  ANCHORED PATTERNS ARE A DOCUMENTED DELTA (T4/R12). The note this
+#       replaces said the matches themselves were unaffected; they are not:
+#       (a) a match whose TEXT recurs earlier is REPORTED at the earlier
+#           position, because prefix-strip finds the first copy;
+#       (b) a ZERO-LENGTH match carries no position information at all
+#           (stripping "" off a string leaves the string), so an anchored
+#           empty pattern reports offset 0 in every remainder AND the scan
+#           does not stop where .NET would: matches("abc",'$') is 4 here
+#           against 1 in .NET, and replace("abc",'$',"!") is "!a!b!c!"
+#           against .NET's "abc!".
+#       Unanchored patterns are exact, empty-matching ones (`x*`) included.
+#       Recovering (b) needs a match offset bash does not expose, so R12
+#       keeps this documented and PINNED (tests/011) rather than emulated.
 #   S7  \b \< \> word boundaries work on BOTH bashes (GNU/glibc; not POSIX).
 #   S8  alternation is leftmost-LONGEST: (a|ab) on "ab" -> "ab" (PCRE: "a").
-#   S9  offsets/lengths are `${#...}` in the AMBIENT locale. ASCII exact.
-#       Multibyte: under empty/C locale on MSYS2 `${#}` byte-counts while the
-#       regex engine char-counts -> they disagree; a full UTF-8 locale
-#       (C.UTF-8/en_US.UTF-8) makes both char-count. Documented; correctness
-#       of scans is locale-independent (string-op advance).
+#   S9  the ENGINE and `${#...}` both follow the AMBIENT locale, and they
+#       AGREE with each other. ASCII is exact everywhere. Under an empty or C
+#       locale the engine matches BYTES: match "héllo wörld" "w.rld" MISSES
+#       (rc 1), because `.` is one byte there, while "w..rld" matches and
+#       ${#} byte-counts to suit. A UTF-8 locale (C.UTF-8/en_US.UTF-8) makes
+#       both char-based, which is what this unit's contract promises — so the
+#       unit SELF-HEALS an empty environment (D6, kcl/README.md §1.6). The
+#       old note claimed only the reported NUMBER was affected (T3).
 #   S10 non-participating group in alternation -> EMPTY STRING, array dense
 #       (indistinguishable from an empty match; documented). Same on 5.2/5.3.
 #   S11 replacement grammar $0..$9 / $$ / literal-unknown-$x — pure-bash
@@ -93,6 +105,13 @@ if [[ -n "${_TREGEX_SOURCED:-}" ]]; then
 fi
 declare -g _TREGEX_SOURCED=1
 
+# Character semantics are part of this unit's contract (S9, T3, D6): an empty
+# environment means the C locale, where the regex engine matches BYTES and `.`
+# does not cover a multibyte character. A locale the caller CHOSE is left alone.
+if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
+    export LC_CTYPE=C.UTF-8
+fi
+
 # Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
 TREGEX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TREGEX_DIR/../../kklass/kklass_pascal.sh"
@@ -129,10 +148,56 @@ end
 # is copied IMMEDIATELY (any later [[ =~ ]], even one hidden in a helper,
 # clobbers it; a FAILED match clears it — P0/ADJ).
 # ---------------------------------------------------------------------------
+# TRegEx._flags FLAGS -> __tre_ci = 0|1 ; rc 2 for anything else.
+# T5: the old test was `[[ $flags == *i* ]]`, so ANY word containing an `i`
+# turned case-insensitivity on (`Multiline` did) and every other word was
+# silently ignored. `i` is the only flag; '' and '-' are the documented
+# placeholders that let a caller pass a LATER positional. An unknown flag is a
+# malformed CALL, i.e. rc 2 (kcl/README.md §1.2), and the member does nothing.
+TRegEx._flags() {
+    case "${1:-}" in
+        ""|"-") __tre_ci=0; return 0 ;;
+        i)      __tre_ci=1; return 0 ;;
+    esac
+    __tre_ci=0
+    return 2
+}
+
+# TRegEx._badflag MEMBER FLAGS -> the debug-only note for a rejected flag.
+TRegEx._badflag() {
+    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
+        printf '%s\n' "TRegEx.$1: unknown flag (rc=2): '$2' (only 'i', '-' or '' are accepted)" >&2
+    return 0
+}
+
+# TRegEx._outName NAME -> rc 2 unless NAME may safely become a nameref target.
+# T8: `local -n out="1bad"` printed a bash diagnostic and left rc 0 with
+# RESULT=1, and a reserved name such as __tre_g or __trx_texts bound the
+# caller's array to this unit's own scratch. The list is the kcl reserved set
+# (README §1.7) plus every prefix this file uses.
+TRegEx._outName() {
+    case "${1:-}" in
+        ""|*[!A-Za-z0-9_]*|[0-9]*)                     return 2 ;;
+        this|__inst__|__class__|REPLY|IFS)             return 2 ;;
+        RESULT|RESULT_INDEX|RESULT_LENGTH|RESULT_GROUPS) return 2 ;;
+        __kk_*|__KK_*|__tre_*|__trx_*)                 return 2 ;;
+    esac
+    return 0
+}
+
+# TRegEx._badname MEMBER NAME -> the debug-only note for a rejected array name.
+TRegEx._badname() {
+    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
+        printf '%s\n' "TRegEx.$1: invalid or reserved output-array name (rc=2): '$2'" >&2
+    return 0
+}
+
+# _match1 TEXT PATTERN CI  — CI is the RESOLVED 0/1 flag, not the flag word:
+# the scans resolve it once instead of re-parsing a string per iteration.
 TRegEx._match1() {
-    local __re="${2:-}" __flags="${3:-}" __had=0
+    local __re="${2:-}" __had=0
     shopt -q nocasematch && __had=1
-    if [[ "$__flags" == *i* ]]; then shopt -s nocasematch; else shopt -u nocasematch; fi
+    if [[ "${3:-0}" == 1 ]]; then shopt -s nocasematch; else shopt -u nocasematch; fi
     # X-SETE (T1, D7): the match STATUS is the answer here, so a bare test would
     # abort the caller under `set -e` on every no-match. Capture it instead.
     __tre_rc=0
@@ -157,8 +222,15 @@ TRegEx._invalid() {
 # Pure predicate: returns rc, writes NO RESULT* globals (use `match` for the
 # payload). Silent. Idiom:  if TRegEx.isMatch "$s" "$re"; then ...
 TRegEx.isMatch() {
-    local __tre_rc __tre_m; local -a __tre_g
-    TRegEx._match1 "$1" "$2" "${3:-}"
+    local __tre_rc __tre_m __tre_ci=0; local -a __tre_g
+    # TRegEx._flags inlined: isMatch is the hot predicate and a function call
+    # is ~10 us on a shell this size. The three cases are the whole of T5.
+    case "${3:-}" in
+        ""|"-") ;;
+        i) __tre_ci=1 ;;
+        *) TRegEx._badflag isMatch "$3"; return 2 ;;
+    esac
+    TRegEx._match1 "${1:-}" "${2:-}" "$__tre_ci"
     if (( __tre_rc == 2 )); then TRegEx._invalid isMatch "$2"; fi
     return $__tre_rc
 }
@@ -172,8 +244,15 @@ TRegEx.isMatch() {
 # On no-match (rc 1) / invalid (rc 2): RESULT='' INDEX=-1 LENGTH=0 GROUPS=().
 # Silent — four values via globals, so call DIRECTLY (never $()-capture).
 TRegEx.match() {
-    local __tre_rc __tre_m; local -a __tre_g
-    TRegEx._match1 "$1" "$2" "${3:-}"
+    local __tre_rc __tre_m __tre_ci=0; local -a __tre_g
+    case "${3:-}" in                    # TRegEx._flags inlined — see isMatch
+        ""|"-") ;;
+        i) __tre_ci=1 ;;
+        *) TRegEx._badflag match "$3"
+           RESULT=""; RESULT_INDEX=-1; RESULT_LENGTH=0; RESULT_GROUPS=()
+           return 2 ;;
+    esac
+    TRegEx._match1 "${1:-}" "${2:-}" "$__tre_ci"
     if (( __tre_rc == 0 )); then
         RESULT="$__tre_m"
         local __pre="${1%%"$__tre_m"*}"
@@ -193,14 +272,32 @@ TRegEx.match() {
 # so nothing is double-escaped). Owner-approved P1: escape BODY-ECHOES its
 # scalar for $() ergonomics AND sets RESULT. Fork-free pure char loop (no sed).
 TRegEx.escape() {
-    local __s="$1" __out="" __c __i __meta='\.^$*+?()[]{}|'
-    for (( __i = 0; __i < ${#__s}; __i++ )); do
-        __c="${__s:__i:1}"
-        [[ "$__meta" == *"$__c"* ]] && __out+="\\"
-        __out+="$__c"
-    done
-    RESULT="$__out"
-    printf '%s\n' "$__out"
+    local __s="${1:-}"
+    # T6: the old body walked the string one character at a time and grew the
+    # result with `+=`, which is O(n^2) — 50 000 characters took 14.3 s. These
+    # 14 substitutions are one linear pass each. BACKSLASH FIRST, because every
+    # later line INTRODUCES backslashes and a second pass would double them.
+    # The patterns and replacements are SINGLE-QUOTED: unquoted, `${s//./x}`
+    # treats `.` as the glob "any character" and `${s//\\/…}` does not match a
+    # literal backslash at all (probed on 5.2.37 and 5.3.9). Single-quoted,
+    # both sides are literal — `'\\'` is exactly the two characters an ERE
+    # needs to match one backslash.
+    __s="${__s//'\'/'\\'}"
+    __s="${__s//'.'/'\.'}"
+    __s="${__s//'^'/'\^'}"
+    __s="${__s//'$'/'\$'}"
+    __s="${__s//'*'/'\*'}"
+    __s="${__s//'+'/'\+'}"
+    __s="${__s//'?'/'\?'}"
+    __s="${__s//'('/'\('}"
+    __s="${__s//')'/'\)'}"
+    __s="${__s//'['/'\['}"
+    __s="${__s//']'/'\]'}"
+    __s="${__s//'{'/'\{'}"
+    __s="${__s//'}'/'\}'}"
+    __s="${__s//'|'/'\|'}"
+    RESULT="$__s"
+    printf '%s\n' "$__s"
     return 0
 }
 
@@ -220,19 +317,22 @@ TRegEx.escape() {
 #   units; S6 caveat under anchors). To pass flags WITHOUT offsets, use '-' for
 #   arg 4. rc 0 (>=1 match) / 1 (none) / 2 (invalid pattern).
 TRegEx.matches() {
-    if [[ -z "$3" ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "TRegEx.matches: outTexts array name required" >&2
-        RESULT=0; return 2
+    local __tre_ci
+    # Flags first: an unknown flag must leave the caller's arrays untouched.
+    TRegEx._flags "${5:-}" || { TRegEx._badflag matches "${5:-}"; RESULT=0; return 2; }
+    TRegEx._outName "${3:-}" || { TRegEx._badname matches "${3:-}"; RESULT=0; return 2; }
+    if [[ -n "${4:-}" && "$4" != "-" ]]; then
+        TRegEx._outName "$4" || { TRegEx._badname matches "$4"; RESULT=0; return 2; }
     fi
     local -n __trx_texts="$3"; __trx_texts=()
     local __trx_have_off=0
     if [[ -n "${4:-}" && "$4" != "-" ]]; then
         local -n __trx_offs="$4"; __trx_offs=(); __trx_have_off=1
     fi
-    local __trx_rem="$1" __trx_consumed=0 __trx_count=0 __trx_flags="${5:-}"
+    local __trx_rem="${1:-}" __trx_consumed=0 __trx_count=0
     local __tre_rc __tre_m; local -a __tre_g
     while : ; do
-        TRegEx._match1 "$__trx_rem" "$2" "$__trx_flags"
+        TRegEx._match1 "$__trx_rem" "${2:-}" "$__tre_ci"
         if (( __tre_rc == 2 )); then
             TRegEx._invalid matches "$2"; RESULT=0; return 2
         fi
@@ -262,18 +362,17 @@ TRegEx.matches() {
 #   the scan stops and the ENTIRE remainder (delimiters and all) is the last
 #   piece. To pass flags without a limit, use '-' (or 0) for arg 4. rc 0 / 2.
 TRegEx.split() {
-    if [[ -z "$3" ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "TRegEx.split: outArr name required" >&2
-        RESULT=0; return 2
-    fi
-    local -n __trx_out="$3"; __trx_out=()
-    local __trx_limit="${4:-0}" __trx_flags="${5:-}"
+    local __tre_ci
+    TRegEx._flags "${5:-}" || { TRegEx._badflag split "${5:-}"; RESULT=0; return 2; }
+    TRegEx._outName "${3:-}" || { TRegEx._badname split "${3:-}"; RESULT=0; return 2; }
+    local __trx_limit="${4:-0}"
     [[ "$__trx_limit" == "-" || -z "$__trx_limit" ]] && __trx_limit=0
-    kk.isInt "$__trx_limit" __trx_limit || return 2
-    local __trx_text="$1" __trx_rem="$1" __trx_consumed=0 __trx_prevEnd=0 __trx_done=0
+    kk.isInt "$__trx_limit" __trx_limit || { RESULT=0; return 2; }
+    local -n __trx_out="$3"; __trx_out=()
+    local __trx_text="${1:-}" __trx_rem="${1:-}" __trx_consumed=0 __trx_prevEnd=0 __trx_done=0
     local __tre_rc __tre_m; local -a __tre_g
     while : ; do
-        TRegEx._match1 "$__trx_rem" "$2" "$__trx_flags"
+        TRegEx._match1 "$__trx_rem" "${2:-}" "$__tre_ci"
         if (( __tre_rc == 2 )); then
             TRegEx._invalid split "$2"; __trx_out=(); RESULT=0; return 2
         fi
@@ -314,7 +413,7 @@ TRegEx.split() {
 # or non-group $x is kept LITERAL. Sed metacharacters & and \ are LITERAL (a
 # documented delta vs sed) — only $ is special. Pure bash, fork-free.
 TRegEx._expandRepl() {
-    local __t="$1" __o="" __i=0 __len=${#1} __c __d __ng=$(( ${#__tre_g[@]} - 1 ))
+    local __t="$1" __o="" __i=0 __len=${#1} __c __d __d2 __ng=$(( ${#__tre_g[@]} - 1 ))
     while (( __i < __len )); do
         __c="${__t:__i:1}"
         if [[ "$__c" != '$' ]]; then __o+="$__c"; (( __i += 1 )); continue; fi
@@ -323,10 +422,16 @@ TRegEx._expandRepl() {
             '$') __o+='$'; (( __i += 2 )) ;;
             '&') __o+="${__tre_g[0]}"; (( __i += 2 )) ;;
             [0-9])
-                if [[ "$__d" == 0 ]]; then __o+="${__tre_g[0]}"
-                elif (( __d <= __ng )); then __o+="${__tre_g[__d]}"
-                else __o+="\$$__d"; fi
-                (( __i += 2 )) ;;
+                # T10: .NET reads the LONGEST digit run that names an existing
+                # group, so `$10` is group 10 when there are >= 10 groups and
+                # `$1` followed by a literal `0` otherwise. Two digits is the
+                # whole of it — `${n}` is the form for anything wider.
+                __d2="${__t:__i+1:2}"
+                if [[ "$__d2" == [1-9][0-9] ]] && (( 10#$__d2 <= __ng )); then
+                    __o+="${__tre_g[10#$__d2]}"; (( __i += 3 ))
+                elif [[ "$__d" == 0 ]]; then __o+="${__tre_g[0]}"; (( __i += 2 ))
+                elif (( __d <= __ng )); then __o+="${__tre_g[__d]}"; (( __i += 2 ))
+                else __o+="\$$__d"; (( __i += 2 )); fi ;;
             '{')
                 local __j=$(( __i + 2 )) __num=""
                 while (( __j < __len )) && [[ "${__t:__j:1}" == [0-9] ]]; do
@@ -350,14 +455,20 @@ TRegEx._expandRepl() {
 # (repl|cb) $4 template-or-cbname $5 maxCount|- $6 flags. Builds the output in
 # __trx_out; on invalid pattern leaves the text unchanged. Sets RESULT + echoes.
 TRegEx._replaceScan() {
-    local __trx_text="$1" __trx_re="$2" __trx_mode="$3" __trx_arg="$4"
-    local __trx_limit="${5:-0}" __trx_flags="${6:-}"
+    local __trx_text="${1:-}" __trx_re="${2:-}" __trx_mode="$3" __trx_arg="${4:-}"
+    local __trx_limit="${5:-0}" __tre_ci
+    TRegEx._flags "${6:-}" || {
+        TRegEx._badflag "$__trx_mode" "${6:-}"
+        RESULT="$__trx_text"; printf '%s\n' "$__trx_text"; return 2
+    }
     [[ "$__trx_limit" == "-" || -z "$__trx_limit" ]] && __trx_limit=0
-    kk.isInt "$__trx_limit" __trx_limit || return 2
-    local __trx_rem="$1" __trx_out="" __trx_done=0 __trx_expanded
+    kk.isInt "$__trx_limit" __trx_limit || {
+        RESULT="$__trx_text"; printf '%s\n' "$__trx_text"; return 2
+    }
+    local __trx_rem="$__trx_text" __trx_out="" __trx_done=0 __trx_expanded
     local __tre_rc __tre_m; local -a __tre_g
     while : ; do
-        TRegEx._match1 "$__trx_rem" "$__trx_re" "$__trx_flags"
+        TRegEx._match1 "$__trx_rem" "$__trx_re" "$__tre_ci"
         if (( __tre_rc == 2 )); then
             TRegEx._invalid "$__trx_mode" "$__trx_re"; RESULT="$__trx_text"; printf '%s\n' "$__trx_text"; return 2
         fi
@@ -365,7 +476,9 @@ TRegEx._replaceScan() {
         if (( __trx_limit > 0 && __trx_done >= __trx_limit )); then break; fi
         local __trx_m="$__tre_m" __trx_pre="${__trx_rem%%"$__tre_m"*}" __trx_loff
         __trx_loff=${#__trx_pre}
-        __trx_out+="${__trx_rem:0:__trx_loff}"
+        # T7: __trx_pre IS text[0:loff] — the prefix-strip already produced it,
+        # so re-slicing the remainder here was a second O(n) copy per match.
+        __trx_out+="$__trx_pre"
         if [[ "$__trx_mode" == cb ]]; then
             REPLY=""
             "$__trx_arg" "${__tre_g[0]}" "${__tre_g[@]:1}"

@@ -76,19 +76,50 @@ diagnostic is suppressed; a note appears under `VERBOSE_KKLASS=debug`).
 | `TRegEx.replaceCb text pattern cbName [maxCount\|-] [flags]` | `RESULT` + echo | callback form (below) |
 | `TRegEx.escape text` | `RESULT` + echo | quotes ERE metacharacters |
 
-- **`flags`**: `i` = case-insensitive. Deterministic — the flag *fully* decides
-  case sensitivity (a no-`i` call is case-sensitive even if the caller set
-  `shopt -s nocasematch`), and the caller's ambient `shopt` is restored.
+- **`flags`**: `i` = case-insensitive, and that is the **only** flag. `''` and
+  `-` are the placeholders that let you pass a later positional; **anything
+  else is `rc 2` and the member does nothing** (a malformed call, kcl contract
+  §1.2). Until P7 the test was `*i*`, so `Multiline` silently turned
+  case-insensitivity on and every other word was silently ignored.
+  The flag is deterministic — it *fully* decides case sensitivity (a no-`i`
+  call is case-sensitive even if the caller set `shopt -s nocasematch`) — and
+  the caller's ambient `shopt` is restored on every path, rejected flags
+  included.
 - **`-` placeholder**: to pass `flags` without the optional 4th argument, use `-`
   (e.g. `TRegEx.matches "$s" "$re" out - i`).
 - **Replacement grammar** (`replace`): `$$`→`$`, `$&`/`$0`→whole match,
-  `$1`…`$9`→group (single digit), `${n}`→group *n* (any width); an out-of-range
-  or unknown `$x` is kept **literal**; `&` and `\` (sed metacharacters) are
-  **literal** — only `$` is special.
+  `$1`…`$9`→group, **`$10`…`$99`→group *n* when that group exists** (.NET's
+  rule: the longest digit run that names a real group wins, so `$10` with 11
+  groups is group 10, and with 2 groups it is group 1 followed by a literal
+  `0`), `${n}`→group *n* (any width); an out-of-range or unknown `$x` is kept
+  **literal**; `&` and `\` (sed metacharacters) are **literal** — only `$` is
+  special.
 - **Callback** (`replaceCb`): invoked as `cbName "<wholeMatch>" "<g1>" "<g2>" …`
-  and must set `REPLY` to the replacement (fork-free; do not echo).
-- **Reserved array names**: don't pass output arrays named `__trx_texts`,
-  `__trx_offs`, or `__trx_out` (kklass nameref self-reference).
+  and must set `REPLY` to the replacement (fork-free; do not echo). A callback
+  must not call `TRegEx.*` itself — the scan's group scratch is in scope.
+- **Output-array names** are validated: a plain identifier that is not one of
+  the framework's reserved names. `RESULT`, `RESULT_INDEX`, `RESULT_LENGTH`,
+  `RESULT_GROUPS`, `REPLY`, `IFS`, `this`, `__inst__`, `__class__` and anything
+  starting with `__kk_`, `__KK_`, `__tre_` or `__trx_` are refused with
+  **rc 2**, and nothing is written. Before P7 a bad name printed a bash
+  diagnostic, returned rc 0, and a reserved one bound the caller's array to the
+  unit's own scratch.
+- **`maxCount`** is validated the same way: a non-integer (or an
+  injection-shaped `x[$(cmd)]`) is **rc 2**, never evaluated.
+
+### `$( )` capture strips trailing newlines
+
+`escape`, `replace` and `replaceCb` set `RESULT` **and** body-echo, so both
+access paths work — but they are not identical. Command substitution removes
+*all* trailing newlines, which is the shell's behaviour, not the unit's:
+
+```bash
+TRegEx.replace $'a\n\n' "a" "b" >/dev/null;  printf '%q\n' "$RESULT"   # $'b\n\n'
+printf '%q\n' "$(TRegEx.replace $'a\n\n' "a" "b")"                     # b
+```
+
+Interior newlines survive both paths. If the trailing newlines matter, read
+`RESULT` after a direct call.
 
 ## ERE-vs-PCRE deltas (summary)
 
@@ -105,9 +136,57 @@ The three most likely to bite when porting Delphi code (full list in
 | Replacement group refs | `$1` and `\1`, `\{1}` | `$`-form only (`\1` is literal) |
 | Match objects | `TMatch`/`TMatchCollection`/`NextMatch` | `RESULT*` globals + nameref arrays |
 
-Match offsets use prefix-strip: **exact for unanchored patterns**; for `^ $ \b`
-anchored patterns whose matched text recurs earlier, the reported index can be
-the earlier position (documented caveat, pinned by a test).
+### Match offsets, and the zero-length anchor delta
+
+Offsets are recovered by prefix-strip (`${text%%"$matched"*}`), which is
+**exact for unanchored patterns** — the overwhelming majority.
+
+Two documented deltas:
+
+1. For an anchored pattern whose matched *text* recurs earlier, the reported
+   index is the earlier position (`match "ab ab" 'ab$'` → index 0, not 3).
+2. A **zero-length** match carries no position information at all, so an
+   anchored empty pattern (`$`, `^`, `\b`, `\<`, `\>`) reports offset 0 in
+   every remainder *and the scan does not stop where .NET would*:
+   `matches "abc" '$'` is **4** matches here against 1 in .NET, and
+   `replace "abc" '$' '!'` is `!a!b!c!` against .NET's `abc!`.
+   Use anchored patterns with `isMatch`/`match`, not with the scanning members.
+
+Both are pinned by `tests/011_T3_T4_LocaleAndAnchors.sh` and tabulated in
+[`docs/ERE-vs-PCRE.md`](docs/ERE-vs-PCRE.md) §4. Detecting (2) would need a
+match offset bash does not expose, so R12 (owner, 2026-09-06) keeps it
+documented rather than emulated.
+
+### Locale
+
+The regex engine and `${#…}` both follow the ambient locale **and agree with
+each other**. Under an empty or `C` locale the engine matches **bytes**, so
+`match "héllo wörld" "w.rld"` misses; under `C.UTF-8`/`en_US.UTF-8` it matches
+and the index/length are in characters. kcl requires UTF-8 (`kcl/README.md`
+§1.6): the unit exports `LC_CTYPE=C.UTF-8` at load time when `LC_ALL`,
+`LC_CTYPE` and `LANG` are *all* empty, and never overrides a locale the caller
+chose.
+
+### `escape` cost (measured)
+
+`escape` is 14 whole-string `${s//x/\x}` substitutions with the **backslash
+first** (every later substitution introduces backslashes, and a second pass
+over them would double-escape). That is ~25× faster than the per-character
+loop it replaced — 50 000 characters went from 14.3 s to ~0.6 s — but it is
+still not linear: bash's own `${var//pat/rep}` is quadratic on both 5.2.37 and
+5.3.9 (one substitution over 10/20/40/80 kB: 11/48/183/712 ms). No pure-bash
+implementation escapes that; for megabyte inputs, escape once and cache.
+
+### Scan cost (measured)
+
+`matches`/`split`/`replace` re-match the **remainder** and copy it past each
+match, because bash cannot start a match at an offset. That makes a scan
+O(n·k) in the text length and match count: on this machine `replace` over
+1 500 characters with 500 matches costs ~0.19 s and over 6 000 characters with
+2 000 matches ~2.4 s (≈13×, against 4× for a linear scan). It is inherent to
+the engine, not an accident; for a very large corpus with very many matches,
+reach for a single `[[ =~ ]]` loop or an external tool. `tests/013` pins the
+curve so a future change cannot make it quietly worse.
 
 ## FPC parity
 
@@ -126,11 +205,15 @@ everything is fork-free:
 | Path | Cost | Note |
 |---|---|---|
 | raw `[[ $s =~ $re ]]` inline | ~7 µs | the engine itself |
-| `TRegEx.isMatch` | ~80–90 µs | + kklass static-proc dispatch |
-| `TRegEx.match` | ~95–120 µs | + offset recovery + group copy |
-| `TRegEx.escape` (43-char) | ~0.4 ms | pure char loop |
-| `TRegEx.matches` | ~115 µs / occurrence | scan cost, ≈linear |
-| `TRegEx.replace` / `split` | ~0.12–0.17 ms / occurrence | scan + assembly |
+| `TRegEx.isMatch` | ~118 µs | + kklass static-proc dispatch + flag validation |
+| `TRegEx.match` | ~139 µs | + offset recovery + group copy |
+| `TRegEx.escape` (43-char) | ~112 µs | 14 substitutions (was ~470 µs, a char loop) |
+| `TRegEx.matches` | ~117 µs / occurrence | scan cost, ≈linear in the count |
+| `TRegEx.replace` / `split` | ~0.14–0.17 ms / occurrence | scan + assembly |
+
+P7 (2026-09-08) moved two of these: `escape` is 4× faster (T6), and
+`isMatch`/`match` cost ~12 µs more because the flag word is now validated
+instead of being matched with `*i*` (T5).
 
 The dispatch wrapper costs ~80 µs over the raw builtin — negligible for
 occasional matching, but for a tight inner loop over a huge corpus prefer a
@@ -139,7 +222,10 @@ work with honest dialect semantics, not for being the fastest possible `grep`.
 
 ## Tests
 
-`tests/001…009` — 190 cases, all green on bash 5.2.37 **and** 5.3.9:
+`tests/001…014` — 246 cases, all green on bash 5.2.37 **and** 5.3.9:
 wiring/contract, isMatch, match (offsets/groups/deltas), escape, flags+fork-free,
-matches, split, **FPC parity (008)**, replace/replaceCb. Coverage rationale per
-case in [`TEST_COVERAGE_NOTES.md`](TEST_COVERAGE_NOTES.md).
+matches, split, **FPC parity (008)**, replace/replaceCb, the kcl contract (010),
+and the P7 review regressions — locale + zero-length anchors (011, T3/T4),
+strict flags + output-array validation (012, T5/T8), `escape`/scan scaling
+(013, T6/T7), trailing-newline capture + two-digit group refs (014, T9/T10).
+Coverage rationale per case in [`TEST_COVERAGE_NOTES.md`](TEST_COVERAGE_NOTES.md).

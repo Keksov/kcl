@@ -2,8 +2,19 @@
   "schema_version": 1,
   "project": "kcl/math — port of FPC Math to bash (kklass Pascal DSL static class)",
   "created": "2026-07-11",
-  "updated": "2026-07-11",
-  "status": "COMPLETE — all phases P0-P8 done (2026-07-11). Hybrid: pure-bash exact core (Tier A) + persistent awk co-process float engine (Tier B; awk -f temp file + probe/fallback); FPU/precision out of scope (Tier C). 123 public methods; math suite 81/81 on bash 5.2, functional on 5.3; full kcl+kklass sweep 1819/0 (no regression); Tier-A integer core 0.04-0.12ms/call zero-fork, engine 0.13-0.18ms round-trip. FPC parity (tmath1 div/mod, tround banker's Round). Deliverables in kcl/math/: math.sh, README.md, PLAN.md, docs/Math.md, bench.sh, TEST_COVERAGE_NOTES.md, math_ledger.json, tests/001-012 + tests.sh + _mathtest.sh. Baseline protected (kcl 1512 + kklass 226 pre-math). COMMITS GATED (all uncommitted).",
+  "updated": "2026-09-08",
+  "review_2026_09_06": {
+    "phase": "kcl/PLAN.md P7 (math + tregex), done 2026-09-08, NOT COMMITTED (awaiting the owner's go)",
+    "findings_closed": ["M1", "M2", "M3", "M5", "M6", "M8", "M9", "M10", "M11", "M12 (second half)", "M13", "M14", "M15", "D3", "R8", "R11"],
+    "verified_already_closed_in_P1": ["M4 (kk.isInt on divMod/sumInt/min-maxIntValue/randomRange)", "M7 (_dec_cmp/_trunc/_num_cmp end with return 0)"],
+    "engine": "R11 — every division in the awk prelude goes through _dv(), which returns +inf/-inf/nan instead of letting gawk abort; _frexp is bounded; arguments are validated before the write so a newline cannot desynchronise the pipe; inf/nan tokens are normalised in BOTH directions (gawk reads a bare `inf` as 0 and emits `+inf`/`-nan`); awk runs under LC_ALL=C; the program is fed through PROCESS SUBSTITUTION (probed on 5.2.37 and 5.3.9), so no temp file exists to leak, with a temp-file + chained-EXIT-trap fallback; a restart reaps the old co-process first, so bash prints no execute_coproc warning; no awk at all = rc 1 + RESULT='' + silence.",
+    "gawk_note": "gawk's comparison operators put NaN ABOVE every number and `x != x` is FALSE for it, so NaN is detected with sprintf(\"%g\") + index(s,\"nan\"), not with the usual self-inequality.",
+    "read_timeout": "`read -t` costs ~410 us per call on both bashes here (measured; independent of the timeout value — bash polls per byte) against ~105 us for the whole round trip, so it is used on the START PROBE and, per call, only when __MATH_FE_STRICT is set. A DEAD engine needs no timeout: the pipe closes and `read` fails at once.",
+    "tests": ["tests/014_M1_EngineDomain.sh", "tests/015_M3_EngineProtocol.sh", "tests/016_D3_ReturnContract.sh", "tests/017_M8_OverflowAndRng.sh"],
+    "suite": "177/177 on bash 5.2.37 AND 5.3.9 (was 90)",
+    "fpc_reference": "rtl/objpas/math.pp from the GitLab mirror, tag release_3_2_2: Frexp :1118, IntPower :1044, Power :1030, SumInt :1224, RandomRange :1405, RoundTo :2606, DivMod :2463, Sign :729, InRange :2157, EnsureRange :2185, CompareValue :2576, SameValue :2382, IsZero :2222, Max :2033."
+  },
+  "status": "COMPLETE — all phases P0-P8 done (2026-07-11); reworked by kcl/PLAN.md P7 (2026-09-08, see review_2026_09_06). Hybrid: pure-bash exact core (Tier A) + persistent awk co-process float engine (Tier B; awk -f temp file + probe/fallback); FPU/precision out of scope (Tier C). 123 public methods; math suite 81/81 on bash 5.2, functional on 5.3; full kcl+kklass sweep 1819/0 (no regression); Tier-A integer core 0.04-0.12ms/call zero-fork, engine 0.13-0.18ms round-trip. FPC parity (tmath1 div/mod, tround banker's Round). Deliverables in kcl/math/: math.sh, README.md, PLAN.md, docs/Math.md, bench.sh, TEST_COVERAGE_NOTES.md, math_ledger.json, tests/001-012 + tests.sh + _mathtest.sh. Baseline protected (kcl 1512 + kklass 226 pre-math). COMMITS GATED (all uncommitted).",
   "owner": "keksov",
   "notes": "Single source of truth for the math implementation. Plan: kcl/math/PLAN.md. Source: C:/projects/KKMindWave/VendorsCore/fpc/sources/main/rtl/objpas/math.pp (4083 lines; ~100 distinct public function names, ~587 declarations counting Single/Double/Extended overloads). Update task.status as work proceeds. The kcl+kklass baseline below must NEVER regress; every phase ends with a full sweep on bash 5.2 and a spot-check on 5.3.",
   "conventions": {

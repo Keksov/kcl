@@ -112,29 +112,61 @@ cross-check, so `escape` has invented coverage only, in `004_Escape.sh`.)
 advancing past each match (bash has no `\G`/previous-match anchor). Consequences:
 
 - **Anchors re-anchor per remainder.** `^ $ \b \< \>` are relative to each
-  remainder slice, not the whole string. Example (pinned in `009_Replace.sh`):
-  `replace("abc", "^", ">")` → `">a>b>c>"` here, but `">abc"` in .NET (which
-  anchors `^` once at the true start). Unanchored patterns — the overwhelming
+  remainder slice, not the whole string. Unanchored patterns — the overwhelming
   majority — scan exactly.
 - **Offset recovery is prefix-strip.** A match's index is found via
   `${text%%"$matched"*}`; exact for unanchored patterns, but for `$`/`\b`
   anchored patterns whose matched *text* recurs earlier it reports the earlier
   position (probe S6, pinned in `003_Match.sh`).
-- **Empty-match advance-by-one** (matches PCRE/.NET): an empty match advances
-  the scan one character, so `matches("abc","x*")` yields 4 empty matches and
-  `replace("abc","x*","-")` → `"-a-b-c-"`.
+- **A zero-length anchored match is a real behavioural delta**, not just a
+  wrong number (this paragraph used to say the matches themselves were
+  unaffected; they are not). Stripping an empty match off the remainder leaves
+  the remainder, so an anchored empty pattern reports offset 0 in *every*
+  remainder and the scan keeps going where .NET would stop. Pinned in
+  `011_T3_T4_LocaleAndAnchors.sh`:
+
+  | call | this port | .NET |
+  |---|---|---|
+  | `matches("abc", '$')` | 4 matches at 0,1,2,3 | 1 match at 3 |
+  | `matches("abc", '^')` | 4 matches at 0,1,2,3 | 1 match at 0 |
+  | `matches("ab cd", '\b')` | 5 matches at 0..4 | 4 matches at 0,2,3,5 |
+  | `matches("ab cd", '\<')` | 5 matches at 0..4 | 2 matches at 0,3 |
+  | `replace("abc", '$', "!")` | `!a!b!c!` | `abc!` |
+  | `replace("abc", '^', ">")` | `>a>b>c>` | `>abc` |
+  | `replace("ab cd", '\b', "\|")` | `\|a\|b\| \|c\|d` | `\|ab\| \|cd\|` |
+  | `split("abc", '$')` | `[][a][b][c][]` | `[abc][]` |
+
+  Fixing it would need a match offset bash does not expose, so R12 (owner,
+  2026-09-06) keeps it documented and pinned. **Use anchored patterns with
+  `isMatch`/`match`, not with the scanning members.**
+- **Empty-match advance-by-one** (matches PCRE/.NET): an *unanchored* empty
+  match advances the scan one character, so `matches("abc","x*")` yields 4
+  empty matches and `replace("abc","x*","-")` → `"-a-b-c-"` — the same as
+  .NET, because there the empty match really is at the head of each remainder.
 
 ---
 
 ## 5. Locale deltas
 
-Offsets and lengths are `${#…}` **in the ambient locale**. ASCII is exact
-everywhere. For multibyte text the unit depends on the locale plumbing: under an
-empty/`C` locale on MSYS2, bash `${#}` **byte**-counts while the regex engine
-**char**-counts (they disagree); a full UTF-8 locale (`C.UTF-8`/`en_US.UTF-8`)
-makes both char-count. Scan *correctness* is locale-independent (advance is by
-string ops); only the reported numeric index/length carries the caveat. (Probe
-S9.)
+Offsets and lengths are `${#…}` **in the ambient locale**, and so is the regex
+engine — they agree with each other. ASCII is exact everywhere.
+
+An earlier version of this section claimed that under an empty/`C` locale bash
+`${#}` byte-counts *while the engine char-counts*, i.e. that only the reported
+number was affected. That was wrong (finding T3). Under `C` the engine
+**matches BYTES**, so the match itself changes:
+
+```bash
+LC_ALL=C.UTF-8  TRegEx.match "héllo wörld" "w.rld"   # rc 0, "wörld", index 6, length 5
+LC_ALL=C        TRegEx.match "héllo wörld" "w.rld"   # rc 1  — `.` is ONE BYTE
+LC_ALL=C        TRegEx.match "héllo wörld" "w..rld"  # rc 0, "wörld", length 6 (bytes)
+```
+
+kcl requires a UTF-8 locale (`kcl/README.md` §1.6, decision D6): the test
+runners pin `LC_ALL=C.UTF-8`, and `tregex.sh` exports `LC_CTYPE=C.UTF-8` at load
+time **only when `LC_ALL`, `LC_CTYPE` and `LANG` are all empty** — a locale the
+caller chose is never overridden. Both halves are pinned in
+`011_T3_T4_LocaleAndAnchors.sh`. (Probe S9.)
 
 ---
 

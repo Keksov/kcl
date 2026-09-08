@@ -95,11 +95,14 @@ $ok && kt_test_pass "isZero: default 1e-12 resolution; integer fast path; explic
      || kt_test_fail "isZero wrong"
 
 kt_test_start "isZero integer fast path is fork-free (empty PATH)"
-if o=$( PATH=''; math.isZero 0 ) && [[ "$o" == true ]] \
-   && o2=$( PATH=''; math.isZero 7 ) && [[ "$o2" == false ]]; then
+# R8 (P7): isZero is a PREDICATE — its exit status is the answer, so the
+# capture's rc is 1 for `false` and must not be chained with &&.
+o=$( PATH=''; math.isZero 0 );  rc1=$?
+o2=$( PATH=''; math.isZero 7 ); rc2=$?
+if [[ "$o" == true && "$rc1" == 0 && "$o2" == false && "$rc2" == 1 ]]; then
     kt_test_pass "isZero integer fast path is fork-free (empty PATH)"
 else
-    kt_test_fail "isZero integer path forked: [$o] [$o2]"
+    kt_test_fail "isZero integer path forked: [$o rc=$rc1] [$o2 rc=$rc2]"
 fi
 
 # ---------------------------------------------------------------------------

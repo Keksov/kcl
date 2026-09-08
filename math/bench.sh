@@ -78,6 +78,39 @@ benchE "mean(8)" amean 2 4 4 4 5 5 7 9
 math._fe_stop
 
 echo
+echo "Caller cost (D3, P7): what it costs to USE a result."
+echo "  Before P7 every member printed, so a caller had to capture with \$( )."
+CN=300
+TStopwatch.getTimeStamp; t0=$RESULT
+for (( i=0; i<CN; i++ )); do math.min 3 7; v=$RESULT; done
+TStopwatch.getTimeStamp; t1=$RESULT
+direct=$(( (t1 - t0) / CN ))
+TStopwatch.getTimeStamp; t0=$RESULT
+for (( i=0; i<CN; i++ )); do v="$(math.min 3 7)"; done
+TStopwatch.getTimeStamp; t1=$RESULT
+captured=$(( (t1 - t0) / CN ))
+printf '  %-22s %6d us/call  (direct call + $RESULT)\n' "min, D3 form" "$direct"
+printf '  %-22s %6d us/call  ($( ) capture — one fork)\n' "min, \$( ) form" "$captured"
+if (( direct > 0 )); then
+    printf '  -> the direct form is %dx cheaper for the caller\n' $(( captured / direct ))
+fi
+
+echo
+echo "engine liveness under a domain error (R11):"
+math.feStart
+p=$__MATH_FE_PID
+math.fmod 5 0 >/dev/null; a="$RESULT"
+math.cotan 0 >/dev/null; b="$RESULT"
+math.logN 1 5 >/dev/null; c="$RESULT"
+math.sin 0 >/dev/null;    d="$RESULT"
+if [[ "$a" == nan && "$b" == inf && "$c" == inf && "$d" == 0 && "$__MATH_FE_PID" == "$p" ]]; then
+    echo "  OK — 3 domain errors answered ($a/$b/$c), engine still pid $p"
+else
+    echo "  FAIL — [$a] [$b] [$c] [$d] pid $p -> $__MATH_FE_PID"
+fi
+math._fe_stop
+
+echo
 echo "zero-fork check (Tier-A core with empty PATH):"
 if o1=$( PATH=''; math.sign -5 ) && [[ "$o1" == -1 ]] \
    && o2=$( PATH=''; math.ceil 2.1 ) && [[ "$o2" == 3 ]] \
