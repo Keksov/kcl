@@ -1187,6 +1187,7 @@
    ],
    "status" : "P0 + P1 + P2 + P3 + P4 + P5 + P6 DONE (P0 committed AND pushed: kcl 61ea0ee, kklass 599d3a2, kkore 7532cad, ktests 6b2cb77, kbool 5df052f; P1 committed: kcl 0324a91 + kbool 572bdfd, not pushed; P2 committed: kcl 6d983e9; P3 committed: kcl 6c92453 + e25de69; P4 committed: kcl 6afbc8d + 0a45e17; P5 uncommitted, awaiting owner go — baseline after P2 = 20 suites / 3460 tests, after P3 = 3827, after P4 = 3877, after P5 = 4397 expected; my own full 5.2.37 sweep before the last edits was 20 suites / 4374 tests / 0 FAIL, the reviewer runs the final one). P6 done 2026-09-08 (uncommitted, awaiting owner go: dateutils 131 -> 444, tstopwatch 40 -> 61). P7-P10 todo. REVIEW.md + PLAN.md (section 0 = handoff context) + docs/review-2026-09-06 (8 full reviewer reports + repro scripts) written, decisions D1-D8 taken by owner 2026-09-06",
    "journal" : [
+      { "date" : "2026-09-08", "entry" : "P6 committed: kcl 9cb2314; kklass 32f4232 (P6-F1). Not pushed." },
       {
          "entry" : "P5 committed: kcl 9602bcd. Two reviewer remarks applied before commit (negative index/count = rc 1; endsText/startsText empty subtext = false). Not pushed.",
          "date" : "2026-09-07"
