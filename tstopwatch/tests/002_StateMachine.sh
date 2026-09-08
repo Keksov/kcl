@@ -23,20 +23,20 @@ _t_now_us() { local er=$EPOCHREALTIME; echo $(( ${er%[.,]*} * 1000000 + 10#${er#
 # Test: fresh watch — every getter reads 0, not running (S1)
 kt_test_start "Fresh watch: stopped, every elapsed getter 0 (S1)"
 TStopwatch.new sw
-if [[ "$(sw.isRunning)" == "0" && "$(sw.elapsedMicroseconds)" == "0" \
+if [[ "$(sw.isRunning)" == "false" && "$(sw.elapsedMicroseconds)" == "0" \
       && "$(sw.elapsedTicks)" == "0" && "$(sw.elapsedMilliseconds)" == "0" \
       && "$(sw.elapsedSeconds)" == "0" ]]; then
-    kt_test_pass "isRunning 0; us/ticks/ms/s all 0"
+    kt_test_pass "isRunning false; us/ticks/ms/s all 0"
 else
     kt_test_fail "run=$(sw.isRunning) us=$(sw.elapsedMicroseconds) ticks=$(sw.elapsedTicks) ms=$(sw.elapsedMilliseconds) s=$(sw.elapsedSeconds)"
 fi
 
 # Test: Start switches to running; reads work while running (S7)
-kt_test_start "Start: isRunning 1; reads valid and nondecreasing while running (S7)"
+kt_test_start "Start: isRunning true; reads valid and nondecreasing while running (S7)"
 sw.Start
 sw.elapsedMicroseconds >/dev/null; r1=$RESULT
 sw.elapsedMicroseconds >/dev/null; r2=$RESULT
-if [[ "$(sw.isRunning)" == "1" ]] && (( r1 >= 0 && r2 >= r1 )); then
+if [[ "$(sw.isRunning)" == "true" ]] && (( r1 >= 0 && r2 >= r1 )); then
     kt_test_pass "running; successive reads $r1 <= $r2"
 else
     kt_test_fail "run=$(sw.isRunning) r1=$r1 r2=$r2"
@@ -61,7 +61,7 @@ kt_test_start "Double Start: no-op, _t0 unchanged, still running (S4)"
 t0a=${sw_data[_t0]}
 sw.Start
 t0b=${sw_data[_t0]}
-if [[ "$t0a" == "$t0b" && "$(sw.isRunning)" == "1" ]]; then
+if [[ "$t0a" == "$t0b" && "$(sw.isRunning)" == "true" ]]; then
     kt_test_pass "second Start left _t0=$t0a and the run flag intact"
 else
     kt_test_fail "t0: $t0a -> $t0b run=$(sw.isRunning)"
@@ -73,7 +73,7 @@ sw.Stop
 aa=${sw_data[_accum]}
 sw.Stop
 ab=${sw_data[_accum]}
-if [[ "$(sw.isRunning)" == "0" && "$aa" == "$ab" ]] && (( aa >= 0 )); then
+if [[ "$(sw.isRunning)" == "false" && "$aa" == "$ab" ]] && (( aa >= 0 )); then
     kt_test_pass "stopped; _accum stable at $aa across double Stop"
 else
     kt_test_fail "run=$(sw.isRunning) accum: $aa -> $ab"
@@ -93,7 +93,7 @@ fi
 kt_test_start "Reset on running watch: stops AND zeroes (S5)"
 sw.Start
 sw.Reset
-if [[ "$(sw.isRunning)" == "0" && "${sw_data[_accum]}" == "0" && "${sw_data[_t0]}" == "0" \
+if [[ "$(sw.isRunning)" == "false" && "${sw_data[_accum]}" == "0" && "${sw_data[_t0]}" == "0" \
       && "$(sw.elapsedMicroseconds)" == "0" ]]; then
     kt_test_pass "stopped, _accum=0, _t0=0, elapsed 0"
 else
@@ -107,7 +107,7 @@ before=$(_t_now_us)
 sw.Restart
 after=$(_t_now_us)
 t0=${sw_data[_t0]}
-if [[ "$(sw.isRunning)" == "1" && "${sw_data[_accum]}" == "0" ]] \
+if [[ "$(sw.isRunning)" == "true" && "${sw_data[_accum]}" == "0" ]] \
    && (( t0 >= before && t0 <= after )); then
     kt_test_pass "running, accum zeroed, $before <= t0 <= $after"
 else
@@ -167,8 +167,8 @@ sw.Start
 c2="$(sw.frequency)/$(sw.isHighResolution)"
 sw.Stop
 c3="$(sw.frequency)/$(sw.isHighResolution)"
-if [[ "$c1" == "1000000/1" && "$c2" == "1000000/1" && "$c3" == "1000000/1" ]]; then
-    kt_test_pass "1000000/1 fresh, running and stopped"
+if [[ "$c1" == "1000000/true" && "$c2" == "1000000/true" && "$c3" == "1000000/true" ]]; then
+    kt_test_pass "1000000/true fresh, running and stopped"
 else
     kt_test_fail "fresh=$c1 running=$c2 stopped=$c3"
 fi
@@ -181,7 +181,7 @@ TStopwatch.new wB startnew
 wA_before=("${wA_data[_accum]}" "${wA_data[_t0]}" "${wA_data[_running]}")
 wB.Stop; wB.Start; wB.Reset; wB.Restart
 if [[ "${wA_data[_accum]}" == "${wA_before[0]}" && "${wA_data[_t0]}" == "${wA_before[1]}" \
-      && "${wA_data[_running]}" == "${wA_before[2]}" && "$(wB.isRunning)" == "1" ]]; then
+      && "${wA_data[_running]}" == "${wA_before[2]}" && "$(wB.isRunning)" == "true" ]]; then
     kt_test_pass "wA untouched by wB's full op cycle"
 else
     kt_test_fail "wA=(${wA_data[_accum]},${wA_data[_t0]},${wA_data[_running]}) expected (${wA_before[*]})"

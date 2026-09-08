@@ -41,19 +41,29 @@ else
     kt_test_fail "encodeDate=$a encodeDateTime=$b decode=[$(dateutils.decodeDate "$a")]"
 fi
 
-# --- encodeTime numeric contract + the 24:00:00.000 whole-day quirk ----------
-kt_test_start "encodeTime returns time-of-day ms; 24:00:00.000 -> a full day (FPC quirk)"
-ok=true
-[[ "$(dateutils.encodeTime 0 0 0 0)" == 0 ]] || ok=false
-[[ "$(dateutils.encodeTime 19 15 30 555)" == 69330555 ]] || ok=false
-[[ "$(dateutils.encodeTime 23 59 59 999)" == 86399999 ]] || ok=false
-[[ "$(dateutils.encodeTime 24 0 0 0)" == 86400000 ]] || ok=false
-# encodeDateTime with h=24 rolls to next midnight (ComposeDateTime(date, 1.0)).
-[[ "$(dateutils.encodeDateTime 2011 3 26 24 0 0 0)" == "$(dateutils.encodeDate 2011 3 27)" ]] || ok=false
+# --- encodeTime numeric contract + the 24:00 asymmetry inside FPC ------------
+# REWRITTEN in P6 (finding G3-10, PLAN.md section 4 "tests pinning a non-FPC
+# dialect are rewritten"). The old version asserted `encodeTime 24 0 0 0` ==
+# 86400000 and `encodeDateTime 2011 3 26 24 0 0 0` == 2011-03-27 on the strength
+# of a "FPC quirk" comment. FPC does the opposite: SysUtils.TryEncodeTime
+# (rtl/objpas/sysutils/dati.inc:117-123) is `(Hour<24) and (Min<60) and
+# (Sec<60) and (MSec<1000)`, and DateUtils.EncodeDateTime routes through it
+# (dateutil.inc TryEncodeDateTime), so hour 24 RAISES. Only
+# DateUtils.IsValidTime (dateutil.inc:535) accepts the whole-day marker — that
+# is checked in 004_Validity.sh and in 020_G3_JulianAndRanges.sh.
+kt_test_start "encodeTime returns time-of-day ms and refuses hour 24 (FPC TryEncodeTime)"
+ok=true; why=""
+[[ "$(dateutils.encodeTime 0 0 0 0)" == 0 ]] || { ok=false; why="$why 00:00:00.000"; }
+[[ "$(dateutils.encodeTime 19 15 30 555)" == 69330555 ]] || { ok=false; why="$why 19:15:30.555"; }
+[[ "$(dateutils.encodeTime 23 59 59 999)" == 86399999 ]] || { ok=false; why="$why 23:59:59.999"; }
+out="$(dateutils.encodeTime 24 0 0 0 2>&1)" && { ok=false; why="$why encodeTime-24-accepted"; }
+[[ -z "$out" ]] || { ok=false; why="$why encodeTime-24-printed[$out]"; }
+out="$(dateutils.encodeDateTime 2011 3 26 24 0 0 0 2>&1)" && { ok=false; why="$why encodeDateTime-24-accepted"; }
+[[ -z "$out" ]] || { ok=false; why="$why encodeDateTime-24-printed[$out]"; }
 if $ok; then
-    kt_test_pass "encodeTime returns time-of-day ms; 24:00:00.000 -> a full day (FPC quirk)"
+    kt_test_pass "encodeTime returns time-of-day ms and refuses hour 24 (FPC TryEncodeTime)"
 else
-    kt_test_fail "encodeTime numeric contract wrong"
+    kt_test_fail "encodeTime numeric contract wrong:$why"
 fi
 
 # --- decodeTime -------------------------------------------------------------

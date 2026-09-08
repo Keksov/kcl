@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/tstopwatch — port of Delphi System.Diagnostics.TStopwatch to bash (kklass instantiable class)",
   "created": "2026-07-12",
-  "updated": "2026-07-12",
-  "status": "COMPLETE (P0+P1+P2 done). Full state machine + 7 getters + getTimeStamp; suite 34/34 on 5.2.37 AND true 5.3.9; README + docs/TStopwatch.md + bench.sh (numbers recorded) + TEST_COVERAGE_NOTES finalized; final master sweep 14/14 suites, 0 failed. Roadmap position 1/7 DONE (order: tstopwatch, tregex, tarray, tinifile, tqueuestack, thashset, fpjson). Next roadmap unit: tregex. Commits still gated (nothing committed).",
+  "updated": "2026-09-08",
+  "status": "COMPLETE (P0+P1+P2 done), then REWORKED by phase P6 of the 2026-09-06 kcl review (see kcl/PLAN.md and kcl/kcl_ledger.json). Full state machine + 7 getters + getTimeStamp; suite 61/61 on 5.2.37 AND true 5.3.9 (was 34/34). What P6 changed: G3-12 — isRunning and isHighResolution answered with the numbers 0 and 1, the fifth boolean convention in kcl; they now answer by exit status with true/false in RESULT (default R8), a DOCUMENTED API CHANGE with a migration note in the README, and the func form GetIsRunning is the one that carries the status (a method-backed property cannot, see found_in_P6/P6-F1 in kcl_ledger.json). G3-11 — the README cost table and the bench.sh commentary described a per-read property fork of 17.7 ms that kklass D1 removed; both were re-measured on 2026-09-08 (property 726 us on 5.2 and 751 us on 5.3 against a func read of 312/298 us; the 17-18 ms figure now belongs only to a subshell capture). New: tests/006_G3_BooleansAndLocale.sh pins the rc contract, the absence of the property fork (structural + empty PATH + a relative timing gate) and the decimal-comma clock under C.UTF-8, de_DE.UTF-8 and ru_RU.UTF-8; the unit gained the D6 locale self-heal block. NOT COMMITTED: awaiting the owner go for kcl P6.",
   "owner": "keksov",
   "roadmap": {
     "priority": 1,

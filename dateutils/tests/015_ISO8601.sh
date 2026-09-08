@@ -88,12 +88,19 @@ $ok && kt_test_pass "universalTimeToLocal/localTimeToUniversal with explicit eas
      || kt_test_fail "local<->universal wrong"
 
 # --- encodeTimeInterval -----------------------------------------------------
-kt_test_start "encodeTimeInterval allows hours > 24; validates m/s/ms"
-ok=true
-[[ "$(dateutils.encodeTimeInterval 30 15 0 0)" == 108900000 ]] || ok=false   # 30h15m
-[[ "$(dateutils.encodeTimeInterval 100 0 0 0)" == 360000000 ]] || ok=false   # 100h
-[[ "$(dateutils.tryEncodeTimeInterval 0 0 0 1000)" == 1000 ]] || ok=false    # FPC allows ms == 1000
-dateutils.tryEncodeTimeInterval 5 60 0 0 2>/dev/null && ok=false   # min 60 invalid
-dateutils.tryEncodeTimeInterval 5 0 60 0 2>/dev/null && ok=false   # sec 60 invalid
-$ok && kt_test_pass "encodeTimeInterval allows hours > 24; validates m/s/ms" \
-     || kt_test_fail "encodeTimeInterval wrong"
+# REWRITTEN in P6 (finding G3-06): the old assertion said "FPC allows ms ==
+# 1000". It does not — TryEncodeTimeInterval (dateutil.inc:1899) is
+# `(Min<60) and (Sec<60) and (MSec<1000)` over four `word` parameters, so 1000
+# milliseconds and every negative field are refused. The exhaustive field
+# matrix is in 020_G3_JulianAndRanges.sh.
+kt_test_start "encodeTimeInterval allows hours > 24; validates m/s/ms per FPC"
+ok=true; why=""
+[[ "$(dateutils.encodeTimeInterval 30 15 0 0)" == 108900000 ]] || { ok=false; why="$why 30h15m"; }   # 30h15m
+[[ "$(dateutils.encodeTimeInterval 100 0 0 0)" == 360000000 ]] || { ok=false; why="$why 100h"; }     # 100h
+[[ "$(dateutils.tryEncodeTimeInterval 0 0 0 999)" == 999 ]] || { ok=false; why="$why ms999"; }
+dateutils.tryEncodeTimeInterval 0 0 0 1000 2>/dev/null && { ok=false; why="$why ms1000-accepted"; }
+dateutils.tryEncodeTimeInterval 5 60 0 0 2>/dev/null && { ok=false; why="$why min60-accepted"; }
+dateutils.tryEncodeTimeInterval 5 0 60 0 2>/dev/null && { ok=false; why="$why sec60-accepted"; }
+dateutils.tryEncodeTimeInterval -1 0 0 0 2>/dev/null && { ok=false; why="$why neg-hour-accepted"; }
+$ok && kt_test_pass "encodeTimeInterval allows hours > 24; validates m/s/ms per FPC" \
+     || kt_test_fail "encodeTimeInterval wrong:$why"

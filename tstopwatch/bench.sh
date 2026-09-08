@@ -74,9 +74,12 @@ TStopwatch.getTimeStamp; t1=$RESULT
 report "GetIsRunning" $(( t1-t0 )) "$N"
 
 echo
-echo "Object API — PROPERTY forms (kklass method-backed property read forks"
-echo "a subshell per read — kklass_decl.sh:261 'RESULT=\"\$(\$__inst__.call …)\"';"
-echo "house-wide: tdictionary d.count pays the same):"
+echo "Object API — PROPERTY forms. NO fork since kklass D1 (finding G3-11): for a"
+echo "RESULT-returning getter kklass_decl.sh now generates"
+echo "  RESULT=\"\"; \$__inst__.call Getter"
+echo "instead of the old capture, so the read runs in the caller's shell. It is"
+echo "still slower than the func form — kk._prop_computed sits on top of the"
+echo "same call — but it is a dispatch, not a 17 ms process:"
 TStopwatch.getTimeStamp; t0=$RESULT
 for (( i=0; i<N; i++ )); do sw.elapsedMicroseconds >/dev/null; done
 TStopwatch.getTimeStamp; t1=$RESULT
@@ -119,7 +122,7 @@ if (( raw_x10 > 0 )); then
 fi
 printf '  object API is for intervals  >> %d us (empty-bracket bias);\n' "$bias_us"
 printf '  Start+Stop instrumentation costs the CALLER ~%d us per bracket;\n' "$pair_us"
-printf '  read results via FUNC forms + $RESULT (~%d us) — property forms fork (~%d us);\n' \
+printf '  read results via FUNC forms + $RESULT (~%d us); property forms cost ~%d us;\n' \
     "$getter_us" "$prop_us"
 printf '  tight loops: TStopwatch.getTimeStamp deltas (%d.%d us/call, RESULT-only).\n' \
     $(( gts_x10/10 )) $(( gts_x10%10 ))

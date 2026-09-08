@@ -73,7 +73,7 @@ kt_test_start "startnew: created running, covers a 10 ms window at once (S2)"
 TStopwatch.new swn startnew
 _t_busy_us 10000
 swn.elapsedMicroseconds >/dev/null; en=$RESULT
-if [[ "$(swn.isRunning)" == "1" ]] && (( en >= 10000 && en < 10000 + WIDE )); then
+if [[ "$(swn.isRunning)" == "true" ]] && (( en >= 10000 && en < 10000 + WIDE )); then
     kt_test_pass "running, elapsed $en µs >= 10000"
 else
     kt_test_fail "run=$(swn.isRunning) elapsed=$en"

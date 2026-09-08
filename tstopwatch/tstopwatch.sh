@@ -8,6 +8,13 @@ if [[ -n "${_TSTOPWATCH_SOURCED:-}" ]]; then
 fi
 declare -g _TSTOPWATCH_SOURCED=1
 
+# Character semantics are part of this unit's contract (kcl/README.md 1.6,
+# decision D6); an empty environment means the C locale, where ${#s} counts
+# bytes and ${s,,} corrupts UTF-8.
+if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
+    export LC_CTYPE=C.UTF-8
+fi
+
 # Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
 TSTOPWATCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TSTOPWATCH_DIR/../../kklass/kklass_pascal.sh"
@@ -81,6 +88,22 @@ end
 
 # ---- file-level helpers (plain functions, no kklass dispatch) ---------------
 
+# Boolean answer (finding G3-12, default R8, kcl/README.md 1.3): the exit
+# status carries the answer AND true|false lands in RESULT, so both
+# `if sw.isRunning; then` and `$(sw.isRunning)` read correctly.
+#
+# $1 = 0 for true, anything else for false. The CALLER must end on an explicit
+# `return`: kklass appends `kk._return "$RESULT"` to every `func` body, which
+# would otherwise flatten the status to 0 and print a second time under `$( )`.
+TStopwatch._retBool() {
+    if [[ "$1" == "0" ]]; then
+        kk._return "true"
+    else
+        kk._return "false"
+    fi
+    return "${1:-0}"
+}
+
 # Internal: current time as integer microseconds -> __tsw_now (dynamic scope:
 # callers do `local __tsw_now; TStopwatch._nowUs`). Zero forks, no echo.
 TStopwatch._nowUs() {
@@ -127,7 +150,9 @@ TStopwatch.Create() {
             _t0=$__tsw_now
             _running=1
         else
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TStopwatch.Create: unknown token '$1' (expected 'startnew')" >&2
+            # printf, not echo: a diagnostic that starts with -e/-n would be
+            # swallowed as an option (X-ECHO, finding G1-13).
+            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && printf '%s\n' "Error: TStopwatch.Create: unknown token '$1' (expected 'startnew')" >&2
             return 1
         fi
     fi
@@ -178,8 +203,15 @@ TStopwatch.Restart() {
 }
 
 TStopwatch.GetIsRunning() {
-    # 0/1 view of the running flag.
-    RESULT=$_running
+    # G3-12 / R8: rc IS the answer, and RESULT carries true|false. Until P6 this
+    # returned the numbers 0/1 — the fifth boolean convention in kcl. DOCUMENTED
+    # API CHANGE: `[[ "$RESULT" == 1 ]]` becomes `if sw.isRunning; then`.
+    if [[ "$_running" == "1" ]]; then
+        TStopwatch._retBool 0
+        return 0
+    fi
+    TStopwatch._retBool 1
+    return 1
 }
 
 TStopwatch.GetElapsedMicroseconds() {
@@ -220,8 +252,10 @@ TStopwatch.GetFrequency() {
 }
 
 TStopwatch.GetIsHighResolution() {
-    # Constant true: EPOCHREALTIME is the µs builtin clock (1 = true).
-    RESULT=1
+    # Constant true: EPOCHREALTIME is the µs builtin clock. G3-12 / R8 — rc 0
+    # and RESULT='true' (it used to be the number 1).
+    TStopwatch._retBool 0
+    return 0
 }
 
 # Finalize the class.

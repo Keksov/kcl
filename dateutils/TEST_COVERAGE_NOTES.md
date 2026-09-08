@@ -237,3 +237,45 @@ all are candidates for upstreaming clarity to the PLAN, not FPC bugs.
   date. Documented divergence (a pattern with `yyyy` avoids it entirely).
 - **scanDateTime unset fields default to the epoch (1970-01-01 00:00),** so any
   partial pattern yields a valid KDT and a time-only pattern gives the ms-of-day.
+
+---
+
+## P6 of the 2026-09-06 kcl review (`tests/018` … `024`) — 2026-09-08
+
+Seven files added by phase P6 of `kcl/PLAN.md`. Each closes review findings
+`G3-*` and was written **red first**: the FAIL count on the pre-fix code is in
+`kcl/kcl_ledger.json` under `phases.P6.gate.red_first_total`.
+
+| File | Closes | What it pins |
+|---|---|---|
+| `018_G3_NumericBoundary.sh` | G3-01, G3-04 | the injection canary fired at **all 185 members** in argument positions 1, 2 and 3; four garbage shapes (`''`, `abc`, `x[$(…)]`, `1.5`) through the 169 members that take numbers, asserting rc 1 **and** `RESULT=''` **and** no output on either stream; 48 `08`/`09` rows; a completeness check comparing the exemption lists against the interface, so a new member cannot be added without a guard; a negative KDT is still data |
+| `019_G3_IsoForms.sh` | G3-02, G3-09 | impossible dates (Feb 30/31, Apr 31, year 0000, month 0/13, day 0) refused by every ISO entry point; the FPC time forms (lengths 2/4/5/6/8/10/12 with an optional zone); the positional datetime split; the port's documented date-only extension |
+| `020_G3_JulianAndRanges.sh` | G3-03, G3-06, G3-07, G3-10 | negative MJD/JD strings and their round trip (within one micro-day, the format's own resolution); malformed JD refused by all four members; the FPC `word` rules for a time interval; year 1…9999 on `incYear`/`incMonth`; the FPC `IsValidTime`-vs-`TryEncodeTime` asymmetry at hour 24 |
+| `021_G3_ScanDateTime.sh` | G3-08 | `mm` after `hh` is minutes and the `:` is transparent to that rule; `mm` elsewhere is the month; `Shhmmerror`; an unterminated quote refused; trailing input allowed; the two-digit pivot |
+| `022_G3_LocalOffset.sh` | G3-05 (R7) | the offset is taken at the **value**: six conversions checked as January/July pairs under `TZ=EST5EDT,M3.2.0,M11.1.0`, which bash's `printf '%(%z)T'` honours with no tzdata; a fixed-offset control zone; `now`/`today` unchanged; the direct call under `PATH=''` |
+| `023_D3_ReturnContract.sh` | D3, R8, D6 | a direct call is silent and sets `RESULT`; `$( )` prints once; all 26 booleans by exit status with the word in `RESULT`; `RESULT` cleared on every failure path; the debug channel silent unless `VERBOSE_KKLASS=debug`; `BASHPID` unchanged; the whole hot path under `PATH=''`; 200 direct calls against 200 through `$( )`; no `echo` anywhere in the unit; the locale self-heal |
+| `024_IsoWeekSweep.sh` | — (coverage gap) | the ISO week/year/weekday, day-of-year, the `encodeDateWeek`∘`decodeDateWeek` round trip and `weeksInAYear` against perl's `%G %V %u %j` over 1900…2100. **Green on its first run** — it closes the reviewer's "6 hand-picked fixtures" gap, it does not close a finding |
+
+### The slow variant
+
+`024_IsoWeekSweep.sh` samples every 37th day by default (~2000 days, a few
+seconds). With **`KCL_SLOW_TESTS=1`** it walks all 73 414 days of 1900…2100 —
+the reviewer's `docs/review-2026-09-06/repro/g3/r3_isoweek.sh` turned into a
+regression test:
+
+```bash
+KCL_SLOW_TESTS=1 bash kcl/dateutils/tests/tests.sh 024
+```
+
+The perl side is a single process either way; the cost is the bash loop. No
+other file in this suite reads the flag, and the sampled mode is not a stub —
+it exercises every weekday, every month and both week-53 rules.
+
+### Tests rewritten because they pinned a non-FPC dialect (PLAN.md §4)
+
+- `003_EncodeDecode.sh` — asserted `encodeTime 24 0 0 0 == 86400000` and
+  `encodeDateTime … 24 0 0 0 == encodeDate … 27` as an "FPC quirk". FPC's
+  `SysUtils.TryEncodeTime` is `Hour < 24`; both now assert the refusal, and
+  `IsValidTime(24,0,0,0) = True` is pinned separately in `004` and `020`.
+- `015_ISO8601.sh` — asserted `tryEncodeTimeInterval 0 0 0 1000 == 1000` with
+  the comment "FPC allows ms == 1000". `dateutil.inc:1899` is `MSec<1000`.

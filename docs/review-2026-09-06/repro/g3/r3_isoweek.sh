@@ -1,4 +1,10 @@
 # Cross-check ISO week/year/dow and day-of-week vs perl over all days 1995..2035 (internal helpers, no forks per call)
+#
+# SUPERSEDED by kcl/dateutils/tests/024_IsoWeekSweep.sh (phase P6, 2026-09-08),
+# which does the same comparison over 1900..2100 as a regression test:
+#   bash kcl/dateutils/tests/tests.sh 024               # every 37th day, seconds
+#   KCL_SLOW_TESTS=1 bash kcl/dateutils/tests/tests.sh 024   # all 73 414 days
+# This script is kept as the reviewer's original evidence.
 source /c/projects/kkbot/kbool/kcl/dateutils/dateutils.sh
 perl -MPOSIX -e 'for($d=0;$d<41*366;$d++){ @t=gmtime(($d+9131)*86400); $iso=strftime("%G %V %u %Y %j",@t); print(($d+9131)," $iso\n"); }' > "$1/perl_week.txt"
 bad=0; n=0

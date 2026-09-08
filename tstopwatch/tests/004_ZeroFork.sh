@@ -39,7 +39,7 @@ us=$RESULT
 zw.elapsedTicks        >/dev/null          || fails+=" ticks"
 zw.elapsedMilliseconds >/dev/null          || fails+=" ms"
 zw.elapsedSeconds      >/dev/null          || fails+=" s"
-zw.isRunning           >/dev/null          || fails+=" isRunning"
+zw.isRunning           >/dev/null          || [[ $? -eq 1 ]] || fails+=" isRunning"   # rc 1 = "not running" (predicate), not a failure
 zw.frequency           >/dev/null          || fails+=" freq"
 zw.isHighResolution    >/dev/null          || fails+=" hires"
 zw.Restart                                 || fails+=" Restart"

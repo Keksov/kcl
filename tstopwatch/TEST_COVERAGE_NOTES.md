@@ -54,3 +54,22 @@ column therefore cites the Delphi DocWiki member semantics, the .NET Stopwatch s
 | 003.gettimestamp-silent | getTimeStamp | direct call: 0 bytes stdout, RESULT = epoch-µs magnitude | bash-convention | RESULT-ONLY design pin (tight-loop path: echo would flood stdout, $() would fork) |
 | 004.zero-fork-api | ALL members | new/Start/Stop/getters×7/Restart/Reset/getTimeStamp/new-startnew/delete — every rc 0 under `PATH=''` | representation | zero-fork house goal: builtins + 64-bit shell arithmetic only |
 | 004.call-contract | frequency (repr. getter) | under `PATH=''`: DIRECT call silent + RESULT; `$()` capture echoes | bash-convention | kklass kk._return contract (echo only when BASH_SUBSHELL>0); $() is a subshell fork, not an exec — both paths PATH-independent |
+
+---
+
+## P6 of the 2026-09-06 kcl review (`tests/006`) — 2026-09-08
+
+`006_G3_BooleansAndLocale.sh` closes findings **G3-11** and **G3-12**; written
+red first (14 FAIL / 21 on the pre-fix unit).
+
+| Group | What it pins | Why FPC/Delphi lacks it |
+|---|---|---|
+| booleans by rc (G3-12, R8) | `GetIsRunning` / `GetIsHighResolution` answer with the exit status **and** leave `true`/`false` in `RESULT`, across every state (fresh, running, stopped, restarted, reset); `$( )` still prints the word; `if`/`\|\|`/`!` work under `set -eu` | bash-convention — Delphi returns a Boolean, kcl's contract (kcl/README.md §1.3) is the exit status |
+| the property form | `sw.isRunning` carries the **word** but always exits 0 — kklass appends `kk._return "$RESULT"` to the generated property shim, which flattens the status before `kk._prop_computed` (kklass.sh:319) can propagate it. Pinned deliberately so the split is visible; recorded as `found_in_P6/P6-F1` in `kcl/kcl_ledger.json` | framework limitation, no upstream analogue |
+| no fork on a property read (G3-11) | the generated body contains no command substitution (structural); a property read works under `PATH=''` with `BASHPID` unchanged; 300 property reads are within 10× of 300 func reads | the old README claimed a ~17.7 ms fork per read; kklass D1 removed it |
+| the decimal-comma clock | `getTimeStamp` and a measured busy loop under `C.UTF-8`, `de_DE.UTF-8` and `ru_RU.UTF-8` — bash 5.2 prints `EPOCHREALTIME` as `1788676658,546051` under those locales | bash-specific; Delphi has no `EPOCHREALTIME` |
+| the D6 locale self-heal | with `LC_ALL`/`LC_CTYPE`/`LANG` all unset the unit exports `LC_CTYPE=C.UTF-8` and still reads a sane stamp | kcl contract §1.6 |
+
+`002_StateMachine.sh` and `003_TimingAndAccumulation.sh` had their `0`/`1`
+expectations rewritten to `false`/`true`; that is the documented API change, not
+a new behaviour.
