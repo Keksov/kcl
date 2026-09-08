@@ -15,13 +15,14 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 TIF_DIR="$SCRIPT_DIR/.."
 source "$TIF_DIR/tinifile.sh"
 
-TEST_NAME="$(basename "$0" .sh)"
-kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+# The fixture directory is named after the SOURCE file: under the runner every
+# file is sourced from a `bash -c`, so $0 is "bash" for all of them and they
+# would share one .tmp/bash that a sibling's teardown removes mid-run.
+kt_test_init "002_LoadAndRead" "$SCRIPT_DIR" "$@"
 
 kt_test_section "002: TIniFile load + read core (P1)"
 
-D="$(mktemp -d)"
-trap 'rm -rf "$D"' EXIT
+D="$(cd "$(kt_fixture_tmpdir)" && pwd)"
 
 # The torture fixture: BOM+CRLF, top comment, orphan key, blank line, section
 # comment, padded key, value with '='/';', quoted value, invalid line,
@@ -145,18 +146,19 @@ KU=(); I.ReadSection "Café" KU
 [[ "${KU[0]}" == "naïve" && "${KU[1]}" == "Größe" ]] \
     && kt_test_pass "idents byte-exact" || kt_test_fail "[${KU[0]}][${KU[1]}]"
 
-kt_test_start "UTF-8 fold: ASCII part folds deterministically; non-ASCII = locale observation"
-# 'cafÉ' vs 'Café': the ASCII letters c/a/f fold reliably; É<->é folds ONLY if
-# the ambient locale does. Contract (PLAN §2.3): ASCII guaranteed, unicode
-# follows the locale. Accept BOTH outcomes for the É-case, but REQUIRE the
-# ASCII-only-different lookup ('cAFé' — same bytes for é) to hit.
-I.ReadString "cAFé" "naïve" DEF; b="$RESULT"     # section ASCII-case-only diff, ident exact
-I.ReadString "CAFÉ" "naïve" DEF; c="$RESULT"     # É needs locale folding — observation
-if [[ "$b" == "Привет мир é" ]]; then
-    obs="folded-É=$( [[ "$c" == "Привет мир é" ]] && echo yes || echo no )"
-    kt_test_pass "ASCII-fold hit; É-fold observation: $obs (locale-dependent, documented)"
+kt_test_start "UTF-8 fold: BOTH the ASCII part and the accent fold (D6)"
+# 'cAFé' differs from 'Café' only in ASCII case; 'CAFÉ' also needs É<->é. Both
+# must hit: D6 makes a UTF-8 locale part of the contract (the runners pin
+# LC_ALL=C.UTF-8 and the unit self-heals a bare environment), so this is no
+# longer an "accept either answer" observation. The load-time self-heal itself
+# is tested in 012_D6_Locale.sh, in a child shell with the locale cleared.
+I.ReadString "cAFé" "naïve" DEF; b="$RESULT"     # section ASCII-case-only diff
+I.ReadString "CAFÉ" "naïve" DEF; c="$RESULT"     # ... and the accent as well
+I.ReadString "café" "NAÏVE" DEF; d="$RESULT"     # the same rule on the ident
+if [[ "$b" == "Привет мир é" && "$c" == "Привет мир é" && "$d" == "Привет мир é" ]]; then
+    kt_test_pass "ASCII and non-ASCII both fold, section and ident"
 else
-    kt_test_fail "ASCII-case-only lookup missed (b='$b')"
+    kt_test_fail "ascii-only='$b' accent='$c' ident='$d'"
 fi
 I.delete
 

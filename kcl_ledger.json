@@ -419,25 +419,111 @@
          "done" : "2026-09-07"
       },
       "P8" : {
-         "status" : "todo",
+         "status" : "done",
+         "done" : "2026-09-08",
+         "findings" : [ "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "D6" ],
+         "committed" : false,
          "size" : "M",
-         "findings" : [
-            "T1",
-            "T2",
-            "T3",
-            "T4",
-            "T5",
-            "T6",
-            "T8",
-            "T9",
-            "T10",
-            "T11",
-            "T12",
-            "T13",
-            "T14"
+         "title" : "tinifile: persistence safety, validation holes, SectionExists, lookup cost",
+         "bindings" : "R6 (hybrid validation: reject on WRITE what the FPC reader would reinterpret; loader stays FPC-verbatim; SectionExists = FPC `not Empty`; persistence = -d and ! -w guards + `--` everywhere + tmp+mv with the tmp removed on EVERY failure branch; lookup = variant (a) with a relative perf gate), D2 (rc 1 + RESULT='' on failure, rc 2 for a malformed output-array name), D6 (locale self-heal, already present since P1), D7 (set -eu).",
+         "reference" : "No local FPC. packages/fcl-base/src/inifiles.pp (1490 lines) and rtl/inc/sstrings.inc taken from the GitLab mirror at tag release_3_2_2 and read line by line. Rules cited in the code, the tests and the unit README: SectionExists (:670 - `Assigned(S) and Not S.Empty`) with TIniFileSection.Empty (:483 - a section is empty when EVERY key row is a comment) and IsComment (:288 - IsComment('') is False, so a section holding only an INVALID row is not empty); FillSectionList (:1016), including :1059-1066 where a comment before any section is ASSIGNED to oSection and therefore adopts the keys that follow it, and :1069/:1072 where a line is a section header iff it starts with '[' and ends with ']'; RemoveBackslashes (:1022-1044 - the loop runs `For I:=AStrings.Count-2 downto 0`, so the LAST line is never a join source and a trailing backslash on it survives); UpdateFile (:1329-1375 - SaveToFile runs LAST, and FillSectionList + FDirty:=false only after it, so a failed save keeps both the memory and the dirty flag); DeleteKey (:1313) and EraseSection (:1300), which call MaybeUpdateFile inside and let the exception out; ReadSectionValues (:1236); StrToIntDef -> val() -> InitVal (sstrings.inc:1086 - skip blanks and TABs, sign, the base prefixes $ x X % & and 0x, strip leading zeros) and fpc_Val_SInt_ShortStr (:1141 - overflow sets Code<>0, which StrToIntDef turns into the Default, and a non-decimal literal is accepted up to MaxUIntValue and reinterpreted as a signed Int64).",
+         "gate" : "tinifile suite 191/191 on bash 5.2.37 AND true 5.3.9 (91 after P1; +100 assertions, 6 new files), 0 [FAIL] lines by grep. Master sweep: run by reviewer. bench.sh A/B in one session against the committed HEAD unit (the old file is pre-sourced so the re-source guard makes bench.sh use it): this box moves up to 40 percent between runs, so pairs come from adjacent runs - ReadString 3325->1257 / 4747->1278 / 14060->3116 us/read, WriteString update-in-place 5883->1851 and append 16122->1242 us/write, ReadInteger 1072->1031, ReadBool 1211->1120, ReadString baseline 848->840 us/read, UpdateFile 649->593 and 273->295 us/key (the second within noise). NOT faster: LOAD costs 4-7 percent more (a focused best-of-3 A/B alternating the two units over the same fixture: 160-165 ms -> 167-173 ms per 1000 keys), which is the price of building the four derived structures during the parse; it buys 3.5-4.5x on every read and 13x on every append. Relative T6 gate, now also a bench.sh section: 800 appends 4.1x 200 appends (HEAD in the same run: 20.3x), a read in the 20th section 1.2x one in the first (the review measured 3.3x).",
+         "closed" : {
+            "D6" : {
+               "fix" : "The unit had NO locale self-heal block, although its case-insensitive lookup IS ${x,,}: from a bare environment (cron, a service manager, env -i) the C locale left a multi-byte letter unfolded, so a section written as [Cafe-with-accent] did not answer to its upper-case form. Added the kcl/README.md 1.6 block verbatim - if LC_ALL, LC_CTYPE and LANG are all empty, export LC_CTYPE=C.UTF-8 - before kklass is sourced. An explicit locale is never overridden: under LC_ALL=C ASCII names still fold and accented ones do not, which is the caller's choice, and that is pinned too.",
+               "test" : "tinifile/tests/012_D6_Locale.sh - six rows, every one of them in a CHILD bash with the three variables cleared (the runner has already pinned LC_ALL=C.UTF-8 in the test process, so the load-time behaviour is invisible from there): the exported LC_CTYPE, the accent folding in a section name and in an ident, a non-ASCII value still round-tripping byte-exact through a real file, the explicit-locale non-override, and ASCII folding under LC_ALL=C",
+               "red_before" : "012: 3 FAIL / 6, re-confirmed after the test's own escaping was fixed by disabling only the new block (the two folding rows returned MISS and LC_CTYPE came back <unset>)",
+               "note" : "Named by the phase assignment rather than by a T-finding. It also let 002's weak assert go: 'É-fold observation' accepted EITHER answer; it now requires the fold in both the section name and the ident."
+            },
+            "T1" : {
+               "fix" : "_updateNow refuses a file_name that IS a directory before it touches anything: rc 1, memory and dirty kept, nothing created. `mv -f tmp DIR` moves the temp file INTO the directory and returns 0, so the flush used to 'succeed' with no ini written and junk left behind; FPC's SaveToFile raises, and UpdateFile only clears FDirty after it.",
+               "test" : "tinifile/tests/007_T1_Persistence.sh - eager WriteString onto a directory (rc 1, value still readable, directory still empty) and cached UpdateFile onto one (rc 1, dirty STAYS true)",
+               "red_before" : "007: 9 FAIL / 13 (the two directory rows reported rc=0, dirty=false and one leftover temp file each)"
+            },
+            "T2" : {
+               "fix" : "_validate grew a `pair` kind: an ident starting with '[' together with a value ending in ']' is refused (rc 1, nothing stored, no flush). The composed line `[list=1,2]` satisfies the reader's section test (inifiles.pp:1069), so the key vanished and the keys after it migrated into a section called `list=1,2`. The rule is about the composed LINE, so `[list` with the value `1,2` stays legal and round-trips.",
+               "test" : "tinifile/tests/008_T2_RoundTrip.sh - the refused pair, the accepted near-miss, and a check that no bogus section was created",
+               "red_before" : "008: 8 FAIL / 16 (the write returned rc 0 and left two idents in the section)"
+            },
+            "T3" : {
+               "fix" : "${inst}_secbrk remembers that a section came from a `[name]` line; _compose emits the bracketed form for it and the bare comment form only for a section that really came from a comment line. `[;x]` therefore composes back as `[;x]` instead of degrading into a comment that orphans every key it owned. The loader is unchanged - the name is still stored verbatim as ';x' and is still not addressable, exactly as FPC SectionByName (:526).",
+               "test" : "tinifile/tests/008_T2_RoundTrip.sh - the flushed file is byte-identical to the input, the flush is idempotent across two instances, ';x' stays unlisted and unaddressable, and a REAL comment-section still composes without brackets",
+               "red_before" : "008: the round-trip row produced ';x' without brackets and the reopened file lost k=v"
+            },
+            "T4" : {
+               "fix" : "SectionExists became FPC's `Assigned(S) and not S.Empty`: it now scans the section's own rows and answers true only when one of them is not a comment. An empty section and a comment-only section do NOT exist; a section holding an invalid row DOES (IsComment('') is False). ReadSections and every read are untouched - only the predicate changed - and docs/TIniFile.md, which claimed a plain 'same as FPC', now says what the rule is.",
+               "test" : "tinifile/tests/008_T2_RoundTrip.sh - empty/comment-only/invalid-row/full/absent in one fixture, the RESULT mirror, the sections still listed and readable, WriteString+DeleteKey leaving a listed section that does not exist, and a comment key that is not a key",
+               "red_before" : "008: SectionExists answered rc 0 for the empty and the comment-only section and for the emptied one"
+            },
+            "T5" : {
+               "fix" : "DeleteKey and EraseSection return the rc of the flush they trigger (`TIniFile._maybeUpdate; return $?`). On an eager instance FPC lets the SaveToFile exception out of both members; here they used to swallow it and report success while WriteString on the same target reported rc 1. A MISS still changes nothing and is still rc 0.",
+               "test" : "tinifile/tests/007_T1_Persistence.sh - a blocked target (a FILE where a directory is needed) makes all three members rc 1, plus a miss row and a happy-path row so the change cannot be read as 'always fail'",
+               "red_before" : "007: delete=0 erase=0 against write=1"
+            },
+            "T6" : {
+               "fix" : "Variant (a) plus one addition. Per-section row lists (${inst}_srows) replace the walk over the rows of EVERY section in _findKey, _compose, ReadSection, ReadSectionValues, ReadSectionRaw and EraseSection; the case-insensitive folds are computed once at insert time (${inst}_knorm, ${inst}_snorm) instead of a helper CALL per candidate row; ${inst}_ctr carries the next free row and slot so an append no longer materialises \"${!arr[@]}\" to learn its own index. Added beyond the letter of (a): ${inst}_sblob, one string per section holding its folded idents, so a MISS - which is what every append does before appending - is one substring test instead of one shell iteration per row. The folds are stored unconditionally lowercase and ifoCaseSensitive compares the raw arrays, so changing `options` after load cannot leave a stale cache.",
+               "test" : "tinifile/tests/011_T6_Performance.sh - a relative append gate (800 < 10x 200), a relative position gate (section 20 < 3x section 1), a structural check that _findKey calls no helper per row and iterates no whole-table index, and four correctness rows (values, holes after a delete, compose after an erase, an 800-key round trip). Both timing gates take the BEST of three alternating measurements: the runner starts eight files in parallel, contention can only make a run slower, and a single pair flaked once on 5.3.9 before the change (it has since run 2x2 full suites clean on both bashes)",
+               "red_before" : "011: 2 FAIL / 7 - the append ratio measured 13.9x and the structural check found both the per-row _norm call and the whole ident-table iteration"
+            },
+            "T7" : {
+               "fix" : "Second half of the finding (the `--` half was closed in P1): `mv -f --` so a target named -x.ini is a NAME, and the temp file is removed on the printf failure branch too. The redirection creates the temp file BEFORE printf runs, so that branch could leave a half-written file behind; the mv branch already cleaned up after P1.",
+               "test" : "tinifile/tests/007_T1_Persistence.sh - a relative `-x.ini` written and read back, a shadowed printf and a shadowed mv (canary functions in a child shell) each leaving zero leftovers, and a closing assertion that no *.tmp.* survives anywhere under the fixture tree",
+               "red_before" : "007: the -x.ini row reported rc=1 and no file; the printf-canary row left one temp file"
+            },
+            "T8" : {
+               "fix" : "_updateNow refuses an existing target that is not writable (rc 1) before creating the temp file. `mv` over a 0444 file succeeds and silently replaces it with the temp file's mode; FPC's SaveToFile fails. Verified on both bashes that a 0444 file really does report `! -w` here.",
+               "test" : "tinifile/tests/007_T1_Persistence.sh - content AND mode asserted unchanged, the new value still in memory, and the fixture itself asserted first so the test cannot pass vacuously on a filesystem that ignores chmod",
+               "red_before" : "007: rc=0, the file contained k=2 and the mode had become writable"
+            },
+            "T9" : {
+               "fix" : "The ifoEscapeLineFeeds accumulator puts back the backslash it stripped when the input ends mid-chain. FPC's RemoveBackslashes walks `Count-2 downto 0`, so the LAST line is never a join source and its trailing backslash is data.",
+               "test" : "tinifile/tests/009_T9_ValuesAndInts.sh - last line with and without a final newline, a double backslash, a bare backslash as the last line, a middle join whose chain still ends open, and the empty-line-joins-to-nothing case",
+               "red_before" : "009: 22 FAIL / 46 - the backslash rows returned 'a' where FPC keeps 'a' plus the backslash"
+            },
+            "T10" : {
+               "fix" : "Under ifoEscapeLineFeeds a value ending in a backslash is refused on write (rc 1): the reader would join the next key onto it, so `C:` + backslash paths used to swallow the following key on the way back in. Without the option the same value is accepted and round-trips, and a section name or ident ending in a backslash stays legal because it is not at end of line after compose.",
+               "test" : "tinifile/tests/009_T9_ValuesAndInts.sh - the refusal with the next key intact, an interior backslash accepted, the same value accepted without the option, and the names case",
+               "red_before" : "009: the write returned rc 0 and the read back gave 'C:Appname=x' with the next key gone"
+            },
+            "T11" : {
+               "fix" : "_toInt is now the InitVal grammar: leading spaces and TABs are skipped, the sign follows, then a base prefix - and a bare x/X is a prefix in its own right, which is why x1F is 31 - then leading zeros are dropped, never the last character. Digit classes are validated before the arithmetic AS BEFORE, and the MAGNITUDE is validated too: more than 19 decimal / 16 hex / 22 octal / 64 binary digits (or an equal-length string above the bound) is a conversion error and returns the Default instead of wrapping. Non-decimal literals are accepted to MaxUIntValue and reinterpreted signed, so $FFFFFFFFFFFFFFFF is -1, as in FPC.",
+               "test" : "tinifile/tests/009_T9_ValuesAndInts.sh - 34 table rows over the whole grammar including both int64 boundaries, the ValUInt ceilings in three bases, the 20-digit overflows and 'leading zeros do not count toward overflow'; plus ReadInt64, WriteInteger canonicalisation and the quoted forms",
+               "red_before" : "009: ' 5', TAB+7, '  -12', x1F, X1f and -x10 all returned the Default; 99999999999999999999 returned 7766279631452241919 and the two int64 boundaries wrapped"
+            },
+            "T12" : {
+               "fix" : "A backslash in file_name is a separator: _load and _updateNow normalise it to '/' for every filesystem operation, so a missing directory really is created and the write succeeds. The instance variable keeps the caller's text. DEVIATION from the letter of R6 ('normalised for the directory computation'): cygwin bash does not translate backslashes inside a POSIX path at all, so normalising only the directory would create it and then fail on the write - the finding's own repro would still fail on 5.3.9.",
+               "test" : "tinifile/tests/007_T1_Persistence.sh - the directory created, the file written, stderr empty, the same path LOADED back, and file_name asserted verbatim",
+               "red_before" : "007: rc=1, no directory, and a bash redirection error on stderr"
+            },
+            "T13" : {
+               "fix" : "TIniFile._outName validates the name before any nameref is bound, and the six members that take one (ReadSection, ReadSections, ReadSectionValues, ReadSectionRaw, GetStrings, SetStrings) answer rc 2 with RESULT='' and nothing written. Reserved: __tif_*, __kk_*/__KK_*, RESULT, REPLY, IFS, this, __inst__, __class__, state, the FOUR instance variables (file_name, options, cache_updates, dirty - inside a body they are namerefs into ${inst}_data, which is why `ini.ReadSections dirty` used to bind the output to the instance's own flag), the instance's own storage arrays, anything that is not a plain identifier, and an associative target. The list is documented in the unit README and in the file header.",
+               "test" : "tinifile/tests/010_T13_OutArrays.sh - 21 names swept against each of the six members in a CHILD shell (before the fix a name like IFS or `this` corrupts the caller, so an in-process sweep cannot even report), plus the caller-array-named-dirty case, the associative case, the good path, the RESULT rule and a set -eu row",
+               "red_before" : "010: 10 FAIL / 11 - every name returned rc 0, four of the six sweeps could not finish at all, and kklass printed nameref errors on stderr"
+            },
+            "T14" : {
+               "fix" : "tinifile_ledger.json: status rewritten (the unit HAS been committed, as kcl fcde032; 'UNCOMMITTED' was the drift), updated -> 2026-09-08, and a P8 execution_log entry added. docs/TIniFile.md: the SectionExists row no longer claims a plain 'same' (it now states the not-Empty rule), the ReadInteger row names the InitVal grammar and the overflow behaviour, the DeleteKey/EraseSection row names the eager rc, and the three FPC line anchors were re-checked against release_3_2_2.",
+               "test" : "tinifile/tests/008_T2_RoundTrip.sh and 009_T9_ValuesAndInts.sh carry the behaviour the docs now describe; the ledger and docs themselves are prose",
+               "red_before" : "008/009 as above - the docs claims were false against the code, which is what made them drift"
+            }
+         },
+         "beyond_the_list_in_zone" : {
+            "P8-A" : "FPC FillSectionList (:1059-1066) ASSIGNS oSection when it creates a comment-section, so the keys that follow a leading comment belong to it; the port dropped them at load. Same data-loss class as T2/T3 and the same branch as T3, so it was fixed here: the comment-section becomes the current section, and with ifoStripComments no section is created and the keys are dropped - also FPC. Test 002's 'orphan key before any section is dropped' stayed green (the section is still not addressable); 008 pins the new behaviour and its round trip.",
+            "P8-B" : "Suite hygiene: 001 kept its fixtures at FIXED /tmp names (a stale /tmp/a.ini left by anything else would have been LOADED by the constructor), 002-005 used mktemp -d in the real /tmp, and all five called kt_test_init with `basename $0 .sh` - under the runner $0 is `bash` for every file, so the five shared one .tmp/bash that a sibling's teardown removed mid-run (the ktests defect recorded as found_in_P4(b), worked around locally here as P4 did). All six files now use kt_fixture_tmpdir and a literal fixture name."
+         },
+         "tests_rewritten_for_pinning_the_wrong_dialect" : [
+            "tinifile 004 ('x9' was asserted to be invalid and to return the Default; InitVal lists x/X among the base prefixes, so it is hex 9 - the row now uses genuinely invalid forms and points at 009 for the full grammar)"
          ],
-         "title" : "tinifile: persistence safety, validation holes, SectionExists, lookup cost"
+         "deviations" : {
+            "D-1" : "T12: the backslash is normalised in the WHOLE path, not only for the directory computation as R6 words it. Reason: msys bash translates backslashes in paths, cygwin bash (5.3.9) does not unless the path starts with a drive letter, so the narrow fix would leave the finding's own repro failing on the second bash and no single assertion could hold on both. file_name itself is untouched, so nothing observable changed for callers who never pass backslashes.",
+            "D-2" : "T6: variant (a) alone landed the append gate exactly on its wall (10.0x against a '< 10x' limit) because FPC's first-match model requires scanning the section before appending. Added ${inst}_sblob - a per-section string of folded idents - which answers only the NEGATIVE case in one substring test; a hit still goes through the loop that decides first-match. This is not variant (b): there is no key->row index and no change to the storage model. Result 4.2x.",
+            "D-3" : "_outName switches `set -u` off for one expansion using `local -` (shell options local to the function, restored on return). ${ref@a} is the only way to detect an associative target and it aborts under set -u whenever the target has no value yet - which is exactly what `declare -A m=()` looks like. No fork; verified on 5.2.37 and 5.3.9 that the caller's options are unchanged."
+         },
+         "found_in_P8" : {
+            "P8-F1" : "kklass: a member that binds `local -n out=\"$1\"` cannot report a malformed name by itself - an invalid identifier makes `local -n` print to stderr and continue, and several reserved names (IFS, this, __class__) corrupt the CALLING shell badly enough that it can no longer run tests. Each unit therefore repeats its own _outName list (thashset, tqueuestack, tdictionary, tinifile now). A shared kk._outName in kkore, taking the instance name and the unit prefix, would remove four copies. Not done: kkore is outside this phase.",
+            "P8-F2" : "The suite's own fixture directories are still named by the value passed to kt_test_init, so a file that forgets to pass a literal name gets `.tmp/bash` under the runner and shares it with every sibling (found_in_P4(b) upstream). tinifile's six files were fixed locally; the framework fix belongs to ktests."
+         }
       },
+
       "P6" : {
          "reference" : "No local FPC. Taken from the GitLab mirror at tag release_3_2_2 and read line by line: packages/rtl-objpas/src/inc/dateutil.inc (2985 lines) and rtl/objpas/sysutils/dati.inc. Rules cited in the code and the README: IsValidTime (:535 - 24:00:00.000 is valid), TryEncodeTimeInterval (:1899 - (Min<60) and (Sec<60) and (MSec<1000) over four `word`s), DaysBetween (:1404 - Trunc(Abs(diff)+HalfMilliSecond)), IncYear (:1561 - ends in EncodeDateTime, which raises outside 1..9999), TryISOStrToDate (:2740 - lengths 8 and 10 ONLY), TryISOStrToTime (:2763 - zone peeled by position, then lengths 2/4/5/6/8/10/12, and the length-2 branch parses the WHOLE original string), TryISOStrToDateTime (:2849 - the date/time split is POSITIONAL: character 11 then character 9 must be ' ' or 'T'), TryISOTZStrToTZOffset (:2876 - '+' is NEGATED), TryISO8601ToDate (:2915 - the zone is peeled off the end first), ScanDateTime/intscandate (:2496 lasttoken declared, :2499 initialised to ' ', :2505 `if (lch='M') and (lasttoken='H')` = minutes, :2507 a run > 2 is Shhmmerror, :2615-2618 the ':' separator does `lch:=lasttoken` so it is transparent, :2640 lasttoken:=lch), and SysUtils.TryEncodeTime (dati.inc:117 - `(Hour<24) and ...`).",
          "closed" : {

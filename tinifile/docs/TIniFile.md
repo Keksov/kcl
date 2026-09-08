@@ -39,10 +39,10 @@ analog here — INI stores only strings.
 | FPC | bash | Notes |
 |---|---|---|
 | `ReadString(Section,Ident,Default)` (:1125) | `ini.ReadString sec id default` → RESULT | first-match; StripQuotes at read |
-| `ReadInteger`/`ReadInt64` (:690/:701) | same | `StrToIntDef`/`val()` grammar; here Int64==Integer (64-bit, no 32-bit clamp) |
+| `ReadInteger`/`ReadInt64` (:684/:695) | same | full `StrToIntDef`/`val()`/`InitVal` grammar incl. leading blanks/TABs, the bare `x`/`X` hex prefix and overflow→Default (P8, T11); here Int64==Integer (64-bit, no 32-bit clamp) |
 | `ReadBool(...)` (:720) | `ini.ReadBool sec id default(0\|1)` → RESULT 0/1 | cascade: BoolStrings (CompareText, case-insensitive) → `ifoWriteStringBoolean`/SameText → `CharToBool` (first char `'1'`) |
 | `ReadFloat` (:794) | same | **string-preserving** — no `StrToFloatDef` Double round-trip (divergence) |
-| `SectionExists`/`ValueExists` (:680/:844) | same → rc 0/1 | |
+| `SectionExists`/`ValueExists` (:670/:827) | same → rc 0/1 | `SectionExists` = `Assigned(S) and not S.Empty` (:673): an EMPTY or comment-only section does **not** exist, one holding an invalid row does (`IsComment('')`=False). Corrected at P8 — this row used to claim a plain "same" while the port answered true for both. |
 | `ReadSection(Strings)` (:1200) | `ini.ReadSection sec arr` → RESULT=count | idents in order, comments excluded, `''` for invalid rows |
 | `ReadSections(Strings)` (:1240) | `ini.ReadSections arr` | section names, comment-sections excluded, `''` for `[]` |
 | `ReadSectionValues(...)` (:1255) | `ini.ReadSectionValues sec arr [svo…]` | `Ident=Value`; svoIncludeComments/Invalid/Quotes tokens; default = `[svoIncludeInvalid]` |
@@ -57,7 +57,7 @@ analog here — INI stores only strings.
 | `WriteInteger`/`WriteInt64` (:696/:707) | same | `IntToStr` → canonical decimal |
 | `WriteBool` (:746) | `ini.WriteBool sec id value` | `1`/`0`, or `BoolTrueStrings[0]`//`true` / `BoolFalseStrings[0]`//`false` under `ifoWriteStringBoolean` |
 | `WriteFloat` (:828) | same | string-preserving (stores the literal) |
-| `DeleteKey`/`EraseSection` (:1331/:1318) | same | silent on miss; flush only on an actual removal |
+| `DeleteKey`/`EraseSection` (:1313/:1300) | same | silent on miss; flush only on an actual removal, and on an eager instance the flush rc IS the member rc (P8, T5) |
 | `UpdateFile` (:1349) | `ini.UpdateFile` | compose → ForceDirectories → tmp+mv → re-parse + `Dirty:=false`; failure rc 1, memory kept |
 | `SetBoolStringValues(bool,Values)` (:654) | `ini.SetBoolStringValues true\|false v…` | replaces a bool-strings list |
 | `Options` property (:210) | `ini.options` var (space-joined tokens) | |

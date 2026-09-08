@@ -16,13 +16,14 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 TIF_DIR="$SCRIPT_DIR/.."
 source "$TIF_DIR/tinifile.sh"
 
-TEST_NAME="$(basename "$0" .sh)"
-kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+# The fixture directory is named after the SOURCE file: under the runner every
+# file is sourced from a `bash -c`, so $0 is "bash" for all of them and they
+# would share one .tmp/bash that a sibling's teardown removes mid-run.
+kt_test_init "005_FpcBoolParity" "$SCRIPT_DIR" "$@"
 
 kt_test_section "005: FPC utcinifile.pp Bool parity (16 assertions)"
 
-D="$(mktemp -d)"
-trap 'rm -rf "$D"' EXIT
+D="$(cd "$(kt_fixture_tmpdir)" && pwd)"
 opt_add() { local cur; cur="$($1.options)"; $1.options = "${cur:+$cur }ifoStringBoolean"; }
 
 # ================= TIniFile_TestWriteBoolean (seed :43-64) =================

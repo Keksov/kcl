@@ -63,13 +63,35 @@ printf OK" 2>"$errf")"; rc=$?
 expect_clean "the unit loads under set -eu [X-SETU, D7]" ":"
 expect_clean "loading the unit TWICE under set -eu is a no-op [X-SETU]" "source '$UNIT'"
 expect_clean "main path under set -eu [X-SETU, D7]" "
-ini=\$(mktemp)
+ini='$TMP/setu.ini'
 TIniFile.new f \"\$ini\"
 f.WriteString sec key value
 f.ReadString sec key '' >/dev/null
 if f.SectionExists sec; then :; fi
 f.UpdateFile
 f.delete
+rm -f -- \"\$ini\""
+
+# The P8 members join the smoke test: the array fillers, the eager delete path
+# and a refused write must all return control cleanly under set -eu.
+expect_clean "P8 members under set -eu (fillers, deletes, refusals)" "
+ini='$TMP/setu2.ini'
+printf '%s\n' '[s]' 'k=1' '; c' 'bare' > \"\$ini\"
+TMemIniFile.new g \"\$ini\"
+declare -a arr=()
+g.ReadSection s arr
+g.ReadSections arr
+g.ReadSectionValues s arr svoIncludeComments
+g.ReadSectionRaw s arr
+g.GetStrings arr
+g.SetStrings arr
+g.ReadSections '' || rc=\\\$?
+g.WriteString s '[x' 'y]' || rc=\\\$?
+if g.SectionExists s; then :; fi
+g.DeleteKey s k
+g.EraseSection s
+g.UpdateFile
+g.delete
 rm -f -- \"\$ini\""
 
 # --- 3. values are data (X-ECHO) -------------------------------------------

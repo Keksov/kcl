@@ -67,7 +67,15 @@ bash class would be pure dispatch tax. Mapping documented in
   **LF**.
 - **UpdateFile** creates missing parent directories (FPC `ForceDirectories`),
   writes to a temp file in the same dir, then `mv`s over the target (atomic
-  enough); on failure it returns rc 1 and **keeps the in-memory state**.
+  enough); on failure it returns rc 1 and **keeps the in-memory state**,
+  `dirty` included, and removes the temp file on every failure branch. It
+  refuses before touching anything when the target is a **directory** or an
+  existing **read-only** file — FPC's `SaveToFile` raises in both cases, while
+  `mv` would happily move the temp file *into* the directory, or replace the
+  read-only file and reset its mode. A `\` in `file_name` is a separator: the
+  path is normalised for every filesystem operation (the variable itself keeps
+  the caller's text), so `C:\dir\x.ini` gets the same ForceDirectories
+  treatment as `C:/dir/x.ini` on both MSYS and cygwin.
 
 ## API
 
@@ -79,9 +87,35 @@ Read family (never fail — rc 0, missing → default):
 `ReadSection sec arr` · `ReadSections arr` · `ReadSectionValues sec arr [svo…]`
 · `ReadSectionRaw sec arr`.
 
+**`SectionExists` is FPC's `Assigned(S) and not S.Empty`**: a section with no
+keys, or with comment keys only, does **not** exist — while one holding an
+*invalid* row (a line without `=`) does, because `IsComment('')` is false. The
+section is still listed by `ReadSections` and still readable; only the
+predicate says no. `WriteString` + `DeleteKey` therefore leaves a listed
+section that reports "does not exist".
+
 Write family: `WriteString sec id value` · `WriteInteger`/`WriteInt64` ·
 `WriteBool` · `WriteFloat` · `DeleteKey sec id` · `EraseSection sec` ·
-`UpdateFile` · `SetBoolStringValues true|false v1 [v2…]`.
+`UpdateFile` · `SetBoolStringValues true|false v1 [v2…]`. On an **eager**
+`TIniFile` every one of them flushes, and the flush's rc is the member's rc —
+`DeleteKey`/`EraseSection` included (a miss changes nothing and is still rc 0).
+
+### Output/input array names (rc 2)
+
+Every member that takes the **name** of a caller array — `ReadSection`,
+`ReadSections`, `ReadSectionValues`, `ReadSectionRaw`, `GetStrings`,
+`SetStrings` — validates it before binding the nameref and answers **rc 2**
+(malformed call, `RESULT=""`, nothing written, nothing printed) for anything
+that is not a plain non-associative identifier or that is reserved:
+
+`__tif_*` · `__kk_*`/`__KK_*` · `RESULT` · `REPLY` · `IFS` · `this` ·
+`__inst__` · `__class__` · `state` · the four instance variables **`file_name`,
+`options`, `cache_updates`, `dirty`** · the instance's own storage arrays
+(`<inst>_secnames`, `_snorm`, `_secbrk`, `_srows`, `_sblob`, `_kident`,
+`_knorm`, `_kvalue`, `_kowner`, `_ctr`, `_booltrue`, `_boolfalse`, `_data`,
+`_class`). The instance variables are reserved because inside a member body
+they are namerefs into the instance's data: `ini.ReadSections dirty` used to
+resolve to the instance's own `dirty` flag.
 
 TMemIniFile extras: `Clear` · `GetStrings arr` · `SetStrings arr` ·
 `Rename newName [reload]`.
@@ -91,10 +125,19 @@ Vars: `file_name` · `options` (space-joined tokens) · `cache_updates` ·
 
 ### Typed conversions (pinned)
 
-- **Integer** (`ReadInteger`/`ReadInt64`) = FPC `StrToIntDef`/`val()`: sign +
-  decimal | `$FF` | `0x1A` | `&17` (octal) | `%1010` (binary); a leading-zero
-  decimal stays DECIMAL (`0123`→123, not octal); anything else → default.
-  `WriteInteger` stores canonical decimal (`$FF`→`255`).
+- **Integer** (`ReadInteger`/`ReadInt64`) = FPC `StrToIntDef`/`val()`, ported
+  from `InitVal` (`rtl/inc/sstrings.inc:1086`) and `fpc_Val_SInt_ShortStr`
+  (:1141) rule by rule: **leading spaces and TABs are skipped**, then a sign,
+  then a base prefix — `$FF`, `0x1A`/`0X1A`, and a **bare `x`/`X`** (`x1F` is
+  31, which surprises everyone but is what `InitVal` does), `&17` (octal),
+  `%1010` (binary) — then leading zeros are dropped; a leading-zero decimal
+  stays DECIMAL (`0123`→123, not octal). Anything else, a **trailing** blank
+  included, is a conversion error → default. An **out-of-range** literal is an
+  error too, not a wrap: `99999999999999999999` and `$FFFFFFFFFFFFFFFFFFFF`
+  return the default. Non-decimal literals are accepted up to `MaxUIntValue`
+  and reinterpreted as a signed Int64, so `$FFFFFFFFFFFFFFFF` is `-1` — FPC's
+  own sign extension. `WriteInteger` stores canonical decimal (`$FF`→`255`,
+  `' x1F'`→`31`) and refuses what `val()` refuses.
 - **Bool** (`ReadBool`) cascade: (1) if any BoolStrings list is set →
   case-insensitive membership, true-list then false-list, else default; (2)
   elif `ifoStringBoolean` → case-insensitive `true`/`false`, else default;
@@ -104,6 +147,17 @@ Vars: `file_name` · `options` (space-joined tokens) · `cache_updates` ·
 - **Float** is **string-preserving**: shape-validated, stored/returned
   verbatim. No Double round-trip, no float engine — callers doing arithmetic
   use `kcl/math`.
+
+## Locale
+
+The case-insensitive lookup is `${x,,}`, which folds `É`→`é` only under a
+UTF-8 locale — so a UTF-8 locale is part of this unit's contract (kcl decision
+D6). The test runners pin `LC_ALL=C.UTF-8`, and the unit **self-heals a bare
+environment** at load time: if `LC_ALL`, `LC_CTYPE` and `LANG` are all empty it
+exports `LC_CTYPE=C.UTF-8`. An explicit locale is never overridden — under
+`LC_ALL=C` ASCII names still fold and accented ones do not, which is the
+caller's choice. Values are byte strings throughout and round-trip verbatim in
+any locale.
 
 ## Options
 
@@ -123,15 +177,30 @@ far.
 | Integer width | ReadInteger clamps to 32-bit Longint | 64-bit (== ReadInt64); no clamp |
 | Write of empty/`;`-leading/`=`-in-ident names | silent no-op, later misreads | **rejected rc 1** (fail-fast over silent corruption) |
 | CR/LF inside a value | written, corrupts the file | **rejected rc 1** |
+| Write of a `[`-leading ident with a `]`-ending value | written; the next read takes `[list=1,2]` for a **section header**, the key vanishes and the keys after it migrate | **rejected rc 1** (hybrid rule: refuse on write what the reader would reinterpret) |
+| Write of a value ending in `\` under `ifoEscapeLineFeeds` | written; the next read joins the following key onto it (`C:\App\` swallows `name=x`) | **rejected rc 1** — without the option the same value is fine |
+| `[;name]` section | loads as the section named `;name`, then `UpdateFile` writes it back as a bare comment and every key it owned is orphaned | loader unchanged (FPC-verbatim); the **composer keeps the brackets**, so the round trip is stable |
+| `UpdateFile` onto a directory / a read-only file | `SaveToFile` raises | **rc 1**, memory and `dirty` kept, no temp file left |
 | Line endings | platform | always LF |
 | Date/time, binary streams, encodings/BOM-write | supported | **wontfix** (bash byte strings; use `kcl/dateutils`/`kcl/math` for values) |
 
 ## Tests & bench
 
-`tests/001…005` — 84 cases, green on bash 5.2.37 **and** true 5.3.9: skeleton
-+ ctor split (001), load/read core over an S-pin torture fixture incl. UTF-8
-(002), write core + persistence + round-trip idempotence (003), typed
-accessors (004), and **the complete FPC `utcinifile.pp` Bool seed — all 16
-assertions verbatim** (005). Per-case rationale in
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). `bench.sh` reports load /
-ReadString / WriteString / UpdateFile costs (timed via `TStopwatch`).
+`tests/001…012` — **191 cases**, green on bash 5.2.37 **and** true 5.3.9:
+skeleton + ctor split (001), load/read core over an S-pin torture fixture incl.
+UTF-8 (002), write core + persistence + round-trip idempotence (003), typed
+accessors (004), **the complete FPC `utcinifile.pp` Bool seed — all 16
+assertions verbatim** (005), the kcl contract smoke test (006), and the five
+files added by the 2026-09-06 review: persistence edges (007 — directory
+target, read-only target, `-`-leading name, temp-file cleanup on every failure
+branch, eager delete rc, `\`-paths), the two round-trip corruptions and
+`SectionExists` (008), `ifoEscapeLineFeeds` plus the whole `val()` grammar
+(009), output-array names (010) the relative cost gates (011) and the D6 locale self-heal in a child shell with the locale cleared (012). Per-case
+rationale in [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+
+`bench.sh` reports load / ReadString / WriteString / UpdateFile costs (timed
+via `TStopwatch`) and, since P8, the two **relative** shape gates the review
+asked for: 800 appends under 10× 200 appends, a lookup in the 20th section
+under 3× one in the first. The port keeps FPC's linear first-match model, so
+lookups are still O(keys in the section) — but nothing is O(all keys) any more
+and a miss (which is what every append does first) costs one substring test.

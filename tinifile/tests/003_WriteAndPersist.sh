@@ -16,13 +16,14 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 TIF_DIR="$SCRIPT_DIR/.."
 source "$TIF_DIR/tinifile.sh"
 
-TEST_NAME="$(basename "$0" .sh)"
-kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+# The fixture directory is named after the SOURCE file: under the runner every
+# file is sourced from a `bash -c`, so $0 is "bash" for all of them and they
+# would share one .tmp/bash that a sibling's teardown removes mid-run.
+kt_test_init "003_WriteAndPersist" "$SCRIPT_DIR" "$@"
 
 kt_test_section "003: TIniFile write core + persistence (P2)"
 
-D="$(mktemp -d)"
-trap 'rm -rf "$D"' EXIT
+D="$(cd "$(kt_fixture_tmpdir)" && pwd)"
 
 kt_test_start "eager TIniFile: WriteString hits the disk immediately"
 TIniFile.new E "$D/e.ini"

@@ -13,15 +13,21 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 TIF_DIR="$SCRIPT_DIR/.."
 source "$TIF_DIR/tinifile.sh"
 
-TEST_NAME="$(basename "$0" .sh)"
-kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+# The fixture directory is named after the SOURCE file: under the runner every
+# file is sourced from a `bash -c`, so $0 is "bash" for all of them and they
+# would share one .tmp/bash that a sibling's teardown removes mid-run.
+kt_test_init "001_Skeleton" "$SCRIPT_DIR" "$@"
 
 kt_test_section "001: TIniFile/TMemIniFile skeleton (P0 ctor core)"
 
+# Fixtures live in the ktests fixture directory, never at a fixed /tmp name: a
+# stale /tmp/a.ini left by anything else would be LOADED by the constructor.
+D="$(cd "$(kt_fixture_tmpdir)" && pwd)"
+
 # --- TIniFile defaults: eager + AUTO ifoStripQuotes (FPC :967) ---
 kt_test_start "TIniFile: file_name, cache_updates=false, dirty=false, AUTO StripQuotes"
-TIniFile.new I "/tmp/a.ini"
-if [[ "$(I.file_name)" == "/tmp/a.ini" && "$(I.cache_updates)" == "false" \
+TIniFile.new I "$D/a.ini"
+if [[ "$(I.file_name)" == "$D/a.ini" && "$(I.cache_updates)" == "false" \
       && "$(I.dirty)" == "false" && " $(I.options) " == *" ifoStripQuotes "* ]]; then
     kt_test_pass "eager + auto-quotes"
 else
@@ -30,9 +36,9 @@ fi
 
 # --- TMemIniFile: cached + NO auto StripQuotes (FPC :969 self-is check) ---
 kt_test_start "TMemIniFile: cache_updates=true, NO auto StripQuotes"
-TMemIniFile.new M "/tmp/b.ini"
+TMemIniFile.new M "$D/b.ini"
 if [[ "$(M.cache_updates)" == "true" && " $(M.options) " != *" ifoStripQuotes "* \
-      && "$(M.file_name)" == "/tmp/b.ini" ]]; then
+      && "$(M.file_name)" == "$D/b.ini" ]]; then
     kt_test_pass "cached, no auto-quotes"
 else
     kt_test_fail "cu=$(M.cache_updates) opts='$(M.options)'"
@@ -40,7 +46,7 @@ fi
 
 # --- option tokens: parsed, deduped, alias normalized ---
 kt_test_start "tokens: CaseSensitive kept; alias ifoWriteStringBoolean -> ifoStringBoolean"
-TIniFile.new T "/tmp/c.ini" ifoCaseSensitive ifoWriteStringBoolean
+TIniFile.new T "$D/c.ini" ifoCaseSensitive ifoWriteStringBoolean
 o=" $(T.options) "
 if [[ "$o" == *" ifoCaseSensitive "* && "$o" == *" ifoStringBoolean "* \
       && "$o" != *"ifoWriteStringBoolean"* && "$o" == *" ifoStripQuotes "* ]]; then
@@ -52,16 +58,16 @@ T.delete
 
 # --- TMemIniFile CAN opt in to StripQuotes explicitly ---
 kt_test_start "TMemIniFile with explicit ifoStripQuotes keeps it"
-TMemIniFile.new M2 "/tmp/d.ini" ifoStripQuotes
+TMemIniFile.new M2 "$D/d.ini" ifoStripQuotes
 [[ " $(M2.options) " == *" ifoStripQuotes "* ]] && kt_test_pass "explicit opt-in ok" \
     || kt_test_fail "opts='$(M2.options)'"
 M2.delete
 
 # --- bogus token -> rc 1, instance still valid (accepted tokens kept) ---
 kt_test_start "unknown token -> rc 1; instance valid; ifoFormatSettingsActive rejected"
-TIniFile.new B "/tmp/e.ini" ifoCaseSensitive ifoFormatSettingsActive 2>/dev/null
+TIniFile.new B "$D/e.ini" ifoCaseSensitive ifoFormatSettingsActive 2>/dev/null
 rc=$?
-if [[ $rc -ne 0 && "$(B.file_name)" == "/tmp/e.ini" && " $(B.options) " == *" ifoCaseSensitive "* ]]; then
+if [[ $rc -ne 0 && "$(B.file_name)" == "$D/e.ini" && " $(B.options) " == *" ifoCaseSensitive "* ]]; then
     kt_test_pass "rc=$rc, instance usable, prior tokens kept"
 else
     kt_test_fail "rc=$rc fn=$(B.file_name) opts='$(B.options)'"
@@ -112,9 +118,9 @@ kt_test_start "PATH='' : ctor/dtor/stub dispatch need no external commands"
 zf="$(
     PATH=''
     source "$TIF_DIR/tinifile.sh" 2>/dev/null
-    TIniFile.new Z "/tmp/z.ini" ifoCaseSensitive
+    TIniFile.new Z "$D/z.ini" ifoCaseSensitive
     a="$(Z.cache_updates)"
-    TMemIniFile.new ZM "/tmp/zm.ini"
+    TMemIniFile.new ZM "$D/zm.ini"
     b="$(ZM.cache_updates)"
     Z.ReadString s k d >/dev/null; c="$RESULT"   # real now: empty ini -> default
     Z.delete; ZM.delete

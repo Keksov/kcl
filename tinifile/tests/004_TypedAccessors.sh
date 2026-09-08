@@ -15,13 +15,14 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 TIF_DIR="$SCRIPT_DIR/.."
 source "$TIF_DIR/tinifile.sh"
 
-TEST_NAME="$(basename "$0" .sh)"
-kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
+# The fixture directory is named after the SOURCE file: under the runner every
+# file is sourced from a `bash -c`, so $0 is "bash" for all of them and they
+# would share one .tmp/bash that a sibling's teardown removes mid-run.
+kt_test_init "004_TypedAccessors" "$SCRIPT_DIR" "$@"
 
 kt_test_section "004: TIniFile typed accessors + options (P3)"
 
-D="$(mktemp -d)"
-trap 'rm -rf "$D"' EXIT
+D="$(cd "$(kt_fixture_tmpdir)" && pwd)"
 
 TMemIniFile.new M "$D/m.ini"
 
@@ -44,11 +45,15 @@ M.ReadInteger n lead 0; c=$RESULT
 [[ "$a/$b/$c" == "-7/9/123" ]] && kt_test_pass "$a/$b/$c" || kt_test_fail "$a/$b/$c"
 
 kt_test_start "S5: invalid / absent -> Default (rc 0)"
-M.WriteString n bad 'x9'; M.WriteString n bad2 '12x'
+# 'x9' is NOT invalid: InitVal (sstrings.inc:1109) lists 'x'/'X' among the base
+# prefixes in their own right, so it is hex 9. The full val() grammar - leading
+# blanks, the bare x prefix, overflow -> Default - is pinned in 009 (T11).
+M.WriteString n bad '12x'; M.WriteString n bad2 '1.5'; M.WriteString n bad3 'hello'
 M.ReadInteger n bad 99;    a=$RESULT
 M.ReadInteger n bad2 99;   b=$RESULT
-M.ReadInteger n absent 77; c=$RESULT
-[[ "$a/$b/$c" == "99/99/77" ]] && kt_test_pass "$a/$b/$c" || kt_test_fail "$a/$b/$c"
+M.ReadInteger n bad3 99;   c=$RESULT
+M.ReadInteger n absent 77; d=$RESULT
+[[ "$a/$b/$c/$d" == "99/99/99/77" ]] && kt_test_pass "$a/$b/$c/$d" || kt_test_fail "$a/$b/$c/$d"
 
 kt_test_start "ReadInt64 == ReadInteger path; large 64-bit value"
 M.WriteString n big '9000000000'
