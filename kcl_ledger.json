@@ -1541,6 +1541,10 @@
    "journal" : [
       {
          "date" : "2026-09-09",
+         "entry" : "thashset P3 (events) committed: kcl 79e32be. Notify virtual seam, _notifyHook, onNotify validating setter (rc 2), Destroy fires removed (S5); FPC release_3_2_2 :2500/:2525/:2530/:2554. tests/006_Events.sh 55 cases, red-first 46. thashset 148/148 on 5.2.37 and 5.3.9; master sweep 20/20 suites, 5189 tests, 0 [FAIL] on both. kcl/README.md section 2 row moved to P3. Not pushed; P4 (bench, docs, closeout) next."
+      },
+      {
+         "date" : "2026-09-09",
          "entry" : "thashset P2 (set algebra, the unit's own roadmap) committed: kcl 40bc442. All six algebra/AddRange stubs real (FPC release_3_2_2 :2379/:2417/:2425/:2442/:2450), operand validated by class before any mutation, self-op edges pinned, P2-F1 (TSet._isSet diagnostic on a non-identifier operand) closed. tests/005_SetAlgebra.sh 45 cases, red-first 38. thashset 92/92 on 5.2.37 and 5.3.9; master sweep 20/20 suites, 5133 tests, 0 [FAIL] on both. kcl/README.md section 2 thashset row moved to P2. Not pushed; P3 (events) next."
       },
       {
