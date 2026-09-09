@@ -120,14 +120,14 @@ end
 TArray.sort() {
     local __ta_name="$1"
     if [[ -z "$__ta_name" ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "TArray.sort: array name required" >&2
+        kk.debug "TArray.sort: array name required"
         return 2
     fi
     shift
     local -n __ta_arr="$__ta_name"
     # reject associative arrays (§2.2: no order to sort)
     if [[ "${__ta_arr@a}" == *A* ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "TArray.sort: '$__ta_name' is associative (no order)" >&2
+        kk.debug "TArray.sort: '$__ta_name' is associative (no order)"
         return 1
     fi
     local __ta_mode="str" __ta_cmp=""
@@ -159,7 +159,7 @@ TArray.sort() {
         for (( __ta_i = 0; __ta_i < __ta_count; __ta_i++ )); do
             __ta_x="${__ta_w[__ta_i]}"
             if [[ ! "$__ta_x" =~ ^-?[0-9]+$ ]]; then
-                [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "TArray.sort -n: non-integer element '$__ta_x'" >&2
+                kk.debug "TArray.sort -n: non-integer element '$__ta_x'"
                 return 1
             fi
             if [[ "$__ta_x" == -* ]]; then __ta_nw[__ta_i]=$(( -1 * 10#${__ta_x#-} ))
@@ -327,7 +327,7 @@ TArray.firstIndexOf() {
     # is neither `-n` nor a defined function is a typo, not data — answering
     # "not found" (or "found, byte order") for it would be a wrong answer.
     if (( __ta_badcmp )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "TArray.firstIndexOf: '$1' is not a comparator function" >&2
+        kk.debug "TArray.firstIndexOf: '$1' is not a comparator function"
         RESULT=-1; return 2
     fi
     local -n __ta_arr="$__ta_name"
@@ -350,7 +350,7 @@ TArray.lastIndexOf() {
     local __ta_mode __ta_cmp __ta_shifted __ta_badcmp
     TArray._resolveCmp "${1:-}"
     if (( __ta_badcmp )); then                      # G1-12, see firstIndexOf
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "TArray.lastIndexOf: '$1' is not a comparator function" >&2
+        kk.debug "TArray.lastIndexOf: '$1' is not a comparator function"
         RESULT=-1; return 2
     fi
     local -n __ta_arr="$__ta_name"

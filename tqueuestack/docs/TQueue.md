@@ -1,5 +1,25 @@
 # TQueue / TObjectQueue — upstream FPC API reference
 
+> **Upstream reference, ported: the members marked with a kcl mapping below.**
+> This page is the FPC rtl-generics `TQueue`/`TObjectQueue` API; the normative
+> API and contract for the bash port is **[../README.md](../README.md)**, which
+> covers all four classes.
+>
+> * **Ported:** `Enqueue`, `Dequeue`, `TryDequeue`, `Peek`, `Extract`, `Clear`,
+>   `Count`, `ToArray`, the `on_notify` event with its virtual `Notify` seam,
+>   and `TObjectQueue`'s ownership — including the FPC quirk that
+>   `TObjectQueue.Dequeue` is a `procedure` and so returns nothing, preserved
+>   verbatim (the README has the pair of them).
+> * **Roadmap:** none. The unit is complete (P0–P5, hardened by kcl review
+>   phase P2).
+> * **Wontfix** (`../tqueuestack_ledger.json`, `out_of_scope`): the allocator
+>   knobs (`Capacity`, `TrimExcess`), the raw `List` buffer (it would expose
+>   consumed head slots), `AddRange`-style bulk constructors, the present-tense
+>   `OnKeyNotify` variants FPC's list classes do not fire either, and generics.
+> * **Return contract:** a value comes back in `RESULT`, an empty container is
+>   rc 1 with `RESULT=''`, and `ToArray` fills a caller array by nameref —
+>   call it **directly**, a `$( )` subshell loses the fill.
+
 Source of truth: FPC `packages/rtl-generics/src/generics.collections.pas` —
 `TQueue<T>` (declaration :386, impl :2404–2559), `TObjectQueue<T>` (:477,
 impl :2694–2729), base `TCustomList<T>` (:197: `Notify` :1639, `DoRemove`

@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/thashset — port of FPC rtl-generics THashSet (TCustomSet surface + set algebra) to bash (kklass instantiable class over the tdictionary storage pattern)",
   "created": "2026-07-12",
-  "updated": "2026-07-12",
-  "status": "P1 DONE (awaiting owner review), UNCOMMITTED — membership core: Add/Remove/Contains (Boolean-rc, SILENT on the negative answer — the loud TDictionary difference), Extract (hit RESULT=item / miss '' — rc 0 both, S6), Clear (empty-first-then-notify, S4), ToArray (lossless, hash order)/ForEach (snapshot)/Assign (copy + operand validation, atomic). Events THREADED via the _notify gate at every mutation (dormant until P3 fills Notify — the tqueuestack lesson). Storage idioms = tdictionary verbatim (the deletion idiom only became verbatim in the kcl review phase P2 — see G2-01/G2-06 in execution_log). Suite 001-004 = 45/45 on 5.2.37 AND true 5.3.9 (was 23/23 before the kcl P2 fixes). P2 (set algebra) next. Prior: P0 (pins+seed+skeleton 9/9, baseline 20/20 3011).",
+  "updated": "2026-09-09",
+  "status": "P1 DONE and COMMITTED as kcl 6d983e9 (kcl review phase P2, 2026-09-07), not pushed; P2-P4 of this unit's OWN roadmap are still to come (P2 set algebra, P3 events/Notify body, P4 bench+docs) — see PLAN.md. Status line corrected by kcl phase P9 (G8-09). P1 membership core: Add/Remove/Contains (Boolean-rc, SILENT on the negative answer — the loud TDictionary difference), Extract (hit RESULT=item / miss '' — rc 0 both, S6), Clear (empty-first-then-notify, S4), ToArray (lossless, hash order)/ForEach (snapshot)/Assign (copy + operand validation, atomic). Events THREADED via the _notify gate at every mutation (dormant until P3 fills Notify — the tqueuestack lesson). Storage idioms = tdictionary verbatim (the deletion idiom only became verbatim in the kcl review phase P2 — see G2-01/G2-06 in execution_log). Suite 001-004 = 45/45 on 5.2.37 AND true 5.3.9 (was 23/23 before the kcl P2 fixes). P2 (set algebra) next. Prior: P0 (pins+seed+skeleton 9/9, baseline 20/20 3011).",
   "owner": "keksov",
   "roadmap": {
     "priority": 6,

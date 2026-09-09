@@ -72,6 +72,28 @@ d.Remove k || :
 d.Clear
 d.delete'
 
+# P9-F3: `declare -a out=()` is the normal way to prepare a receiving array, and
+# an array that has been declared but never given a value is UNBOUND for the
+# `${ref@a}` expansion — so TDict._isAssoc aborted the whole caller under
+# `set -u`. tinifile hit this in P8 and fixed it with `local -; set +u` around
+# the one expansion; this unit had the bare form.
+expect_clean "KeysToArray/ValuesToArray/ToArrays into declared-but-empty arrays under set -eu [P9-F3]" '
+TDictionary.new d
+d.Add k v
+declare -a ks=()
+d.KeysToArray ks
+declare -a vs=()
+d.ValuesToArray vs
+declare -a ka=() va=()
+d.ToArrays ka va
+d.delete'
+expect_clean "KeysToArray into a declared-but-unset array under set -eu [P9-F3]" '
+TDictionary.new d
+d.Add k v
+declare -a ks
+d.KeysToArray ks
+d.delete'
+
 # --- 3. values are data (X-ECHO) -------------------------------------------
 kt_test_start "values that look like echo options round-trip [G2-03]"
 TDictionary.new D

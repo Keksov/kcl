@@ -71,6 +71,24 @@ h.Remove alpha || :
 h.Clear
 h.delete'
 
+# P9-F3: `declare -a out=()` is the normal way to prepare a receiving array, and
+# an array that has been declared but never given a value is UNBOUND for the
+# `${ref@a}` expansion — so the assoc-target probe in ToArray aborted the whole
+# caller under `set -u`. tinifile hit this in P8 and fixed it with `local -;
+# set +u` around the one expansion; this unit had the bare form.
+expect_clean "ToArray into a declared-but-empty array under set -eu [P9-F3]" '
+THashSet.new h
+h.Add alpha
+declare -a out=()
+h.ToArray out
+h.delete'
+expect_clean "ToArray into a declared-but-unset array under set -eu [P9-F3]" '
+THashSet.new h
+h.Add alpha
+declare -a out
+h.ToArray out
+h.delete'
+
 # --- 3. values are data (X-ECHO) -------------------------------------------
 kt_test_start "exotic elements survive Add, Contains, Remove and Extract [G2-01]"
 # The Remove/Extract half was finding G2-01: the `unset` used DOUBLE quotes, so

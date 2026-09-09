@@ -20,9 +20,10 @@ L.delete
 This section is the contract every unit is held to. It is **normative, not
 descriptive**: it was written with the 2026-09-06 review (`REVIEW.md`), which
 found the corpus using three different error conventions and five different
-boolean conventions, and it is being rolled out unit by unit by the phased plan
-in `PLAN.md`. Where a unit still deviates, `PLAN.md` names the phase that closes
-the gap; a deviation that is meant to stay is documented in that unit's README.
+boolean conventions, and it was rolled out unit by unit by the phased plan in
+`PLAN.md` (phases P1–P8, all landed). **Every implemented unit now meets it**,
+bar a handful of deviations that are meant to stay: each one is named in the
+table in section 2 and spelled out in that unit's own README.
 
 ### 1.1 Returning a value
 
@@ -74,6 +75,19 @@ An instance `func` needs none of this — `kk._return` is already correct there.
 
 The caller decides whether a miss is an error; the unit never exits, never
 prints, and never leaves partial state behind.
+
+The diagnostic goes through the shared helper in
+[`kkore/klib.sh`](../kkore/klib.sh), so the switch is spelled one way and the
+message is data:
+
+```bash
+kk.debug "Error: TList.Get: index out of bounds"   # stderr only under the switch
+```
+
+`kk.debug` **always returns 0**. The hand-written `[[ "${VERBOSE_KKLASS:-}" ==
+"debug" ]] && echo … >&2` it replaces returns 1 with the switch off, which
+silently becomes the member's own exit status when it is the last statement of
+a function (section 1.4).
 
 ### 1.3 Boolean answers
 
@@ -166,11 +180,30 @@ declare -a parts
 str.split "$s" ',' parts       # RESULT = number of parts
 ```
 
-The name is validated: it must be a plain identifier, and it must not be one of
-the framework's reserved names — `this`, `__inst__`, `__class__`, `RESULT`,
-`REPLY`, `IFS`, anything starting with `__kk_`, or the receiving instance's own
-`<inst>_data` / `<inst>_class` / `<inst>_items`. A bad name is rc 2, and nothing
-is written.
+The name is validated **before** the nameref is bound: it must be a plain
+identifier, and it must not be one of the framework's reserved names — `this`,
+`__inst__`, `__class__`, `RESULT`, `REPLY`, `IFS`, `state`, anything starting
+with `__kk_`/`__KK_`, or the receiving instance's own `<inst>_data` /
+`<inst>_class` / `<inst>_items`. A bad name is rc 2, and nothing is written.
+
+`state` is on that list because kklass binds it as a nameref onto
+`${inst}_data` in **every** member frame, so an output array called `state`
+could never reach the caller from inside an instance member.
+
+That rule is the shared helper in [`kkore/klib.sh`](../kkore/klib.sh); a unit
+passes its own local-variable prefixes, because bash scopes locals
+**dynamically** and an output name equal to one of them would bind the caller's
+array to the unit's own scratch:
+
+```bash
+kk._outName "$1" __tqs_ || { kk._return ""; return 2; }
+```
+
+A unit with more per-instance arrays than the three above (`tqueuestack`'s
+`_qhead`/`_nhook`, `tinifile`'s twelve), or with extra reserved names of its own
+(`tregex`'s `RESULT_INDEX`…, `tinifile`'s `state`), checks those itself and
+delegates the rest. `local -n out="$1"` on an unchecked name prints a bash
+diagnostic and carries on with rc 0 — that is what this exists to prevent.
 
 ### 1.8 No forks in hot paths
 
@@ -197,30 +230,54 @@ outlives a call, by an `EXIT` trap.
 
 ## 2. Units
 
-| Unit | Ported class(es) | Kind |
-|---|---|---|
-| [dateutils](dateutils/) | `DateUtils` | static |
-| [math](math/) | `Math` | static (+ awk float engine) |
-| [tarray](tarray/) | `TArray` | static |
-| [tcustomapplication](tcustomapplication/) | `TCustomApplication` | instance |
-| [tdictionary](tdictionary/) | `TDictionary`, `TObjectDictionary` | instance |
-| [tdirectory](tdirectory/) | `TDirectory` | static |
-| [tfile](tfile/) | `TFile` | static |
-| [thashset](thashset/) | `THashSet` | instance |
-| [tinifile](tinifile/) | `TIniFile`, `TMemIniFile` | instance |
-| [tlist](tlist/) | `TList` | instance |
-| [tobjectlist](tobjectlist/) | `TObjectList` | instance |
-| [tpath](tpath/) | `TPath` | static |
-| [tqueuestack](tqueuestack/) | `TQueue`, `TStack`, `TObjectQueue`, `TObjectStack` | instance |
-| [tregex](tregex/) | `TRegEx` | static |
-| [tstopwatch](tstopwatch/) | `TStopwatch` | instance |
-| [tstringhelper](tstringhelper/) | `TStringHelper` | static |
-| [tstringlist](tstringlist/) | `TStringList` | instance |
-| [fpjson](fpjson/) | `fpjson` | planned |
+Seventeen units are implemented; `fpjson` is planned. **Kind** is how the unit
+is called: a *static* unit has one class whose members are called on the class
+(`tpath.getFileName x`), an *instance* unit is constructed (`TList.new L`) and
+freed (`L.delete`). **Contract** says which of the section 1 rules the unit
+meets after the phased rollout in `PLAN.md`, and names every deviation that is
+meant to stay; a unit marked "§1 in full" satisfies 1.1–1.9 with no exception.
 
-Each unit's README documents its API and any deviation from the contract above;
-`docs/*.md` inside a unit is upstream FPC/Delphi reference material and covers
-members the port may not have.
+| Unit | Ported class(es) | Kind | Contract |
+|---|---|---|---|
+| [dateutils](dateutils/README.md) | `DateUtils` (185 members) | static | §1 in full (P1, P6). Deviations, all FPC-checked: `TryISOStrToDateTime` rejects `2011` / `20110326` / `T19:25` because FPC splits ISO strings **by position** (`dateutil.inc:2849`) — the review's G3-09 was wrong about this; `tryISO8601ToDate` still accepts a date-only string, which FPC rejects; a boolean member reports a non-numeric argument as rc 1 + `RESULT=''`, not as `false` |
+| [math](math/README.md) | `Math` (123 members) | static (+ awk float engine) | §1 in full (P1, P7). Deviations: `sumInt` answers the Double on overflow where FPC's Int64 `SumInt` wraps (`math.pp:1224`); FPU/precision control (Tier C) is wontfix — getters report the default mode, setters rc 1; the engine is not called through `read -t` on the hot path (R11 letter, see P7 deviations) |
+| [tarray](tarray/README.md) | `TArray` (`TArrayHelper<T>`) | static | §1 in full (P1, P2). Deviation: `min`/`max` are deliberately not strict about the comparator slot — the positional after it is a free-form default value, so a non-function token there is data (G1-12) |
+| [tcustomapplication](tcustomapplication/README.md) | `TCustomApplication` (FCL `custapp`) | instance | §1 in full (P1, P4); the option parser is a line-by-line port of FPC 3.2.2 `custapp.pp` (D4). Deviations: the constructor defaults `StopOnException=true`, `ExceptionExitCode=1`, `Title='Application'` where FPC leaves `False`, `0`, `''`; `GetNonOptions` answers rc 1 + `RESULT=''` where FPC raises `EListError`; `Log` writes to stderr; `GetOptionValues` returns FPC's order, which is reverse command-line order (R10) |
+| [tdictionary](tdictionary/README.md) | `TDictionary`, `TObjectDictionary` | instance | §1 in full (P1, P2). Note: `AddOrSetValue k <same owned handle>` frees the handle, as FPC does (R4) |
+| [tdirectory](tdirectory/README.md) | `TDirectory` (Delphi `System.IOUtils`) | static | §1 in full (P1, P3). Deviations are the platform ones shared with tpath/tfile: `/` is the separator (D5), listings include dot-entries and recursion does not descend into a directory symlink (R13) |
+| [tfile](tfile/README.md) | `TFile` (Delphi `System.IOUtils`) | static | §1 in full (P1, P3). Deviations: creation time is rc 1 (no POSIX setter); `readAllTextVar NAME` is a kcl addition — the fork-free reader that keeps trailing newlines (R13) |
+| [thashset](thashset/README.md) | `THashSet` | instance | §1 in full **for what is implemented**. The unit is at **P1 of its own roadmap** (`thashset_ledger.json`): the membership core, `ToArray`, `ForEach` and `Assign` are real; P2–P4 (set algebra, `TObjectHashSet`, bench/docs) are not written yet |
+| [tinifile](tinifile/README.md) | `TIniFile`, `TMemIniFile` | instance | §1 in full (P1, P8). Deviations: `\` in a path is normalised to `/` for **every** file operation, not only for the directory calculation (cygwin's bash does not translate it); write-side validation is hybrid — the loader stays FPC-verbatim, the writer rejects what an FPC reader would re-interpret (R6) |
+| [tlist](tlist/README.md) | `TList` | instance | §1 in full (P1, P2). Open item `P2-F1`: `BatchInsert`/`BatchDelete` are `proc`, so the count they assign to `RESULT` never reaches the caller; the README documents them as rc-only until the owner picks `func` or drops the assignment |
+| [tobjectlist](tobjectlist/README.md) | `TObjectList` | instance | §1 in full (P1, P2). Inherits tlist's `P2-F1` for the two batch members |
+| [tpath](tpath/README.md) | `TPath` (Delphi `System.IOUtils`) | static | §1 in full (P1, P3). Deviation: `DirectorySeparatorChar='/'` on MSYS/cygwin (D5); the parsers accept `\` on input |
+| [tqueuestack](tqueuestack/README.md) | `TQueue`, `TStack`, `TObjectQueue`, `TObjectStack` | instance | §1 in full (P1, P2). Note: a rejected constructor token creates the instance **with defaults** and answers rc 1, the same in both owning classes (R3) |
+| [tregex](tregex/README.md) | `TRegEx` (Delphi `System.RegularExpressions`) | static | §1 with one named exception: the three scalar members (`escape`, `replace`, `replaceCb`) set `RESULT` **and** echo their result, so `$( )` stays ergonomic — §1.1 otherwise holds and the four silent members are call-direct. Deviation by construction: the **engine is bash POSIX ERE**, not PCRE — no lazy quantifiers, no lookaround, no `\b`, no named groups; the full delta is `docs/ERE-vs-PCRE.md`. `T4` (an anchored zero-length match) is closed by documentation and tests only (R12) |
+| [tstopwatch](tstopwatch/README.md) | `TStopwatch` (Delphi `System.Diagnostics`) | instance | §1 in full (P1, P6). Deviation: no `TTimeSpan` — the numeric getters (µs/ms/s/ticks) are the whole surface |
+| [tstringhelper](tstringhelper/README.md) | `TStringHelper` (57 members) | static | §1 in full (P1, P5). Open item `P5-F1`: `compare`, `compareOrdinal` and `compareTo` compare the **whole** strings, where FPC's `Compare` is a prefix comparison over `min(Length(A),Length(B))`. Other deviations (all in the unit README §3): `format` is bash `printf`, `parse` is the identity, integer range checks reject instead of truncating |
+| [tstringlist](tstringlist/README.md) | `TStringList` | instance | §1 in full (P1, P2). Inherits tlist's `P2-F1` for the two batch members |
+| [fpjson](fpjson/) | `fpjson` | **planned** | Not implemented. `fpjson/PLAN.md` is a DRAFT to be re-written by phase P10 under decision D8 (handle model + windowed regex lexer) |
+
+### How to read a unit
+
+Every unit directory holds the same four kinds of file, and they answer
+different questions:
+
+* **`README.md` — the API and the contract.** The normative description of what
+  this unit actually implements, how each member is called, and every deviation
+  from section 1 or from FPC. This is the file to read and the file to trust.
+* **`docs/*.md` — upstream reference material.** A scrape or transcription of
+  the FPC/Delphi documentation for the class being ported, kept so the port can
+  be checked against it. Each one opens with a header saying what is **ported**,
+  what is on the **roadmap**, and what is **wontfix**, because these pages
+  describe members the port may not have. Where the page and the port disagree,
+  the port's README wins — and where the page and FPC 3.2.2 disagree, FPC wins.
+* **`TEST_COVERAGE_NOTES.md` — what the tests pin.** Present in the units that
+  have one: the map from member to the assertions that hold it in place, and
+  the gaps that are known and deliberate.
+* **`<unit>_ledger.json` — the history.** The machine journal of the unit's own
+  phases: what each one closed, which test proved it, what was left as
+  `wontfix`, and the commit it landed in.
 
 Paths on MSYS/cygwin use `/` as the separator (`DirectorySeparatorChar='/'`);
 the tpath parsers accept `\` on input as well.

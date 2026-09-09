@@ -1,5 +1,27 @@
 # TRegEx — upstream Delphi API reference
 
+> **Upstream reference, ported: 7 members.** This page is the Delphi
+> `System.RegularExpressions.TRegEx` API; the normative API and contract for the
+> bash port is **[../README.md](../README.md)**.
+>
+> * **Ported:** `isMatch`, `match`, `matches`, `split`, `replace`, `replaceCb`,
+>   `escape`.
+> * **Roadmap:** none. The unit is complete (P0–P4, reworked by kcl review
+>   phase P7).
+> * **Wontfix** (`../tregex_ledger.json`, `out_of_scope`): everything the
+>   **engine** cannot do — the port runs on bash's POSIX ERE, not PCRE, so lazy
+>   quantifiers, lookaround, `\b`, named groups and multiline mode are absent,
+>   and matching is leftmost-**longest**, not leftmost-first. The complete
+>   dialect delta is **[ERE-vs-PCRE.md](ERE-vs-PCRE.md)**. The `TMatch` /
+>   `TGroupCollection` object protocol is replaced by the `RESULT_*` globals and
+>   nameref fills.
+> * **Return contract:** all members are `static proc`. `isMatch`, `match`,
+>   `matches` and `split` are **silent** — they set `RESULT`/`RESULT_INDEX`/
+>   `RESULT_LENGTH`/`RESULT_GROUPS` or fill a caller array, so call them
+>   directly. `escape`, `replace` and `replaceCb` set `RESULT` **and** echo
+>   their one result, which is this unit's documented deviation from
+>   `kcl/README.md` §1.1.
+
 Source of truth: Delphi `System.RegularExpressions.TRegEx` (Embarcadero DocWiki:
 <https://docwiki.embarcadero.com/Libraries/en/System.RegularExpressions.TRegEx>).
 Delphi's `TRegEx` mirrors .NET `System.Text.RegularExpressions.Regex`; where the

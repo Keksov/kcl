@@ -80,8 +80,7 @@ TStringList._setSorted() {
         false)
             sorted=false ;;
         *)
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-                echo "Error: TStringList.sorted: '${1:-}' is not 'true' or 'false'" >&2
+            kk.debug "Error: TStringList.sorted: '${1:-}' is not 'true' or 'false'"
             return 2 ;;
     esac
 }
@@ -138,7 +137,7 @@ TStringList.Find() {
     # Unsorted -> rc 1 (FPC's Find is only defined for sorted lists).
     local item="$1"
     if [[ "$sorted" != "true" ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: List must be sorted for Find operation" >&2
+        kk.debug "Error: List must be sorted for Find operation"
         return 1
     fi
     local __tsl_pos __tsl_hit
@@ -163,8 +162,7 @@ TStringList.Assign() {
     # element order already satisfies them.
     local source="$1"
     if ! TStringList._isStringList "$source"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TStringList.Assign: '$source' is not a TStringList" >&2
+        kk.debug "Error: TStringList.Assign: '$source' is not a TStringList"
         return 1
     fi
     local idx
@@ -200,8 +198,7 @@ TStringList.AddStrings() {
     # produced a kklass "command not found" on stderr followed by rc 0.
     local source="$1"
     if ! TStringList._isStringList "$source"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TStringList.AddStrings: '$source' is not a TStringList" >&2
+        kk.debug "Error: TStringList.AddStrings: '$source' is not a TStringList"
         return 1
     fi
     declare -n source_data_ref="${source}_data"
@@ -253,7 +250,7 @@ TStringList.Remove() {
     if [[ "$index" != "-1" ]]; then
         local current_count=$count
         if (( index < 0 || index >= current_count )); then
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+            kk.debug "Error: Index out of bounds"
             return 1
         fi
         local items_var="${__inst__}_items"
@@ -304,7 +301,7 @@ TStringList.Add() {
                 kk._return "$__tsl_hit"
                 return 0
             elif [[ "$duplicates" == "dupError" ]]; then
-                [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Duplicate item not allowed" >&2
+                kk.debug "Error: Duplicate item not allowed"
                 return 1
             fi
             # dupAccept: fall through and insert at the same position.
@@ -334,7 +331,7 @@ TStringList.Insert() {
     local index="$1"
     local item="${2:-}"
     if [[ "$sorted" == "true" ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Cannot insert into sorted list" >&2
+        kk.debug "Error: Cannot insert into sorted list"
         return 1
     fi
     # Call parent Insert for unsorted lists

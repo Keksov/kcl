@@ -1,11 +1,32 @@
 # FPC `Math` — API Reference (kcl bash port)
 
+> **Upstream reference, ported: 123 members.** This page is the FPC `Math` unit
+> API, transcribed from `rtl/objpas/math.pp`; the normative API and contract for
+> the bash port is **[../README.md](../README.md)**, and where the two disagree
+> the README wins.
+>
+> * **Ported:** every member with a "**kcl:**" line below — Tier A (pure bash,
+>   exact) and Tier B (the awk float engine).
+> * **Roadmap:** none. The unit is complete (P0–P8, reworked by kcl review
+>   phase P7).
+> * **Wontfix** (`../math_ledger.json`, `out_of_scope`): Tier C — the FPU
+>   control word (`SetRoundMode`, `SetPrecisionMode`, exception masks) is
+>   provided as stubs, getters report the default mode and setters return 1;
+>   raw bit-pattern helpers, the Single/Extended overload families (bash has one
+>   numeric domain, the engine works in Double), the pointer/`PInt64` forms, and
+>   the generic `RandomFrom<T>`.
+> * **Return contract:** a member sets `RESULT` and prints **nothing** on a
+>   direct call (decision D3); a predicate answers with its **exit status** and
+>   also puts `true`/`false` in `RESULT` (R8). One deviation from FPC is worth
+>   knowing here: `sumInt` answers the Double on overflow where FPC's Int64
+>   `SumInt` (`math.pp:1224`) wraps.
+
 This is the Free Pascal RTL **`Math`** unit API reference for the kcl
 [`math`](../README.md) bash port. Every Pascal signature below is taken from the
 FPC RTL source (`rtl/objpas/math.pp`); where the unit overloads
 Single/Double/Extended the family is collapsed to one representative
 `Float`/`Double` signature and marked *(overloaded for Single/Double/Extended)*.
-Behavior, echo formats, tiers, and the FPC-Double parity notes follow the port's
+Behaviour, the return contract, tiers, and the FPC-Double parity notes follow the port's
 [`math_ledger.json`](../math_ledger.json) and [README](../README.md), which are
 authoritative for how each `math.<method>` behaves.
 
@@ -17,15 +38,16 @@ The port is a **hybrid** of three tiers:
 - **Tier B — the float engine.** Transcendental/float work is delegated to one
   persistent `awk` co-process (spawned lazily on the first Tier-B call). awk
   computes in C `double` = IEEE-754 binary64 = FPC `Double` on the x86-64
-  targets, so results match FPC to **~1–2 ulp**; values are echoed via `%.17g`.
+  targets, so results match FPC to **~1–2 ulp**; values are formatted `%.17g`.
   With no `awk` on `PATH` the engine degrades gracefully (returns 1); the Tier-A
   core is unaffected.
 - **Tier C — wontfix.** FPU/precision control has no bash analogue (see the last
   section).
 
-Numbers echo as plain tokens; booleans echo `true`/`false`; `Sign` and
-`CompareValue` echo `-1`/`0`/`1`; multi-valued results (`SinCos`, `DivMod`,
-`Frexp`, `SumsAndSquares`, `MeanAndStdDev`, `MomentSkewKurtosis`) echo
+Numbers come back as plain tokens; a predicate answers with its **exit status**
+and also puts `true`/`false` in `RESULT` (R8); `Sign` and `CompareValue` give
+`-1`/`0`/`1`; multi-valued results (`SinCos`, `DivMod`, `Frexp`,
+`SumsAndSquares`, `MeanAndStdDev`, `MomentSkewKurtosis`) come back as
 space-separated fields for `read -r`; `NaN`/`±Inf` are the literal tokens
 `nan`/`inf`/`-inf`. Arrays are passed as the trailing argument list — FPC's
 `array of T` and the `PT + N` pointer overloads both collapse to those args.
@@ -39,12 +61,12 @@ controls the engine.
 ## Constants
 
 The port exposes the FPC `Math` constants (plus `Pi`) as zero-argument getters
-that echo the backing `readonly __MATH_*` globals. `Pi`/`E` carry Extended-precision
+that return the backing `readonly __MATH_*` globals. `Pi`/`E` carry Extended-precision
 digits. **The IEEE range constants are informational string tokens** — bash has
 no native float to overflow or denormalise, so they carry no runtime effect (see
 the ledger `out_of_scope`).
 
-| kcl getter | Echoes | FPC symbol | Notes |
+| kcl getter | `RESULT` | FPC symbol | Notes |
 | --- | --- | --- | --- |
 | `math.pi` | `3.1415926535897932385` | `Pi` (System) | π; the FPC `Math` unit has no `Pi` constant — it is System's `function Pi: ValReal` |
 | `math.e` | `2.7182818284590452354` | — (kcl) | Euler's e = exp(1); not a named FPC symbol, a kcl convenience |
@@ -58,7 +80,7 @@ the ledger `out_of_scope`).
 | `math.minExtended` | `3.36210314311209350626e-4932` | `MinExtended` | informational |
 | `math.maxExtended` | `1.18973149535723176502e+4932` | `MaxExtended` | informational |
 
-**kcl:** `math.pi` / `math.e` / `math.nan` / `math.infinity` / `math.negInfinity` / `math.minSingle` … `math.maxExtended` — echo the constant · pure-bash
+**kcl:** `math.pi` / `math.e` / `math.nan` / `math.infinity` / `math.negInfinity` / `math.minSingle` … `math.maxExtended` — the constant in `RESULT` · pure-bash
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/index-4.html)
 
@@ -72,7 +94,7 @@ the ledger `out_of_scope`).
 { kcl extension — not part of FPC Math. Controls the Tier-B awk co-process. }
 math.feStart      { start the shared engine now; 0 if up, 1 if no awk }
 math.feStop       { shut the engine down }
-math.feActive     { echo true/false }
+math.feActive     { rc 0/1, RESULT=true/false }
 ```
 
 Explicit control of the persistent `awk` float engine. The engine is spawned
@@ -99,11 +121,11 @@ function Max(a, b: Integer): Integer; inline; overload;
 
 Return the smaller / larger of two operands (*overloaded for Integer/Int64/QWord/
 Single/Double/Extended*). Ties return the **second** operand (`a < b ? a : b`).
-The winning operand is echoed **verbatim**. Plain integers and decimals compare
+The winning operand comes back **verbatim**. Plain integers and decimals compare
 fork-free via the pure-bash decimal comparator; operands in exponent/`inf`/`nan`
 notation route through the engine.
 
-**kcl:** `math.min <a> <b>` · `math.max <a> <b>` — echoes the winning operand · pure-bash (engine for exotic notation)
+**kcl:** `math.min <a> <b>` · `math.max <a> <b>` — the winning operand in `RESULT` · pure-bash (engine for exotic notation)
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/min.html)
 
@@ -118,10 +140,10 @@ function MaxValue(const data: array of Double): Double;
 
 The smallest / largest element of a data set (*overloaded for Single/Double/
 Extended/Integer and the `PT + N` pointer forms*). The array is the argument
-list; the winning element is echoed verbatim using the same comparator as
+list; the winning element comes back verbatim using the same comparator as
 `Min`/`Max`.
 
-**kcl:** `math.minValue <x> <x> …` · `math.maxValue <x> <x> …` — echoes the extreme element · pure-bash (engine for exotic notation)
+**kcl:** `math.minValue <x> <x> …` · `math.maxValue <x> <x> …` — the extreme element in `RESULT` · pure-bash (engine for exotic notation)
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/minvalue.html)
 
@@ -230,11 +252,11 @@ fork-free; a nonzero delta or exotic notation routes through the engine.
 function IfThen(val: boolean; const iftrue: integer; const iffalse: integer = 0): integer; inline; overload;
 ```
 
-Expression-style ternary: echoes `iftrue` when the condition is truthy
+Expression-style ternary: returns `iftrue` when the condition is truthy
 (`true` or `1`), otherwise `iffalse` (default `0`) (*overloaded for integer/
-int64/double*). Values are echoed verbatim, so it is type-agnostic in the port.
+int64/double*). Values come back verbatim, so it is type-agnostic in the port.
 
-**kcl:** `math.ifThen <cond> <iftrue> [iffalse=0]` — echoes the chosen operand · pure-bash
+**kcl:** `math.ifThen <cond> <iftrue> [iffalse=0]` — the chosen operand in `RESULT` · pure-bash
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/ifthen.html)
 
@@ -295,10 +317,10 @@ procedure DivMod(Dividend: LongInt; Divisor: LongInt; var Result, Remainder: Lon
 Integer division and remainder in one call (*overloaded for Word/SmallInt/DWord/
 LongInt*). Truncation toward zero, with the remainder taking the **dividend's**
 sign — matching Pascal `div`/`mod` and bash `/`/`%` (e.g. `-10 div 5 = -2`). The
-port echoes `quotient remainder`; division by zero returns status `1` with no
+port returns `quotient remainder`; division by zero returns status `1` with no
 output.
 
-**kcl:** `math.divMod <dividend> <divisor>` — echoes `quot rem` (status 1 on ÷0) · pure-bash
+**kcl:** `math.divMod <dividend> <divisor>` — `RESULT` = `quot rem` (status 1 on ÷0) · pure-bash
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/divmod.html)
 
@@ -347,11 +369,11 @@ function Ldexp(X: double; p: Integer): double;
 
 Inverse operations on the base-2 representation (*overloaded for Single/Double/
 Extended*). `Frexp` splits `X` into a mantissa in `[0.5, 1)` and an integer
-exponent such that `X = Mantissa * 2^Exponent` (echoed as `mantissa exponent`);
+exponent such that `X = Mantissa * 2^Exponent` (`RESULT` = `mantissa exponent`);
 `Ldexp` reassembles `X * 2^p`. Round-trip: `frexp 8` → `0.5 4`, `ldexp 0.5 4`
 → `8`. Engine.
 
-**kcl:** `math.frexp <x>` — echoes `mantissa exponent` · `math.ldexp <x> <p>` — `x·2^p` · engine
+**kcl:** `math.frexp <x>` — `RESULT` = `mantissa exponent` · `math.ldexp <x> <p>` — `x·2^p` · engine
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/frexp.html)
 
@@ -433,10 +455,10 @@ procedure SinCos(theta: double; out sinus, cosinus: double);
 ```
 
 Computes sine and cosine of `theta` together (*overloaded for Single/Double/
-Extended*). The port echoes both as `sin cos` for `read -r s c`, e.g.
+Extended*). The port returns both as `sin cos`, e.g.
 `sinCos <pi/6>` → `0.5 0.8660…`. Engine.
 
-**kcl:** `math.sinCos <theta>` — echoes `sin cos` · engine
+**kcl:** `math.sinCos <theta>` — `RESULT` = `sin cos` · engine
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/sincos.html)
 
@@ -765,10 +787,10 @@ function Norm(const data: array of double): float; inline;
 ```
 
 `SumOfSquares` returns `Σxᵢ²`; `SumsAndSquares` returns both the sum and the sum
-of squares in one pass (echoed `sum sumOfSquares`); `Norm` returns the Euclidean
+of squares in one pass (`RESULT` = `sum sumOfSquares`); `Norm` returns the Euclidean
 L2 norm `√(Σxᵢ²)` (`norm 3 4` → `5`). Engine.
 
-**kcl:** `math.sumOfSquares <x> …` — `Σx²` · `math.sumsAndSquares <x> …` — echoes `sum sumOfSquares` · `math.norm <x> …` — L2 norm · engine
+**kcl:** `math.sumOfSquares <x> …` — `Σx²` · `math.sumsAndSquares <x> …` — `RESULT` = `sum sumOfSquares` · `math.norm <x> …` — L2 norm · engine
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/sumofsquares.html)
 
@@ -802,9 +824,9 @@ procedure MeanAndStdDev(const data: array of Double; var mean, stddev: float); i
 
 `StdDev` is the **sample** standard deviation (`√` of the `N-1` variance);
 `PopnStdDev` is the **population** form (`N`); `MeanAndStdDev` returns the mean
-and the sample stddev together (echoed `mean stddev`). Engine.
+and the sample stddev together (`RESULT` = `mean stddev`). Engine.
 
-**kcl:** `math.stdDev <x> …` — sample · `math.popnStdDev <x> …` — population · `math.meanAndStdDev <x> …` — echoes `mean stddev` · engine
+**kcl:** `math.stdDev <x> …` — sample · `math.popnStdDev <x> …` — population · `math.meanAndStdDev <x> …` — `RESULT` = `mean stddev` · engine
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/stddev.html)
 
@@ -818,10 +840,10 @@ procedure MomentSkewKurtosis(const data: array of Double; out m1, m2, m3, m4, sk
 
 Computes the first four moments about the mean plus skewness and kurtosis in one
 pass: `m1 = mean`, `m2/m3/m4 = (1/N)Σ(xᵢ-mean)^k`, `skew = m3/m2^1.5`,
-`kurtosis = m4/m2²` (raw, not excess). The port echoes all six fields
+`kurtosis = m4/m2²` (raw, not excess). The port returns all six fields
 space-separated. Engine.
 
-**kcl:** `math.momentSkewKurtosis <x> …` — echoes `m1 m2 m3 m4 skew kurtosis` · engine
+**kcl:** `math.momentSkewKurtosis <x> …` — `RESULT` = `m1 m2 m3 m4 skew kurtosis` · engine
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/math/momentskewkurtosis.html)
 

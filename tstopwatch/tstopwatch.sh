@@ -152,7 +152,7 @@ TStopwatch.Create() {
         else
             # printf, not echo: a diagnostic that starts with -e/-n would be
             # swallowed as an option (X-ECHO, finding G1-13).
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && printf '%s\n' "Error: TStopwatch.Create: unknown token '$1' (expected 'startnew')" >&2
+            kk.debug "Error: TStopwatch.Create: unknown token '$1' (expected 'startnew')"
             return 1
         fi
     fi

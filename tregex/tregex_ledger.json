@@ -2,7 +2,7 @@
   "schema_version": 1,
   "project": "kcl/tregex — TRegEx-shaped regex API for bash over the [[ =~ ]] ERE engine (kklass static class)",
   "created": "2026-07-12",
-  "updated": "2026-09-08",
+  "updated": "2026-09-09",
   "review_2026_09_06": {
     "phase": "kcl/PLAN.md P7 (math + tregex), done 2026-09-08, NOT COMMITTED (awaiting the owner's go)",
     "findings_closed": ["T3", "T4 (per R12: documented + pinned)", "T5", "T6", "T7 (documented + one copy per match removed)", "T8", "T9", "T10"],
@@ -18,7 +18,7 @@
     "suite": "246/246 on bash 5.2.37 AND 5.3.9 (was 197)",
     "fpc_note": "TRegEx here is the .NET-shaped API over bash ERE, so parity is with the documented subset, not with PCRE; FPC's own TRegEx (packages/vcl-compat over PCRE2) stays the cross-check seed in tests/008."
   },
-  "status": "COMPLETE (P0-P4) 2026-07-12; reworked by kcl/PLAN.md P7 (2026-09-08, see review_2026_09_06). awaiting owner review, UNCOMMITTED (commits gated). Full TRegEx-shaped API over bash [[ =~ ]] ERE: isMatch/match/matches/split/replace/replaceCb/escape; RESULT-globals contract (static proc); i-flag; $-replacement grammar; maxCount on split+replace; FPC cross-check seed (008, over PCRE2, dialect-adjusted) + dialect report docs/ERE-vs-PCRE.md. Suite 001-009 = 190/190 on 5.2.37 AND true 5.3.9; final master sweep 15/15 (see P4 log). Deliverables: tregex.sh, tests/001-009+tests.sh, README.md, docs/TRegEx.md, docs/ERE-vs-PCRE.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, ledger. Roadmap 2/7 -- next unit tarray. Phases: P0 (probes+static-proc contract+baseline), P1 (isMatch/match/escape 110), P2 (matches/split 144), P3 (replace/replaceCb + FPC integration 190), P4 (docs/bench).",
+  "status": "COMPLETE (P0-P4) 2026-07-12; reworked by kcl/PLAN.md P7 (2026-09-08, see review_2026_09_06). COMMITTED as kcl caae508 (kcl review phase P7, 2026-09-08), not pushed; the 'UNCOMMITTED' this line used to carry was drift, corrected by kcl phase P9 (G8-09). Full TRegEx-shaped API over bash [[ =~ ]] ERE: isMatch/match/matches/split/replace/replaceCb/escape; RESULT-globals contract (static proc); i-flag; $-replacement grammar; maxCount on split+replace; FPC cross-check seed (008, over PCRE2, dialect-adjusted) + dialect report docs/ERE-vs-PCRE.md. Suite 001-009 = 190/190 on 5.2.37 AND true 5.3.9; final master sweep 15/15 (see P4 log). Deliverables: tregex.sh, tests/001-009+tests.sh, README.md, docs/TRegEx.md, docs/ERE-vs-PCRE.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, ledger. Roadmap 2/7 -- next unit tarray. Phases: P0 (probes+static-proc contract+baseline), P1 (isMatch/match/escape 110), P2 (matches/split 144), P3 (replace/replaceCb + FPC integration 190), P4 (docs/bench).",
   "owner": "keksov",
   "roadmap": {
     "priority": 2,

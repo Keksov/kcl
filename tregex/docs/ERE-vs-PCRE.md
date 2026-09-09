@@ -1,5 +1,19 @@
 # TRegEx dialect report: bash POSIX ERE vs FPC/Delphi PCRE2
 
+> **Upstream reference: the engine delta, not the port's API.** `kcl/tregex`
+> gives you Delphi's `TRegEx` **API** on a different **engine**; this page is the
+> catalogue of every difference that follows from that. The normative API and
+> contract for the port is **[../README.md](../README.md)**.
+>
+> * **Ported:** the API surface — see [TRegEx.md](TRegEx.md).
+> * **Roadmap:** none. Every divergence below is a **wontfix** by decision: bash
+>   exposes one regex engine, and emulating PCRE syntax on it silently would lie
+>   about what the pattern does. Each one is pinned by a test.
+> * The one review finding this page carries as documentation only is `T4`
+>   (an anchored zero-length match): detection needs a match offset bash does
+>   not expose, so it is documented and pinned rather than detected (default
+>   R12).
+
 **Purpose.** `kcl/tregex` gives you Delphi's `System.RegularExpressions.TRegEx`
 **API** but runs on a different **engine** than the real Delphi/FPC unit. This
 document catalogues every difference, so the divergences are a known,

@@ -788,7 +788,7 @@ dateutils._encodable_time() {
 }
 
 # _debug MSG -> stderr, only under VERBOSE_KKLASS=debug (encode* error channel).
-dateutils._debug() { [[ "${VERBOSE_KKLASS:-}" == debug ]] && printf '%s\n' "dateutils: $*" >&2; return 0; }
+dateutils._debug() { kk.debug "dateutils: $*"; return 0; }
 
 # _decode_date_week KDT -> __kdt_wy_year __kdt_wy_week __kdt_wy_dow (ISO-8601).
 # Faithful port of FPC DecodeDateWeek (recurses once into the prior year for

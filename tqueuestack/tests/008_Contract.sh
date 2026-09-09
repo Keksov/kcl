@@ -75,6 +75,29 @@ s.Push x
 s.Pop >/dev/null
 s.delete'
 
+# P9-F3: `declare -a out=()` is the normal way to prepare a receiving array, and
+# an array that has been declared but never given a value is UNBOUND for the
+# `${ref@a}` expansion — so the assoc-target probe in _toArray aborted the whole
+# caller under `set -u`. tinifile hit this in P8 and fixed it with `local -;
+# set +u` around the one expansion; this unit had the bare form.
+expect_clean "ToArray into a declared-but-empty array under set -eu [P9-F3]" '
+TQueue.new q
+q.Enqueue alpha
+declare -a qout=()
+q.ToArray qout
+q.delete
+TStack.new s
+s.Push x
+declare -a sout=()
+s.ToArray sout
+s.delete'
+expect_clean "ToArray into a declared-but-unset array under set -eu [P9-F3]" '
+TQueue.new q
+q.Enqueue alpha
+declare -a qout
+q.ToArray qout
+q.delete'
+
 # --- 3. values are data (X-ECHO) -------------------------------------------
 kt_test_start "values that look like echo options round-trip [G2-03]"
 TQueue.new Q

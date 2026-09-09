@@ -165,30 +165,29 @@ TRegEx._flags() {
 
 # TRegEx._badflag MEMBER FLAGS -> the debug-only note for a rejected flag.
 TRegEx._badflag() {
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-        printf '%s\n' "TRegEx.$1: unknown flag (rc=2): '$2' (only 'i', '-' or '' are accepted)" >&2
+    kk.debug "TRegEx.$1: unknown flag (rc=2): '$2' (only 'i', '-' or '' are accepted)"
     return 0
 }
 
 # TRegEx._outName NAME -> rc 2 unless NAME may safely become a nameref target.
 # T8: `local -n out="1bad"` printed a bash diagnostic and left rc 0 with
 # RESULT=1, and a reserved name such as __tre_g or __trx_texts bound the
-# caller's array to this unit's own scratch. The list is the kcl reserved set
-# (README §1.7) plus every prefix this file uses.
+# caller's array to this unit's own scratch. The shared core of the rule is
+# `kk._outName` in kkore/klib.sh (identifier shape, the kcl reserved set of
+# README §1.7, the `__kk_`/`__KK_` space, the given prefixes, and — when the
+# call comes from inside an instance member — that instance's own arrays);
+# this unit adds only the extra RESULT_* channels it publishes (P9, P8-F1).
 TRegEx._outName() {
     case "${1:-}" in
-        ""|*[!A-Za-z0-9_]*|[0-9]*)                     return 2 ;;
-        this|__inst__|__class__|REPLY|IFS)             return 2 ;;
-        RESULT|RESULT_INDEX|RESULT_LENGTH|RESULT_GROUPS) return 2 ;;
-        __kk_*|__KK_*|__tre_*|__trx_*)                 return 2 ;;
+        RESULT_INDEX|RESULT_LENGTH|RESULT_GROUPS) return 2 ;;
     esac
+    kk._outName "${1:-}" __tre_ __trx_ || return 2
     return 0
 }
 
 # TRegEx._badname MEMBER NAME -> the debug-only note for a rejected array name.
 TRegEx._badname() {
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-        printf '%s\n' "TRegEx.$1: invalid or reserved output-array name (rc=2): '$2'" >&2
+    kk.debug "TRegEx.$1: invalid or reserved output-array name (rc=2): '$2'"
     return 0
 }
 
@@ -211,8 +210,7 @@ TRegEx._match1() {
 # Internal: debug-only note for an invalid pattern (rc=2). bash's native stderr
 # is always suppressed; this speaks ONLY under VERBOSE_KKLASS=debug.
 TRegEx._invalid() {
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-        echo "TRegEx.$1: invalid pattern (rc=2): '$2'" >&2
+    kk.debug "TRegEx.$1: invalid pattern (rc=2): '$2'"
     return 0
 }
 

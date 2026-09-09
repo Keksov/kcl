@@ -151,20 +151,25 @@ TIniFile._trim() {
 # VARIABLES — inside a member body `dirty`/`options`/`file_name`/`cache_updates`
 # are namerefs into `${inst}_data`, so `I.ReadSections dirty` used to bind the
 # output to the instance's own state. rc 1 here, rc 2 at the call site.
+#
+# The shared core — identifier shape, the README §1.7 reserved set (`state`
+# included, since kklass binds that nameref in every member frame), the
+# `__kk_`/`__KK_` space, the `__tif_` prefix and the instance's own
+# `_data`/`_class`/`_items` — is `kk._outName` in kkore/klib.sh (P9, P8-F1).
+# What stays here is this unit's own surface: the four instance-variable
+# namerefs, the eleven extra per-instance arrays, and the associative probe.
 TIniFile._outName() {
     local __tif_n="${1:-}"
     case "$__tif_n" in
-        ""|__tif_*|__kk_*|__KK_*|RESULT|REPLY|IFS|this|__inst__|__class__) return 1 ;;
-        file_name|options|cache_updates|dirty|state)                       return 1 ;;
+        file_name|options|cache_updates|dirty)                             return 1 ;;
     esac
     case "$__tif_n" in
         "${__inst__}_secnames"|"${__inst__}_snorm"|"${__inst__}_secbrk"| \
         "${__inst__}_srows"|"${__inst__}_sblob"| \
         "${__inst__}_kident"|"${__inst__}_knorm"|"${__inst__}_kvalue"|"${__inst__}_kowner"| \
-        "${__inst__}_booltrue"|"${__inst__}_boolfalse"|"${__inst__}_ctr"| \
-        "${__inst__}_data"|"${__inst__}_class") return 1 ;;
+        "${__inst__}_booltrue"|"${__inst__}_boolfalse"|"${__inst__}_ctr") return 1 ;;
     esac
-    [[ "$__tif_n" =~ ^[A-Za-z_][A-Za-z_0-9]*$ ]] || return 1
+    kk._outName "$__tif_n" __tif_ || return 1
     # An ASSOCIATIVE target would silently receive the keys 0,1,2… — refuse it.
     # `${ref@a}` aborts under `set -u` whenever the target has no value yet (a
     # fresh name, or the empty `declare -A m=()` this check exists for), so the
@@ -504,19 +509,19 @@ TIniFile._updateNow() {
         # it and reports success, so the flush "succeeded" with no ini written.
         # FPC's SaveToFile raises here, leaving memory and Dirty untouched.
         if [[ -d "$__tif_fn" ]]; then
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.UpdateFile: '$file_name' is a directory" >&2
+            kk.debug "Error: TIniFile.UpdateFile: '$file_name' is a directory"
             return 1
         fi
         # T8: FPC's SaveToFile fails on a read-only target; `mv` over it happily
         # succeeds and resets the mode to the temp file's.
         if [[ -e "$__tif_fn" && ! -w "$__tif_fn" ]]; then
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.UpdateFile: '$file_name' is not writable" >&2
+            kk.debug "Error: TIniFile.UpdateFile: '$file_name' is not writable"
             return 1
         fi
         local __tif_dir="${__tif_fn%/*}"
         if [[ "$__tif_dir" != "$__tif_fn" && -n "$__tif_dir" && ! -d "$__tif_dir" ]]; then
             mkdir -p -- "$__tif_dir" 2>/dev/null || {
-                [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.UpdateFile: cannot create '$__tif_dir'" >&2
+                kk.debug "Error: TIniFile.UpdateFile: cannot create '$__tif_dir'"
                 return 1
             }
         fi
@@ -526,19 +531,19 @@ TIniFile._updateNow() {
         if (( ${#__tif_ul[@]} > 0 )); then
             printf '%s\n' "${__tif_ul[@]}" > "$__tif_tmp" 2>/dev/null || {
                 rm -f -- "$__tif_tmp" 2>/dev/null
-                [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.UpdateFile: cannot write '$__tif_tmp'" >&2
+                kk.debug "Error: TIniFile.UpdateFile: cannot write '$__tif_tmp'"
                 return 1
             }
         else
             : > "$__tif_tmp" 2>/dev/null || {
                 rm -f -- "$__tif_tmp" 2>/dev/null
-                [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.UpdateFile: cannot write '$__tif_tmp'" >&2
+                kk.debug "Error: TIniFile.UpdateFile: cannot write '$__tif_tmp'"
                 return 1
             }
         fi
         mv -f -- "$__tif_tmp" "$__tif_fn" 2>/dev/null || {
             rm -f -- "$__tif_tmp" 2>/dev/null
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.UpdateFile: cannot replace '$file_name'" >&2
+            kk.debug "Error: TIniFile.UpdateFile: cannot replace '$file_name'"
             return 1
         }
     fi
@@ -653,8 +658,7 @@ TIniFile.Create() {
     # options (house convention: token error != broken object).
     TIniFile._load
     if (( __tif_rc != 0 )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TIniFile.Create: unknown option token '$__tif_bad'" >&2
+        kk.debug "Error: TIniFile.Create: unknown option token '$__tif_bad'"
         return 1
     fi
     return 0
@@ -833,8 +837,7 @@ TIniFile.ReadSection() {
     # invalid rows contribute '' entries (FPC :1211: IsComment('') is false).
     # RESULT=count; rc 0. CALL DIRECTLY ($() discards the fill).
     if ! TIniFile._outName "${2:-}"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TIniFile.ReadSection: bad output array name '${2:-}'" >&2
+        kk.debug "Error: TIniFile.ReadSection: bad output array name '${2:-}'"
         kk._return ""
         return 2
     fi
@@ -858,8 +861,7 @@ TIniFile.ReadSections() {
     # outArr -> all section names IN ORDER, comment-sections excluded; the
     # []-section contributes '' (FPC :1248). RESULT=count; rc 0.
     if ! TIniFile._outName "${1:-}"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TIniFile.ReadSections: bad output array name '${1:-}'" >&2
+        kk.debug "Error: TIniFile.ReadSections: bad output array name '${1:-}'"
         kk._return ""
         return 2
     fi
@@ -882,8 +884,7 @@ TIniFile.ReadSectionValues() {
     # and NOT svoIncludeQuotes. Lines: comment -> the comment text; invalid ->
     # the raw value; normal -> Ident=Value. RESULT=count; rc 0.
     if ! TIniFile._outName "${2:-}"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TIniFile.ReadSectionValues: bad output array name '${2:-}'" >&2
+        kk.debug "Error: TIniFile.ReadSectionValues: bad output array name '${2:-}'"
         kk._return ""
         return 2
     fi
@@ -940,8 +941,7 @@ TIniFile.ReadSectionRaw() {
     # Ident+Separator+Value for ANY non-empty ident INCLUDING comment idents,
     # i.e. ';c=' — pinned verbatim, quirk and all). RESULT=count; rc 0.
     if ! TIniFile._outName "${2:-}"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TIniFile.ReadSectionRaw: bad output array name '${2:-}'" >&2
+        kk.debug "Error: TIniFile.ReadSectionRaw: bad output array name '${2:-}'"
         kk._return ""
         return 2
     fi
@@ -976,8 +976,7 @@ TIniFile.WriteString() {
     if ! TIniFile._validate sec "$__tif_sec" || ! TIniFile._validate ident "$__tif_id" \
        || ! TIniFile._validate value "$__tif_val" \
        || ! TIniFile._validate pair "$__tif_id" "$__tif_val"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TIniFile.WriteString: invalid section/ident/value" >&2
+        kk.debug "Error: TIniFile.WriteString: invalid section/ident/value"
         return 1
     fi
     local __tif_slot __tif_row
@@ -1109,7 +1108,7 @@ TIniFile.WriteInteger() {
     # rejected (rc 1) rather than silently storing garbage.
     local __tif_int
     if ! TIniFile._toInt "$3"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.WriteInteger: '$3' is not an integer" >&2
+        kk.debug "Error: TIniFile.WriteInteger: '$3' is not an integer"
         return 1
     fi
     $this.WriteString "$1" "$2" "$__tif_int"
@@ -1120,7 +1119,7 @@ TIniFile.WriteInteger() {
 TIniFile.WriteInt64() {
     local __tif_int
     if ! TIniFile._toInt "$3"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.WriteInt64: '$3' is not an integer" >&2
+        kk.debug "Error: TIniFile.WriteInt64: '$3' is not an integer"
         return 1
     fi
     $this.WriteString "$1" "$2" "$__tif_int"
@@ -1135,7 +1134,7 @@ TIniFile.SetBoolStringValues() {
         true)  __tif_arr="${__inst__}_booltrue" ;;
         false) __tif_arr="${__inst__}_boolfalse" ;;
         *)
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.SetBoolStringValues: first arg must be true|false" >&2
+            kk.debug "Error: TIniFile.SetBoolStringValues: first arg must be true|false"
             return 1 ;;
     esac
     local -n __tif_bs="$__tif_arr"
@@ -1191,7 +1190,7 @@ TIniFile.WriteBool() {
         1|true|yes|on)   __tif_b=1 ;;
         0|false|no|off|"") __tif_b=0 ;;
         *)
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.WriteBool: '$3' is not a boolean" >&2
+            kk.debug "Error: TIniFile.WriteBool: '$3' is not a boolean"
             return 1 ;;
     esac
     local __tif_out
@@ -1231,7 +1230,7 @@ TIniFile.WriteFloat() {
     # sec id value -> WriteString(value) string-preserving: shape-validate,
     # store the LITERAL (no canonicalization). Non-float -> rc 1.
     if [[ ! "$3" =~ ^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$ ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TIniFile.WriteFloat: '$3' is not a float" >&2
+        kk.debug "Error: TIniFile.WriteFloat: '$3' is not a float"
         return 1
     fi
     $this.WriteString "$1" "$2" "$3"
@@ -1250,8 +1249,7 @@ TMemIniFile.GetStrings() {
     # section — the pinned one-detail divergence from UpdateFile, FPC :1486).
     # RESULT=count. CALL DIRECTLY.
     if ! TIniFile._outName "${1:-}"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TMemIniFile.GetStrings: bad output array name '${1:-}'" >&2
+        kk.debug "Error: TMemIniFile.GetStrings: bad output array name '${1:-}'"
         kk._return ""
         return 2
     fi
@@ -1268,8 +1266,7 @@ TMemIniFile.SetStrings() {
     # FillSectionList); dirty NOT touched (pinned). T13: the INPUT array name is
     # bound by nameref inside _fill, so it needs the same validation.
     if ! TIniFile._outName "${1:-}"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TMemIniFile.SetStrings: bad input array name '${1:-}'" >&2
+        kk.debug "Error: TMemIniFile.SetStrings: bad input array name '${1:-}'"
         return 2
     fi
     TIniFile._reset

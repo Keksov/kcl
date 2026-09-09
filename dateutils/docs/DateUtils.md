@@ -1,11 +1,30 @@
 # FPC `DateUtils` — API Reference (kcl bash port)
 
+> **Upstream reference, ported: 185 of the members below.** This page is the
+> FPC `DateUtils` (plus a few `SysUtils`) API, transcribed from the RTL source;
+> the normative API and contract for the bash port is
+> **[../README.md](../README.md)**, and where the two disagree the README wins.
+>
+> * **Ported:** the whole date/time surface the port exposes as
+>   `dateutils.<member>` — every "**kcl:**" line below names the bash form.
+> * **Roadmap:** none. The unit is complete (P0–P7, reworked by kcl review
+>   phase P6).
+> * **Wontfix** (`../dateutils_ledger.json`, `out_of_scope`): the Mac OS classic
+>   timestamp family, the 16-bit DOS packed format, `DateTimeToUnix`-style
+>   conversions (a KDT already *is* that number — `dateTimeDiff` gives signed
+>   ms), the FPC type-helper/class sugar over the same free functions, and the
+>   `FormatDateTime` directives outside the practical subset (P7.1 gate).
+> * **Return contract:** a member sets `RESULT` and prints **nothing** on a
+>   direct call (decision D3); a predicate answers with its **exit status** and
+>   also puts `true`/`false` in `RESULT` (R8). Anything on this page that reads
+>   like "the port prints X" means "the port puts X in `RESULT`".
+
 This is the Free Pascal RTL **`DateUtils`** unit API reference for the kcl
 [`dateutils`](../README.md) bash port. Every Pascal signature below is copied
 verbatim from the FPC RTL source
 (`packages/rtl-objpas/src/inc/dateutil.inc`); a handful of routines the port
 also exposes are declared in FPC's **`SysUtils`** and are marked **(SysUtils)**
-after the name. Behavior, echo formats, and the FPC quirks follow the port's
+after the name. Behaviour, the return contract, and the FPC quirks follow the port's
 [README](../README.md), which is the authoritative source of truth for how each
 `dateutils.<method>` behaves.
 
@@ -13,9 +32,9 @@ In the port every `TDateTime` argument and result (marked *KDT* in the README)
 is a single **integer: milliseconds since 1970-01-01 00:00:00, naive (no
 timezone), proleptic Gregorian.** A *time-of-day* is just the millisecond offset
 within a day (`0 … 86399999`); a *duration* is a plain millisecond count. See
-the README's "KDT contract" for the full model. `try*` methods echo the value
-and return 0 on success, or echo nothing and return 1 on failure; non-`try`
-encoders return 1 where FPC would raise `EConvertError`.
+the README's "KDT contract" for the full model. `try*` methods put the value in
+`RESULT` and return 0 on success, or leave `RESULT` empty and return 1 on
+failure; non-`try` encoders return 1 where FPC would raise `EConvertError`.
 
 ---
 
@@ -65,7 +84,7 @@ Function TimeOf(const AValue: TDateTime): TDateTime; inline;
 
 `DateOf` strips the time, returning the date at midnight (`Int` of the value);
 `TimeOf` strips the date, returning the time-of-day (`Frac` of the value). In KDT
-terms `dateOf` zeroes the intraday milliseconds and `timeOf` echoes the
+terms `dateOf` zeroes the intraday milliseconds and `timeOf` returns the
 millisecond offset within the day (`0 … 86399999`).
 
 **kcl:** `dateutils.dateOf <kdt>` — KDT with time zeroed · `dateutils.timeOf <kdt>` — ms-of-day
@@ -118,8 +137,8 @@ Function TryEncodeDateTime(const AYear, AMonth, ADay, AHour, AMinute, ASecond, A
 ```
 
 Combine calendar and clock fields into a full timestamp. `EncodeDateTime` returns
-1 on an invalid field set; `TryEncodeDateTime` echoes the KDT and returns 0, or
-returns 1 without echoing.
+1 on an invalid field set; `TryEncodeDateTime` puts the KDT in `RESULT` and
+returns 0, or returns 1 with `RESULT` empty.
 
 **kcl:** `dateutils.encodeDateTime <y> <m> <d> <h> <n> <s> <ms>` · `dateutils.tryEncodeDateTime …` — KDT
 
@@ -180,7 +199,7 @@ sentinel) in addition to the normal `00:00:00.000 … 23:59:59.999` range.
 `IsValidDateWeek` validates ISO-8601 week numbers (a year has 52 or 53 weeks);
 `IsValidDateMonthWeek` accepts a week-of-month `1 … 5` and day-of-week `1 … 7`.
 
-**kcl:** `dateutils.isValidDate <y> <m> <d>` etc. — echo `true` / `false` · e.g. `dateutils.isValidTime 24 0 0 0` → `true`
+**kcl:** `dateutils.isValidDate <y> <m> <d>` etc. — the **exit status** is the answer, `RESULT` also carries `true` / `false` (R8) · e.g. `dateutils.isValidTime 24 0 0 0` → rc 0, `RESULT=true`
 
 [FPC docs](https://www.freepascal.org/docs-html/rtl/dateutils/isvaliddate.html)
 
@@ -225,7 +244,7 @@ on a Thursday, or on a Wednesday in a leap year).
 
 ## Extraction
 
-All extraction functions take a KDT and echo an integer.
+All extraction functions take a KDT and return an integer in `RESULT`.
 
 ### `DateUtils.YearOf` · `MonthOf` · `DayOf` · `HourOf` · `MinuteOf` · `SecondOf` · `MilliSecondOf`
 
@@ -308,8 +327,9 @@ Function WeekOfTheMonth(const AValue: TDateTime; out AYear, AMonth: Word): Word;
 
 **ISO-8601** week numbers. `WeekOf` is an alias for `WeekOfTheYear`. A date early
 in January may belong to the last ISO week (52/53) of the *previous* year — e.g.
-2005-01-01 is week 53 of ISO-year 2004. The port's `weekOf`/`weekOfTheYear` echo
-that ISO week number; `weekOfTheMonth` echoes the week ordinal within the month.
+2005-01-01 is week 53 of ISO-year 2004. The port's `weekOf`/`weekOfTheYear`
+return that ISO week number; `weekOfTheMonth` returns the week ordinal within
+the month.
 
 **kcl:** `dateutils.weekOf <kdt>` · `dateutils.weekOfTheYear <kdt>` · `dateutils.weekOfTheMonth <kdt>` — integer · e.g. `dateutils.weekOfTheYear "$(dateutils.encodeDate 2005 1 1)"` → `53`
 
@@ -555,8 +575,8 @@ Function PreviousDayOfWeek (DayOfWeek : Word) : Word;
 
 **FPC quirk:** the argument is an ISO weekday **number** (1 … 7), *not* a date.
 It returns the ISO number of the day before it (1→7, 2→1, 3→2, …). FPC raises
-`EConvertError` for values outside 1 … 7; the port returns status 1 (echoing
-nothing) instead.
+`EConvertError` for values outside 1 … 7; the port returns status 1 with an
+empty `RESULT` instead.
 
 **kcl:** `dateutils.previousDayOfWeek <dow>` — prior ISO weekday (1…7)
 
@@ -670,7 +690,7 @@ Function MilliSecondSpan(const ANow, AThen: TDateTime): Double;
 
 The **fractional** number of units between two instants. `YearSpan` and
 `MonthSpan` are approximate (based on `ApproxDaysPerYear` / `ApproxDaysPerMonth`);
-the rest are exact. The port echoes a fixed-point decimal with **6 places**.
+the rest are exact. The port returns a fixed-point decimal with **6 places**.
 
 **kcl:** `dateutils.daySpan <a> <b>` … — 6-dp decimal · e.g. `dateutils.daySpan "$(dateutils.encodeDateTime 2011 3 26 12 0 0 0)" "$(dateutils.encodeDate 2011 3 26)"` → `0.500000`
 
@@ -948,7 +968,7 @@ function TryEncodeTimeInterval(Hour, Min, Sec, MSec:word; Out Time : TDateTime) 
 ```
 
 Encode a **duration** (not a time-of-day) from H/M/S/ms — here the hour count may
-exceed 24. The port echoes the total as milliseconds.
+exceed 24. The port returns the total as milliseconds.
 
 **kcl:** `dateutils.encodeTimeInterval <h> <n> <s> <ms>` · `dateutils.tryEncodeTimeInterval …` — ms (hours may exceed 24)
 
@@ -1068,12 +1088,12 @@ optionals are out of scope.
 
 ## Constants (getters)
 
-These getters echo the fixed unit constants backing the port's arithmetic. They
+These getters return the fixed unit constants backing the port's arithmetic. They
 mirror the FPC `SysUtils` time constants (`MSecsPerSec`, `MSecsPerDay`, …) and the
 `DateUtils` approximations `ApproxDaysPerMonth` / `ApproxDaysPerYear`. The backing
 `__KDT_*` globals are `readonly`.
 
-| kcl getter | Echoes | FPC constant / derivation |
+| kcl getter | `RESULT` | FPC constant / derivation |
 | --- | --- | --- |
 | `dateutils.msPerSecond` | `1000` | `MSecsPerSec` |
 | `dateutils.msPerMinute` | `60000` | `SecsPerMin × MSecsPerSec` |

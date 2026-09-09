@@ -1,5 +1,21 @@
 # TIniFile / TMemIniFile — upstream FPC API reference
 
+> **Upstream reference, ported: the members marked with a kcl mapping below.**
+> This page is the FPC `fcl-base` `inifiles.pp` API; the normative API and
+> contract for the bash port is **[../README.md](../README.md)**.
+>
+> * **Ported:** the load/read core, the write core with `UpdateFile`, the eager
+>   vs cached split (`TIniFile` / `TMemIniFile`), and the typed accessors.
+> * **Roadmap:** none. The unit is complete (P0–P4, reworked by kcl review
+>   phase P8).
+> * **Wontfix** (`../tinifile_ledger.json`, `out_of_scope`): writing a UTF-8 BOM
+>   (one is tolerated and stripped on read, never written), the locale-datetime
+>   accessors, the `TStream` constructors and NUL bytes (impossible in a bash
+>   string), and FPC's internal representation classes.
+> * **Return contract:** a value comes back in `RESULT`, a predicate answers
+>   with its **exit status**, an error is rc 1 with `RESULT=''` and nothing
+>   printed, and a malformed output-array name is rc 2.
+
 Source of truth: FPC `packages/fcl-base/src/inifiles.pp` —
 `TCustomIniFile` (:159–218), `TIniFile = class(TCustomIniFile)` (:222–259),
 `TMemIniFile = class(TIniFile)` (:261–269), `TIniFileOption` (:143–152),

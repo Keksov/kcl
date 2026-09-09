@@ -196,15 +196,16 @@ string._nonNeg() {   # VALUE MEMBER ARGNAME
 }
 
 # rc 0 = the name may NOT be used as an output array (kcl/README.md 1.7).
+# The rule itself is `kk._outName` in kkore/klib.sh (P9, P8-F1): identifier
+# shape, the kcl reserved set of README §1.7, the `__kk_`/`__KK_` space and the
+# `__tsh_` prefix this unit's locals live in. Only the POLARITY is local — this
+# helper answers "is the name bad?", so the three call sites read
+# `if string._badOutName "$n"; then ... rc 2`.
 string._badOutName() {
-    case "${1:-}" in
-        ""|RESULT|REPLY|IFS|this|__inst__|__class__) return 0 ;;
-        __kk_*|__KK_*|__tsh_*) return 0 ;;
-    esac
-    if [[ ! "$1" =~ ^[A-Za-z_][A-Za-z_0-9]*$ ]]; then
-        return 0
+    if kk._outName "${1:-}" __tsh_; then
+        return 1
     fi
-    return 1
+    return 0
 }
 
 # FPC Copy(S, INDEX, SIZE) -> __tsh_r, with fpc_ansistr_copy's clamping

@@ -1,5 +1,24 @@
 # TArray — upstream FPC API reference
 
+> **Upstream reference, ported: the 13 members listed under "kcl mapping".**
+> This page is the FPC rtl-generics `TArrayHelper<T>` API; the normative API and
+> contract for the bash port is **[../README.md](../README.md)**.
+>
+> * **Ported:** all 13 static members — `sort` (byte / `-n` / comparator, range
+>   form), `binarySearch`, `indexOf`/`firstIndexOf`/`lastIndexOf`, `contains`,
+>   `min`/`max`, `copy`, `reverse`, `concat`, and the two bash extras
+>   `reverseInPlace` and `compact`.
+> * **Roadmap:** none. The unit is complete (P0–P4, hardened by kcl review
+>   phase P2).
+> * **Wontfix** (`../tarray_ledger.json`, `out_of_scope`): `IComparer<T>` — the
+>   comparator here is a plain bash function with an exit-status protocol;
+>   FPC's introsort as an algorithm (the sorted result is the contract, and the
+>   port's bottom-up mergesort is stable, which introsort is not); the pointer
+>   forms; typed float ordering (elements are strings, `-n` covers int64, float
+>   ordering goes through `kcl/math` in a user comparator); and generics.
+> * **Return contract:** members operate on a **caller-named array** and answer
+>   through `RESULT` and the exit status; nothing is printed on a direct call.
+
 Source of truth: FPC rtl-generics `generics.collections.pas` —
 `TCustomArrayHelper<T>` (:73–102, incl. `TBinarySearchResult` :68–71) and
 `TArrayHelper<T>` (:106–138); implementation: introsort `QSort`/`Median`/

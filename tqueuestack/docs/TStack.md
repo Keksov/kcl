@@ -1,5 +1,22 @@
 # TStack / TObjectStack — upstream FPC API reference
 
+> **Upstream reference, ported: the members marked with a kcl mapping below.**
+> This page is the FPC rtl-generics `TStack`/`TObjectStack` API; the normative
+> API and contract for the bash port is **[../README.md](../README.md)**, which
+> covers all four classes.
+>
+> * **Ported:** `Push`, `Pop`, `TryPop`, `Peek`, `Extract`, `Clear`, `Count`,
+>   `ToArray`, the `on_notify` event with its virtual `Notify` seam, and
+>   `TObjectStack`'s ownership — including the FPC quirk that
+>   `TObjectStack.Pop` hands back an already-FREED handle, preserved verbatim.
+> * **Roadmap:** none. The unit is complete (P0–P5, hardened by kcl review
+>   phase P2).
+> * **Wontfix** (`../tqueuestack_ledger.json`, `out_of_scope`): as for `TQueue`
+>   — allocator knobs, the raw `List` buffer, bulk constructors and generics.
+> * **Return contract:** a value comes back in `RESULT`, an empty container is
+>   rc 1 with `RESULT=''`, and `ToArray` fills a caller array by nameref —
+>   call it **directly**, a `$( )` subshell loses the fill.
+
 Source of truth: FPC `packages/rtl-generics/src/generics.collections.pas` —
 `TStack<T>` (declaration :434, impl :2561–2652), `TObjectStack<T>` (:492,
 impl :2731–2766), base `TCustomList<T>` (:197: `Notify` :1639, `DoRemove`

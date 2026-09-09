@@ -1,5 +1,26 @@
 # TStopwatch — upstream Delphi API reference
 
+> **Upstream reference, ported: the members marked with a kcl mapping below.**
+> This page is the Delphi `System.Diagnostics.TStopwatch` API — there is no FPC
+> RTL equivalent — and the normative API and contract for the bash port is
+> **[../README.md](../README.md)**.
+>
+> * **Ported:** the full state machine (`Start`, `Stop`, `Reset`, `Restart`, and
+>   Delphi's `StartNew` as the constructor token `TStopwatch.new sw startnew`) and
+>   the elapsed getters in ticks / µs / ms / s, each as both a method
+>   (`sw.GetElapsedMilliseconds`) and a property (`sw.elapsedMilliseconds`),
+>   plus `isRunning`, `frequency` and `isHighResolution`.
+> * **Roadmap:** none. The unit is complete (P0–P2, reworked by kcl review
+>   phase P6).
+> * **Wontfix** (`../tstopwatch_ledger.json`, `out_of_scope`): `TTimeSpan` (kcl
+>   has no such unit; the numeric getters cover the use cases), the Delphi
+>   value-type/record semantics (the port is a kklass instance), `IsHighResolution`
+>   as a *monotonic* clock — `EPOCHREALTIME` is wall-clock and bash has no
+>   monotonic builtin, which the README says plainly — and anything thread-related.
+> * **Return contract:** a getter sets `RESULT` and prints nothing on a direct
+>   call; `IsRunning` answers with its **exit status** and carries the word in
+>   `RESULT` too.
+
 Source of truth: Delphi `System.Diagnostics.TStopwatch` (Embarcadero DocWiki:
 <https://docwiki.embarcadero.com/Libraries/en/System.Diagnostics.TStopwatch>).
 There is **no FPC RTL equivalent** — this is a Delphi-spec unit, the same

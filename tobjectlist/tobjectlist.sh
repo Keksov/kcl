@@ -95,8 +95,7 @@ TObjectList.Create() {
             true)  owns_objects=true ;;
             false) owns_objects=false ;;
             *)
-                [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-                    echo "Error: TObjectList.Create: unknown token '$1' (expected 'true' or 'false')" >&2
+                kk.debug "Error: TObjectList.Create: unknown token '$1' (expected 'true' or 'false')"
                 return 1 ;;
         esac
     fi
@@ -128,8 +127,7 @@ TObjectList._setOwnsObjects() {
     case "${1:-}" in
         true|false) owns_objects="$1" ;;
         *)
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-                echo "Error: TObjectList.owns_objects: '${1:-}' is not 'true' or 'false'" >&2
+            kk.debug "Error: TObjectList.owns_objects: '${1:-}' is not 'true' or 'false'"
             return 2 ;;
     esac
 }
@@ -275,8 +273,7 @@ TObjectList.FindInstanceOf() {
     # G1-16: only `true`/`false` are boolean tokens. `FindInstanceOf TList no`
     # used to mean exact=true, i.e. the opposite of what the caller wrote.
     if [[ "$__tol_exact" != "true" && "$__tol_exact" != "false" ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TObjectList.FindInstanceOf: exact token '$__tol_exact' is not 'true' or 'false'" >&2
+        kk.debug "Error: TObjectList.FindInstanceOf: exact token '$__tol_exact' is not 'true' or 'false'"
         kk._return "-1"; return 2
     fi
     if ! kk.isInt "$__tol_start" __tol_start; then kk._return "-1"; return 2; fi

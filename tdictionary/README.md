@@ -90,6 +90,11 @@ Order is FPC-exact:
 | `ExtractPair` | key `extracted`, value `extracted` — never a `removed` |
 | `Clear` / `d.delete` | per pair: key `removed`, value `removed` — storage is emptied first |
 
+`d.KeyNotify item action` and `d.ValueNotify item action` are the virtual
+dispatch seam behind those two hooks: every mutation calls them, and they invoke
+the hook when one is set. A subclass overrides them to react without a callback
+name.
+
 A dictionary with no hooks pays a single string test per mutation — no
 dispatch. A dangling callback name is skipped (mutation unaffected).
 

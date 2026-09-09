@@ -99,8 +99,7 @@ TList._setCapacity() {
     # negative value, left count = capacity = -3 with the storage wiped by
     # bash's own "bad array subscript" error.
     if (( new_capacity < 0 || new_capacity < count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TList.capacity: $new_capacity is below count ($count) or negative" >&2
+        kk.debug "Error: TList.capacity: $new_capacity is below count ($count) or negative"
         return 1
     fi
     capacity="$new_capacity"
@@ -192,7 +191,7 @@ TList.Insert() {
     local item="${2:-}"
     local current_count=$count
     if (( index < 0 || index > current_count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        kk.debug "Error: Index out of bounds"
         RESULT=""
         return 1
     fi
@@ -216,7 +215,7 @@ TList.Delete() {
     kk.isInt "$index" index || return 1
     local current_count=$count
     if (( index < 0 || index >= current_count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        kk.debug "Error: Index out of bounds"
         return 1
     fi
     local items_var="${__inst__}_items"
@@ -237,7 +236,7 @@ TList.Exchange() {
     kk.isInt "$index1" index1 || return 1
     kk.isInt "$index2" index2 || return 1
     if (( index1 < 0 || index1 >= count || index2 < 0 || index2 >= count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        kk.debug "Error: Index out of bounds"
         return 1
     fi
     local items_var="${__inst__}_items"
@@ -254,7 +253,7 @@ TList.Move() {
     kk.isInt "$from_index" from_index || return 1
     kk.isInt "$to_index" to_index || return 1
     if (( from_index < 0 || from_index >= count || to_index < 0 || to_index >= count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        kk.debug "Error: Index out of bounds"
         return 1
     fi
     if (( from_index == to_index )); then
@@ -319,7 +318,7 @@ TList.Pack() {
 TList.First() {
     local current_count="$count"
     if (( current_count == 0 )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: List is empty" >&2
+        kk.debug "Error: List is empty"
         return 1
     fi
     local items_var="${__inst__}_items"
@@ -330,7 +329,7 @@ TList.First() {
 TList.Last() {
     local current_count="$count"
     if (( current_count == 0 )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: List is empty" >&2
+        kk.debug "Error: List is empty"
         return 1
     fi
     local items_var="${__inst__}_items"
@@ -345,7 +344,7 @@ TList.Get() {
     local index="$1" current_count="$count"
     kk.isInt "$index" index || return 1
     if (( index < 0 || index >= current_count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        kk.debug "Error: Index out of bounds"
         return 1
     fi
     local items_var="${__inst__}_items"
@@ -358,7 +357,7 @@ TList.Put() {
     local index="$1" item="$2" current_count="$count"
     kk.isInt "$index" index || return 1
     if (( index < 0 || index >= current_count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        kk.debug "Error: Index out of bounds"
         return 1
     fi
     local items_var="${__inst__}_items"
@@ -390,7 +389,7 @@ TList.Remove() {
     if [[ "$index" != "-1" ]]; then
         local current_count=$count
         if (( index < 0 || index >= current_count )); then
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+            kk.debug "Error: Index out of bounds"
             return 1
         fi
         local items_var="${__inst__}_items"
@@ -429,7 +428,7 @@ TList.CustomSort() {
 }
 
 TList.Find() {
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Find method not implemented in TList - use in subclasses" >&2
+    kk.debug "Error: Find method not implemented in TList - use in subclasses"
     return 1
 }
 
@@ -439,7 +438,7 @@ TList.Assign() {
     # freed every owned element and only then reported "not implemented" —
     # rc 1 with the caller's data destroyed. An unimplemented operation must
     # leave the instance exactly as it was (kcl/README.md section 1.2).
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Assign method not implemented in TList - use in subclasses" >&2
+    kk.debug "Error: Assign method not implemented in TList - use in subclasses"
     return 1
 }
 
@@ -454,7 +453,7 @@ TList.BatchInsert() {
 
     # Validate index
     if (( index < 0 || index > current_count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        kk.debug "Error: Index out of bounds"
         RESULT="$current_count"
         return 1
     fi
@@ -513,7 +512,7 @@ TList.BatchDelete() {
 
     # Validate index
     if (( index < 0 || index >= current_count )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: Index out of bounds" >&2
+        kk.debug "Error: Index out of bounds"
         RESULT="$current_count"
         return 1
     fi

@@ -181,34 +181,49 @@ TQueueStack._count() {
 # malformed CALL, not a value the caller may legitimately try (kcl/README.md
 # sections 1.2 and 1.7 — owner decision 2026-09-07; the review report had
 # suggested rc 1, which is what tdictionary used to answer as well).
+#
+# The shared core is `kk._outName` in kkore/klib.sh (P9, P8-F1): identifier
+# shape, the README §1.7 reserved set, the `__kk_`/`__KK_` space, the `__tqs_`
+# prefix and the instance's own `_data`/`_class`/`_items`. The two extra
+# per-instance arrays this unit keeps (`_qhead`, `_nhook`) are checked here.
 TQueueStack._outName() {
-    local __tqs_n="${1:-}"
-    case "$__tqs_n" in
-        ""|__tqs_*|__kk_*|__KK_*|RESULT|REPLY|IFS|this|__inst__|__class__) return 1 ;;
+    case "${1:-}" in
+        "${__inst__}_qhead"|"${__inst__}_nhook") return 1 ;;
     esac
-    case "$__tqs_n" in
-        "${__inst__}_items"|"${__inst__}_qhead"|"${__inst__}_nhook"|"${__inst__}_data") return 1 ;;
-    esac
-    [[ "$__tqs_n" =~ ^[A-Za-z_][A-Za-z_0-9]*$ ]] || return 1
+    kk._outName "${1:-}" __tqs_ || return 1
     return 0
+}
+
+# Is the named variable an ASSOCIATIVE array? It would silently collect the keys
+# 0,1,2… instead of the elements, so it is refused like a bad name.
+#
+# P9-F3: `${ref@a}` aborts under `set -u` whenever the target has no value yet,
+# and `declare -a out=()` — the normal way to prepare a receiving array — is
+# exactly that shape, so `q.ToArray out` killed the caller. The option is
+# switched off for this one expansion; `local -` makes `$-` local to THIS
+# function and bash restores it on return, so there is no fork and nothing
+# leaks to the caller (the tinifile P8 shape).
+TQueueStack._isAssoc() {
+    local -
+    set +u
+    local -n __tqs_probe="$1" 2>/dev/null || return 1
+    [[ "${__tqs_probe@a}" == *A* ]]
 }
 
 # Fill a caller nameref in ascending index order (queue: front->back over the
 # live region; stack: bottom->top over the dense array — S9) + RESULT=count.
 TQueueStack._toArray() {
     if ! TQueueStack._outName "${1:-}"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: ToArray: bad output array name '${1:-}'" >&2
+        kk.debug "Error: ToArray: bad output array name '${1:-}'"
+        kk._return ""
+        return 2
+    fi
+    if TQueueStack._isAssoc "$1"; then         # it would get 0,1,2… keys
+        kk.debug "Error: ToArray: '$1' is an associative array"
         kk._return ""
         return 2
     fi
     local -n __tqs_out="$1" 2>/dev/null || { kk._return ""; return 2; }
-    if [[ "${__tqs_out@a}" == *A* ]]; then     # an assoc target would get 0,1,2… keys
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: ToArray: '$1' is an associative array" >&2
-        kk._return ""
-        return 2
-    fi
     __tqs_out=()
     local -n __tqs_it="${__inst__}_items"
     local __tqs_i
@@ -228,8 +243,7 @@ TQueueStack._fireNotify() {
         if declare -F "$on_notify" >/dev/null 2>&1; then
             "$on_notify" "$this" "${1-}" "${2-}" || :
         else
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-                echo "Warning: tqueuestack Notify: callback '$on_notify' not found" >&2
+            kk.debug "Warning: tqueuestack Notify: callback '$on_notify' not found"
         fi
     fi
     return 0
@@ -291,8 +305,7 @@ TObjectQueue.Create() {
         ""|true) : ;;
         false)   owns_objects=false ;;
         *)
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-                echo "Error: TObjectQueue.Create: unknown token '$1' (want true|false)" >&2
+            kk.debug "Error: TObjectQueue.Create: unknown token '$1' (want true|false)"
             return 1 ;;
     esac
     return 0
@@ -306,8 +319,7 @@ TObjectStack.Create() {
         ""|true) : ;;
         false)   owns_objects=false ;;
         *)
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-                echo "Error: TObjectStack.Create: unknown token '$1' (want true|false)" >&2
+            kk.debug "Error: TObjectStack.Create: unknown token '$1' (want true|false)"
             return 1 ;;
     esac
     return 0
@@ -365,8 +377,7 @@ TQueue.Dequeue() {
         kk._return "$__tqs_val"
         return 0
     fi
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-        echo "Error: TQueue.Dequeue: queue is empty" >&2
+    kk.debug "Error: TQueue.Dequeue: queue is empty"
     kk._return ""
     return 1
 }
@@ -379,8 +390,7 @@ TQueue.Extract() {
         kk._return "$__tqs_val"
         return 0
     fi
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-        echo "Error: TQueue.Extract: queue is empty" >&2
+    kk.debug "Error: TQueue.Extract: queue is empty"
     kk._return ""
     return 1
 }
@@ -390,8 +400,7 @@ TQueue.Peek() {
     local -n __tqs_it="${__inst__}_items"
     local -n __tqs_h="${__inst__}_qhead"
     if (( ${#__tqs_it[@]} == 0 )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TQueue.Peek: queue is empty" >&2
+        kk.debug "Error: TQueue.Peek: queue is empty"
         kk._return ""
         return 1
     fi
@@ -476,8 +485,7 @@ TStack.Pop() {
         kk._return "$__tqs_val"
         return 0
     fi
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-        echo "Error: TStack.Pop: stack is empty" >&2
+    kk.debug "Error: TStack.Pop: stack is empty"
     kk._return ""
     return 1
 }
@@ -489,8 +497,7 @@ TStack.Extract() {
         kk._return "$__tqs_val"
         return 0
     fi
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-        echo "Error: TStack.Extract: stack is empty" >&2
+    kk.debug "Error: TStack.Extract: stack is empty"
     kk._return ""
     return 1
 }
@@ -500,8 +507,7 @@ TStack.Peek() {
     local -n __tqs_it="${__inst__}_items"
     local __tqs_top=$(( ${#__tqs_it[@]} - 1 ))
     if (( __tqs_top < 0 )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: TStack.Peek: stack is empty" >&2
+        kk.debug "Error: TStack.Peek: stack is empty"
         kk._return ""
         return 1
     fi

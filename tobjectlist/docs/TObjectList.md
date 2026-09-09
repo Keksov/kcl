@@ -1,5 +1,23 @@
 # TObjectList — upstream FPC API reference
 
+> **Upstream reference, ported: the members marked with a kcl mapping below.**
+> This page is the FPC `contnrs.pp` `TObjectList` API; the normative API and
+> contract for the bash port is **[../README.md](../README.md)**. Everything
+> `TObjectList` inherits is documented in
+> **[../../tlist/README.md](../../tlist/README.md)**.
+>
+> * **Ported:** the ownership flag and the removal paths that free
+>   (`Delete`/`Clear`/`Remove`/`Put`/`BatchDelete`/destructor), `Extract`
+>   (remove **without** freeing) and `FindInstanceOf`.
+> * **Roadmap:** none. The unit is complete (P0–P2, hardened by kcl review
+>   phase P2).
+> * **Wontfix** (`../tobjectlist_ledger.json`, `out_of_scope`): FPC's
+>   component/class list siblings, the `Notify` mechanism (the removal-path
+>   overrides *are* its port), and real class-tree introspection —
+>   `FindInstanceOf` matches the class name, at most exactly.
+> * **Return contract:** as `tlist` — a value in `RESULT`, an error rc 1 with
+>   the list untouched, nothing printed on a direct call.
+
 Source of truth: FPC `packages/fcl-base/src/contnrs.pp` —
 `TObjectList = class(TList)` (:82–102). Implementation semantics: `Notify`
 frees on `lnDeleted` when `FFreeObjects`; `SetItem` routes through `Put` ("Put

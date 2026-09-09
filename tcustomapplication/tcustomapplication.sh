@@ -50,12 +50,12 @@ declare -g __TCA_ERR=""     # tca._checkOptions: the joined error message
 # own `__tca_`/`__TCA_` space, because bash scopes locals dynamically and an
 # output name colliding with one of our locals would silently write the local.
 # ----------------------------------------------------------------------------
+# The whole rule is `kk._outName` in kkore/klib.sh (P9, P8-F1): identifier
+# shape, the kcl reserved set of README §1.7 — `state` included, since kklass
+# binds that nameref in every member frame — the `__kk_`/`__KK_` space, the two
+# prefixes this unit's locals live in, and the instance's own arrays.
 tca._isName() {
-    case "${1:-}" in
-        ""|*[!A-Za-z0-9_]*|[0-9]*)          return 1 ;;
-        this|__inst__|__class__|RESULT|REPLY|IFS|state) return 1 ;;
-        __kk_*|__KK_*|__tca_*|__TCA_*)      return 1 ;;
-    esac
+    kk._outName "${1:-}" __tca_ __TCA_ || return 1
     return 0
 }
 

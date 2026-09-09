@@ -145,14 +145,29 @@ TSet._isSet() {
 # G2-02: `h.ToArray __ts_it` aliased the unit's own nameref and the fill loop
 # appended the set's storage to itself; an empty or malformed name produced a
 # bash error on stderr, filled a throwaway local and still returned rc 0.
+#
+# The rule is `kk._outName` in kkore/klib.sh (P9, P8-F1): identifier shape, the
+# README §1.7 reserved set, the `__kk_`/`__KK_` space, the `__ts_` prefix and the
+# instance's own `_data`/`_class`/`_items`.
 TSet._outName() {
-    local __ts_n="${1:-}"
-    case "$__ts_n" in
-        ""|__ts_*|__kk_*|__KK_*|RESULT|REPLY|IFS|this|__inst__|__class__) return 1 ;;
-    esac
-    [[ "$__ts_n" == "${__inst__}_items" ]] && return 1
-    [[ "$__ts_n" =~ ^[A-Za-z_][A-Za-z_0-9]*$ ]] || return 1
+    kk._outName "${1:-}" __ts_ || return 1
     return 0
+}
+
+# Is the named variable an ASSOCIATIVE array? It would silently collect the keys
+# 0,1,2… instead of the elements, so it is refused like a bad name.
+#
+# P9-F3: `${ref@a}` aborts under `set -u` whenever the target has no value yet,
+# and `declare -a out=()` — the normal way to prepare a receiving array — is
+# exactly that shape, so `h.ToArray out` killed the caller. The option is
+# switched off for this one expansion; `local -` makes `$-` local to THIS
+# function and bash restores it on return, so there is no fork and nothing
+# leaks to the caller (the tinifile P8 shape).
+TSet._isAssoc() {
+    local -
+    set +u
+    local -n __ts_probe="$1" 2>/dev/null || return 1
+    [[ "${__ts_probe@a}" == *A* ]]
 }
 
 # ---- method bodies (P0: ctor/dtor/Count real; the rest arrive per phase) -----
@@ -178,8 +193,7 @@ THashSet.Count() {
 
 # ---- per-phase pending members (thin sentinels; removed as phases land) ------
 TSet._pending() {
-    [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-        echo "thashset: $1 arrives in $2" >&2
+    kk.debug "thashset: $1 arrives in $2"
     kk._return "__ths_pending__:$1"
     return 0
 }
@@ -267,18 +281,16 @@ THashSet.ToArray() {
     # caller may legitimately try (kcl/README.md 1.2 and 1.7; owner decision
     # 2026-09-07 over the rc 1 the review report had suggested).
     if ! TSet._outName "${1:-}"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: THashSet.ToArray: bad output array name '${1:-}'" >&2
+        kk.debug "Error: THashSet.ToArray: bad output array name '${1:-}'"
+        kk._return ""
+        return 2
+    fi
+    if TSet._isAssoc "$1"; then                # it would get 0,1,2… keys
+        kk.debug "Error: THashSet.ToArray: '$1' is an associative array"
         kk._return ""
         return 2
     fi
     local -n __ts_out="$1" 2>/dev/null || { kk._return ""; return 2; }
-    if [[ "${__ts_out@a}" == *A* ]]; then      # an assoc target would get 0,1,2… keys
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: THashSet.ToArray: '$1' is an associative array" >&2
-        kk._return ""
-        return 2
-    fi
     __ts_out=()
     local -n __ts_it="${__inst__}_items"
     local __ts_k
@@ -297,8 +309,7 @@ THashSet.ForEach() {
     # element and rc 0. Validate it once, up front, like tdictionary.ForEach.
     local __ts_cb="${1:-}"
     if [[ -z "$__ts_cb" ]] || ! declare -F "$__ts_cb" >/dev/null 2>&1; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: THashSet.ForEach: callback '$__ts_cb' is not a function" >&2
+        kk.debug "Error: THashSet.ForEach: callback '$__ts_cb' is not a function"
         return 1
     fi
     local -n __ts_it="${__inst__}_items"
@@ -316,8 +327,7 @@ THashSet.Assign() {
     # removed (old) then added (new) when a listener is set. Self-assign is a
     # no-op-ish rebuild (snapshot first).
     if ! TSet._isSet "$1"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && \
-            echo "Error: THashSet.Assign: '$1' is not a THashSet" >&2
+        kk.debug "Error: THashSet.Assign: '$1' is not a THashSet"
         return 1
     fi
     local -n __ts_src="${1}_items"

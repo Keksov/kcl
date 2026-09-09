@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/tarray — port of FPC rtl-generics TArrayHelper (Sort/BinarySearch/scan helpers) to bash (kklass static class over caller-named arrays)",
   "created": "2026-07-12",
-  "updated": "2026-07-12",
-  "status": "COMPLETE (P0-P4) 2026-07-13, awaiting owner review, UNCOMMITTED (commits gated). Full TArrayHelper port over caller-named arrays: stable bottom-up mergesort (byte/-n/cmpFn modes, range form), FPC-verbatim binarySearch (RESULT/CANDIDATE/COMPARE), indexOf family, min/max, strict copy, temp-safe reverse, concat, compact. FPC fpcunit seed mined as the oracle (006). Suite 001-007 = 80/80 on 5.2.37 AND true 5.3.9; final master sweep 16/16 (see P4 log). Deliverables: tarray.sh, tests/001-007+tests.sh, README.md, docs/TArray.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, ledger. Roadmap 3/7 done; next unit tinifile; APPROVED side-task queued: TList/TStringList delegation to TArray (owner 2026-07-13). Phases: P0 (S1-S8 pins + LC_ALL=C + skeleton), P1 (sort 28), P2 (search 62), P3 (copy/reverse/concat 80), P4 (docs/bench).",
+  "updated": "2026-09-09",
+  "status": "COMPLETE (P0-P4) 2026-07-13; COMMITTED as kcl 6d983e9 (kcl review phase P2, 2026-09-07), not pushed. The 'UNCOMMITTED' this line used to carry was drift, corrected by kcl phase P9 (G8-09). Full TArrayHelper port over caller-named arrays: stable bottom-up mergesort (byte/-n/cmpFn modes, range form), FPC-verbatim binarySearch (RESULT/CANDIDATE/COMPARE), indexOf family, min/max, strict copy, temp-safe reverse, concat, compact. FPC fpcunit seed mined as the oracle (006). Suite 001-007 = 80/80 on 5.2.37 AND true 5.3.9; final master sweep 16/16 (see P4 log). Deliverables: tarray.sh, tests/001-007+tests.sh, README.md, docs/TArray.md, bench.sh, TEST_COVERAGE_NOTES.md, PLAN.md, ledger. Roadmap 3/7 done; next unit tinifile; APPROVED side-task queued: TList/TStringList delegation to TArray (owner 2026-07-13). Phases: P0 (S1-S8 pins + LC_ALL=C + skeleton), P1 (sort 28), P2 (search 62), P3 (copy/reverse/concat 80), P4 (docs/bench).",
   "owner": "keksov",
   "roadmap": {
     "priority": 3,

@@ -122,7 +122,7 @@ TDictionary.Add() {
     local key="$1" value="$2"
     declare -n items_ref="${__inst__}_items"
     if [[ -n ${items_ref["k$key"]+x} ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.Add: duplicates not allowed" >&2
+        kk.debug "Error: TDictionary.Add: duplicates not allowed"
         return 1
     fi
     items_ref["k$key"]=$value
@@ -177,7 +177,7 @@ TDictionary.GetItem() {
     local key="$1"
     declare -n items_ref="${__inst__}_items"
     if [[ -z ${items_ref["k$key"]+x} ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.GetItem: key does not exist" >&2
+        kk.debug "Error: TDictionary.GetItem: key does not exist"
         # kk._return (not a bare RESULT=) so the '' reaches the caller on this
         # early-return path — the auto-appended func trailer only runs at the
         # end of the body, and _invoke restores the caller's RESULT otherwise.
@@ -193,7 +193,7 @@ TDictionary.SetItem() {
     local key="$1" value="$2" oldv
     declare -n items_ref="${__inst__}_items"
     if [[ -z ${items_ref["k$key"]+x} ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.SetItem: key does not exist (FPC Items[] write is update-only)" >&2
+        kk.debug "Error: TDictionary.SetItem: key does not exist (FPC Items[] write is update-only)"
         return 1
     fi
     # SetValue (impl:54): assign FIRST, then old-removed + new-added; key silent.
@@ -325,7 +325,7 @@ TDictionary.Assign() {
     local srcvar="${src}_items"
     declare -n src_ref="$srcvar" 2>/dev/null || return 1
     if [[ ${src_ref@a} != *A* ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.Assign: '$src' is not a TDictionary instance" >&2
+        kk.debug "Error: TDictionary.Assign: '$src' is not a TDictionary instance"
         return 1
     fi
     # Clear notifies the removals; each copied pair then notifies 'added'
@@ -350,7 +350,7 @@ TDictionary.AddPairs() {
     # (earlier pairs stay, later ones are not attempted). An odd argument
     # count is rejected up front — nothing added.
     if (( $# % 2 != 0 )); then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.AddPairs: odd argument count" >&2
+        kk.debug "Error: TDictionary.AddPairs: odd argument count"
         return 1
     fi
     declare -n items_ref="${__inst__}_items"
@@ -360,7 +360,7 @@ TDictionary.AddPairs() {
         key="$1" value="$2"
         shift 2
         if [[ -n ${items_ref["k$key"]+x} ]]; then
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.AddPairs: duplicate key" >&2
+            kk.debug "Error: TDictionary.AddPairs: duplicate key"
             return 1
         fi
         items_ref["k$key"]=$value
@@ -411,21 +411,31 @@ TDictionary.Values() {
 # and reported success (the G2-02 shape the review found in tqueuestack and
 # thashset — it was present here too, under the report's "tdictionary validates"
 # note). Verified: 3 pairs -> 0 pairs, rc 0.
+#
+# The rule is `kk._outName` in kkore/klib.sh (P9, P8-F1) — identifier shape, the
+# README §1.7 reserved set, the `__kk_`/`__KK_` space, the `__td_` prefix and the
+# instance's own `_data`/`_class`/`_items`. `RESULT_KEY` is this unit's own extra
+# return channel and stays here.
 TDict._outName() {
-    local __td_n="${1:-}"
-    case "$__td_n" in
-        ""|__td_*|__kk_*|__KK_*|RESULT|RESULT_KEY|REPLY|IFS|this|__inst__|__class__) return 1 ;;
+    case "${1:-}" in
+        RESULT_KEY) return 1 ;;
     esac
-    case "$__td_n" in
-        "${__inst__}_items"|"${__inst__}_data"|"${__inst__}_class") return 1 ;;
-    esac
-    [[ "$__td_n" =~ ^[A-Za-z_][A-Za-z_0-9]*$ ]] || return 1
+    kk._outName "${1:-}" __td_ || return 1
     return 0
 }
 
 # Is the named variable an ASSOCIATIVE array? It cannot receive an index-ordered
 # fill (it would collect 0,1,2… keys), so it is refused like a bad name.
+#
+# P9-F3: `${ref@a}` aborts under `set -u` whenever the target has no value yet,
+# and `declare -a out=()` — the normal way to prepare a receiving array — is
+# exactly that shape, so `d.KeysToArray out` killed the caller. The option is
+# switched off for this one expansion; `local -` makes `$-` local to THIS
+# function and bash restores it on return, so there is no fork and nothing
+# leaks to the caller (the tinifile P8 shape).
 TDict._isAssoc() {
+    local -
+    set +u
     local -n __td_probe="$1" 2>/dev/null || return 1
     [[ "${__td_probe@a}" == *A* ]]
 }
@@ -434,7 +444,7 @@ TDictionary.KeysToArray() {
     # Keys.ToArray analog: fill the named indexed array with the keys, exact.
     local __td_out="$1"
     if ! TDict._outName "$__td_out" || TDict._isAssoc "$__td_out"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.KeysToArray: bad output variable name '$__td_out'" >&2
+        kk.debug "Error: TDictionary.KeysToArray: bad output variable name '$__td_out'"
         return 2
     fi
     declare -n __td_oref="$__td_out"
@@ -450,7 +460,7 @@ TDictionary.ValuesToArray() {
     # Values.ToArray analog: fill the named indexed array with the values.
     local __td_out="$1"
     if ! TDict._outName "$__td_out" || TDict._isAssoc "$__td_out"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.ValuesToArray: bad output variable name '$__td_out'" >&2
+        kk.debug "Error: TDictionary.ValuesToArray: bad output variable name '$__td_out'"
         return 2
     fi
     declare -n __td_oref="$__td_out"
@@ -467,12 +477,12 @@ TDictionary.ToArrays() {
     # index-aligned — keys[i] maps to values[i].
     local __td_kout="$1" __td_vout="$2"
     if [[ "$__td_kout" == "$__td_vout" ]]; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.ToArrays: two DISTINCT output variable names required" >&2
+        kk.debug "Error: TDictionary.ToArrays: two DISTINCT output variable names required"
         return 2
     fi
     if ! TDict._outName "$__td_kout" || TDict._isAssoc "$__td_kout" \
        || ! TDict._outName "$__td_vout" || TDict._isAssoc "$__td_vout"; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.ToArrays: bad output variable name" >&2
+        kk.debug "Error: TDictionary.ToArrays: bad output variable name"
         return 2
     fi
     declare -n __td_kref="$__td_kout"
@@ -500,7 +510,7 @@ TDictionary.KeyNotify() {
         if declare -F "$onKeyNotify" >/dev/null 2>&1; then
             "$onKeyNotify" "$__inst__" "$1" "$2"
         else
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.KeyNotify: '$onKeyNotify' is not a function" >&2
+            kk.debug "Error: TDictionary.KeyNotify: '$onKeyNotify' is not a function"
         fi
     fi
     return 0
@@ -512,7 +522,7 @@ TDictionary.ValueNotify() {
         if declare -F "$onValueNotify" >/dev/null 2>&1; then
             "$onValueNotify" "$__inst__" "$1" "$2"
         else
-            [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.ValueNotify: '$onValueNotify' is not a function" >&2
+            kk.debug "Error: TDictionary.ValueNotify: '$onValueNotify' is not a function"
         fi
     fi
     return 0
@@ -527,7 +537,7 @@ TDictionary.ForEach() {
     # callback's exit status is ignored; ForEach returns 0.
     local __td_cb="$1"
     if ! declare -F "$__td_cb" >/dev/null 2>&1; then
-        [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TDictionary.ForEach: '$__td_cb' is not a function" >&2
+        kk.debug "Error: TDictionary.ForEach: '$__td_cb' is not a function"
         return 1
     fi
     declare -n __td_items="${__inst__}_items"
@@ -604,7 +614,7 @@ TObjectDictionary.Create() {
             doOwnsKeys)   ok=1 ;;
             doOwnsValues) ov=1 ;;
             *)
-                [[ "${VERBOSE_KKLASS:-}" == "debug" ]] && echo "Error: TObjectDictionary.Create: unknown ownership token '$tok'" >&2
+                kk.debug "Error: TObjectDictionary.Create: unknown ownership token '$tok'"
                 return 1
                 ;;
         esac

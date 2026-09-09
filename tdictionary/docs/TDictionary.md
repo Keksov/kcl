@@ -1,5 +1,24 @@
 # TDictionary / TObjectDictionary — upstream FPC API reference
 
+> **Upstream reference, ported: the members marked with a kcl mapping below.**
+> This page is the FPC rtl-generics `TDictionary`/`TObjectDictionary` API; the
+> normative API and contract for the bash port is
+> **[../README.md](../README.md)**.
+>
+> * **Ported:** the whole key/value surface (31 members) plus the ownership
+>   tokens of `TObjectDictionary` and the notify events.
+> * **Roadmap:** none. The unit is complete (API v2, hardened by kcl review
+>   phase P2).
+> * **Wontfix** (`../tdictionary_ledger.json`, `out_of_scope`): the open-address
+>   probing internals and the alternative backend classes (`declare -A` *is* the
+>   hash table), `GetOrAdd`-style pointer members, enumerators and `TPair`
+>   objects (replaced by `ForEach` + `KeysToArray`/`ValuesToArray`/`ToArrays`),
+>   the allocator knobs (`Capacity`, `TrimExcess` — real in FPC, nothing to
+>   control in bash), and keys containing NUL (a bash language limit).
+> * **Return contract:** a value comes back in `RESULT`, a predicate answers
+>   with its **exit status**, and an error is rc 1 with `RESULT=''` and nothing
+>   printed; a malformed output-array name is rc 2.
+
 Source of truth: FPC rtl-generics, unit `Generics.Collections`
 (`packages/rtl-generics/src/inc/generics.dictionariesh.inc`, interface;
 `generics.dictionaries.inc`, implementation — line references below are into
