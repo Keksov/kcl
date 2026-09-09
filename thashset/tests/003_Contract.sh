@@ -144,3 +144,27 @@ if [[ "$out" == *"reached rc="* && "$out" == *"end"* ]]; then
 else
     kt_test_fail "caller never regained control: '$out'"
 fi
+
+# --- 6. the README's cross-unit example (P4) -------------------------------
+# This file is otherwise near-identical across the suites (see the header), and
+# this ONE case is the deliberate exception: the unit README documents ordered
+# iteration as "ToArray, then tarray's sort at the boundary" (the TSortedSet /
+# TSortedHashSet wontfix), so the composition is executed here end to end. A
+# mechanical contract sweep should keep it. It pins three things at once: the
+# fill is lossless, RESULT is the count, and TArray.sort's byte order is what
+# the README prints.
+kt_test_start "the README sorted-iteration example yields byte order [P4]"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tarray" && pwd)/tarray.sh"
+THashSet.new SI
+SI.AddRange pear apple fig banana cherry || :
+declare -a ordered=()
+SI.ToArray ordered
+n="$RESULT"
+TArray.sort ordered
+got="${ordered[*]}"
+if [[ "$n" == "5" && "$got" == "apple banana cherry fig pear" ]]; then
+    kt_test_pass "$got"
+else
+    kt_test_fail "n=$n got='$got'"
+fi
+SI.delete

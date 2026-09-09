@@ -3,7 +3,7 @@
   "project": "kcl/thashset — port of FPC rtl-generics THashSet (TCustomSet surface + set algebra) to bash (kklass instantiable class over the tdictionary storage pattern)",
   "created": "2026-07-12",
   "updated": "2026-09-09",
-  "status": "P3 (events) DONE and COMMITTED as kcl 79e32be (2026-09-09), not pushed; master sweep 20/20 suites, 5189 tests, 0 [FAIL] on 5.2.37 and 5.3.9. Unit suite 148/148, 0 [FAIL] on bash 5.2.37 AND 5.3.9 (was 92/92); master sweep run by the reviewer. The LAST stub is gone and the `TSet._pending` helper was deleted with it, so every declared member has a real body. New tests/006_Events.sh, 55 cases, red-first 46 FAIL / 55 against the stub code. `Notify` = the public VIRTUAL seam (declare -F at fire time, dangling name = kk.debug + no-op, callback rc IGNORED, cb signature `<inst> <item> <action>`, always rc 0); `var _notifyHook` joins the gate (`[[ -n $on_notify || -n $_notifyHook ]]`) for descendants that override Notify; `proc onNotify` = the validating setter ('' clears rc 0 / not-a-function rc 2 with the installed hook unchanged); `Destroy` now runs `$this.Clear` before the teardown so `s.delete` fires `removed` per element (S5, FPC :2554). FPC has NO Notify on a set: OnNotify :526 is a property over abstract Get/SetOnNotify :495/:496 and THashSet.SetOnNotify :2530 re-routes the internal dictionary's OnKeyNotify through InternalDictionaryNotify :2500 (sender = the SET) — its `if Assigned … else nil` is the original of our gate. Hook-less 1k Add 220 ms (5.2.37) / 189 ms (5.3.9) against 566 / 495 ms hooked; unhooked is indistinguishable from the P2 baseline (219/188 ms). P4 (bench + docs/THashSet.md + the TDictionary-vs-THashSet comparison box + closeout) is all that remains. Prior: P2 (set algebra) DONE and COMMITTED as kcl 40bc442 (2026-09-09), not pushed; master sweep 20/20 suites, 5133 tests, 0 [FAIL] on 5.2.37 and 5.3.9. All six algebra/AddRange stubs replaced (FPC release_3_2_2 :2379/:2417/:2425/:2442/:2450), operand validated by class before any mutation (atomic), self-op edges pinned (a∪a=a, a∩a=a, a∖a=∅, a⊕a=∅), new tests/005_SetAlgebra.sh 45 cases (red-first 38), suite 92/92 on 5.2.37 AND 5.3.9. `Notify` was the last stub (closed at P3). Prior: P1 DONE and COMMITTED as kcl 6d983e9 (kcl review phase P2, 2026-09-07), not pushed. Status line corrected by kcl phase P9 (G8-09). P1 membership core: Add/Remove/Contains (Boolean-rc, SILENT on the negative answer — the loud TDictionary difference), Extract (hit RESULT=item / miss '' — rc 0 both, S6), Clear (empty-first-then-notify, S4), ToArray (lossless, hash order)/ForEach (snapshot)/Assign (copy + operand validation, atomic). Events THREADED via the _notify gate at every mutation (dormant until P3 fills Notify — the tqueuestack lesson). Storage idioms = tdictionary verbatim (the deletion idiom only became verbatim in the kcl review phase P2 — see G2-01/G2-06 in execution_log). Suite 001-004 = 45/45 on 5.2.37 AND true 5.3.9 (was 23/23 before the kcl P2 fixes). P2 (set algebra) next. Prior: P0 (pins+seed+skeleton 9/9, baseline 20/20 3011).",
+  "status": "COMPLETE (P0–P4) — awaiting the P4 commit SHA (filled by the reviewer). P4 (docs, bench, closeout) DONE 2026-09-09: NO unit code changed (thashset.sh byte-identical to the P3 commit). New bench.sh (6 sections, TStopwatch.getTimeStamp clock, rc 0, clean under bash -eu), new docs/THashSet.md (the release_3_2_2 TCustomSet/THashSet transcription with the house Ported/Roadmap/Wontfix header), new TEST_COVERAGE_NOTES.md (every one of the 149 cases in a per-file table, 10/17/11/11/45/55), README rewritten (COMPLETE status, the 20-row TDictionary-vs-THashSet comparison box, the ToArray + TArray.sort sorted-iteration example with its real output, the bench table, a per-file test table), PLAN P4 DONE block, and kcl/README.md section 2's thashset row rewritten as a complete unit (closes P3-F1). ONE test added: tests/003_Contract.sh runs the README sorted-iteration example end to end (red-first 1 FAIL / 149 with the hash-order expectation), so the suite is 149/149, 0 [FAIL], on bash 5.2.37 AND 5.3.9; master sweep run by the reviewer. Algebra 3x gate PASS on both bashes (worst SymmetricExceptWith 2.3x / 2.2x); Contains flat at 0.9x / 1.0x over a 100x larger set; zero forks. Prior: P3 (events) DONE and COMMITTED as kcl 79e32be (2026-09-09), not pushed; master sweep 20/20 suites, 5189 tests, 0 [FAIL] on 5.2.37 and 5.3.9. Unit suite 148/148, 0 [FAIL] on bash 5.2.37 AND 5.3.9 (was 92/92); master sweep run by the reviewer. The LAST stub is gone and the `TSet._pending` helper was deleted with it, so every declared member has a real body. New tests/006_Events.sh, 55 cases, red-first 46 FAIL / 55 against the stub code. `Notify` = the public VIRTUAL seam (declare -F at fire time, dangling name = kk.debug + no-op, callback rc IGNORED, cb signature `<inst> <item> <action>`, always rc 0); `var _notifyHook` joins the gate (`[[ -n $on_notify || -n $_notifyHook ]]`) for descendants that override Notify; `proc onNotify` = the validating setter ('' clears rc 0 / not-a-function rc 2 with the installed hook unchanged); `Destroy` now runs `$this.Clear` before the teardown so `s.delete` fires `removed` per element (S5, FPC :2554). FPC has NO Notify on a set: OnNotify :526 is a property over abstract Get/SetOnNotify :495/:496 and THashSet.SetOnNotify :2530 re-routes the internal dictionary's OnKeyNotify through InternalDictionaryNotify :2500 (sender = the SET) — its `if Assigned … else nil` is the original of our gate. Hook-less 1k Add 220 ms (5.2.37) / 189 ms (5.3.9) against 566 / 495 ms hooked; unhooked is indistinguishable from the P2 baseline (219/188 ms). P4 (bench + docs/THashSet.md + the TDictionary-vs-THashSet comparison box + closeout) is DONE — see the head of this line. Prior: P2 (set algebra) DONE and COMMITTED as kcl 40bc442 (2026-09-09), not pushed; master sweep 20/20 suites, 5133 tests, 0 [FAIL] on 5.2.37 and 5.3.9. All six algebra/AddRange stubs replaced (FPC release_3_2_2 :2379/:2417/:2425/:2442/:2450), operand validated by class before any mutation (atomic), self-op edges pinned (a∪a=a, a∩a=a, a∖a=∅, a⊕a=∅), new tests/005_SetAlgebra.sh 45 cases (red-first 38), suite 92/92 on 5.2.37 AND 5.3.9. `Notify` was the last stub (closed at P3). Prior: P1 DONE and COMMITTED as kcl 6d983e9 (kcl review phase P2, 2026-09-07), not pushed. Status line corrected by kcl phase P9 (G8-09). P1 membership core: Add/Remove/Contains (Boolean-rc, SILENT on the negative answer — the loud TDictionary difference), Extract (hit RESULT=item / miss '' — rc 0 both, S6), Clear (empty-first-then-notify, S4), ToArray (lossless, hash order)/ForEach (snapshot)/Assign (copy + operand validation, atomic). Events THREADED via the _notify gate at every mutation (dormant until P3 fills Notify — the tqueuestack lesson). Storage idioms = tdictionary verbatim (the deletion idiom only became verbatim in the kcl review phase P2 — see G2-01/G2-06 in execution_log). Suite 001-004 = 45/45 on 5.2.37 AND true 5.3.9 (was 23/23 before the kcl P2 fixes). P2 (set algebra) next. Prior: P0 (pins+seed+skeleton 9/9, baseline 20/20 3011).",
   "owner": "keksov",
   "roadmap": {
     "priority": 6,
@@ -80,24 +80,27 @@
   },
   "out_of_scope": [
     {
-      "item": "Comparer ctor Create(IEqualityComparer) :602, TOpenAddressingLP backend, capacity family (Capacity/SetCapacity/TrimExcess :562-563)",
+      "item": "Comparer ctor Create(const AComparer: IEqualityComparer<T>) :562, TOpenAddressingLP backend :535, capacity family (Capacity :523 over GetCapacity/SetCapacity :556/:557, TrimExcess :524/:573)",
       "status": "wontfix",
-      "reason": "tdictionary API-v2 precedent verbatim: declare -A is the backend; comparers cannot back assoc lookups; capacity controls nothing in bash."
+      "reason": "tdictionary API-v2 precedent verbatim: declare -A is the backend; comparers cannot back assoc lookups; capacity controls nothing in bash.",
+      "line_numbers": "re-read against the release_3_2_2 tag at P4; the P0 refs (:602, :562-563) came from a different revision of the same file."
     },
     {
-      "item": "TSortedSet / TSortedHashSet / TAVLTree family",
+      "item": "TSortedSet :839-881 / TSortedHashSet :883-941 / TAVLTree family (TAVLTree<T> :812-824, TIndexedAVLTree<T> :826-837, TCustomAVLTreeMap :638)",
       "status": "wontfix",
-      "reason": "Balanced trees are pointless over a native hash; ordered iteration = TArray.sort over ToArray output at the boundary (README example)."
+      "reason": "Balanced trees are pointless over a native hash; ordered iteration = TArray.sort over ToArray output at the boundary (README example, executed end to end by tests/003 case 003.readme-sorted since P4)."
     },
     {
-      "item": "Enumerator objects / pointer enumerators :576-592",
+      "item": "Enumerator objects / pointer enumerators (TCustomSetEnumerator :480-489, THashSetEnumerator :537-543, TPointersEnumerator :545-552, GetEnumerator :503/:564, GetPtrEnumerator :554)",
       "status": "wontfix",
-      "reason": "ForEach + ToArray fills (house style)."
+      "reason": "ForEach + ToArray fills (house style).",
+      "line_numbers": "the P0 ref :576-592 pointed at a different revision; at the tag those lines are the TPair / TAVLTreeNode block, not an enumerator."
     },
     {
-      "item": "TEmptyRecord internal trick :574",
+      "item": "TEmptyRecord internal trick :535 (the global EmptyRecord :946)",
       "status": "wontfix",
-      "reason": "Internal representation; bash stores literal 1 as the value."
+      "reason": "Internal representation; bash stores literal 1 as the value.",
+      "line_numbers": "the P0 ref :574 came from a different revision."
     },
     {
       "item": "NUL bytes in elements",
@@ -300,23 +303,86 @@
       "id": "P4",
       "name": "Docs, bench, closeout",
       "goal": "README + docs/THashSet.md + bench + coverage notes + final sweep.",
-      "status": "todo",
+      "status": "done",
       "tasks": [
         {
           "id": "P4.1",
           "title": "README.md (API + TDictionary-vs-THashSet comparison box + sorted-iteration composition example) + docs/THashSet.md (upstream FPC reference per kcl docs convention)",
           "category": "docs",
           "severity": "medium",
-          "status": "todo",
-          "acceptance": "Every public member + wontfix documented; comparison box complete."
+          "status": "done",
+          "acceptance": "Every public member + wontfix documented; comparison box complete.",
+          "written": {
+            "README.md": "status block -> COMPLETE (P0-P4); new 'Ordered iteration' section with the ToArray + TArray.sort example and its REAL output (apple banana cherry fig pear); new 'THashSet vs TDictionary' comparison box, 20 rows, member by member (Add dup rc 1 silent vs error, Remove miss rc 1 vs rc 0, Extract vs ExtractPair miss shape, Contains vs ContainsKey/ContainsValue, the identical Clear model, one event hook vs two and the cb signatures, ToArray/ForEach/Assign, the four algebra ops and both AddRange forms as set-only, TObjectDictionary and the capacity argument as dictionary-only); new 'Performance' section with the bench table for both bashes and how to read it; the Tests section rewritten as a per-file table with the case counts; every 'pending / P4 will / phase P3' status wording removed; the event-cost bullet re-measured with the P4 numbers.",
+            "docs/THashSet.md": "NEW. House header block (Upstream reference / Ported / Roadmap: none / Wontfix with the ledger out_of_scope reference and the tag's FPC line refs / Return contract), then the TCustomSet<T> and THashSet<T> API transcribed from the release_3_2_2 tag with declaration and implementation line numbers and the algebra bodies quoted with their loop semantics, the OnNotify plumbing (:495/:496/:526/:2500/:2525/:2530) and Destroy (:2554), a 'how the bash port maps' table, and a divergence table.",
+            "TEST_COVERAGE_NOTES.md": "NEW. House protocol paragraph naming both fpcunit seeds, a five-value class legend (contract / behavior / event / representation / boundary), then ONE table per test file with EVERY case: 001 10, 002 17, 003 11, 004 11, 005 45, 006 55 = 149, equal to the suite total. Class breakdown 73/29/20/15/12. Plus 'deliberately not covered' and the test-side traps.",
+            "PLAN.md": "header marked COMPLETE (P0-P4) and a DONE 2026-09-09 block under P4 with the file table, the red-first note, the bench table, the deviations and the line-number drift correction. Section 1's wontfix list re-pointed to the tag.",
+            "../README.md": "section 2 thashset row rewritten as a complete unit (closes P3-F1)."
+          }
         },
         {
           "id": "P4.2",
           "title": "bench.sh (Add/Contains per-op, 1kx1k Union/Intersect, O(1) flat, zero-fork), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE",
           "category": "performance",
           "severity": "medium",
-          "status": "todo",
-          "acceptance": "Numbers recorded; final master sweep green."
+          "status": "done",
+          "acceptance": "Numbers recorded; final master sweep green.",
+          "bench": {
+            "file": "kcl/thashset/bench.sh — 6 sections: (a) Add + Contains hit/miss per-op at n=1000 and n=5000, (b) Remove per-op at the same sizes, (c) the four algebra ops at 1k x 1k against the 3x relative gate, (d) the O(1) proof (Contains at 100 vs 10000), (e) the event gate (1k Add unhooked vs hooked), (f) zero forks (BASHPID over all 17 methods + a PATH='' sequence). Clock = TStopwatch.getTimeStamp (no hand-rolled _now_us, no date). Deterministic sizes, no $RANDOM. rc 0.",
+            "measured": "2026-09-09, Windows 11 / MSYS2, both bashes run sequentially in the foreground.",
+            "bash_5_2_37": {
+              "Add_1k_us_per_op": 249.1,
+              "Add_5k_us_per_op": 237.9,
+              "Contains_hit_1k_us_per_op": 198.7,
+              "Contains_hit_5k_us_per_op": 195.3,
+              "Contains_miss_1k_us_per_op": 208.6,
+              "Contains_miss_5k_us_per_op": 200.7,
+              "Remove_1k_us_per_op": 258.2,
+              "Remove_5k_us_per_op": 229.7,
+              "baseline_1k_Add_us": 219000,
+              "UnionWith_1k_disjoint_us": 281000,
+              "UnionWith_ratio": 1.2,
+              "IntersectWith_1k_50pct_us": 146000,
+              "IntersectWith_ratio": 0.6,
+              "ExceptWith_1k_50pct_us": 261000,
+              "ExceptWith_ratio": 1.1,
+              "SymmetricExceptWith_1k_50pct_us": 513000,
+              "SymmetricExceptWith_ratio": 2.3,
+              "Contains_at_100_us_per_op": 195.8,
+              "Contains_at_10000_us_per_op": 193.8,
+              "O1_ratio": 0.9,
+              "event_1k_Add_unhooked_us": 235000,
+              "event_1k_Add_hooked_us": 624000,
+              "event_ratio": 2.6
+            },
+            "bash_5_3_9": {
+              "Add_1k_us_per_op": 239.0,
+              "Add_5k_us_per_op": 235.6,
+              "Contains_hit_1k_us_per_op": 203.9,
+              "Contains_hit_5k_us_per_op": 204.0,
+              "Contains_miss_1k_us_per_op": 206.4,
+              "Contains_miss_5k_us_per_op": 204.9,
+              "Remove_1k_us_per_op": 234.4,
+              "Remove_5k_us_per_op": 230.0,
+              "baseline_1k_Add_us": 233000,
+              "UnionWith_1k_disjoint_us": 269000,
+              "UnionWith_ratio": 1.1,
+              "IntersectWith_1k_50pct_us": 139000,
+              "IntersectWith_ratio": 0.5,
+              "ExceptWith_1k_50pct_us": 274000,
+              "ExceptWith_ratio": 1.1,
+              "SymmetricExceptWith_1k_50pct_us": 536000,
+              "SymmetricExceptWith_ratio": 2.2,
+              "Contains_at_100_us_per_op": 242.1,
+              "Contains_at_10000_us_per_op": 244.0,
+              "O1_ratio": 1.0,
+              "event_1k_Add_unhooked_us": 281000,
+              "event_1k_Add_hooked_us": 651000,
+              "event_ratio": 2.3
+            },
+            "gates": "algebra 3x of the 1k-Add baseline — worst is SymmetricExceptWith at 2.3x (5.2.37) / 2.2x (5.3.9), PASS on both; O(1) flat means a ratio < 2.0 over a 100x larger set — 0.9x / 1.0x, PASS; the four algebra result sizes are asserted (2000 / 500 / 500 / 1000) so a wrong-but-fast run cannot look good; zero forks on both.",
+            "hygiene": "bash -n clean on 5.2.37 and 5.3.9; one run under `bash -eu` returned rc 0 with EMPTY stderr. The file does not set -eu itself (neither tqueuestack/bench.sh nor tdictionary/bench.sh does); every Boolean member is called with `|| :`, the tests/005 shape."
+          }
         }
       ]
     }
@@ -370,6 +436,25 @@
       "red_first": "46 FAIL of 55 with the FINAL 006 against the pre-P3 unit; 0 after.",
       "gate": "thashset suite 148/148 (0 [FAIL], grepped) on bash 5.2.37 AND 5.3.9; bash -n clean on the unit and all six test files on both bashes; zero forks on the event path (BASHPID + PATH=''); hook-less 1k Add 220 ms / hooked 566 ms on 5.2.37 and 189 ms / 495 ms on 5.3.9, the unhooked figure indistinguishable from the P2 baseline (219/188 ms). Master sweep: run by the reviewer. NOT committed; the roadmap continues at P4 (bench + docs + closeout).",
       "found_in_P3": "P3-F1 (docs drift, NOT fixed — outside this phase): kcl/README.md section 2 still says thashset is 'at P2 of its own roadmap … P3 (events: Notify/on_notify) and P4 (bench/docs closeout) are not written yet'. The P3 half is now false. Left to the reviewer: it is a kcl-wide file the phase brief did not name, and P4 has to touch that row anyway."
+    },
+    {
+      "batch": "P4 — docs, bench, closeout (this unit's OWN roadmap; the LAST phase)",
+      "date": "2026-09-09",
+      "summary": "No unit code was changed: thashset.sh is byte-identical to the P3 commit and no defect was found while documenting it. Written: bench.sh (new), docs/THashSet.md (new), TEST_COVERAGE_NOTES.md (new), README.md (rewritten status + three new sections), PLAN.md (P4 DONE block + COMPLETE header + section 1 line-number correction), kcl/README.md section 2 (the thashset row), and one new test case. The unit is now COMPLETE (P0-P4).",
+      "bench": "kcl/thashset/bench.sh, 6 sections, clocked with TStopwatch.getTimeStamp (sourced from ../tstopwatch — no hand-rolled _now_us, no date), deterministic sizes, no $RANDOM, exit 0, bash -n clean on both bashes and one run under `bash -eu` with rc 0 and EMPTY stderr. Numbers are in phases[P4].tasks[P4.2].bench for both bashes. Headlines: per-op cost sits in a 190-260 us band for every membership member and does not move between n=1000 and n=5000 (it is the kklass dispatch, not the data structure); all four algebra ops pass the 3x relative gate on both bashes, worst SymmetricExceptWith 2.3x (5.2.37) / 2.2x (5.3.9), which is what FPC's :2450 two-pass costs; Contains is FLAT at 0.9x / 1.0x per op against a set 100x larger (the O(1) claim — 'flat' is defined as a ratio below 2.0, and a linear scan would show ~100x); the event gate costs nothing unhooked and 2.6x / 2.3x with a do-nothing listener; zero forks across all 17 methods plus a PATH='' sequence. The four algebra RESULT SIZES are asserted inside the bench (2000/500/500/1000) so a wrong-but-fast run cannot pass silently.",
+      "docs": "docs/THashSet.md transcribes the release_3_2_2 tag: TCustomSet<T> declared :474-527 (the abstract trio Add/Remove/Extract :505-507, Clear :509, Contains :510, the four AddRange overloads :511-515, the algebra :517-520, Count :522, Capacity :523, TrimExcess :524, OnNotify :526 over the abstract GetOnNotify/SetOnNotify :495/:496) with the algebra bodies quoted verbatim from :2379/:2417/:2425/:2442/:2450 and their loop semantics explained; THashSet<T> declared :531-574 (FInternalDictionary :535) with Create :2544, Create(comparer) :2549, Destroy :2554, Add :2559, Remove :2566, Extract :2576 (the Default(T) exit at :2582), Clear :2588, Contains :2593, TrimExcess :2598, and the event plumbing InternalDictionaryNotify :2500 / GetOnNotify :2525 / SetOnNotify :2530. Wontfix carries the tag's line numbers for the sorted family (TSortedSet :839-881, TSortedHashSet :883-941, TAVLTree<T> :812-824, TIndexedAVLTree<T> :826-837, TCustomAVLTreeMap :638) and the enumerators (:480-489, :537-543, :545-552). Seeds re-checked: Test_Set_General :86-152 entered from Test_HashSet_General :231-234, Test_TCustomSet_Notification :261-338 entered from Test_THashSet_Notification :340-343, TCollectionNotification :112, EmptyRecord :946.",
+      "coverage_notes": "TEST_COVERAGE_NOTES.md is new and indexes EVERY case, one table per file: 001 10, 002 17, 003 11, 004 11, 005 45, 006 55 = 149 rows, equal to the suite total. Classes: contract 73, event 29, behavior 20, representation 15, boundary 12. 14 rows are FPC-traceable in the strict sense (005 section A 5 cases, 006 section A 9 cases) and cite their seed line; every other row carries a Basis (an S-pin, an implementation line, a finding ID, or a house rule).",
+      "tests": "ONE case added, tests/003_Contract.sh 003.readme-sorted (10 -> 11 cases): the README's ordered-iteration composition — AddRange, ToArray, TArray.sort — asserted to yield RESULT 5 and 'apple banana cherry fig pear'. RED FIRST: written with the hash-order expectation ('pear apple fig banana cherry') it failed 1 of 149, printing the true value; the expectation was then corrected. It lives in 003 deliberately (and says so in the file) because the composition IS the contract standing in for the TSortedSet/TSortedHashSet wontfix; 003 is otherwise the near-identical cross-unit contract block.",
+      "readme_snippets_executed": "Every snippet written into README.md was run before being published: the quickstart (Add rc 0 / dup rc 1 / Contains rc 0 / Remove miss rc 1 / Count 1 / ToArray RESULT 1), the sorted-iteration example (apple banana cherry fig pear), the events example (added alpha, added beta, removed alpha, removed beta on delete — the duplicate Add silent), the TAuditSet descendant that overrides Notify (AUDIT x:added y:added x:removed, then y:removed on delete), and both halves of the comparison box side by side against a live TDictionary (hs Add dup rc 1 vs td Add dup rc 1 on the error path, hs Remove miss rc 1 vs td Remove miss rc 0, hs Extract miss rc 0 RESULT='' vs td ExtractPair miss rc 0 with both RESULT_KEY and RESULT empty, AddRange AND-fold rc 0 / rc 1 / zero-args rc 0 / inner-duplicate rc 1). No claim in the README is unverified.",
+      "gate": "thashset suite 149/149, 0 [FAIL] (grepped), on bash 5.2.37 AND on bash 5.3.9, run sequentially in the foreground. bash -n clean on thashset.sh, all six test files and bench.sh, on both bashes. Master sweep: run by the reviewer. NOT committed, NOT pushed.",
+      "deviations": [
+        "bench.sh does not `set -eu` itself — neither tqueuestack/bench.sh nor tdictionary/bench.sh does, and the brief made that conditional on the house shape. It was RUN under `bash -eu` (rc 0, empty stderr) and every Boolean member is called with `|| :`.",
+        "The PATH='' probe inside bench.sh redirects every `func` call to /dev/null: the probe is itself a $( ), so Count/ToArray/Extract print their value there (the kklass return contract). The first run reported '63055a06|3|0|5|5|a|0' and the redirect fixed it — the same shape tests/005 section I already uses.",
+        "The one new test case went into 003_Contract.sh as the phase brief allowed, even though that file is otherwise deliberately near-identical across the suites. It is marked in the file as the deliberate exception so a future mechanical contract sweep keeps it.",
+        "Two 'P3' strings survive in README.md and are historical, not status: a Performance line comparing the unhooked cost against the P2/P3 baselines, and the file name 004_ReviewP2.sh."
+      ],
+      "found_in_P4": "P4-F1 (docs drift, FIXED in this phase): three out_of_scope entries and PLAN section 1 carried the P0 revision's line numbers (comparer ctor :602 -> :562, TEmptyRecord :574 -> :535, enumerators :576-592 -> :480-489/:537-543/:545-552 — at the tag those lines are the TPair/TAVLTreeNode block, not an enumerator at all). Corrected here and in PLAN.md, with the drift noted in both places and in docs/THashSet.md. No behaviour was affected. P3-F1 (kcl/README.md section 2 drift, raised at P3) is CLOSED by this phase's rewrite of the thashset row.",
+      "open_items": "None. The roadmap entry for this unit is finished; the reviewer fills the P4 commit SHA into `status`."
     }
   ]
 }

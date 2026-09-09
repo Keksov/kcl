@@ -23,10 +23,13 @@ s.ToArray items        # RESULT = number of elements; call DIRECTLY, not in $( )
 s.delete               # destructor: frees the storage array too
 ```
 
-> **Status: phase P3 of this unit's own roadmap.** Every declared member has a
-> real body — the membership core, the set algebra and the event seam. What is
-> left is P4: `bench.sh`, `docs/THashSet.md`, the TDictionary-vs-THashSet
-> comparison box and the closeout. See `PLAN.md` / `thashset_ledger.json`.
+> **Status: COMPLETE (P0–P4).** Every declared member has a real body — the
+> membership core, the set algebra and the event seam — and the suite is
+> **149 checks, green on bash 5.2.37 and 5.3.9**. Upstream API reference:
+> [docs/THashSet.md](docs/THashSet.md). What the tests pin, case by case:
+> [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). Numbers: `bench.sh`
+> (summarised under *Performance* below). History: `PLAN.md` /
+> `thashset_ledger.json`.
 
 ## Contract
 
@@ -87,8 +90,8 @@ either: rc 0 on success, and **rc 1** when the operand is not a live `THashSet`
 set byte-identical. They snapshot the operand's keys before mutating this set,
 which is what makes the self-operation cases above defined rather than a walk
 over a table that is changing underneath. Iteration order is hash order, so the
-order in which elements are added or removed (and, from P3, the order of the
-events) is unspecified.
+order in which elements are added or removed — and therefore the order of the
+events — is unspecified.
 
 ### Output-array names
 
@@ -104,7 +107,77 @@ Per-member upstream reference: FPC `packages/rtl-generics/src/generics.collectio
 at the **release_3_2_2** tag — `TCustomSet<T>` (declared :474–527, the set
 algebra :2379–2467) and `THashSet<T>` (declared :531–574, impl :2500–2601).
 The `:3002`-style numbers this file carried before 2026-09-09 came from a
-different revision: identical code, different line numbers.
+different revision: identical code, different line numbers. The full
+per-member transcription lives in [docs/THashSet.md](docs/THashSet.md).
+
+## Ordered iteration
+
+A hash set has no order, and FPC's answer — `TSortedSet` / `TSortedHashSet`
+over an AVL tree (`:839` / `:883`) — is **not ported**: a balanced tree buys
+nothing over bash's native hash. Sort at the boundary instead, by composing
+`ToArray` with [`tarray`](../tarray/README.md)'s `TArray.sort`:
+
+```bash
+source kcl/thashset/thashset.sh
+source kcl/tarray/tarray.sh
+
+THashSet.new fruit
+fruit.AddRange pear apple fig banana cherry || :
+
+declare -a ordered=()
+fruit.ToArray ordered          # RESULT = 5; the fill itself is hash order
+TArray.sort ordered            # byte order, in place, fork-free
+printf '%s\n' "${ordered[@]}"
+fruit.delete
+```
+
+```
+apple
+banana
+cherry
+fig
+pear
+```
+
+`TArray.sort` also takes `-n` for numeric order or the name of a comparator
+function, so any order you can express is one call away; the set itself stays
+unordered. `AddRange` is called with `|| :` because its rc is the AND-fold
+answer, not an error — under `set -e` an unguarded duplicate would stop the
+script. The example is executed end to end by `tests/003_Contract.sh`, so it
+cannot drift from the two units.
+
+## THashSet vs TDictionary — the members that differ
+
+The two units share a storage layer and will be used side by side, so the
+places where the same verb means something different are worth having in one
+table. `d` is a [`TDictionary`](../tdictionary/README.md), `s` a `THashSet`.
+
+| Topic | `TDictionary` | `THashSet` |
+|---|---|---|
+| add, new | `d.Add k v` → rc 0 | `s.Add x` → rc 0 |
+| add, **duplicate** | rc 1 — an **error** (FPC raises `EListError`), with a `VERBOSE_KKLASS=debug` line; `d.TryAdd` is the silent variant | rc 1 — an **answer** (FPC returns `False`), always silent, never logged. There is no `TryAdd`: `Add` already is one |
+| remove, hit | `d.Remove k` → rc 0 | `s.Remove x` → rc 0 |
+| remove, **miss** | **rc 0** — a silent no-op (FPC `procedure Remove`) | **rc 1** — the Boolean answer (FPC `function Remove: Boolean`), silent |
+| extract | `d.ExtractPair k` → `RESULT_KEY` + `RESULT`, action `extracted` | `s.Extract x` → `RESULT`, action `extracted` |
+| extract, **miss** | rc 0, `RESULT_KEY=''` `RESULT=''` (`Default(TPair)`) | rc 0, `RESULT=''` (`Default(T)`) — the same ambiguity with `''`, the same cure: ask `Contains` first |
+| membership test | `d.ContainsKey k` (and `d.ContainsValue v`, an O(n) scan) | `s.Contains x` — one member, O(1); a set has no second dimension to scan |
+| read a value | `d.GetItem k` / `d.TryGetValue k` / `d.GetValueDef k def` | — there is nothing to read: membership *is* the value |
+| count | `d.count` (a **property**) | `s.Count` (a **method**, `RESULT`) — both computed from the storage |
+| clear | `d.Clear` — storage emptied first, then one event per old pair | `s.Clear` — identical model (S4), one `removed` per old element |
+| bulk fill | `d.AddPairs k v [k v …]` — a duplicate **aborts at that pair** | `s.AddRange i1 [i2 …]` — the FPC AND-fold: every item is attempted, rc 0 iff all were new. Plus `s.AddRangeFromArray arrName` |
+| event hooks | **two**: `d.onKeyNotify`, `d.onValueNotify` | **one**: `s.on_notify` (+ the `s.onNotify` setter) |
+| event callback | `cb <dict> <item> <added\|removed\|extracted>` — fired once for the key and once for the value | `cb <set> <item> <added\|removed\|extracted>` — one event per element |
+| event on insert | key `added`, then value `added` | one `added` |
+| event on overwrite | value(old) `removed` + value(new) `added`, key silent | — there is no overwrite; a duplicate `Add` fires **nothing** |
+| iteration | `d.ForEach cb` → `cb key value`; `d.Keys`/`d.Values`; `d.KeysToArray`/`d.ValuesToArray`/`d.ToArrays` | `s.ForEach cb` → `cb item`; `s.ToArray arr` |
+| copy | `d.Assign src` — replaces the contents, source class-checked | `s.Assign src` — identical, and a `TDictionary` is refused (R5) |
+| set algebra | — | `s.UnionWith` / `IntersectWith` / `ExceptWith` / `SymmetricExceptWith`, the reason this unit exists |
+| ownership subclass | `TObjectDictionary` (owns keys and/or values) | none — FPC declares no `TObjectHashSet`. `_notifyHook` is the extension point |
+| capacity | ignored ctor argument (`TDictionary.new d 1000`) | not accepted at all |
+
+Both units store one `declare -A` per instance with the same `k`-prefixed
+subscript idioms, so an exotic element is exactly as safe here as an exotic key
+there.
 
 ## Events
 
@@ -160,9 +233,11 @@ Rules the tests pin (`tests/006_Events.sh`):
   exists.
 - **Order within a hash-order path is unspecified.** Only the per-member and
   per-phase orders above are guaranteed.
-- **Cost with no listener** is one `[[ ]]` per mutation and no dispatch:
-  1000 `Add` calls take 220 ms on bash 5.2.37 (189 ms on 5.3.9) unhooked
-  against 566 ms (495 ms) with a do-nothing listener attached.
+- **Cost with no listener** is one `[[ ]]` per mutation and no dispatch. 1000
+  `Add` calls, measured by `bench.sh` on 2026-09-09: 235 ms unhooked against
+  624 ms with a do-nothing listener on bash 5.2.37 (2.6×), 281 ms against
+  651 ms on 5.3.9 (2.3×). The delta is one virtual `Notify` dispatch plus the
+  callback per element — see *Performance*.
 
 To receive events without a user callback — the reason `_notifyHook` exists —
 override the seam in a descendant and arm the hook in its constructor:
@@ -177,6 +252,47 @@ TAuditSet.Create() { inherited; _notifyHook=1; }
 TAuditSet.Notify() { inherited Notify "$@"; AUDIT+=("$1:$2"); }
 build TAuditSet
 ```
+
+## Performance
+
+`bash kcl/thashset/bench.sh` — deterministic sizes, no `$RANDOM`, timed with
+`TStopwatch.getTimeStamp` (the shared fork-free µs clock). Measured
+**2026-09-09** on Windows 11 / MSYS2:
+
+| Measurement | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `Add`, n=1000 | 249.1 µs/op | 239.0 µs/op |
+| `Add`, n=5000 | 237.9 µs/op | 235.6 µs/op |
+| `Contains` hit, n=1000 / n=5000 | 198.7 / 195.3 µs/op | 203.9 / 204.0 µs/op |
+| `Contains` miss, n=1000 / n=5000 | 208.6 / 200.7 µs/op | 206.4 / 204.9 µs/op |
+| `Remove`, n=1000 / n=5000 | 258.2 / 229.7 µs/op | 234.4 / 230.0 µs/op |
+| **baseline** — one 1k `Add` loop | 219 ms | 233 ms |
+| `UnionWith` 1k into a disjoint 1k | 281 ms — **1.2×** | 269 ms — **1.1×** |
+| `IntersectWith` 1k × 1k, 50% overlap | 146 ms — **0.6×** | 139 ms — **0.5×** |
+| `ExceptWith` 1k × 1k, 50% overlap | 261 ms — **1.1×** | 274 ms — **1.1×** |
+| `SymmetricExceptWith` 1k × 1k, 50% | 513 ms — **2.3×** | 536 ms — **2.2×** |
+| `Contains` @ 100 vs @ 10 000 elements | 195.8 vs 193.8 µs/op — **0.9×** | 242.1 vs 244.0 µs/op — **1.0×** |
+| 1k `Add`, unhooked vs hooked | 235 → 624 ms — **2.6×** | 281 → 651 ms — **2.3×** |
+
+Reading the table:
+
+- **Per-op cost is the kklass instance dispatch**, not the data structure:
+  every membership member lands in the same 190–260 µs band, and the band does
+  not move between n=1000 and n=5000.
+- **The algebra gate is 3× the 1k-`Add` baseline** (`PLAN.md` §5, asserted by
+  `tests/005_SetAlgebra.sh` §J). All four operations pass on both bashes; the
+  worst is `SymmetricExceptWith` at 2.3×, which is exactly what FPC's two-pass
+  algorithm costs — a `Contains` plus an `Add` **or** a deferred `Remove` for
+  every element of the operand.
+- **`Contains` is flat** — 0.9×/1.0× per op against a set **100× larger**.
+  "Flat" here means a ratio below 2.0; a linear scan would show ~100×.
+  `declare -A` is a real hash table and the port adds no scan of its own.
+- **The event gate costs nothing when nobody listens**: the unhooked loop is
+  indistinguishable from the P2/P3 baselines; attaching a do-nothing callback
+  costs 2.3–2.6× — one virtual dispatch plus the callback, per element.
+- **Zero forks**: `$BASHPID` is unchanged across a sequence of all 17 methods
+  plus `new`/`delete`, and a full membership-plus-algebra sequence still
+  produces the right answers with `PATH=''`.
 
 ## Divergences from FPC (all tested)
 
@@ -197,25 +313,18 @@ build TAuditSet
 
 ## Tests
 
-`bash kcl/thashset/tests/tests.sh` — on bash 5.2.37 and 5.3.9.
-`001_Skeleton.sh` pins the class surface and the pending markers,
-`002_MembershipCore.sh` the P1 behaviour including the exotic-element torture,
-`003_Contract.sh` the kcl contract (`set -eu`, value round-trip, lifecycle,
-output-name validation), `004_ReviewP2.sh` the 2026-09-06 review
-regressions (G2-01 single-quoted `unset`, G2-02 output names, G2-04 `Assign`
-class check, G2-05 `ForEach` callback check) and `005_SetAlgebra.sh` the P2
-algebra: the FPC `Test_Set_General` truth table ported case for case, the four
-operations over eight operand shapes with the operand asserted untouched, the
-self-operation edges, exotic elements through every path, both `AddRange`
-forms, operand and input-name validation, and the relative performance gate.
-`006_Events.sh` is the P3 event seam: the FPC
-`Test_TCustomSet_Notification` oracle (`tests.generics.sets.pas :261–338`)
-ported case for case, the per-member sequences (S1/S2/S4/S5/S6), the algebra
-ops compared as event multisets against the P2 truth tables, the callback
-signature byte-exact over twelve exotic elements, mutating and re-entrant
-callbacks, the dangling name and ignored-status edges, the `onNotify` setter,
-the `_notifyHook` seam through a subclass that overrides `Notify`, and the
-hook-less cost.
+`bash kcl/thashset/tests/tests.sh` — **149 checks**, green on bash 5.2.37 and
+on 5.3.9. Every case is indexed in
+[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+
+| File | Cases | What it pins |
+|---|---|---|
+| `001_Skeleton.sh` | 10 | the ctor core, computed `Count`, the reduced storage torture, the event surface, and that **no** member answers with a `__ths_pending__` sentinel any more |
+| `002_MembershipCore.sh` | 17 | the membership lifecycle, the Boolean-rc contract, `''` as an element, the exotic-element torture through `Remove`/`Extract`, `ForEach`/`Clear`/`Assign` |
+| `003_Contract.sh` | 11 | the kcl contract (`set -eu` load and re-load, source integrity, value round-trip, teardown, error path under `set -e`) plus the README's sorted-iteration example, run end to end |
+| `004_ReviewP2.sh` | 11 | the 2026-09-06 review regressions: G2-01 single-quoted `unset`, G2-02 output names, G2-04 `Assign` class check, G2-05 `ForEach` callback check |
+| `005_SetAlgebra.sh` | 45 | the FPC `Test_Set_General` truth table case for case, the four operations over eight operand shapes with the operand asserted untouched, the self-operation edges, exotic elements through every path, both `AddRange` forms, operand and input-name validation, and the 3× relative performance gate |
+| `006_Events.sh` | 55 | the FPC `Test_TCustomSet_Notification` oracle (`tests.generics.sets.pas :261–338`) case for case, the per-member sequences (S1/S2/S4/S5/S6/S9), the algebra ops as event multisets, the callback signature byte-exact over twelve exotic elements, mutating and re-entrant callbacks, the dangling-name and ignored-status edges, the `onNotify` setter, the `_notifyHook` seam through a subclass that overrides `Notify`, and the hook-less cost |
 
 Per-member upstream reference for the events: `THashSet<T>.SetOnNotify :2530`,
 `InternalDictionaryNotify :2500`, `GetOnNotify :2525`, `Destroy :2554`, and

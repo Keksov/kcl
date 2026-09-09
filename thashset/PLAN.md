@@ -1,5 +1,10 @@
 # THashSet → bash port plan (kcl/thashset)
 
+**Status: COMPLETE — P0, P1, P2, P3 and P4 are all done (2026-09-09).** Every
+declared member has a real body, the suite is **149 checks green on bash 5.2.37
+and 5.3.9**, and §7's deliverables all exist. Nothing in this plan is
+outstanding; the per-phase DONE blocks below are the record.
+
 **Roadmap position:** 6/7 (owner priority order, 2026-07-12).
 **Source of truth:** FPC rtl-generics `generics.collections.pas` — `TCustomSet<T>` (:513–566: Add/Remove/Extract abstract trio, Clear, Contains, AddRange overloads :550–555, **UnionWith :2853 / IntersectWith :2861 / ExceptWith :2878 / SymmetricExceptWith** (impl after :2878), Count/Capacity/TrimExcess/OnNotify :561–565) + `THashSet<T>` (:570–612: backed by `TOpenAddressingLP<T, TEmptyRecord>` :574 — i.e. **FPC itself implements the set as a dictionary with empty values**; Extract :3019 → `Default(T)` on miss, Clear :3031).
 **Target:** `kcl/thashset/thashset.sh` — kklass **instantiable** class `THashSet` over the tdictionary storage pattern minus values.
@@ -19,6 +24,11 @@ Tier A; every storage idiom arrives pre-validated by tdictionary tests/002.
 
 ### Ported
 
+*(The `:5xx`/`:28xx`/`:30xx` numbers in this table are the P0 revision's and are
+kept as written; the **release_3_2_2** tag's numbers — the ones every other file
+now uses — are in the P2/P3 DONE blocks of §5 and, member by member, in
+[docs/THashSet.md](docs/THashSet.md). The code is identical word for word.)*
+
 | FPC | bash | Notes |
 |---|---|---|
 | `Create` / `Destroy` | `THashSet.new s` / `s.delete` | Destroy→Clear (events fire; pin S5) |
@@ -33,7 +43,7 @@ Tier A; every storage idiom arrives pre-validated by tdictionary tests/002.
 | `ExceptWith(ASet)` (:2878) | `s.ExceptWith other` | Remove each of other's (silent misses) |
 | `SymmetricExceptWith(ASet)` | `s.SymmetricExceptWith other` | impl pinned at P0 (likely per-item toggle; self-case ⇒ Clear — S3) |
 | `Count` (:561) | `s.count` | computed `${#items[@]}` |
-| `OnNotify` (:565) | `s.onNotify` property + `Notify` seam | single event, cb `<inst> <item> <added|removed|extracted>`; `_notifyHook` reserved for future subclassing (no TObjectHashSet in FPC — none ported) |
+| `OnNotify` (:526) | `s.on_notify` var + `s.onNotify` setter + `Notify` seam | single event, cb `<inst> <item> <added\|removed\|extracted>`; `_notifyHook` reserved for future subclassing (no TObjectHashSet in FPC — none ported) |
 
 Bash-convenience extras (TEST_COVERAGE_NOTES rows): `s.ToArray outVar` (lossless fill),
 `s.ForEach cb` (snapshot semantics — tdictionary P3 clone), `s.Assign src` (copy),
@@ -41,15 +51,25 @@ Bash-convenience extras (TEST_COVERAGE_NOTES rows): `s.ToArray outVar` (lossless
 
 ### NOT ported (wontfix)
 
-1. **Hashing/comparer machinery** — `Create(IEqualityComparer)` (:602), the
-   TOpenAddressingLP backend, capacity family (`Capacity/TrimExcess/SetCapacity`
-   :562–563) — the ENTIRE tdictionary API-v2 precedent applies verbatim: `declare -A`
+*(Line numbers below were re-read against the **release_3_2_2** tag at P4; the
+P0 originals — `:602`, `:562–563`, `:576–592`, `:574` — came from a different
+revision of the same file. `docs/THashSet.md` carries the full transcription.)*
+
+1. **Hashing/comparer machinery** — `Create(const AComparer: IEqualityComparer<T>)`
+   (:562), the `TOpenAddressingLP` backend (:535), the capacity family
+   (`Capacity` :523 over `GetCapacity`/`SetCapacity` :556/:557, `TrimExcess`
+   :524/:573) — the ENTIRE tdictionary API-v2 precedent applies verbatim: `declare -A`
    is the backend; comparers cannot back assoc lookups; capacity controls nothing.
-2. **TSortedSet / TSortedHashSet / TAVLTree family** (:the AVL block) — balanced trees
-   are pointless over a native hash; ordered iteration = sort the ToArray output at the
-   boundary (README example composing `TArray.sort`).
-3. **Enumerator objects / pointer enumerators** (:576–592) — ForEach/ToArray instead.
-4. **`TEmptyRecord` trick** (:574) — internal; our storage stores `1` as the value.
+2. **TSortedSet (:839–881) / TSortedHashSet (:883–941) / TAVLTree family**
+   (`TAVLTree<T>` :812–824, `TIndexedAVLTree<T>` :826–837, `TCustomAVLTreeMap`
+   :638) — balanced trees are pointless over a native hash; ordered iteration =
+   sort the ToArray output at the boundary (README example composing
+   `TArray.sort`, executed by tests/003).
+3. **Enumerator objects / pointer enumerators** (`TCustomSetEnumerator` :480–489,
+   `THashSetEnumerator` :537–543, `TPointersEnumerator` :545–552, `GetEnumerator`
+   :503/:564) — ForEach/ToArray instead.
+4. **`TEmptyRecord` trick** (:535, the global `EmptyRecord` :946) — internal; our
+   storage stores `1` as the value.
 5. **NUL bytes** in elements (bash limit).
 
 ---
@@ -308,6 +328,74 @@ zero-fork PATH=''; dual-bash. Non-FPC cases → TEST_COVERAGE_NOTES rows.
   UnionWith/IntersectWith, O(1) flat check, zero-fork), TEST_COVERAGE_NOTES finalized,
   ledger COMPLETE, final sweep. STOP.
 
+  **DONE 2026-09-09.** No unit code was changed — `thashset.sh` is byte-identical
+  to the P3 commit. What was written:
+
+  | File | State |
+  |---|---|
+  | `bench.sh` | **new**, 6 sections (see the numbers below); `TStopwatch.getTimeStamp` clock, deterministic sizes, no `$RANDOM`, rc 0, clean under `bash -eu` with empty stderr |
+  | `docs/THashSet.md` | **new**, the house header block (Upstream reference / Ported / Roadmap / Wontfix / Return contract) + the `TCustomSet`/`THashSet` API transcribed from the **release_3_2_2** tag with line numbers + a "how the bash port maps" table + the divergence table |
+  | `TEST_COVERAGE_NOTES.md` | **new**, the house protocol paragraph, a class legend and **one table per test file with every one of the 149 cases** (10 / 17 / 11 / 11 / 45 / 55) |
+  | `README.md` | status → COMPLETE (P0–P4); new **TDictionary-vs-THashSet comparison box** (20 rows), new **Ordered iteration** section with the `ToArray` + `TArray.sort` example and its real output, new **Performance** section with the bench table for both bashes, the Tests section rewritten as a per-file table; every "pending / P3 / P4 will" wording gone |
+  | `tests/003_Contract.sh` | +1 case (11 total): the README sorted-iteration example run end to end |
+  | `../README.md` §2 | the thashset row rewritten as a complete unit |
+  | `thashset_ledger.json` | phase P4 + tasks P4.1/P4.2 done, bench numbers for both bashes, status COMPLETE |
+
+  **The one test added, red-first.** `003.readme-sorted` was first written
+  asserting the *hash* order (`pear apple fig banana cherry`) and run against
+  the real code: **1 FAIL / 149**, reporting the true value
+  `apple banana cherry fig pear`. The expectation was then corrected and the
+  suite went 149/149. The case lives in `003_Contract.sh` — deliberately, and
+  flagged in the file — because the composition it runs is the *contract*
+  standing in for the `TSortedSet`/`TSortedHashSet` wontfix.
+
+  **Bench numbers (2026-09-09, Windows 11 / MSYS2).** Gate: no algebra op may
+  cost more than **3×** a 1k `Add` loop; `Contains` must be **flat** (ratio
+  < 2.0) between 100 and 10 000 elements.
+
+  | Measurement | 5.2.37 | 5.3.9 |
+  |---|---|---|
+  | `Add` n=1000 / n=5000 | 249.1 / 237.9 µs/op | 239.0 / 235.6 µs/op |
+  | `Contains` hit n=1000 / n=5000 | 198.7 / 195.3 µs/op | 203.9 / 204.0 µs/op |
+  | `Contains` miss n=1000 / n=5000 | 208.6 / 200.7 µs/op | 206.4 / 204.9 µs/op |
+  | `Remove` n=1000 / n=5000 | 258.2 / 229.7 µs/op | 234.4 / 230.0 µs/op |
+  | baseline 1k `Add` | 219 ms | 233 ms |
+  | `UnionWith` 1k disjoint | 281 ms = **1.2×** PASS | 269 ms = **1.1×** PASS |
+  | `IntersectWith` 1k×1k 50% | 146 ms = **0.6×** PASS | 139 ms = **0.5×** PASS |
+  | `ExceptWith` 1k×1k 50% | 261 ms = **1.1×** PASS | 274 ms = **1.1×** PASS |
+  | `SymmetricExceptWith` 1k×1k 50% | 513 ms = **2.3×** PASS | 536 ms = **2.2×** PASS |
+  | `Contains` @100 vs @10 000 | 195.8 vs 193.8 µs/op = **0.9×** PASS | 242.1 vs 244.0 µs/op = **1.0×** PASS |
+  | 1k `Add` unhooked → hooked | 235 → 624 ms = **2.6×** | 281 → 651 ms = **2.3×** |
+  | zero-fork | `$BASHPID` unchanged over all 17 methods; `PATH=''` sequence correct | same |
+
+  `SymmetricExceptWith` is the expensive one by construction — FPC's :2450 pays
+  a `Contains` plus either an `Add` or a deferred `Remove` for **every** element
+  of the operand — and it is still comfortably inside the 3× gate. The flat
+  `Contains` ratio is the O(1) claim: over a set **100× larger** the per-op cost
+  does not move, because `declare -A` is a real hash table and the port adds no
+  scan of its own.
+
+  **Deviations from the letter of the assignment.** Three, all small:
+  1. The `README` bullet asked for "no `P3`" wording; the two surviving
+     mentions are *historical* (a Performance line comparing against the P2/P3
+     baselines, and the file name `004_ReviewP2.sh`), not status claims.
+  2. `bench.sh` does not set `set -eu` itself — neither `tqueuestack/bench.sh`
+     nor `tdictionary/bench.sh` does, and the brief made that conditional. It
+     was *run* under `bash -eu` (rc 0, empty stderr) and every Boolean member is
+     called with `|| :`, the `tests/005` shape.
+  3. The `PATH=''` probe inside `bench.sh` redirects every `func` call to
+     `/dev/null`: the probe is itself a `$( )`, so `Count`/`ToArray`/`Extract`
+     print their value there (the kklass return contract). Caught by the first
+     run, which reported `63055a06|3|0|5|5|a|0`.
+
+  **Docs drift corrected while transcribing the tag.** The `out_of_scope`
+  entries written at P0 carried the *other* revision's numbers for three items
+  (comparer ctor `:602` → **:562**, `TEmptyRecord` `:574` → **:535**,
+  enumerators `:576–592` → **:480–489** / **:537–552**, which in the tag is the
+  `TPair`/`TAVLTreeNode` block, not an enumerator at all). `docs/THashSet.md`
+  carries the tag's numbers and says so; the ledger entries were re-pointed in
+  the same pass.
+
 ## 6. Bash traps to respect
 
 1. All tdictionary storage idioms verbatim; `__ts_` local prefix in nameref methods.
@@ -332,3 +420,9 @@ zero-fork PATH=''; dual-bash. Non-FPC cases → TEST_COVERAGE_NOTES rows.
 
 `kcl/thashset/`: thashset.sh, PLAN.md, thashset_ledger.json, README.md,
 docs/THashSet.md, bench.sh, TEST_COVERAGE_NOTES.md, tests/001…+tests.sh.
+
+**All delivered as of P4 (2026-09-09):** `thashset.sh` (17 methods + 2 event
+vars, every one with a real body), `PLAN.md`, `thashset_ledger.json`,
+`README.md`, `docs/THashSet.md`, `bench.sh`, `TEST_COVERAGE_NOTES.md`, and
+`tests/001_Skeleton.sh` … `006_Events.sh` + `tests/tests.sh` — 149 cases, 0 FAIL
+on bash 5.2.37 and on bash 5.3.9.
