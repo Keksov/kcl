@@ -500,10 +500,13 @@ VA.Count; n="$RESULT"
 VA.delete
 
 # ---------------------------------------------------------------------------
-# H. the P2 stubs are gone
+# H. the stubs are gone — P2 took the six algebra/AddRange ones, P3 the last
+#    (`Notify`), so the exclusion this case carried at P2 is gone with it and
+#    the whole public surface is checked. 006 section I repeats the sweep with
+#    the event members attached.
 # ---------------------------------------------------------------------------
 
-kt_test_start "no public member answers with the __ths_pending__ sentinel (Notify is P3)"
+kt_test_start "no public member answers with the __ths_pending__ sentinel (Notify included)"
 THashSet.new PS
 THashSet.new PT
 PT.Add other
@@ -534,7 +537,9 @@ run_member PS.ExceptWith PT
 run_member PS.SymmetricExceptWith PT
 run_member PS.Assign PT
 run_member PS.Clear
-[[ -z "$seen" ]] && kt_test_pass "15 members, no sentinel (Notify excluded — P3)" \
+run_member PS.Notify nz added
+run_member PS.onNotify cbz
+[[ -z "$seen" ]] && kt_test_pass "17 members, no sentinel anywhere" \
     || kt_test_fail "sentinel still returned by: $seen"
 PS.delete; PT.delete
 

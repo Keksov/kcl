@@ -61,6 +61,54 @@
 # as TCustomSet drives THashSet's Booleans, so the event stream is identical to
 # the same calls made by hand.
 #
+# ---- Events (FPC :2500/:2525/:2530, S5/S9) -----------------------------------
+# FPC has NO virtual Notify on a set. `TCustomSet.OnNotify` (:526) is a property
+# over the abstract GetOnNotify/SetOnNotify pair (:495/:496), and THashSet
+# implements it by re-routing the INTERNAL DICTIONARY's OnKeyNotify:
+#     SetOnNotify (:2530)  FOnNotify := AValue;
+#                          if Assigned(AValue) then
+#                            FInternalDictionary.OnKeyNotify := InternalDictionaryNotify
+#                          else
+#                            FInternalDictionary.OnKeyNotify := nil;
+#     InternalDictionaryNotify (:2500)  FOnNotify(Self, AItem, AAction);
+# Two things follow and are ported literally: the SENDER is the SET (`Self`),
+# not the storage; and with no callback assigned NOTHING is dispatched at all —
+# which is exactly what the `TSet._notify` gate does here.
+#
+#   * callback signature: `cb <inst> <item> <added|removed|extracted>`;
+#   * cost with no listener = ONE `[[ ]]` (two string tests) per mutation, and
+#     no dispatch — measured at 1k `Add`: 220 ms unhooked vs 566 ms hooked on
+#     bash 5.2.37, 189 ms vs 495 ms on 5.3.9;
+#   * `on_notify` is the user callback NAME ('' = off); `s.onNotify NAME` is the
+#     validating setter for it ('' clears, rc 0; a name that is not a function
+#     is rc 2 + kk.debug and leaves the current hook alone); the direct
+#     `s.on_notify = "cb"` assignment is equivalent and stays supported;
+#   * `Notify` is a PUBLIC VIRTUAL seam (the house pattern of tqueuestack /
+#     tdictionary, which FPC's set does not have). `_notifyHook` is the same
+#     unit's convention: a subclass that OVERRIDES `Notify` sets it non-empty in
+#     its constructor, and then events dispatch with no user callback attached
+#     (tdictionary.sh:628, TObjectDictionary). FPC declares no set subclass at
+#     all, so nothing in this unit arms it — it is the extension point;
+#   * a dangling callback name is a `kk.debug` line and a no-op, never a crash;
+#   * the callback's exit STATUS IS IGNORED — a Pascal event is a `procedure`
+#     and returns nothing, so a callback that fails must not change the member's
+#     rc nor abort a `set -e` caller;
+#   * events fire AFTER the mutation (Add writes then notifies; Remove/Extract
+#     notify after the `unset`; Clear empties the whole storage FIRST, S4), so a
+#     callback always observes the NEW state — `Contains` on a just-removed
+#     element is false and `Count` during `Clear` is 0. A callback that MUTATES
+#     the set is therefore safe and its own events are delivered (re-entrant):
+#     every loop iterates a SNAPSHOT, so the set stays consistent
+#     (Count == storage == ToArray) whatever the callback does. Recursion is the
+#     caller's problem — a callback that adds on `added` must stop itself;
+#   * `Destroy` fires `removed` for every element (S5): FPC :2554 frees the
+#     internal dictionary, whose Clear notifies. Verified by the fpcunit seed
+#     tests.generics.sets.pas :334-336 (`ASet.Free` -> `Polandball` cnRemoved).
+#
+# NB, a deviation: FPC's `GetOnNotify` (:2525) reads back
+# `FInternalDictionary.OnKeyNotify`, i.e. the private FORWARDER, not the
+# callback the caller assigned. `$(s.on_notify)` here reads back what was set.
+#
 # ---- Return contract ---------------------------------------------------------
 # Boolean members are `proc` (rc-only; the tdictionary contract). Extract/Count/
 # ToArray are `func` (RESULT; kk._return on explicit-return paths). Extract miss
@@ -85,13 +133,14 @@ source "$THASHSET_DIR/../../kklass/kklass_pascal.sh"
 
 # ---------------------------------------------------------------------------
 # Member surface frozen at P0; bodies land per phase:
-#   P1 membership core, P2 set algebra, P3 events.
+#   P1 membership core, P2 set algebra, P3 events (all landed).
 # ---------------------------------------------------------------------------
 class THashSet
     public
         constructor Create
         destructor  Destroy
-        var on_notify              # P3: callback fn name; '' = off
+        var on_notify              # callback fn name; '' = off
+        var _notifyHook            # non-empty = a subclass overrides Notify
         func Count                 # RESULT = live count (fork-free)
         proc Add                   # P1  item -> rc 0 added / 1 dup (silent)
         proc Remove                # P1  item -> rc 0 removed / 1 absent
@@ -107,6 +156,7 @@ class THashSet
         proc IntersectWith         # P2  other
         proc ExceptWith            # P2  other
         proc SymmetricExceptWith   # P2  other
+        proc onNotify              # P3  cbName — validating setter ('' clears)
         proc Notify                # P3  virtual seam: <item> <action>
 end
 
@@ -114,6 +164,7 @@ end
 
 TSet._init() {
     on_notify=""
+    _notifyHook=""
     declare -gA "${__inst__}_items=()"
 }
 
@@ -121,13 +172,15 @@ TSet._teardown() {
     unset "${__inst__}_items"
 }
 
-# The event gate (tdictionary P5 hot-path guard): dispatch the virtual Notify
-# only when a listener is set — otherwise one [[ ]] per mutation, no dispatch.
-# Threaded NOW at every mutation (Add/Remove/Extract/Clear); P3 only fills the
-# Notify body (the tqueuestack lesson: wire the tail once, events come free).
-# $1=item $2=added|removed|extracted.
+# The event gate (tdictionary P5 hot-path guard): dispatch the VIRTUAL Notify
+# only when someone listens — a user callback (`on_notify`) or a subclass that
+# overrides Notify and armed `_notifyHook`. Otherwise one `[[ ]]` per mutation
+# and no dispatch at all, which is FPC's own model: with no callback assigned
+# `SetOnNotify` (:2530) leaves the internal dictionary's OnKeyNotify nil.
+# Threaded at every mutation (Add/Remove/Extract/Clear/Assign, and the algebra
+# ops through $this.Add/$this.Remove). $1=item $2=added|removed|extracted.
 TSet._notify() {
-    if [[ -n "$on_notify" ]]; then
+    if [[ -n "$on_notify" || -n "$_notifyHook" ]]; then
         $this.Notify "$1" "$2"
     fi
     return 0
@@ -220,8 +273,13 @@ THashSet.Create() {
 }
 
 THashSet.Destroy() {
-    # FPC :2554: Free the internal dictionary -> its Clear fires removed events
-    # during delete (S5). P3 wires $this.Clear here; P0 just tears storage down.
+    # FPC :2554 is `FInternalDictionary.Free` — freeing the dictionary runs its
+    # Clear, so every element is notified `removed` while the set is going away
+    # (S5; the fpcunit seed asserts exactly this at tests.generics.sets.pas
+    # :334-336). `$this.Clear` is the virtual call, so a subclass that overrides
+    # Clear or Notify is honoured here as well; with no listener it is the same
+    # `__ts_it=()` the storage teardown would do anyway.
+    $this.Clear
     TSet._teardown
     return 0
 }
@@ -233,12 +291,10 @@ THashSet.Count() {
     return 0
 }
 
-# ---- per-phase pending members (thin sentinels; removed as phases land) ------
-TSet._pending() {
-    kk.debug "thashset: $1 arrives in $2"
-    kk._return "__ths_pending__:$1"
-    return 0
-}
+# NB: the per-phase `TSet._pending` sentinel helper lived here from P0 to P2 and
+# is gone with the last stub (`Notify`, P3) — every declared member now has a
+# real body. `tests/005` section H and `tests/006` section I still run the whole
+# public surface and assert that no member answers with `__ths_pending__`.
 
 # ---- P1 members: membership core ---------------------------------------------
 
@@ -300,7 +356,7 @@ THashSet.Clear() {
     # the tdictionary Clear model verbatim).
     local __ts_dv="${__inst__}_items"
     declare -n __ts_it="$__ts_dv"
-    if [[ -n "$on_notify" ]] && (( ${#__ts_it[@]} > 0 )); then
+    if [[ -n "$on_notify" || -n "$_notifyHook" ]] && (( ${#__ts_it[@]} > 0 )); then
         local -a __ts_ks=( "${!__ts_it[@]}" )
         __ts_it=()
         local __ts_k
@@ -561,7 +617,56 @@ THashSet.SymmetricExceptWith() {
     return 0
 }
 
-THashSet.Notify()              { TSet._pending Notify              P3; }
+# ---- P3 members: the event seam ----------------------------------------------
+
+THashSet.onNotify() {
+    # cbName -> install the user callback. '' detaches (rc 0); a name that is
+    # not a function is a malformed CALL -> rc 2 + kk.debug, and the hook that
+    # is currently installed is LEFT ALONE (rc 2 is the kcl/README.md §1.2
+    # code for "not a value the caller may legitimately try", the same one
+    # ToArray/AddRangeFromArray use for a bad array name).
+    #
+    # This is a convenience over the stored `on_notify` var: `s.on_notify =
+    # "cb"` (the house spelling, tqueuestack/tdictionary) keeps working and is
+    # what the gate reads. FPC's SetOnNotify (:2530) cannot validate — a Pascal
+    # method pointer either compiles or does not.
+    local __ts_cb="${1-}"
+    if [[ -z "$__ts_cb" ]]; then
+        on_notify=""
+        return 0
+    fi
+    if ! declare -F "$__ts_cb" >/dev/null 2>&1; then
+        kk.debug "Error: THashSet.onNotify: '$__ts_cb' is not a function"
+        return 2
+    fi
+    on_notify="$__ts_cb"
+    return 0
+}
+
+THashSet.Notify() {
+    # item action — the VIRTUAL seam. FPC routes a set's events through the
+    # internal dictionary's OnKeyNotify and a private forwarder that calls
+    # `FOnNotify(Self, AItem, AAction)` (:2500), so the sender handed to the
+    # callback is the SET; `$__inst__` is that handle here.
+    #
+    # `declare -F` is checked AT FIRE TIME, not at assignment: `on_notify` is a
+    # plain writable var, so the name may have been set before the function was
+    # defined, or the function may have been unset since. A name that does not
+    # resolve is one kk.debug line and a no-op — a bad listener must never
+    # corrupt a collection operation.
+    #
+    # The callback's exit status is IGNORED (`|| :`): a Pascal event is a
+    # `procedure`. Always rc 0, so the gate cannot leak a status into the
+    # mutating member that called it.
+    if [[ -n "$on_notify" ]]; then
+        if declare -F "$on_notify" >/dev/null 2>&1; then
+            "$on_notify" "$__inst__" "${1-}" "${2-}" || :
+        else
+            kk.debug "Error: THashSet.Notify: '$on_notify' is not a function"
+        fi
+    fi
+    return 0
+}
 
 # Finalize.
 build THashSet

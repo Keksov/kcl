@@ -87,6 +87,16 @@ Single `onNotify` + public virtual `Notify` seam + `_notifyHook` — the house p
 (cost when unhooked = one `[[ -n ]]`). No TObject* subclass exists in FPC for sets, so
 the seam is future-proofing only (documented).
 
+> **Amended at P3 (2026-09-09).** The *seam* is indeed ours, but the plumbing is
+> not: FPC's set has no `Notify` at all — `TCustomSet.OnNotify` (:526) is a
+> property over abstract `Get/SetOnNotify` (:495/:496), and `THashSet` routes the
+> internal dictionary's `OnKeyNotify` through a private forwarder
+> (`SetOnNotify` :2530, `InternalDictionaryNotify` :2500) whose sender is the
+> SET. `SetOnNotify`'s `if Assigned(AValue) … else nil` is the FPC original of
+> the `_notify` gate, so the gate is parity rather than an optimisation. With
+> `_notifyHook` in it the unhooked cost is one `[[ ]]` carrying **two** string
+> tests. Details in the P3 DONE block in §5.
+
 ## 3. Pinned semantics (verify/finalize at P0)
 
 | # | Semantic | Source | Status |
@@ -100,6 +110,13 @@ the seam is future-proofing only (documented).
 | S7 | AddRange Boolean = AND-fold of per-item Adds? | :550 impl | READ at P0 |
 | S8 | UnionWith/ExceptWith self-operation behavior | :2853/:2878 with ASet==Self | READ at P0, test both |
 | S9 | OnNotify actions on set ops = plain added/removed per element | TCustomSet plumbing | verify |
+
+All nine were resolved at P0 (the resolutions are in `thashset_ledger.json`,
+`execution_log` entry 2) and each has been **closed by a test** since: S1/S2/S4/
+S6 in `tests/002` and `tests/006`, S3/S7/S8 in `tests/005`, S5 and S9 in
+`tests/006` (S9 is a full sequence matrix, not just the action names — see the
+P3 DONE block). The `:2853`/`:3002`-style line numbers in the table above are
+from the revision P0 read; the tag's numbers are in the P2/P3 DONE blocks.
 
 ## 4. Parity & test model
 
@@ -184,6 +201,107 @@ zero-fork PATH=''; dual-bash. Non-FPC cases → TEST_COVERAGE_NOTES rows.
   while `Notify` still returns one. No assert was weakened.
 - **P3 — events.** onNotify/Notify/_notifyHook + recorder tests on all mutation paths
   incl. algebra ops. Sweep gate. STOP.
+
+  **DONE 2026-09-09.** The last stub (`TSet._pending Notify P3`) is gone, and
+  with it the `TSet._pending` helper itself — **every declared member now has a
+  real body**. New suite file `tests/006_Events.sh`, 55 cases, **red-first
+  46 FAIL / 55** against the stub code, 0 after. Unit suite **148/148** on bash
+  5.2.37 and on 5.3.9 (was 92/92; +55 from 006 and +1 from 001).
+
+  *FPC quoted from the **release_3_2_2** tag, same file as P2.*
+
+  **What FPC actually has — and the one place the plan was wrong.** §2.4 called
+  the seam "the house pattern … future-proofing only". That is right about the
+  seam but understates the plumbing: a set in FPC has **no** `Notify` at all.
+  `TCustomSet<T>.OnNotify` (**:526**) is a property over the abstract
+  `GetOnNotify`/`SetOnNotify` pair (**:495**/**:496**), and `THashSet`
+  implements the pair by re-routing its internal dictionary:
+
+  | FPC | quoted implementation |
+  |---|---|
+  | `THashSet<T>.SetOnNotify` **:2530** | `FOnNotify := AValue; if Assigned(AValue) then FInternalDictionary.OnKeyNotify := InternalDictionaryNotify else FInternalDictionary.OnKeyNotify := nil;` |
+  | `THashSet<T>.InternalDictionaryNotify` **:2500** | `FOnNotify(Self, AItem, AAction);` — the **sender is the SET**, not the storage |
+  | `THashSet<T>.GetOnNotify` **:2525** | `Result := FInternalDictionary.OnKeyNotify;` — reads back the private FORWARDER, not the assigned handler (an upstream asymmetry; **FPC wins** on the routing, but not here: `$(s.on_notify)` returns what was set, and the divergence is in the README table) |
+  | `THashSet<T>.Destroy` **:2554** | `FInternalDictionary.Free;` — freeing the dictionary runs its `Clear`, so **delete notifies `removed` per element** (S5) |
+  | `Add` **:2559** / `Remove` **:2566** / `Extract` **:2576** / `Clear` **:2588** | the cnAdded / cnRemoved / cnExtracted sources; `Extract`'s miss exits **before** `DoRemove`, so it is silent (S6) |
+
+  The `if Assigned(AValue) … else nil` in `SetOnNotify` is the FPC original of
+  the `_notify` gate: with no listener the dictionary is not hooked and nothing
+  is dispatched. So the gate is parity, not an optimisation.
+
+  Parity oracle mined and ported case for case in section A of 006:
+  `tests.generics.sets.pas` `Test_TCustomSet_Notification` **:261–338** (entered
+  from `Test_THashSet_Notification` **:340**). Its `LSet` deliberately carries
+  no listener, which also pins that events belong to the *receiver*, not the
+  operand. Its two `EnumerableStrings*` `AddRange` overloads (**:277**/**:278**)
+  map to our varargs `AddRange`, the same mapping P2 made. The oracle's final
+  block (**:330–336**) is the S5 proof: `ASet.Add('Polandball')` then
+  `ASet.Free` expects `cnAdded` followed by `cnRemoved`.
+
+  **Implementation.** `THashSet.Notify` is the public virtual seam: `declare -F`
+  on `$on_notify` **at fire time** (the name is a plain writable var, so it may
+  be set before the function exists or unset afterwards), the call
+  `"$on_notify" "$__inst__" "$item" "$action" || :` with the status **ignored**
+  (a Pascal event is a `procedure`), a dangling name reduced to one `kk.debug`
+  line and a no-op, and `return 0` on every path so the gate cannot leak a
+  status into the mutating member. `var _notifyHook` joins the surface with the
+  tdictionary semantics (a subclass that overrides `Notify` arms it in its
+  constructor); the gate in `TSet._notify` and the `Clear` fast path became
+  `[[ -n "$on_notify" || -n "$_notifyHook" ]]`. `proc onNotify` is the
+  validating setter over the same slot: `''` detaches (rc 0), a name that is not
+  a function is **rc 2** + `kk.debug` with the installed hook **unchanged**,
+  and the house spelling `s.on_notify = "cb"` keeps working. `Destroy` now runs
+  `$this.Clear` before `TSet._teardown` (S5) — the virtual call, so a descendant
+  that overrides `Clear` or `Notify` is honoured there too.
+
+  **Sequences pinned (S9).** Exact where deterministic, multiset where hash
+  order is involved: `Add` new → one `added`, duplicate → nothing; `Remove`/
+  `Extract` hit → one `removed`/`extracted` fired **after** the element is gone
+  (the callback's `Contains` is false and `Count` is already decremented), miss
+  → nothing; `Clear` → storage emptied first (every callback sees `Count` 0),
+  then one `removed` per old element, and nothing at all on an empty set;
+  `s.delete` → one `removed` per element; `Assign` → every `removed` strictly
+  before every `added` (asserted by index, not by shape); `AddRange`/
+  `AddRangeFromArray` → `added` for the genuinely new only, in argument order;
+  `UnionWith` → `added` for operand-only; `IntersectWith` → `removed` for the
+  victims; `ExceptWith` → `removed` for the hits; `SymmetricExceptWith` →
+  `added` (pass 1) all before `removed` (pass 2); the self-ops `a∪a`/`a∩a` fire
+  **nothing** while `a∖a`/`a⊕a` fire `removed` × |a|; an empty operand and a
+  rejected operand fire nothing.
+
+  **Re-entrancy rule pinned and documented:** callbacks run after the mutation,
+  every loop walks a snapshot, so a callback that mutates the set leaves it
+  consistent (`Count` == raw storage == `ToArray`, asserted, not just `Count`)
+  and its own mutations are delivered as further events. Terminating the
+  recursion is the callback's job. Three cases: add-during-`Clear`,
+  remove-during-`UnionWith`, `Clear`-during-`Add`, plus a bounded 5-deep
+  recursion.
+
+  **Hook-less cost.** 1000 `Add` calls: **220 ms** unhooked vs **566 ms** with a
+  do-nothing listener on bash 5.2.37; **189 ms** vs **495 ms** on 5.3.9 (2.6×
+  for the dispatch + callback). The unhooked figure is indistinguishable from
+  the P2 baseline (219 ms / 188 ms), i.e. the second string test in the gate is
+  below measurement noise; a paired before/after benchmark of `Add`/`Contains`/
+  `Remove` over 1k showed `Contains` — which does not call the gate — unchanged,
+  confirming that the extra `var` costs nothing per frame.
+
+  **Deviations from the letter of the assignment, both deliberate:**
+  1. The gate is `[[ -n "$on_notify" || -n "$_notifyHook" ]]` as instructed,
+     which is **one `[[ ]]` with two string tests**, not one string test. The
+     two are mutually exclusive requirements; `_notifyHook` won, as in
+     tdictionary (three tests there) and tqueuestack (two). Measured above as
+     below noise.
+  2. `TSet._pending` was **deleted**, not left dead: its own comment said "thin
+     sentinels; removed as phases land", and no member calls it any more.
+     `tests/001` and both surface sweeps (005 §H, 006 §I) still assert that no
+     member answers with `__ths_pending__`.
+
+  **Test-file changes outside 006.** `tests/001_Skeleton.sh`: the sentinel case
+  now demands that `Notify` is real too (rc 0, no sentinel) instead of asserting
+  the sentinel, and a new case pins that `onNotify`/`_notifyHook` exist and
+  start empty (9 → 10 cases). `tests/005_SetAlgebra.sh` §H: the two-member
+  exclusion is gone — the sweep runs all 17 members, `Notify` and `onNotify`
+  included. No assert was weakened.
 - **P4 — docs, bench, closeout.** README (API + the TDictionary-vs-THashSet comparison
   box + sorted-iteration composition example), docs/THashSet.md (upstream FPC reference
   per kcl docs convention, TCustomSet chain), bench.sh (Add/Contains per-op, 1k×1k
