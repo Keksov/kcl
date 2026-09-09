@@ -121,6 +121,67 @@ zero-fork PATH=''; dual-bash. Non-FPC cases → TEST_COVERAGE_NOTES rows.
 - **P2 — set algebra.** UnionWith/IntersectWith/ExceptWith/SymmetricExceptWith +
   AddRange/AddRangeFromArray + truth tables + self-op edges + operand validation. Sweep
   gate. STOP.
+
+  **DONE 2026-09-09.** All six `TSet._pending … P2` stubs replaced; `Notify` is the
+  only sentinel left (P3). New suite file `tests/005_SetAlgebra.sh`, 45 cases,
+  **red-first 38 FAIL / 45 against the stub code**, 0 after. Unit suite 92/92 on
+  bash 5.2.37 and on 5.3.9 (was 47/47).
+
+  *FPC quoted from the **release_3_2_2** tag of
+  `packages/rtl-generics/src/generics.collections.pas`. The `:2815/:2853/:2861/:2878/
+  :2886` and `:3002/:3009/:3019/:3031` numbers recorded at P0 came from a different
+  revision of the same file — the code is identical word for word, only the line
+  numbers moved. The refs below (and in the ledger, the unit header and the README)
+  are the tag's.*
+
+  | member | FPC | quoted implementation |
+  |---|---|---|
+  | `AddRange` | `TCustomSet<T>.AddRange(constref AValues: array of T)` **:2379** | `Result := True; for i in AValues do Result := Add(i) and Result;` — an AND-fold in which `Add` runs for **every** item (the `and` is on the right of the assignment, nothing is short-circuited), and an empty array leaves `Result` True |
+  | `UnionWith` | **:2417** | `for i in AHashSet.Ptr^ do Add(i^);` |
+  | `IntersectWith` | **:2425** | `LList := TList<PT>.Create; for i in Ptr^ do if not AHashSet.Contains(i^) then LList.Add(i); for i in LList do Remove(i^);` — two-pass, so nothing is deleted while the table is walked |
+  | `ExceptWith` | **:2442** | `for i in AHashSet.Ptr^ do Remove(i^);` |
+  | `SymmetricExceptWith` | **:2450** | `for i in AHashSet.Ptr^ do if Contains(i^) then LList.Add(i) else Add(i^); for i in LList do Remove(i^);` — two-pass over the OPERAND |
+  | Booleans driven by the four | `THashSet<T>.Add` **:2559**, `Remove` **:2566**, `Contains` **:2593** | the abstract trio `TCustomSet` (declared :474–527, `Add` abstract at :505) is written against |
+
+  Parity oracle mined: `packages/rtl-generics/tests/tests.generics.sets.pas`
+  `Test_Set_General` **:86–152** — its hand-computed truth table is ported case for
+  case in section A of 005. Two mappings were needed: `NumbersC := T.Create(NumbersA)`
+  (the copy ctor) → `C.Assign A`, and `NumbersC.AddRange(NumbersB)` (:117, :146 — the
+  `TEnumerable` overload **:2397**, a whole SET as the source) → `C.AddRange` over B's
+  elements from `ToArray` for the Boolean half plus `C.UnionWith B` for the membership
+  half, since our `AddRange` surface is varargs (frozen at P0).
+
+  **Implementation.** The six members drive the public `$this.Add` / `$this.Remove` /
+  `$this.Contains` instead of re-implementing the storage idioms: that is what
+  `TCustomSet` itself does (its four procedures call the abstract `Add`/`Remove`), it
+  keeps the P3 event stream identical to the same calls made by hand, and it leaves
+  one copy of the k-prefix idioms in the unit. Measured cost: 40 ms per 1000 internal
+  `$this.Add` against 27 ms for the same loop inlined — a 1.5× premium on a path whose
+  budget is 3×, so faithfulness won. Every op snapshots the operand's keys
+  (`"${!ref[@]}"`) **before** self is touched (§6.2) and validates the operand by CLASS
+  (`TSet._isSet`, R5) **before** any mutation, so a rejected operand leaves the storage
+  byte-identical (asserted with `declare -p` before/after, not just with `Count`).
+  `AddRangeFromArray` validates its INPUT name through `TSet._outName`/`kk._outName`
+  (rc 2, the tinifile `SetStrings` precedent) and refuses an associative array, a
+  scalar and an unset name with rc 2 as well.
+
+  **Self-operation edges, all tested:** `a.UnionWith a` = a, `a.IntersectWith a` = a
+  (pass 1 collects nothing), `a.ExceptWith a` = ∅ (full drain), `a.SymmetricExceptWith a`
+  = ∅ (everything is marked, then removed). The snapshot is what makes the last two
+  *defined* rather than a walk over a shrinking table.
+
+  **Deviation / extra fix — P2-F1 (pre-existing, on the P2 error path).**
+  `TSet._isSet` fed the operand name straight into `${!name_class}`, and an indirect
+  expansion of a non-identifier makes bash print `not a name_class: invalid variable
+  name` on stderr — so `A.Assign 'a[0]'` answered rc 1 *with a diagnostic*, against
+  kcl/README.md §1.2 ("no stdout, no stderr"). All four new ops share that helper, so
+  an identifier-shape guard was added there; `Assign` (P1) inherits the fix. Red-first
+  proof and 40 rejections (8 non-identifier shapes × 5 members) are in 005.
+
+  **Test-file change outside 005:** `tests/001_Skeleton.sh`'s sentinel case asserted
+  `S.UnionWith y` → `__ths_pending__:UnionWith`. It now asserts the opposite half as
+  well — `UnionWith` answers rc 1 on a non-set operand and leaves **no** sentinel,
+  while `Notify` still returns one. No assert was weakened.
 - **P3 — events.** onNotify/Notify/_notifyHook + recorder tests on all mutation paths
   incl. algebra ops. Sweep gate. STOP.
 - **P4 — docs, bench, closeout.** README (API + the TDictionary-vs-THashSet comparison

@@ -5,7 +5,7 @@
 # subscripts that broke naive implementations (the full 34-key matrix is
 # already proven in tdictionary/tests/002; here a representative subset guards
 # against drift: '' / ']' / '*' / newline / $()-looking / k-vs-kk / unicode).
-# Membership + algebra + events arrive P1/P2/P3.
+# Membership arrived at P1, the set algebra at P2; events arrive at P3.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -54,13 +54,20 @@ it["k"]=1                      # this is the '' element (k + '')
 it=()
 unset -n it
 
-kt_test_start "pending sentinels: P2/P3 members dispatch and mark RESULT"
-S.UnionWith y
+# P2 replaced the six algebra/AddRange stubs with real bodies, so `Notify` is
+# the ONLY member still answering with the sentinel. The assertion therefore
+# grew a second half: UnionWith must now behave (rc 1 on an operand that is not
+# a set) AND must not leave a sentinel behind. 005_SetAlgebra.sh runs the same
+# check over every public member.
+kt_test_start "pending sentinel: Notify is the last stub (P3); the P2 members are real"
+RESULT=""
+S.UnionWith y 2>/dev/null; rcU=$?
 r1="$RESULT"
 S.Notify v added
 r2="$RESULT"
-[[ "$r1" == "__ths_pending__:UnionWith" && "$r2" == "__ths_pending__:Notify" ]] \
-    && kt_test_pass "sentinels via kk._return" || kt_test_fail "r1='$r1' r2='$r2'"
+[[ $rcU -eq 1 && "$r1" != *__ths_pending__* && "$r2" == "__ths_pending__:Notify" ]] \
+    && kt_test_pass "UnionWith real (rc 1, no sentinel), Notify still pending" \
+    || kt_test_fail "rcU=$rcU r1='$r1' r2='$r2'"
 
 kt_test_start "delete tears the storage down"
 S.delete
