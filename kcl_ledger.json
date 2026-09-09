@@ -1541,6 +1541,10 @@
    "journal" : [
       {
          "date" : "2026-09-09",
+         "entry" : "thashset P4 (docs, bench, closeout) committed: kcl 9dfaff2 — the unit is COMPLETE (P0-P4). bench.sh on TStopwatch.getTimeStamp (algebra 1k x 1k at most 2.4x of a 1k Add against the 3x gate, Contains flat 1.0x at 100 vs 10 000 elements, zero-fork), docs/THashSet.md, TEST_COVERAGE_NOTES.md (149 rows = 149 cases), README comparison box + ordered-iteration example (executed by tests/003), kcl/README.md section 2 row rewritten as complete (closes P3-F1), P4-F1 line-ref drift fixed. thashset 149/149 on 5.2.37 and 5.3.9; final master sweep 20/20 suites, 5190 tests, 0 [FAIL] on both. Whole thashset roadmap done today: P2 40bc442, P3 79e32be, P4 9dfaff2. Nothing pushed."
+      },
+      {
+         "date" : "2026-09-09",
          "entry" : "thashset P3 (events) committed: kcl 79e32be. Notify virtual seam, _notifyHook, onNotify validating setter (rc 2), Destroy fires removed (S5); FPC release_3_2_2 :2500/:2525/:2530/:2554. tests/006_Events.sh 55 cases, red-first 46. thashset 148/148 on 5.2.37 and 5.3.9; master sweep 20/20 suites, 5189 tests, 0 [FAIL] on both. kcl/README.md section 2 row moved to P3. Not pushed; P4 (bench, docs, closeout) next."
       },
       {
