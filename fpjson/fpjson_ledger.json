@@ -2,15 +2,15 @@
   "schema_version": 1,
   "project": "kcl/fpjson — port of FPC fcl-json data model (TJSONData/TJSONObject/TJSONArray) + parser/serializer to bash",
   "created": "2026-07-12",
-  "updated": "2026-07-12",
-  "status": "PLANNED (DRAFT) — plan + ledger only, no implementation. Roadmap position 7/7 — the strategic epic. PLAN IS DRAFT until the P0 owner review resolves two architecture forks: node representation (recommended: document instance + integer handles) and parser engine (recommended: pure-bash first, optional awk-coprocess accelerator later). Same owner-decision protocol as tdictionary API v2.",
+  "updated": "2026-09-09",
+  "status": "P0 DONE (re-planned 2026-09-09 by kcl PLAN.md phase P10 under owner decision D8). PLAN.md is no longer a DRAFT: both architecture forks are closed — node model (B) document instance + integer handles, engine = pure bash windowed lexer, awk co-process deferred to P8. No unit code exists yet; the only artefact of P0 is bench/lexer_probe.sh plus the rewritten plan. NEXT: fpjson P1 (lexer) per fpjson/PLAN.md §12.",
   "owner": "keksov",
   "roadmap": {
     "priority": 7,
     "of": 7,
     "order": ["tstopwatch", "tregex", "tarray", "tinifile", "tqueuestack", "thashset", "fpjson"]
   },
-  "notes": "Single source of truth for fpjson status. Plan: kcl/fpjson/PLAN.md. Source: fcl-json/src/fpjson.pp (4322 lines; TJSONData :126, number classes :222-393, TJSONString :395, TJSONBoolean :434, TJSONNull :468, TJSONArray :504, TJSONObject :634) + jsonscanner.pp (758) + jsonparser.pp (290). Seeds: fcl-json/tests (testjson.pp) + vendored JSONTestSuite subset (y_/n_/i_). Positioning: zero-fork JSON for configs and API payloads (kkbot lives among JSON APIs; today every touch forks jq) — NOT for log streams; bench publishes honest numbers before claims. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated; P0 ends in a MANDATORY owner review gate.",
+  "notes": "Single source of truth for fpjson status. Plan: kcl/fpjson/PLAN.md. Sources re-read at FPC tag release_3_2_2 (the July draft quoted trunk line counts): fpjson.pp 4108, jsonscanner.pp 616, jsonparser.pp 275, jsonreader.pp 631. Seeds: fcl-json/tests (testjson.pp) + vendored JSONTestSuite subset (y_/n_/i_). Positioning: zero-fork JSON for configs and API payloads — NOT for log streams. Workflow: phase -> dual-bash -> master sweep -> STOP -> 'go'; commits gated.",
   "conventions": {
     "status_values": ["todo", "in_progress", "blocked", "done", "wontfix"],
     "category_values": ["feature", "infra", "test-coverage", "docs", "performance"],
@@ -18,40 +18,75 @@
     "tier_values": ["A-pure-bash-exact", "B-coproc-accelerator-optional"]
   },
   "baseline": {
-    "measured": "2026-07-12 — at roadmap planning time (post-tdictionary). RE-MEASURE at P0: roadmap units 1-6 will have raised the totals substantially.",
+    "measured": "2026-09-09 (P10). Roadmap units 1-6 plus review phases P0-P9 have landed since the July figure.",
     "bash_primary": "GNU bash 5.2.37 (MSYS2)",
     "bash_secondary": "GNU bash 5.3.9 (C:/bin/msys64)",
     "suites_green": {
-      "kklass": 226,
-      "kcl_total": 1723,
-      "kcl_breakdown": "tcustomapplication 320, tdirectory 197, tfile 120, tlist 92, tpath 112, tstringhelper 393, tstringlist 155, dateutils 123, math 81, tdictionary 130",
-      "protected_core": "kcl 1723 + kklass 226 = 1949",
-      "master_full": "2481/0 across 13 suites"
+      "kkore": 429,
+      "kcl_units_touched_by_P9": 2996,
+      "note": "Both figures on 5.2.37 and 5.3.9 after kcl P9. fpjson adds a new suite on top; the master sweep is the reviewer's."
     },
-    "regression_rule": "fpjson work must keep the (re-measured) baseline green; the new suite adds on top."
+    "regression_rule": "fpjson work must keep the baseline green; the new suite adds on top."
   },
   "design_decisions": {
-    "node_model_RECOMMENDED": "OWNER DECISION #1 at P0. Recommended (B): ONE kklass document instance + integer node handles into parallel per-doc arrays (${doc}_type/_value/_children/_names + free-counter). Rejected by arithmetic (A): kklass instance per node (~ms/ctor x 10k nodes = tens of seconds). Fallback (C): path-only API (O(depth) per access, awkward mutation). Child IDs join on \\x1f (integers — always safe); member NAMES live in per-id scalar slots, NEVER joined (JSON names may contain any char incl. \\x1f).",
-    "engine_RECOMMENDED": "OWNER DECISION #2 at P0. Recommended: pure-bash lexer/parser first (Tier A, zero deps, exact positioned errors); P0 probe publishes REAL byte-loop throughput numbers before commitment. Optional P8 (own gate): awk-coprocess tokenizer behind the SAME token interface (math-engine precedent: one fork per process, sub-ms round-trips; tempfile program feed + TMPDIR fallback lessons apply) — only if real kkbot usage needs it; corpus-equivalence-tested against the pure lexer.",
-    "parser_structure": "Iterative explicit-stack state machine (bash recursion is slow and stack-risky at JSON depths). Atomic errors: any parse failure leaves the document EMPTY, rc=1, RESULT_ERROR='line L col C: message' (positioned errors are a hard usability requirement).",
-    "numbers": "STRING-PRESERVING: one number kind + int/float subtype tag; literals survive parse->serialize byte-exact (FPC collapses through Double — documented divergence). AsInteger = bash 64-bit with range check; AsFloat = validated passthrough; arithmetic belongs to kcl/math. FPC's five number classes collapse (no-parity-theater rule).",
-    "serialization": "AsJSON matches FPC byte-for-byte (FPC emits spaced style — exact convention pinned at P0 from DoJSON impls) so fixtures can be literal; FormatJSON option subset pinned at P0; output emits raw UTF-8 (no \\u escaping) matching FPC default.",
-    "unicode": "Storage = raw UTF-8 bytes; lexer runs a scoped LC_ALL=C BYTE loop (O(1) ${s:i:1} — THE perf idiom, probed both bashes); \\uXXXX decode via printf (probed), surrogate pairs composed manually, \\u0000 -> parse error (bash NUL limit), lone surrogates per FPC (S7 pin).",
-    "insertion_order": "TJSONObject preserves insertion order (FPHashList) — pinned and kept: names order array per object node; serialization and iteration follow it."
+    "D8": "OWNER DECISION, 2026-09-06, recorded in kcl/PLAN.md §1: fpjson P0 = pure bash — handle model (document instance + parallel arrays) + windowed regex lexer; the awk accelerator stays in fpjson's own P8. Both July forks are hereby CLOSED; no further owner review gate before P1.",
+    "node_model": "(B) ONE kklass instance per DOCUMENT; nodes are integer handles into six per-document globals: ${doc}_type (o/a/s/n/b/z), ${doc}_value (scalar payload), ${doc}_kids (SPACE-separated child id list), ${doc}_names (the node's own member name, indexed by the CHILD id — never a joined list, because JSON names may contain any byte incl. \\x1f), ${doc}_parent, ${doc}_index (assoc, key '<parentId>:<name>' -> childId, unambiguous because the id is decimal up to the first ':'). Document scalars (root, nextid, count, opts, maxdepth, err) live in kklass's own state = ${doc}_data. Rejected: (A) instance per node — TDictionary.new ~1.2 ms x 10k nodes; (C) path-only API — O(depth) per access.",
+    "D8-1": "Handles are MONOTONIC and never recycled; 0 = 'no node'. No free list: recycling an id makes a stale handle silently address a different node and bash has no cheap generation counter. Side benefit — atomic parse is a watermark unset (§5.2). Cost: ids grow with nodes ever allocated in a mutation-heavy document; doc.Clone into a fresh document compacts.",
+    "D8-2": "Lexer window = 256 bytes, refill below 64, grow x4 for a token longer than the window. D8 named 2 KB as a planning figure; the measured sweep says 2 KB costs ~40% more on BOTH bashes because the per-token cost is one match plus one O(window) shift.",
+    "D8-3": "Lexer form = HYBRID: sliding window + a first-byte `case` for the token kind, with the regex engine entered ONLY for strings and numbers. Punctuation and true/false/null (about half the tokens of a real payload) never touch it. Measured faster than the single all-kinds regex on both bashes.",
+    "D8-4": "\\u0000 is DROPPED, following FPC (jsonscanner.pp:365-369: with no pending high half S:='' and u1:=u2, so the escape contributes nothing) — NOT a parse error as the July draft said. FPC wins over the draft per the review rules, and bash cannot hold a NUL in a variable anyway.",
+    "D8-5": "Max nesting depth default 512, settable, 0 = unlimited. FPC has NO depth guard anywhere in the four units — this is a documented ADDITION, not claimed parity.",
+    "D8-6": "CompressedJSON and StrictEscaping are PER DOCUMENT, where FPC makes them class properties shared by every instance (fpjson.pp:150, :390). A process-wide switch is action at a distance in a shell.",
+    "parser_structure": "Iterative explicit-stack state machine (st_node/st_type + a pending key); FPC's own parser is the same shape (jsonparser.pp:100-124). Atomic failure: Parse records state[nextid] as a watermark and on ANY error unsets every id from the watermark up across all six arrays and restores state[root]/state[count] — a failed parse leaves the document byte-identical.",
+    "numbers": "STRING-PRESERVING: one number kind + int/float subtype tag; literals survive parse->serialize byte-exact (FPC collapses through Double, fpjson.pp:2031 — documented divergence, strictly MORE faithful to the input). AsInteger/AsInt64 go through kk.isInt (decimal, int64 range check); AsFloat through kk.isNum as a validated passthrough; arithmetic belongs to kcl/math. Pinned test rows: -0, 0, -0.0, 1E400, 1e-400, 1.5e3, 9223372036854775807, 9223372036854775808, 00, .5, 1., 1e, +1.",
+    "serialization": "AsJSON is byte-parity with FPC's DEFAULT class-var state: ElementSeps=(', ',',') fpjson.pp:111 and ObjStartSeps/ObjEndSeps/ElementStart/SpacedQuoted/UnSpacedQuoted :606-611 -> `{ \"a\" : 1, \"b\" : 2 }`, `[1, 2]`, empty containers `{}`/`[]`. Escaping per StringToJSONString :881-917 over the set ['\"','/','\\\\',#0..#31]: \\\\ \\\" \\b \\t \\n \\f \\r, every other control char as UPPERCASE \\u00XX (HexStr), '/' NOT escaped unless StrictEscaping, and #127 (DEL) NOT escaped at all. FormatJSON = the six TFormatOption values (:64-70) with DefaultIndentSize 2; sLineBreak is LF always (FPC would emit CRLF on Windows — documented divergence). Serializer is iterative like the parser.",
+    "unicode": "Storage = raw UTF-8 bytes. The lexer pins `local LC_ALL=C` — VERIFIED on both bashes to switch ${#s}, ${s:i:n} AND [[ =~ ]] to byte mode and to be restored on return. This is a CORRECTNESS requirement, not an optimisation: a window boundary cuts multi-byte characters, and in a UTF-8 locale [[ =~ ]] fails to match an invalid byte sequence (measured both ways). printf '\\uXXXX' is UNUSABLE inside that region — measured on both bashes, `printf -v v '\\u00e9\\u4e2d\\U0001F600'` yields byte e9 followed by the LITERAL text for the other two — so UTF-8 is composed arithmetically from the code point, with surrogate pairs combined as cp = 0x10000 + ((hi-0xD800)<<10) + (lo-0xDC00). Lone surrogates are emitted as FPC emits them (3-byte CESU-8 via UTF8Encode of a single WideChar).",
+    "insertion_order": "TJSONObject preserves insertion order (TFPHashObjectList, fpjson.pp:606; Names[i]/Items[i] walk it by index) — kept: _kids is an ordered id list, and serialisation and iteration follow it.",
+    "duplicate_keys": "S1, pinned from the source. On Add: TJSONObject.DoAdd (fpjson.pp:3725-3741) raises EJSON 'Duplicate object member: \"%s\"' (:822) -> our rc 1 + RESULT='' + the same text in doc.LastError. On parse: jsonparser.pp:130-137 lets that exception out, so the parse FAILS; with joIgnoreDuplicates (:138-142) the later value is discarded and the FIRST wins. Default = FPC default = reject, with the offending key's position. On serialise: no policy needed — the model cannot hold a duplicate; a test asserts that rather than leaving it implicit.",
+    "findpath": "S5, pinned from three impls. Object (fpjson.pp:3276-3307): empty path -> self; leading dots skipped (note the strict `P<L`); a segment runs to the next '.' or '['; an EMPTY segment returns Self and DISCARDS the rest — so a path starting with '[' against an object returns the object itself; otherwise Find(name) and the remainder keeps its separator. Array (:2512-2542): '[' must be first, P:=Pos(']'), the index is parsed only when P>2, must satisfy 0<=i<Count, remainder is everything after ']'. Scalar (:1489-1497): any non-empty path is a miss. GetPath = FindPath + SErrPathElementNotFound (:823, :1532) -> rc 1 + LastError. CONSEQUENCE reproduced deliberately: a member whose name contains '.' or '[' CANNOT be reached by a path; doc.Element is the way. DIVERGENCE: FPC parses the array index with StrToIntDef, which accepts $/0x/% prefixes; we accept what kk.isInt accepts (decimal with an optional sign).",
+    "error_contract": "D2 exactly: rc 1 + RESULT='' + silence, one kk.debug line. rc 2 only for a malformed CALL (bad output-array name via kk._outName, non-identifier where an identifier is required, wrong arity). A non-integer handle is rc 1, not 2 — it is a value the caller may legitimately try, and it goes through kk.isInt FIRST because ${doc}_type[$h] would otherwise EXECUTE an injected command substitution. The positioned message stays reachable as DATA through doc.LastError ('line L col C: message'), so D2 and the usability requirement are both met. Position tracking never counts per byte: line/lineStart are updated only for chunks that can contain a newline, via nl=${chunk//[!$'\\n']/}."
+  },
+  "measurements": {
+    "date": "2026-09-09",
+    "host": "Windows 11 / MSYS2, bash 5.2.37 and 5.3.9, LC_ALL=C.UTF-8 ambient",
+    "probe": "kcl/fpjson/bench/lexer_probe.sh (self-contained; `bash lexer_probe.sh [--sweep] [--no-slow] [KB ...]`, default 2 20 96)",
+    "documents": "generated under a scoped LC_ALL=C so both bashes get identical input: 2081 B / 797 tokens, 20355 B / 7637 tokens, 97385 B / 36221 tokens",
+    "lexer_ms": {
+      "2KB":  { "bytes": { "5.2": 33, "5.3": 21 }, "winbytes": { "5.2": 35, "5.3": 29 }, "regex": { "5.2": 35, "5.3": 38 }, "hybrid": { "5.2": 29, "5.3": 26 } },
+      "20KB": { "bytes": { "5.2": 1758, "5.3": 770 }, "winbytes": { "5.2": 361, "5.3": 282 }, "regex": { "5.2": 368, "5.3": 365 }, "hybrid": { "5.2": 290, "5.3": 251 } },
+      "96KB": { "bytes": { "5.2": 38734, "5.3": 15327 }, "winbytes": { "5.2": 1924, "5.3": 1397 }, "regex": { "5.2": 1836, "5.3": 1870 }, "hybrid": { "5.2": 1591, "5.3": 1278 } }
+    },
+    "window_sweep_20KB_ms": {
+      "note": "regex / hybrid / winbytes at each window size",
+      "5.2": { "128": [307, 240, 264], "256": [299, 239, 256], "512": [293, 244, 282], "1024": [313, 273, 319], "2048": [368, 336, 392], "4096": [471, 447, 539] },
+      "5.3": { "128": [362, 224, 240], "256": [347, 211, 241], "512": [343, 216, 250], "1024": [357, 229, 255], "2048": [393, 261, 278], "4096": [443, 325, 353] }
+    },
+    "gate": "P0 gate (kcl/PLAN.md P10): 20 KB <= 1 s on 5.2.37 with the windowed lexer. PASS at 290 ms (5.2) / 251 ms (5.3) with the default 2048 window, 239 ms / 211 ms at the pinned 256. The probe asserts the gate itself and exits non-zero if it ever fails.",
+    "findings": [
+      "The WINDOW is what buys the 5-24x, not the regex: a plain character scan inside a window is as fast as the all-in-one regex, and faster on 5.3.9. D8's windowed-regex lexer is adopted for correctness-per-line (one match yields the whole token and validates the number grammar), and the hybrid form recovers the speed.",
+      "The optimum window is 256 B, not the 2 KB named in D8 — the per-token cost includes an O(window) shift.",
+      "The naive string pattern \"([^\"\\\\]|\\\\.)*\" backtracks catastrophically; the unrolled \"[^\"\\\\]*(\\\\.[^\"\\\\]*)*\" is mandatory.",
+      "local LC_ALL=C puts ${#s}, ${s:i:n} AND the [[ =~ ]] engine into byte mode on both bashes and is restored on return; in a UTF-8 locale a window that ends mid-character makes [[ =~ ]] FAIL TO MATCH, so the scoped C locale is a correctness requirement.",
+      "printf '\\uXXXX' / '\\U........' are unusable inside that C-locale region on both bashes (\\u00e9 -> raw byte e9; \\u4e2d and \\U0001F600 left literal), which is why the UTF-8 encoder is arithmetic.",
+      "Teardown, 10k nodes: build 5 assoc arrays 78 ms (5.2) / 74 ms (5.3); build 5 indexed arrays 87 / 87; `unset -v` of all six arrays 8 / 4 ms. P6 target for doc.delete of a 10k-node document: <= 50 ms on both bashes.",
+      "ENVIRONMENT NOTE (cost an early mis-run): a `VAR=value` prefix on the msys->cygwin `bash.exe` invocation does NOT reach the child (the probe reported LC_ALL unset); `env VAR=value /c/bin/msys64/usr/bin/bash.exe …` does. Use `env` when pinning a locale for the 5.3.9 runs."
+    ]
   },
   "goals": [
     "Strict RFC 8259 parse with FPC-pinned dialect decisions (S1-S12), positioned errors, atomic failure.",
-    "Byte-parity serialization vs FPC convention; parse->AsJSON->parse fixpoint; number-literal preservation.",
+    "Byte-parity serialization vs FPC's default class-var state; parse->AsJSON->parse fixpoint; number-literal preservation.",
     "JSONTestSuite y_/n_ subset green (i_ decided + documented); fcl-json fpcunit seeds ported.",
     "Zero forks in the whole pipeline (pure-bash v1); honest bench (1/10/100 KB) before any performance claim.",
-    "Handle-based API that scales to 10k-node documents without per-node instance cost.",
-    "Never regress the (re-measured) baseline."
+    "Handle-based API that scales to 10k-node documents without per-node instance cost, and frees every one of them on delete.",
+    "The kcl contract (kcl/README.md §1) met from the first line of code, not retrofitted.",
+    "Never regress the baseline."
   ],
   "test_basis": {
-    "seed_primary": "fcl-json/tests/testjson.pp (fpcunit data-model tests: Add/Delete/FindPath/AsXxx) — mined at P0.",
+    "seed_primary": "fcl-json/tests/testjson.pp (fpcunit data-model tests: Add/Delete/FindPath/AsXxx) — mined at P1.",
     "seed_additional": [
       "JSONTestSuite (seriot.ch) y_/n_/i_ subset — vendored into tests/fixtures with provenance notes; NUL-bearing cases become expected-reject rows.",
-      "Roundtrip/property tests: fixpoint, literal preservation, order stability, Clone independence."
+      "Roundtrip/property tests: fixpoint, literal preservation, order stability, Clone independence.",
+      "Contract file per kcl/README.md: set -eu load, injection handles ('x[$(touch pwn)]'), -n/-e/newline values, every ${doc}_* array gone after .delete, PATH='' zero-fork run, bash -n + dangling-quote check."
     ],
     "parity_model": {
       "tier_A_exact": "Parse acceptance/rejection, tree shapes, getter coercions, serialization bytes, path resolution, mutation semantics — byte-for-byte vs FPC-pinned behavior.",
@@ -60,71 +95,78 @@
     "new_coverage_protocol": "Non-FPC cases -> TEST_COVERAGE_NOTES.md rows; corpus rows cite JSONTestSuite ids."
   },
   "out_of_scope": [
-    { "item": "Five number classes (Float/Integer/Int64/NativeInt/QWord :231-393) as distinct types", "status": "wontfix", "reason": "One literal-preserving number kind + subtype tag; no Double roundtrip, no float engine. Documented divergence (strictly MORE faithful to the input text than FPC)." },
+    { "item": "Five number classes (fpjson.pp:182-393) as distinct types", "status": "wontfix", "reason": "One literal-preserving number kind + subtype tag; no Double roundtrip, no float engine. Documented divergence (strictly MORE faithful to the input text than FPC)." },
     { "item": "TStream integration, jsonreader.pp/jsonwriter.pp, incremental/SAX parsing", "status": "wontfix", "reason": "No streams in bash; ParseFile reads whole files. SAX-style is the P8 coproc's possible future, not v1." },
     { "item": "fpjsonrtti, jsonconf, json2yaml, fpjsonvalue, jsoncomparer", "status": "wontfix", "reason": "Separate FPC units; CompareJSON noted as a possible later extra." },
-    { "item": "UnicodeString/TJSONUnicodeStringType distinctions", "status": "wontfix", "reason": "bash strings are UTF-8 bytes; one string kind." },
-    { "item": "Enumerator objects (:117, :1329-1360)", "status": "wontfix", "reason": "ForEach + handle iteration (house style)." },
-    { "item": "\\u0000 / NUL bytes in strings", "status": "wontfix", "reason": "bash language limit; parse error with a clear positioned message." }
+    { "item": "UnicodeString/TJSONUnicodeStringType distinctions (fpjson.pp:51)", "status": "wontfix", "reason": "bash strings are UTF-8 bytes; one string kind." },
+    { "item": "Enumerator objects (TBaseJSONEnumerator, fpjson.pp:99-104)", "status": "wontfix", "reason": "ForEach + handle iteration (house style)." },
+    { "item": "Variant access (GetValue/SetValue, fpjson.pp:142-143)", "status": "wontfix", "reason": "No variants in bash; the AsXxx family covers it." },
+    { "item": "TJSONObject's 255-character member-name limit (fpjson.pp:606)", "status": "wontfix", "reason": "A TFPHashObjectList artefact; we have no such limit and do not fake one." },
+    { "item": "TJSONArray.Sort (fpjson.pp:578, TListSortCompare)", "status": "wontfix", "reason": "A Pascal callback type; a bash sort of an array node is a later extra, not v1." },
+    { "item": "NUL bytes in strings", "status": "wontfix", "reason": "bash language limit; \\u0000 follows FPC and is dropped (D8-4), and ParseFile rejects a file that contains a real NUL." }
   ],
   "phases": [
     {
       "id": "P0",
-      "name": "Design study + OWNER REVIEW + probes",
-      "goal": "Pin S1-S12 from impls; probe \\u printf, byte-loop throughput (real numbers), LC_ALL scoping; present node-model and engine options WITH measurements; owner picks; amend plan; skeleton + runner; baseline re-measure.",
-      "status": "todo",
+      "name": "Design study + probes + re-plan",
+      "goal": "Pin S1-S12 from the release_3_2_2 impls; measure the lexer idioms, the LC_ALL scoping, printf \\u and the teardown cost; close the two architecture forks under D8; rewrite PLAN.md.",
+      "status": "done",
+      "done": "2026-09-09 (kcl PLAN.md phase P10)",
       "tasks": [
         {
           "id": "P0.1",
-          "title": "Semantics pin S1-S12 (dup keys, insertion order, AsJSON bytes, FormatJSON options, FindPath grammar, scanner strictness, surrogates, coercions, Clone, number edges, depth guard, null-vs-missing) with line refs; mine testjson.pp; vendor corpus subset",
+          "title": "Semantics pin S1-S12 with line refs from FPC tag release_3_2_2",
           "category": "infra",
           "severity": "critical",
-          "status": "todo",
-          "acceptance": "S-table complete; corpus fixture list committed with provenance."
+          "status": "done",
+          "acceptance": "S-table complete",
+          "result": "All twelve answered in PLAN.md §2 with file:line. Corpus vendoring moved to P1 (it is test material, not a design input)."
         },
         {
           "id": "P0.2",
-          "title": "Probes: printf \\u + surrogate composition on BOTH bashes; LC_ALL=C byte-loop throughput measurement (chars/sec -> projected KB parse times); scoping semantics",
+          "title": "Probes: lexer idioms on 2/20/96 KB, LC_ALL scoping incl. the [[ =~ ]] engine, printf \\u, 10k-node teardown",
           "category": "infra",
           "severity": "critical",
-          "status": "todo",
-          "acceptance": "Real numbers recorded here — they inform the engine decision."
+          "status": "done",
+          "acceptance": "Real numbers recorded; both bashes",
+          "result": "bench/lexer_probe.sh committed and green on 5.2.37 and 5.3.9 (rc 0, six self-tests, gate PASS). Numbers in measurements{} above."
         },
         {
           "id": "P0.3",
-          "title": "OWNER REVIEW: node model (A/B/C) + engine (pure vs +coproc-P8) presented with measurements; decisions recorded; plan amended; skeleton + runner + baseline re-measure",
+          "title": "Close the architecture forks under D8, amend the plan, drop the DRAFT flag",
           "category": "infra",
           "severity": "critical",
-          "status": "todo",
-          "acceptance": "Both decisions logged in design_decisions with owner sign-off date; DRAFT flag removed from plan."
+          "status": "done",
+          "acceptance": "Both decisions recorded with their basis; plan rewritten",
+          "result": "D8 plus D8-1..D8-6 recorded here and in PLAN.md §13. PLAN.md rewritten in full (737 lines): node model §3, lexer §4, parser §5, FindPath §6, serialiser §7, ParseFile §8, the kcl-contract checklist §9, API surface §10, phases §12, open questions §15."
         }
       ]
     },
     {
       "id": "P1",
       "name": "Lexer",
-      "goal": "Token stream + positions + string decode + number validation.",
+      "goal": "Hybrid windowed tokenizer + positions + string decode + number validation + unit skeleton and runner.",
       "status": "todo",
       "tasks": [
-        { "id": "P1.1", "title": "Byte-loop lexer (tokens, line:col, escapes incl. surrogate pairs, S10 number rules) + token-level tests + lexical n_-rejects", "category": "feature", "severity": "critical", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "Token corpus green; positions exact; dual-bash; sweep gate." }
+        { "id": "P1.1", "title": "Hybrid lexer (window 256/refill 64/grow x4, first-byte case, regex for strings+numbers, line:col, escapes incl. surrogate pairs, S10 number rules) + token tests with exact offsets + lexical n_-rejects", "category": "feature", "severity": "critical", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "Token corpus green; positions exact; dual-bash; the real lexer within 2x of the probe's hybrid numbers; sweep gate." }
       ]
     },
     {
       "id": "P2",
       "name": "Parser -> document storage",
-      "goal": "Explicit-stack parser; atomic errors; dup-key rule; corpus acceptance.",
+      "goal": "Explicit-stack parser into the six arrays; atomic errors; dup-key rule; depth guard; corpus acceptance.",
       "status": "todo",
       "tasks": [
-        { "id": "P2.1", "title": "Iterative parser into handle storage; atomic failure (empty doc + RESULT_ERROR line:col); S1 dup rule; y_/n_ corpus", "category": "feature", "severity": "critical", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "Corpus verdicts exact; atomicity proven; dual-bash; sweep gate." }
+        { "id": "P2.1", "title": "Iterative parser into handle storage; watermark rollback (a failed parse leaves the document byte-identical); S1 dup rule; D8-5 depth guard; y_/n_ corpus", "category": "feature", "severity": "critical", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "Corpus verdicts exact; atomicity proven by a test; dual-bash; sweep gate." }
       ]
     },
     {
       "id": "P3",
       "name": "Navigation + getters",
-      "goal": "FindPath/GetPath, TypeOf/Count/Item/Name/Element, AsXxx, IsNull, ForEach.",
+      "goal": "FindPath/GetPath, TypeOf/Count/Item/Name/Element/IndexOfName, AsXxx, IsNull, ForEach, output arrays.",
       "status": "todo",
       "tasks": [
-        { "id": "P3.1", "title": "Path resolution per S5 grammar + typed getters per S8 coercions + S12 null-vs-missing + ForEach snapshot", "category": "feature", "severity": "high", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "testjson.pp seed parity green; exotic member names; dual-bash; sweep gate." }
+        { "id": "P3.1", "title": "Path resolution per the S5 grammar (incl. the empty-segment and names-with-dots consequences) + typed getters per S8 + S12 null-vs-missing + ForEach snapshot + Items/Names via kk._outName", "category": "feature", "severity": "high", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "testjson.pp seed parity green; exotic member names; kk._outName refusals; dual-bash; sweep gate." }
       ]
     },
     {
@@ -133,25 +175,25 @@
       "goal": "AsJSON byte-parity + FormatJSON + roundtrip proofs.",
       "status": "todo",
       "tasks": [
-        { "id": "P4.1", "title": "AsJSON (S3 bytes) + FormatJSON (S4 subset) + fixpoint + literal-preservation + order-stability proofs", "category": "feature", "severity": "high", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "Byte-compare fixtures green; roundtrip fixpoint on corpus; dual-bash; sweep gate." }
+        { "id": "P4.1", "title": "AsJSON (S3 bytes incl. the spaced default) + FormatJSON (all six TFormatOptions) + fixpoint + literal-preservation + order-stability + the uppercase-\\u00XX and DEL-not-escaped rows", "category": "feature", "severity": "high", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "Byte-compare fixtures green; roundtrip fixpoint on corpus; dual-bash; sweep gate." }
       ]
     },
     {
       "id": "P5",
       "name": "Mutation",
-      "goal": "ObjAdd/ArrAdd families, Delete/Remove/Clear, Clone.",
+      "goal": "ObjAdd/ArrAdd families, Insert/Delete/Remove/Clear/Extract, Clone.",
       "status": "todo",
       "tasks": [
-        { "id": "P5.1", "title": "Typed add families + deletes + Clear + Clone (S9) + order preservation under mutation + handle recycling policy", "category": "feature", "severity": "high", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "Mutation matrix green; serialize-after-mutate exact; dual-bash; sweep gate." }
+        { "id": "P5.1", "title": "Typed add families + deletes + Clear + Extract + Clone (S9) + order preservation + an _index/_parent invariant checker used by the tests", "category": "feature", "severity": "high", "tier": "A-pure-bash-exact", "status": "todo", "acceptance": "Mutation matrix green; serialize-after-mutate exact; dual-bash; sweep gate." }
       ]
     },
     {
       "id": "P6",
       "name": "Hardening",
-      "goal": "Full corpus + pathological inputs + error-position matrix.",
+      "goal": "Full corpus + pathological inputs + error-position matrix + lifecycle cost.",
       "status": "todo",
       "tasks": [
-        { "id": "P6.1", "title": "Deep nesting (1k), 64KB strings, 10k arrays, i_ decisions documented, malformed matrix with line:col asserts, zero-fork pipeline PATH=''", "category": "test-coverage", "severity": "high", "status": "todo", "acceptance": "All green on both bashes; perf sanity recorded; sweep gate." }
+        { "id": "P6.1", "title": "Deep nesting (1k + the 512 guard), 64KB strings, 10k arrays, i_ decisions documented, malformed matrix with line:col asserts, injection matrix, zero-fork pipeline PATH='', and the 10k-node teardown test (<= 50 ms, every reserved suffix gone)", "category": "test-coverage", "severity": "high", "status": "todo", "acceptance": "All green on both bashes; teardown target met; sweep gate." }
       ]
     },
     {
@@ -160,25 +202,35 @@
       "goal": "README + docs/TJSONData.md + bench + coverage notes + final sweep.",
       "status": "todo",
       "tasks": [
-        { "id": "P7.1", "title": "README (API, positioning, jq-vs-fpjson guidance) + docs/TJSONData.md (upstream FPC family reference per kcl docs convention)", "category": "docs", "severity": "medium", "status": "todo", "acceptance": "Every ported member + wontfix documented." },
-        { "id": "P7.2", "title": "bench.sh (parse 1/10/100 KB, GetPath hot, AsJSON, informational jq-fork comparison), timed via TStopwatch.getTimeStamp (shared kcl bench clock — source ../tstopwatch/tstopwatch.sh; do NOT hand-roll _now_us) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE", "category": "performance", "severity": "medium", "status": "todo", "acceptance": "Honest numbers published; final master sweep green." }
+        { "id": "P7.1", "title": "README (API, positioning, jq-vs-fpjson guidance, the divergence table: literal numbers, per-document CompressedJSON, ObjAdd returning a handle, LF line breaks, no 255-char name limit, decimal-only path indices) + docs/TJSONData.md with the standard kcl upstream header", "category": "docs", "severity": "medium", "status": "todo", "acceptance": "Every ported member + wontfix documented." },
+        { "id": "P7.2", "title": "bench.sh (parse 1/10/100 KB, GetPath hot, AsJSON, informational jq-fork comparison), timed via TStopwatch.getTimeStamp (source ../tstopwatch/tstopwatch.sh — do NOT hand-roll a clock) + TEST_COVERAGE_NOTES finalization + final sweep, ledger COMPLETE", "category": "performance", "severity": "medium", "status": "todo", "acceptance": "Honest numbers published; final master sweep green." }
       ]
     },
     {
       "id": "P8",
       "name": "OPTIONAL: awk-coprocess tokenizer accelerator",
-      "goal": "Same token interface, corpus-equivalent, math-engine lifecycle lessons; ONLY on owner demand after v1 usage.",
+      "goal": "Same token interface, corpus-equivalent; ONLY on owner demand after v1 usage.",
       "status": "todo",
       "tasks": [
-        { "id": "P8.1", "title": "Coproc tokenizer (tempfile program feed, TMPDIR->MATH_DIR-style fallback, lazy start, $() subshell caveat documented) + full-corpus equivalence vs pure lexer + bench delta", "category": "performance", "severity": "low", "tier": "B-coproc-accelerator-optional", "status": "todo", "acceptance": "Equivalence 100% on corpus; bench delta recorded; graceful degradation without awk." }
+        { "id": "P8.1", "title": "Coproc tokenizer (tempfile program feed, TMPDIR->MATH_DIR-style fallback, lazy start, $() subshell caveat documented) + full-corpus equivalence vs the pure lexer + bench delta", "category": "performance", "severity": "low", "tier": "B-coproc-accelerator-optional", "status": "todo", "acceptance": "Equivalence 100% on corpus; bench delta recorded; graceful degradation without awk.", "note": "The review measured a one-shot awk tokenize of 96 KB at 1.7-4.5 s INCLUDING the fork — no better than the pure lexer at that size. A persistent coproc only starts paying above ~20 KB." }
       ]
     }
+  ],
+  "open_questions": [
+    { "id": "O1", "question": "Dialect default. FPC's DefaultOptions=[joUTF8], i.e. joStrict is OFF: it accepts single-quoted strings (jsonscanner.pp:317), unquoted/identifier member names and case-insensitive TRUE/Null (:569-580), raw control characters inside strings (:396), leading zeros (:423), .5 and 1.e5 (:426,:440). The plan defaults to STRICT RFC 8259 and offers the lenient dialect via doc.Options.", "default_taken": "strict RFC 8259 by default", "reason": "silently accepting {name: .5} from an API is a bug amplifier; both dialects are implemented and tested either way, so switching the default is a one-line change." },
+    { "id": "O2", "question": "CompressedJSON / StrictEscaping scope: per document (D8-6) vs class-wide as in FPC (fpjson.pp:150, :390).", "default_taken": "per document", "reason": "a process-wide switch is action at a distance in a shell; kklass static properties could reproduce FPC's shape if API-shape parity matters more." },
+    { "id": "O3", "question": "doc.ObjAdd returns the new child HANDLE; FPC's Add returns the insertion INDEX (fpjson.pp:3743).", "default_taken": "handle", "reason": "the handle is what every other member consumes; the index is Count-1 / IndexOfName. One line either way." }
   ],
   "execution_log": [
     {
       "date": "2026-07-12",
       "batch": "planning",
-      "summary": "fpjson PLAN.md (DRAFT) + ledger written; folders created. No implementation. Architecture forks explicitly reserved for the P0 owner review (node model: document-instance+handles recommended — object-per-node rejected by ctor-cost arithmetic; engine: pure-bash first recommended, awk-coproc as optional gated P8 per the math-engine precedent). Pinned planning decisions: string-preserving numbers (one kind + subtype tag), iterative explicit-stack parser with atomic positioned errors, LC_ALL=C byte-loop lexer idiom, insertion-order objects, JSONTestSuite subset as adversarial corpus, \\u0000 documented-reject."
+      "summary": "fpjson PLAN.md (DRAFT) + ledger written; folders created. No implementation. Architecture forks explicitly reserved for a P0 owner review."
+    },
+    {
+      "date": "2026-09-09",
+      "batch": "P0 re-plan (kcl PLAN.md phase P10, decision D8)",
+      "summary": "PLAN.md rewritten in full (737 lines) against the FPC sources re-read at tag release_3_2_2 and against measurements taken here. The July draft's central perf assumption was wrong and is corrected: a whole-document ${s:i:1} scan is O(n^2) — 96 KB = 38.7 s on 5.2.37 — while the windowed hybrid lexer does 20 KB in 290 ms and 96 KB in 1.59 s. New deliverable bench/lexer_probe.sh runs four tokenizers over 2/20/96 KB on both bashes, cross-checks their token counts, sweeps the window size, self-tests six edge documents (5 KB string, escapes, astral UTF-8, whitespace, empty containers, deep nesting) and asserts the P0 gate itself. Decisions D8-1..D8-6 recorded. Gaps the review named are all closed in the plan: _parent, FindPath grammar for names with '.'/'[', duplicate-key policy on parse AND Add, max-depth default, error contract = D2 with doc.LastError as the data channel, AsJSON of control chars (uppercase \\u00XX; DEL not escaped), the 10k teardown target, and the -0/1E400/int64 number rows. Three open questions (O1-O3) carry chosen defaults. NO unit code was written — this phase is planning plus one measurement script, by design."
     }
   ]
 }

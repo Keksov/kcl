@@ -16,7 +16,7 @@
       "R14 drop dead source kerr/klib",
       "R15 keep **/.ckk ignore AND fix kklass tests 030/063/065, delete stale kcl .ckk dirs"
    ],
-   "status" : "P0-P9 DONE. Committed in kcl: P0 61ea0ee (+ kklass 599d3a2, kkore 7532cad, ktests 6b2cb77, kbool 5df052f - the only phase PUSHED), P1 0324a91 (+ kbool 572bdfd), P2 6d983e9 (thashset P1 rode in with it), P3 6c92453 + e25de69, P4 6afbc8d + 0a45e17, P5 9602bcd + 2f87c3b, P6 9cb2314 + 269eb03 (+ kklass 32f4232), P7 caae508 + 5142736, P8 97e059a + 50ed8e6. Nothing but P0 is pushed. P9 (docs, unit-ledger statuses, and the two kkore helpers kk.debug / kk._outName) is DONE and UNCOMMITTED, awaiting the owner go; the working trees carrying it are kcl and kkore - kklass, ktests and kbool are clean. Next: P10 (fpjson re-plan, D8). Suite sizes after P9: kkore 429, and the 13 units P9 touched total 2996, both on 5.2.37 and 5.3.9. REVIEW.md now carries a \"Status after P0-P8\" section mapping every finding to the phase that closed it and every found_in_* to its outcome.",
+   "status" : "P0-P10 DONE. Committed in kcl: P0 61ea0ee (+ kklass 599d3a2, kkore 7532cad, ktests 6b2cb77, kbool 5df052f - the only phase PUSHED), P1 0324a91 (+ kbool 572bdfd), P2 6d983e9 (thashset P1 rode in with it), P3 6c92453 + e25de69, P4 6afbc8d + 0a45e17, P5 9602bcd + 2f87c3b, P6 9cb2314 + 269eb03 (+ kklass 32f4232), P7 caae508 + 5142736, P8 97e059a + 50ed8e6, P9 71589e1 + 0e83bb0. Nothing but P0 is pushed. P10 (fpjson P0 re-plan under D8) is DONE and UNCOMMITTED; being a PLANNING phase it changed only fpjson/PLAN.md, fpjson/fpjson_ledger.json, the new fpjson/bench/lexer_probe.sh and four kcl documents (PLAN.md, kcl_ledger.json, REVIEW.md, docs/review-2026-09-06/HANDOFF_PROMPT.md) - no unit code, therefore no unit suite run. THE REVIEW PLAN IS NOW COMPLETE: the next work is not a kcl phase but fpjson P1 (lexer) per kcl/fpjson/PLAN.md section 12, and thashset P2-P4 (set algebra, events, bench+docs) per kcl/thashset/PLAN.md. Suite sizes after P9: kkore 429 (431 with the P9-F3 cases) and the 13 units P9 touched total 3002, both on 5.2.37 and 5.3.9.",
    "decisions" : {
       "D2" : "instance units: error = rc 1 + RESULT='' + stderr only under VERBOSE_KKLASS=debug; booleans = rc",
       "D3" : "ALL SIX static printing units (dateutils tstringhelper math tfile tpath tdirectory) converted to func + kk._return",
@@ -28,6 +28,10 @@
       "D1" : "numeric args via shared kk.isInt/kk.isNum in kkore/klib.sh, 10# normalisation, rc 1 silent"
    },
    "journal" : [
+      {
+         "date" : "2026-09-09",
+         "entry" : "P10 DONE, uncommitted. fpjson/PLAN.md rewritten in full (737 lines) under D8: node model (B) with six per-document arrays (_type/_value/_kids as a SPACE-separated id list/_names indexed by the CHILD id/_parent/_index) and monotonic never-recycled handles; hybrid windowed lexer with LC_ALL=C scoped to it; explicit-stack parser with watermark rollback so a failed parse leaves the document byte-identical; FindPath grammar traced from the three DoFindPath implementations (including that a member whose name contains \".\" or \"[\" cannot be reached by a path, and that a path starting with \"[\" against an object returns the object itself); AsJSON byte-parity with FPC spaced default; ParseFile via mapfile -d with NUL detection; a checklist section mapping every clause of kcl/README.md section 1 onto the unit; phases P1-P8 with red-first gates; the awk accelerator last and optional. All twelve S-questions answered with file:line from FPC tag release_3_2_2 (the draft had quoted trunk). New probe kcl/fpjson/bench/lexer_probe.sh, green on both bashes: the draft whole-document ${s:i:1} idiom does 96 KB in 38.7 s on 5.2.37, the windowed hybrid does 20 KB in 290 ms (gate <= 1 s) and 96 KB in 1.59 s; on 5.3.9, 251 ms and 1.28 s. Also measured and recorded: `local LC_ALL=C` switches ${#s}, ${s:i:n} AND the [[ =~ ]] engine to bytes on both bashes and is restored on return, and in a UTF-8 locale a window cut mid-character makes =~ fail to match, so the scoped C locale is a correctness requirement and not only a speed one; printf \\u / \\U are unusable inside that region, so UTF-8 is composed arithmetically; 10k nodes cost 74-87 ms to build and 2-8 ms to unset, so doc.delete gets a <= 50 ms target for P6. Three defaults chosen and flagged for the owner (O1 strict-RFC dialect vs FPC lenient default, O2 per-document CompressedJSON, O3 ObjAdd returning a handle). No unit code, no unit suites, no master sweep - by design."
+      },
       {
          "date" : "2026-09-09",
          "entry" : "P9 DONE, uncommitted: docs + unit-ledger statuses + REVIEW status section + handoff/tree state, and the two kkore helpers deferred from P7/P8 (kk.debug, kk._outName) with kkore/tests/007_DebugAndOutName.sh (88 FAIL red-first). kkore 429/429 and the 13 touched unit suites 2996/2996 on 5.2.37 and 5.3.9. kkore is now a second working tree with uncommitted changes; commit kkore before kcl, kcl before kbool."
@@ -1500,12 +1504,48 @@
          }
       },
       "P10" : {
-         "size" : "S",
-         "title" : "fpjson P0 re-plan (D8): windowed lexer, _parent/_kids, destructor, UTF-8 by hand, error contract, bench probe",
+         "decisions" : {
+            "D8-1" : "monotonic handles, never recycled; 0 = no node; no free list (a recycled id makes a stale handle address a different node silently). Bonus: atomic parse becomes a watermark unset.",
+            "D8-2" : "lexer window 256 B / refill 64 / grow x4 - NOT the 2 KB named in D8: measured, 2 KB costs ~40% more on both bashes because the per-token cost includes an O(window) shift.",
+            "D8-3" : "hybrid lexer: first-byte case for the token kind, regex only for strings and numbers. Faster than the all-kinds regex on both bashes; punctuation and true/false/null are about half the tokens.",
+            "D8-4" : "the \\u0000 escape is DROPPED, following FPC jsonscanner.pp:365-369 - not a parse error as the July draft said.",
+            "D8-5" : "max nesting depth 512 by default, settable, 0 = unlimited. FPC has no depth guard at all - documented addition.",
+            "D8-6" : "CompressedJSON / StrictEscaping are per document; FPC makes them class-wide (fpjson.pp:150, :390)."
+         },
+         "deliverables" : [
+            "kcl/fpjson/PLAN.md rewritten in full (737 lines), DRAFT flag removed, the owner scope statements kept as section 1 \"Scope (from the original draft)\".",
+            "kcl/fpjson/bench/lexer_probe.sh (new, self-contained): four tokenizers (whole-document byte loop, windowed byte loop, all-kinds regex, hybrid first-byte+regex) over generated 2/20/96 KB documents, cross-checked token counts, --sweep over six window sizes, six edge-case self-tests, and the P0 gate asserted by the script itself.",
+            "kcl/fpjson/fpjson_ledger.json: status P0 done, decisions D8-1..D8-6, measurements{}, open questions O1-O3, phase list rewritten, next = fpjson P1."
+         ],
+         "deviations" : [
+            "The window is 256 B, not the 2 KB D8 names - the sweep measured it (D8-2). D8 intent (a WINDOW instead of whole-document indexing) is kept; only the constant changed.",
+            "The regex tokenizer is kept for the reason D8 gives but NOT for the reason the review gives: measured with a full tokenizer on both sides, a windowed character scan is as fast as an all-kinds regex (and faster on 5.3.9), so the review \"~2x faster again\" does not reproduce. The regex is adopted because one match returns the whole token and validates the number grammar in the same operation; the hybrid form recovers the speed and is what P1 implements.",
+            "Corpus vendoring, listed under the old fpjson P0.1, moved to fpjson P1: it is test material, not a design input, and P10 was scoped to documents plus one measurement script.",
+            "The \\u0000 reject became a \\u0000 drop (D8-4) because that is what FPC does and FPC wins over the draft."
+         ],
+         "done" : "2026-09-09 (uncommitted, awaiting the owner go)",
          "findings" : [
             "G8 task 5"
          ],
-         "status" : "todo"
+         "found_in_P10" : [
+            "P10-F1 (LOW, environment, worked around): a `VAR=value` prefix on the msys->cygwin bash.exe invocation does NOT reach the child - the first 5.3.9 probe run reported LC_ALL unset and generated a differently sized document (2103 vs 2081 bytes) because ${#j} counted characters. Repro: `PATH=\"/c/bin/msys64/usr/bin:$PATH\" LC_ALL=C.UTF-8 /c/bin/msys64/usr/bin/bash.exe -c 'echo [${LC_ALL:-unset}]'` -> [unset]; the same with `env LC_ALL=C.UTF-8 ...` -> [C.UTF-8]. The probe now pins LC_ALL=C inside its generator so the input is identical either way, but every future dual-bash run that needs a locale must use `env`.",
+            "P10-F2 (LOW, docs): the July fpjson draft cited FPC line counts from trunk (4322 / 758 / 290) that do not match tag release_3_2_2 (4108 / 616 / 275, plus jsonreader.pp 631). Every line reference in the rewritten plan was re-read at the tag.",
+            "P10-F3 (LOW, review report): the G8 claim that printf '\\U0001F600' \"prints literally in this environment\" holds only inside the C locale. Under LC_ALL=C.UTF-8 it emits the correct four bytes on both bashes; inside `local LC_ALL=C` (which the lexer needs) \\u00e9 degrades to the raw byte e9 and the wider escapes stay literal. The conclusion (hand-rolled UTF-8) stands; the reason is sharper and is in fpjson/PLAN.md section 4.4."
+         ],
+         "gate" : {
+            "git_status" : "kcl only: fpjson/PLAN.md, fpjson/fpjson_ledger.json, kcl_ledger.json, PLAN.md, REVIEW.md, docs/review-2026-09-06/HANDOFF_PROMPT.md modified + fpjson/bench/lexer_probe.sh new. kklass, kkore, ktests, kbool untouched by this phase.",
+            "ledgers" : "perl -MJSON::PP decode of kcl/fpjson/fpjson_ledger.json and kcl/kcl_ledger.json: both parse",
+            "master_sweep" : "not run: no unit code changed",
+            "probe_5.2.37" : "bench/lexer_probe.sh --sweep 2 20 96 -> rc 0. 20 KB hybrid 290 ms (gate: <= 1000 ms) PASS; 96 KB hybrid 1591 ms; whole-document byte loop 20 KB 1758 ms / 96 KB 38734 ms. Six self-tests ok.",
+            "probe_5.3.9" : "same invocation via `env LC_ALL=C.UTF-8 /c/bin/msys64/usr/bin/bash.exe` -> rc 0. 20 KB hybrid 251 ms PASS; 96 KB hybrid 1278 ms; byte loop 770 ms / 15327 ms. Six self-tests ok. Token counts identical to 5.2 (7637 / 36221) because the generator pins LC_ALL=C.",
+            "syntax" : "bash -n kcl/fpjson/bench/lexer_probe.sh clean on both bashes",
+            "unit_suites" : "not run and not applicable: no unit code changed in this phase"
+         },
+         "notes" : "The gate is the probe plus the JSON parse checks; there is no red-first table because nothing was fixed - this phase closes no REVIEW.md finding, it consumes G8 task 5 and turns it into a plan. Three open questions (O1 dialect default, O2 CompressedJSON scope, O3 ObjAdd return value) carry chosen defaults, recorded in fpjson_ledger.json open_questions[] and fpjson/PLAN.md section 15.",
+         "scope_note" : "PLANNING phase: it produces documents and one measurement script. No unit code was written and no unit suite was touched, so no unit suite was run - by design, and the reviewer should expect exactly that.",
+         "size" : "S",
+         "status" : "done",
+         "title" : "fpjson P0 re-plan (D8): windowed lexer, handle model, destructor, UTF-8 by hand, error contract, bench probe"
       },
       "P0" : {
          "gate" : {
