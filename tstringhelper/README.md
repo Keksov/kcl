@@ -151,11 +151,14 @@ Everything here is deliberate and pinned by a test.
    `Boolean`/`Integer`/`Extended` into its string form; in bash the argument
    already is that string, and `BoolToStr`'s `-1`/`0` would be actively
    misleading here.
-3. **`compare`, `compareOrdinal`, `compareTo` compare the WHOLE strings.**
-   FPC's `Compare(A,B)` is `Compare(A,0,B,0,Length(B),[])`, a *prefix*
-   comparison over `min(Length(A),Length(B))` characters, so FPC answers 0 for
-   `Compare('abc','ab')`. Ordering also uses the collation of the current
-   locale, not byte order. (Recorded in `kcl_ledger.json` as `found_in_P5`.)
+3. **`compare` and `compareOrdinal` compare the WHOLE strings** (owner decision
+   2026-09-09 on P5-F1, pinned by test 067). FPC's `Compare(A,B)` is
+   `Compare(A,0,B,0,Length(B),[])`, a *prefix* comparison over
+   `min(Length(A),Length(B))` characters, so FPC answers 0 for
+   `Compare('abc','ab')` — deliberately not reproduced (Delphi and .NET compare
+   whole strings; the prefix rule would break sorts). Their ordering uses the
+   collation of the current locale. **`compareTo` is FPC's `StrComp`: an ordinal
+   byte comparison, independent of the locale** (`local LC_ALL=C`).
 4. **`indexOfAnyUnquoted` scans `ACount` characters.** FPC computes its scan
    limit as `StartIndex+ACount-1`, one character short of `IndexOfAny`'s, so
    with the default `ACount` it never examines the **last** character of the

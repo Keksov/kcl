@@ -75,9 +75,9 @@ class TDictionary
         proc AddPairs
         proc Keys
         proc Values
-        proc KeysToArray
-        proc ValuesToArray
-        proc ToArrays
+        func KeysToArray
+        func ValuesToArray
+        func ToArrays
         proc ForEach
         property onKeyNotify   read onKeyNotify   write onKeyNotify
         property onValueNotify read onValueNotify write onValueNotify
@@ -445,7 +445,7 @@ TDictionary.KeysToArray() {
     local __td_out="$1"
     if ! TDict._outName "$__td_out" || TDict._isAssoc "$__td_out"; then
         kk.debug "Error: TDictionary.KeysToArray: bad output variable name '$__td_out'"
-        return 2
+        kk._return ""; return 2
     fi
     declare -n __td_oref="$__td_out"
     declare -n __td_items="${__inst__}_items"
@@ -454,6 +454,7 @@ TDictionary.KeysToArray() {
     for __td_k in "${!__td_items[@]}"; do
         __td_oref+=("${__td_k#k}")
     done
+    RESULT="${#__td_oref[@]}"     # the func trailer emits it once (kk._return here would print twice under $( ))
 }
 
 TDictionary.ValuesToArray() {
@@ -461,7 +462,7 @@ TDictionary.ValuesToArray() {
     local __td_out="$1"
     if ! TDict._outName "$__td_out" || TDict._isAssoc "$__td_out"; then
         kk.debug "Error: TDictionary.ValuesToArray: bad output variable name '$__td_out'"
-        return 2
+        kk._return ""; return 2
     fi
     declare -n __td_oref="$__td_out"
     declare -n __td_items="${__inst__}_items"
@@ -470,6 +471,7 @@ TDictionary.ValuesToArray() {
     for __td_v in "${__td_items[@]}"; do
         __td_oref+=("$__td_v")
     done
+    RESULT="${#__td_oref[@]}"     # the func trailer emits it once (kk._return here would print twice under $( ))
 }
 
 TDictionary.ToArrays() {
@@ -478,12 +480,12 @@ TDictionary.ToArrays() {
     local __td_kout="$1" __td_vout="$2"
     if [[ "$__td_kout" == "$__td_vout" ]]; then
         kk.debug "Error: TDictionary.ToArrays: two DISTINCT output variable names required"
-        return 2
+        kk._return ""; return 2
     fi
     if ! TDict._outName "$__td_kout" || TDict._isAssoc "$__td_kout" \
        || ! TDict._outName "$__td_vout" || TDict._isAssoc "$__td_vout"; then
         kk.debug "Error: TDictionary.ToArrays: bad output variable name"
-        return 2
+        kk._return ""; return 2
     fi
     declare -n __td_kref="$__td_kout"
     declare -n __td_vref="$__td_vout"
@@ -495,6 +497,7 @@ TDictionary.ToArrays() {
         __td_kref+=("${__td_k#k}")
         __td_vref+=("${__td_items[$__td_k]}")
     done
+    RESULT="${#__td_kref[@]}"
 }
 
 # ---- notifications (P5) -----------------------------------------------------

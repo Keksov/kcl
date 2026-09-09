@@ -454,13 +454,11 @@ TList.BatchInsert() {
     # Validate index
     if (( index < 0 || index > current_count )); then
         kk.debug "Error: Index out of bounds"
-        RESULT="$current_count"
         return 1
     fi
 
     # No items to add - return current count
     if (( items_to_add == 0 )); then
-        RESULT="$current_count"
         return 0
     fi
 
@@ -499,7 +497,6 @@ TList.BatchInsert() {
 
     local new_count=$((current_count + items_to_add))
     $__inst__.property count = "$new_count"
-    RESULT="$new_count"
 }
 
 TList.BatchDelete() {
@@ -513,7 +510,6 @@ TList.BatchDelete() {
     # Validate index
     if (( index < 0 || index >= current_count )); then
         kk.debug "Error: Index out of bounds"
-        RESULT="$current_count"
         return 1
     fi
 
@@ -524,7 +520,6 @@ TList.BatchDelete() {
 
     # No items to delete - return current count
     if (( count_to_delete <= 0 )); then
-        RESULT="$current_count"
         return 0
     fi
 
@@ -543,7 +538,6 @@ TList.BatchDelete() {
 
     local new_count=$((current_count - count_to_delete))
     $__inst__.property count = "$new_count"
-    RESULT="$new_count"
 }
 
 # Finalize: extract the bodies above into the TList class. The class keeps the

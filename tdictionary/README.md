@@ -70,7 +70,7 @@ d.delete                     # destructor: Clear (events fire) + teardown
 | Method | Semantics |
 |---|---|
 | `d.Keys` / `d.Values` | one item per line (ambiguous for embedded newlines — use the array forms) |
-| `d.KeysToArray var` / `d.ValuesToArray var` | fill a named indexed array, **lossless** (newline-safe); the array is reset first. A malformed output name → **rc 2**, dict untouched (see below) |
+| `d.KeysToArray var` / `d.ValuesToArray var` | fill a named indexed array, **lossless** (newline-safe); the array is reset first; **RESULT = element count** (kcl �1.7, P9-F4). A malformed output name → **rc 2**, dict untouched (see below) |
 | `d.ToArrays kVar vVar` | two index-aligned parallel arrays: `kVar[i]` ↔ `vVar[i]`; names must differ, else **rc 2** |
 | `d.ForEach cb` | invoke `cb key value` per pair over a **snapshot**: the callback may freely `Remove`/`Add` — deleted pairs are skipped, additions are not visited in this pass; callback rc ignored |
 | `d.Assign src` | replace content with a copy of another TDictionary (`Create(ACollection)` analog); self-assign is a no-op; invalid source → rc 1, dict untouched |

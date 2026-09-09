@@ -715,17 +715,17 @@ status` clean, no `.ckk`/`/tmp` growth. Then STOP and wait for "go".
 Defaults are already chosen and implemented as written above; these three are flagged because
 each is a deliberate **divergence from FPC's default** and the owner may want the other side.
 
-* **O1 — dialect default.** FPC's `DefaultOptions=[joUTF8]`, i.e. `joStrict` is **off**: FPC
+* **O1 — dialect default.** **Owner decision 2026-09-09: strict RFC 8259 by default (as planned).** FPC's `DefaultOptions=[joUTF8]`, i.e. `joStrict` is **off**: FPC
   accepts single-quoted strings, unquoted/identifier member names, case-insensitive `TRUE`,
   raw control characters inside strings, leading zeros, `.5` and `1.e5`. This plan defaults to
   **strict RFC 8259** (= `joStrict` on) and offers FPC's lenient dialect through
   `doc.Options joStrict=false`, because silently accepting `{name: .5}` from an API is a bug
   amplifier. If the owner prefers exact FPC defaults, only the default option set changes —
   both dialects are implemented and tested either way.
-* **O2 — `CompressedJSON` scope** (D8-6): per document here, class-wide in FPC. A class-wide
+* **O2 — `CompressedJSON` scope** (D8-6): **Owner decision 2026-09-09: per document (as planned).** per document here, class-wide in FPC. A class-wide
   switch is reproducible in kklass (a static property) if byte-parity of the *API shape* matters
   more than the shell hygiene argument.
-* **O3 — `ObjAdd` return value:** the new child **handle** here, the insertion **index** in FPC.
+* **O3 — `ObjAdd` return value:** **Owner decision 2026-09-09: the handle (as planned).** the new child **handle** here, the insertion **index** in FPC.
   Both are one line; the handle is what the rest of the API consumes.
 
 ---

@@ -391,8 +391,19 @@ string.compareText() {
     fi
 }
 
+# FPC CompareTo = StrComp: an ORDINAL byte comparison, independent of the
+# caller's locale (owner decision on P5-F1, 2026-09-09). `local LC_ALL=C` makes
+# [[ < ]] compare bytes and is restored on return.
 string.compareTo() {
-    string.compare "${1:-}" "${2:-}"
+    local LC_ALL=C
+    local strA="${1:-}" strB="${2:-}"
+    if [[ "$strA" < "$strB" ]]; then
+        string._ret -1
+    elif [[ "$strA" > "$strB" ]]; then
+        string._ret 1
+    else
+        string._ret 0
+    fi
 }
 
 string.contains() {

@@ -122,3 +122,26 @@ if [[ "$out" == *"reached rc="* && "$out" == *"end"* ]]; then
 else
     kt_test_fail "caller never regained control: '$out'"
 fi
+
+# ---------------------------------------------------------------------------
+# P9-F4 (owner decision 2026-09-09): the output-array members return the element
+# count in RESULT, as kcl/README.md section 1.7 requires (tqueuestack / thashset
+# / tinifile already do). Before: procs that left RESULT stale.
+kt_test_start "KeysToArray / ValuesToArray / ToArrays return the count in RESULT [P9-F4]"
+TDictionary.new pf; pf.Add k1 v1; pf.Add k2 v2; pf.Add k3 v3
+declare -a pk=() pv=() pk2=() pv2=()
+RESULT=STALE; pf.KeysToArray pk;   r1="$RESULT"
+RESULT=STALE; pf.ValuesToArray pv; r2="$RESULT"
+RESULT=STALE; pf.ToArrays pk2 pv2; r3="$RESULT"
+if [[ "$r1" == 3 && "$r2" == 3 && "$r3" == 3 && ${#pk[@]} -eq 3 && ${#pv2[@]} -eq 3 ]]; then
+    kt_test_pass "RESULT=3 for all three, arrays filled"
+else
+    kt_test_fail "r1=$r1 r2=$r2 r3=$r3 pk=${#pk[@]} pv2=${#pv2[@]}"
+fi
+kt_test_start "the count is also printed exactly once under \$( ) [P9-F4]"
+got="$(pf.KeysToArray pk)"
+[[ "$got" == 3 ]] && kt_test_pass "captured 3" || kt_test_fail "captured '$got'"
+kt_test_start "a malformed name still answers rc 2 with RESULT empty [P9-F4]"
+RESULT=STALE; pf.KeysToArray "1bad"; rc=$?
+[[ $rc -eq 2 && -z "$RESULT" ]] && kt_test_pass "rc 2, RESULT empty" || kt_test_fail "rc=$rc RESULT='$RESULT'"
+pf.delete

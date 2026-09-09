@@ -201,3 +201,22 @@ else
     kt_test_fail "caller never regained control: '$out'"
 fi
 kt_test_log "020_Contract.sh completed"
+
+# ---------------------------------------------------------------------------
+# P2-F1 (owner decision 2026-09-09): BatchInsert / BatchDelete are rc-only procs.
+# They never touch the caller's RESULT — the dead `RESULT=<count>` lines that
+# suggested otherwise are gone. Pin: RESULT survives every path.
+kt_test_start "BatchInsert/BatchDelete are rc-only: caller RESULT untouched [P2-F1]"
+TList.new bl; bl.Add a; bl.Add b; bl.Add c
+RESULT=SENTINEL
+bl.BatchDelete 0 1;   r1="$RESULT"; rc1=$?
+bl.BatchInsert 0 x y; r2="$RESULT"
+bl.BatchDelete 99 1;  r3="$RESULT"      # out of bounds path
+bl.BatchDelete 0 0;   r4="$RESULT"      # nothing-to-do path
+bl.count >/dev/null;  n="$RESULT"
+if [[ "$r1$r2$r3$r4" == "SENTINELSENTINELSENTINELSENTINEL" && "$n" == "4" ]]; then
+    kt_test_pass "RESULT untouched on all four paths, count=4"
+else
+    kt_test_fail "r1=$r1 r2=$r2 r3=$r3 r4=$r4 count=$n"
+fi
+bl.delete
