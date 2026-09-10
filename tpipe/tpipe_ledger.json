@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/tpipe — TPipe: stream-to-callback adaptor (kcl addition, no FPC source). Runs a producer argv or stdin in the calling shell and hands each record to a callback / array / list, so `producer | obj.method` state loss is designed out.",
   "created": "2026-09-10",
-  "updated": "2026-09-10",
-  "status": "PLANNED, critic-hardened. Design accepted by the owner 2026-09-10 with defaults D1–D5 (PLAN.md §2.0); D6 chosen by the supervisor and flagged to the owner. Critic pass 2026-09-10: 23 findings (2 BLOCKER, 8 MAJOR, 8 MINOR, 5 NIT), all folded into PLAN.md §1–§6 (record in §8). No code.",
+  "updated": "2026-09-11",
+  "status": "P0 DONE 2026-09-11 (pending commit SHA in the log). tpipe suite 48/48 on bash 5.2.37 and 5.3.9; master sweep 21/21 suites 0 [FAIL] on 5.2.37 and on 5.3.9 (rerun after the F4 race fix). Earlier: Design accepted by the owner 2026-09-10 with defaults D1–D5 (PLAN.md §2.0); D6 chosen by the supervisor and flagged to the owner. Critic pass 2026-09-10: 23 findings (2 BLOCKER, 8 MAJOR, 8 MINOR, 5 NIT), all folded into PLAN.md §1–§6 (record in §8). No code.",
   "decisions": {
     "D1": "stdin form in a subshell (BASH_SUBSHELL>0) is refused: rc 2, RESULT='', nothing read, kk.debug prints the pinned message (PLAN §2.5) naming the `--` form and `shopt -s lastpipe` in a NON-interactive script",
     "D2": "early stop = explicit TPipe.stop from inside the callback; callback rc ignored; stop flag is a `local` of the sink frame (dynamic scoping), so nested sinks each own their stop",
@@ -17,14 +17,14 @@
       "id": "P0",
       "name": "Engine + each + stop + lastRc",
       "goal": "tpipe._open/_close engine (flags, validation order, D1 guard + pinned message, D6 debug line, pid capture, close-kill-wait), TPipe.each per PLAN §2.2–2.5 with TPIPE_INDEX, frame-local TPipe.stop, TPipe.lastRc; pins F1–F3, F5–F6, F9–F10, F12–F13 as tests.",
-      "status": "planned",
+      "status": "done",
       "tasks": [
         {
           "id": "P0.1",
           "title": "Skeleton: guard, locale, tpipe._ret, class with ALL 7 members declared and every one given a tpipe._pending body (rc 2 + debug, never RESULT); __TPIPE_STOP=0 / __TPIPE_RC=-1 at load",
           "category": "infra",
           "severity": "high",
-          "status": "planned",
+          "status": "done",
           "acceptance": "Sources under set -eu on both bashes; `build` accepts the class (it refuses a declared member without a body); 001/002 written against this skeleton are RED and the counts are recorded here."
         },
         {
@@ -32,7 +32,7 @@
           "title": "Engine: flag parser (-0, -c, unknown flag rc 2), validation order §2.5 (word after operand must be `--`; empty argv after `--` rc 2), D1 guard with the pinned message, D6 debug line, exec {fd}< <(argv) + pid capture, delimiter passed as a VALUE (-d \"$d\"), close-[kill -TERM]-wait with `wait || __TPIPE_RC=$?`",
           "category": "feature",
           "severity": "critical",
-          "status": "planned",
+          "status": "done",
           "acceptance": "Validation precedes _open: every rc 2 path runs nothing and leaves stdin unread (here-string probe, F14). wait returns the producer rc (F3, incl. a function producer and 127 for a missing command). Closing the fd kills `yes` (F4). A SIGPIPE-ignoring producer that STOPS WRITING (`trap '' PIPE; echo a; sleep 8`) is terminated in < 1 s with lastRc 143 (F5). $! clobber inside a callback is harmless (F6). IFS=':' around a -0 call still yields the right records (F11). The stop path never runs a bare `wait` (004 under set -eu with a failing producer)."
         },
         {
@@ -40,7 +40,7 @@
           "title": "TPipe.each + TPipe.stop (local __TPIPE_STOP in every sink frame) + TPipe.lastRc + TPIPE_INDEX per the §2.4 contract",
           "category": "feature",
           "severity": "critical",
-          "status": "planned",
+          "status": "done",
           "acceptance": "IFS= read -r with the unterminated-tail rule (F10, incl. a final empty record); callback validated once up front (declare -F), plain fn / r.onLine / static member all work (F9), dangling name rc 2, a non-`--` word after CB rc 2; callback rc ignored; stop stops the innermost sink only AND an outer stop requested before an inner sink survives it (F12); stray stop harmless; stop leaves RESULT untouched; TPIPE_INDEX 1-based per sink call and nested-safe (F13); RESULT = records delivered; rc 0 on producer 0 or stopped, rc 1 silent on producer ≠0 WITH the count kept (named deviation); lastRc raw for the `--` form, -1 before any sink and after a stdin-form sink; zero forks per record (BASHPID probe)."
         },
         {
@@ -48,7 +48,7 @@
           "title": "tests 001_Each.sh + 002_Stop.sh (red-first against the P0.1 skeleton), README first cut (three forms, D1 message verbatim, D6 note, instance-dispatch cost)",
           "category": "test",
           "severity": "high",
-          "status": "planned",
+          "status": "done",
           "acceptance": "Red counts recorded; green on 5.2.37 and 5.3.9; every test sets its own stdin; stop-path producers carry 2>/dev/null; master sweep 0 [FAIL] on both (run by the reviewer)."
         }
       ]
@@ -103,6 +103,11 @@
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-11",
+      "batch": "P0 — engine + each + stop + lastRc",
+      "summary": "Opus worker, supervisor review against the live tree. tpipe.sh (356 lines): guard, locale, tpipe._ret (tpath verbatim), three load-time globals (__TPIPE_STOP=0, __TPIPE_RC=-1, TPIPE_INDEX=0), plain helpers _ret/_pending/_isFunc/_open/_close, TPipe.each/stop/lastRc real, toArray/toList/first/count still _pending stubs (rc 2, RESULT untouched). Red-first against the P0.1 skeleton: 43 FAIL of 47 (001: 32/36, 002: 11/11; the 4 non-red are the harness pin and three rc-2-and-silent halves a stub satisfies by construction). Green: 48/48 on bash 5.2.37 AND 5.3.9 after the two review remarks (a 48th case for the TPIPE_INDEX global, red-first 1 FAIL). Reviewer probes on both bashes: three forms with an instance callback (hits=3 under lastpipe and in the -- form), D1 line byte-exact, IFS=':' around -0 still 2 records, exotic matrix byte-exact, stop on a SIGPIPE-ignoring sleeper in 16-22 ms with lastRc 143, failing producer rc 1 with the count kept, rc 2 leaves a here-string unread, zero forks (BASHPID). Worker findings accepted into PLAN: `declare -F --` is load-bearing (a bare `declare -F '--'` accepts `--` as a callback); the record counter lives in __tpi_n with TPIPE_INDEX as a mirror, so a callback assigning TPIPE_INDEX cannot corrupt RESULT; F4/F5 are exercised via each+stop until `first` lands (P1); the D6 warning text is pinned in §2.5. Master sweep: 5.2.37 21/21 suites 0 [FAIL]; 5.3.9 first run 1 FAIL — F4 pinned lastRc 141 on `yes`, but close → kill -TERM → wait is a race (the TERM landed first under load, 143); PLAN §2.3 already allowed both, the test now accepts 141 or 143 (F5 stays strict: a SIGPIPE-ignoring producer can only die of TERM); 5.3.9 rerun 21/21 0 [FAIL]. Committed as kcl <SHA-P0>."
+    },
     {
       "date": "2026-09-10",
       "batch": "planning",

@@ -293,6 +293,12 @@ The D1 message, pinned (004 asserts exactly one line matching it):
 Error: TPipe.each: stdin form ran in a subshell (BASH_SUBSHELL=N); use `TPipe.each CB -- CMD ...`, or `shopt -s lastpipe` at the top of a NON-interactive script (lastpipe is inert while job control is on)
 ```
 
+The D6 line, pinned the same way (one line, `Warning:` prefix, only under the switch):
+
+```
+Warning: TPipe.each: running in a subshell (BASH_SUBSHELL=N); records are delivered, but every mutation the callback makes is lost when the subshell exits
+```
+
 CMD is executed as `"${argv[@]}"` inside the process substitution: a bash function
 (a kklass static member such as `TGrep.search`, a user wrapper that redirects
 stderr), a builtin, or an executable — whatever `command` would find. It is not
@@ -310,7 +316,7 @@ records, plain-function callback (5.2.37 / 5.3.9):
 |---|---|
 | `TPipe.each` + no-op function vs bare `while read` | 1.18× / 1.25× |
 | `toArray` vs bare `mapfile` | 1.02× / 1.01× |
-| `first` on `yes` | 33 ms / 41 ms, rc 141 |
+| `first` on `yes` | 33 ms / 41 ms, lastRc 141 or 143 |
 | forks per record | 0 |
 
 Gate at P2, **plain-function callback**: `each` ≤ 2× the bare loop; `toArray`
@@ -333,7 +339,7 @@ plain-function callback that forwards to the object only when needed.
 | F1 | RHS of `\|` is a subshell: object state lost | 001: `cmd \| TPipe.each cb` is rc 2, `RESULT=""`, callback never called, object untouched, exactly the §2.5 message under debug |
 | F2 | `BASH_SUBSHELL` = 1 in the pipe RHS, 0 under lastpipe, also for a static member | 001: the same call under `shopt -s lastpipe` delivers and mutates; `PIPESTATUS[0]` is the producer's |
 | F3 | `exec {fd}< <(cmd); pid=$!; …; wait $pid` = producer rc | 001: `-- sh -c 'echo a; exit 4'` → RESULT 1, rc 1, lastRc 4; a function producer `exit 6` → 6; a missing command → 127 |
-| F4 | closing the fd kills an infinite producer (141), `wait` returns | 002: `TPipe.first -- yes` returns `y` in < 250 ms, lastRc 141 |
+| F4 | closing the fd kills an infinite producer (141), `wait` returns | 002 (P0: via `each` + `TPipe.stop`; re-pointed at `first` in P1): `TPipe.first -- yes` returns `y` in < 250 ms, lastRc 141 **or 143** (the close and the `kill -TERM` race: under load the TERM lands before `yes` attempts its next write — seen in the 5.3.9 master sweep) |
 | F5 | a SIGPIPE-ignoring producer that **stops writing** is terminated | 002: producer function `trap '' PIPE; echo a; sleep 8; echo b` (stderr to /dev/null); `first` returns in < 1 s, lastRc 143; whole test under `timeout 5` |
 | F6 | `$!` clobbered by a callback does not affect the captured pid | 002: callback runs `( : ) & wait $!`; lastRc still the producer's |
 | F7 | `-d ''` delivers NUL records | 003: `-0 -- find … -print0` count equals `-print` count on names with spaces/newlines |
@@ -434,6 +440,7 @@ Runner: `tests/tests.sh` → ktests, as every unit.
 - The delimiter is passed as a value (`-d "$d"`), never as an expansion-built option
   word (§2.2, F11).
 - `(( __TPIPE_STOP ))` as a statement returns 1 when 0 → always inside `if`.
+- `declare -F "$cb"` ACCEPTS `--` as a callback (it is read as the end-of-options marker, rc 0, no output — measured on both bashes): the validator is `declare -F -- "$cb"`, and `_open` refuses an operand equal to `--` on its own (P0 finding).
 - `exec {fd}<&-` **before** `wait`, never after — otherwise a blocked producer never
   gets its SIGPIPE and `wait` hangs; and on the stop path `kill -TERM "$pid"` between
   the two (§2.3).
