@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tutil + kcl/tgrep — TUtil: CLI-tool wrapper base (FPC TProcess kinship; typed options → argv, rc normalisation, sinks via TPipe); TGrep: the first wrapper over GNU grep 3.0.",
+  "created": "2026-09-10",
+  "updated": "2026-09-10",
+  "status": "PLANNED, critic-hardened. Depends on kcl/tpipe P0–P1. Design accepted by the owner 2026-09-10 (D1–D5 in tpipe/PLAN.md §2.0). Critic pass 2026-09-10: 23 findings (5 BLOCKER, 10 MAJOR, 6 MINOR, 2 NIT), all folded into PLAN.md §1–§7 (record in §8). No code.",
+  "phases": [
+    {
+      "id": "P0",
+      "name": "TUtil core",
+      "goal": "Concrete generic runner: cmd/args/argv model, buildArgv (virtual by kklass default), addArg/clearArgs/argv, run, mapRc (virtual), lastRc, destructor; constructor assigns every var.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "tutil.sh skeleton + Create (assigns EVERY var: cmd, crlf=0, nul=0, _lastRc=-1)/Destroy/buildArgv/addArg/clearArgs/argv/mapRc/lastRc; sinks as stubs answering `kk._return \"__TUTIL_PENDING__\"; return 2`",
+          "category": "infra",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "U2/U3 hold incl. `declare -p ${inst}_data` listing every declared var right after new; argv validates the out-name with kk._outName NAME __tu_ __tg_ AND refuses ${inst}_args|_argv|_paths with rc 2 (the tqueuestack helper shape, status converted); cmd='' → rc 2 everywhere and nothing runs (U4); every internal member call is `kk.call_silent \"$__inst__\" NAME …`, never `$this.NAME`."
+        },
+        {
+          "id": "P0.2",
+          "title": "run: `command -v -- \"$cmd\"` pre-check (rc 1, _lastRc=127, one debug line, nothing runs), foreground `\"${argv[@]}\" || rc=$?` (never bare), stdout inherited, raw rc into per-instance _lastRc, mapRc via kk.call_silent → member rc",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "U5: missing cmd → rc 1, lastRc 127, exactly one stderr line under debug and NONE without it (no bash 'command not found'). U7: `od -c < <(u.run)`, `$(u.run)` and `u.run | od -c` byte-identical to the bare tool — no leaked kk._return digits. A failing tool under set -e does not abort the caller (003)."
+        },
+        {
+          "id": "P0.3",
+          "title": "tests 001_Core.sh (red-first against the P0.1 skeleton) + README first cut",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red count recorded; green on 5.2.37 and 5.3.9; sweep 0 [FAIL]."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Sinks via TPipe",
+      "goal": "each/toArray/toList/first/count delegate to TPipe with -- \"${argv[@]}\"; nul/crlf → -0/-c; func sinks answer RESULT = count AND rc = mapped via `kk._return n; return m`; lastRc copied from TPipe.lastRc; mapRc not applied when the consumer stopped.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "Five sinks per PLAN §2.3 ordering (save RESULT immediately after the TPipe call; kk._return count; return mapped rc) + stub removal + sentinel-absence test",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "U1/U6/U8; each sink equals TPipe called directly with the same argv; RESULT = count with rc = mapped both direct and under $( ); three-frame nested dispatch (g.each → TPipe.each → r.onLine) keeps r's state; BASHPID zero-fork probe in the callback; no member answers __TUTIL_PENDING__."
+        },
+        {
+          "id": "P1.2",
+          "title": "tests 002_Sinks.sh + 003_Contract.sh",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red-first counts recorded; set -eu path incl. a failing tool; debug switch one line per rc 2 path; sweep 0 [FAIL]."
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "TGrep",
+      "goal": "kcl/tgrep/tgrep.sh: typed grep options → pinned argv shape, rc 2 list (empty pattern, -F/-E, -l/-L, -h/-H, bad or negative maxCount), mapRc 0/1/≥2 with the partial-output rule, derived -0 for -Z with -l/-L, `binary` (-U), paths, `search` = grep -r with ≥1 path and a unique throw-away instance name.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "TGrep class; Create calls `parent.constructor grep` explicitly (NEVER `inherited` — it forwards \"$@\" and doubled every path) and assigns all 22 vars; buildArgv override (argv shape PLAN §1.3); mapRc override; paths; destructor (own arrays then inherited); static search with `__tg_s_${BASHPID}_${__TG_SEQ}`",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "G1–G4 by array comparison without running grep (incl. ${g}_args empty after new g PAT PATH; maxCount via $__KK_INT, -1 rejected); G5–G12 on the fixture tree; search implies -r and refuses zero paths; instance never implies -r; nested search keeps the outer instance alive; -r does not descend a REAL directory symlink (kt_make_symlink); one missing file among good ones → records kept, RESULT = count, rc 1, lastRc 2."
+        },
+        {
+          "id": "P2.2",
+          "title": "tests 004_Argv.sh, 005_Search.sh (GNU banner gate first; fixtures via kt_fixture_tmpdir_create, no own EXIT trap), 006_Contract.sh + tgrep/README.md",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red-first; green both bashes; the README three-forms example (G9, with recursive=1 / search) executed by a test; sweep 0 [FAIL]."
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Closeout",
+      "goal": "bench, READMEs final, docs/TUtil.md, TEST_COVERAGE_NOTES for both units, kcl README §2 rows, ledger COMPLETE.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "tutil/bench.sh (argv fork-free, run on true, each 10k ≤ 1.1× TPipe direct) + tgrep bench (search ≤ 1.3× bare grep on 10k lines), run in --mode single",
+          "category": "perf",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "Numbers on both bashes in the READMEs; rc 0 under bash -eu."
+        },
+        {
+          "id": "P3.2",
+          "title": "Docs (CRLF measurement table, binary-file note, partial-output rule, reserved member names) + kcl README rows naming BOTH deviations (run streams; rc 1 with real RESULT on partial grep failure) + ledger COMPLETE with SHAs",
+          "category": "docs",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "kcl README §2 rows for tutil and tgrep present; final master sweep 0 [FAIL] on both bashes."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-09-10",
+      "batch": "planning",
+      "summary": "PLAN.md + this ledger written after the owner accepted the TPipe/TUtil/TGrep design. TUtil is concrete (generic argv runner, TProcess kinship), buildArgv/mapRc virtual, three per-instance arrays freed by the destructor, all sinks delegate to TPipe. TGrep argv shape pinned (grep [flags] -e PATTERN [extras] -- PATH...), no -P/--color/context. §7 template for tsed/tawk/tfind/thead/ttail. No code."
+    },
+    {
+      "date": "2026-09-10",
+      "batch": "critic pass",
+      "summary": "Opus critic, 23 probe scripts on both bashes (scratchpad critic_tutil/; base.sh/derived.sh = faithful TUtil/TGrep per the draft). BLOCKERS: (1) `$this.func` inside a member prints the callee's kk._return under $( )/|/<( ) — run leaked '2…0' into its stream; fix = kk.call_silent for every internal member call. (2) `inherited` in a constructor is rewritten to `parent.constructor \"$@\"` (kklass_pascal.sh:166) — TGrep paths doubled; fix = explicit `parent.constructor grep`. (3) an unassigned `var` is an unbound variable under set -u (kklass.sh:363) and .new over a live instance keeps stale _data; fix = constructor assigns every var. (4) G8 and the flagship example contradicted (grep DIR without -r = rc 2, zero records); fix = `search` implies -r and requires ≥1 path, instances never imply -r. (5) `RESULT=n; return 1` in a func loses RESULT (explicit return skips the trailer, kk._invoke restores the caller's); fix = `kk._return n; return m` ordering. MAJORS: `(` is literal under BRE (G6 needs -E); plain `ln -s` makes a directory copy on this box → kt_make_symlink; grep/sed/gawk strip CR in text mode (crlf is a no-op for them) → `binary` (-U) var; a test's own EXIT trap replaces ktests' trap → framework fixtures; -Z is NUL termination only with -l/-L and a var cannot set `nul` → derived -0; grep rc 2 with partial hits and 'Binary file X matches' on stdout → named deviation + escape hatch; bare \"${argv[@]}\" aborts a set -e caller → `|| rc=$?`; fixed throw-away name clobbered by nested search → BASHPID+seq; non-GNU grep on PATH (Embarcadero) → GNU banner gate; missing cmd prints bash's own unconditional stderr → `command -v` pre-check. MINOR/NIT: var-vs-inherited-method same name (method wins silently) → reserved names; kk.isInt accepts negatives and the OUTVAR form writes through the property nameref → $__KK_INT and >= 0; -h/-H and -l/-L pairs rc 2; empty pattern rc 2; sed `--` asymmetry explained; TStringList.Add may answer rc 1 (TPipe guards it); out-name helper status converted to 2; func stubs must kk._return a sentinel. 18 claims verified correct and listed in PLAN §8."
+    }
+  ]
+}

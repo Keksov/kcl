@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tpipe — TPipe: stream-to-callback adaptor (kcl addition, no FPC source). Runs a producer argv or stdin in the calling shell and hands each record to a callback / array / list, so `producer | obj.method` state loss is designed out.",
+  "created": "2026-09-10",
+  "updated": "2026-09-10",
+  "status": "PLANNED, critic-hardened. Design accepted by the owner 2026-09-10 with defaults D1–D5 (PLAN.md §2.0); D6 chosen by the supervisor and flagged to the owner. Critic pass 2026-09-10: 23 findings (2 BLOCKER, 8 MAJOR, 8 MINOR, 5 NIT), all folded into PLAN.md §1–§6 (record in §8). No code.",
+  "decisions": {
+    "D1": "stdin form in a subshell (BASH_SUBSHELL>0) is refused: rc 2, RESULT='', nothing read, kk.debug prints the pinned message (PLAN §2.5) naming the `--` form and `shopt -s lastpipe` in a NON-interactive script",
+    "D2": "early stop = explicit TPipe.stop from inside the callback; callback rc ignored; stop flag is a `local` of the sink frame (dynamic scoping), so nested sinks each own their stop",
+    "D3": "names TPipe / TUtil / TGrep",
+    "D4": "GNU tools as shipped by MSYS2; no BSD layer (affects tutil)",
+    "D5": "TPipe is a kcl unit (kcl/tpipe), not a kkore helper",
+    "D6": "SUPERVISOR CHOICE, FLAGGED: the `--` form under BASH_SUBSHELL>0 ($( ), ( ), pipe RHS) also loses instance-callback mutations and nameref fills; it stays ALLOWED with one kk.debug line, because `out=$(TPipe.each fmt -- cmd)` with a plain formatting function is a legitimate stateless use and that subshell is the caller's explicit choice. Owner may flip to rc 2 before P0 starts."
+  },
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Engine + each + stop + lastRc",
+      "goal": "tpipe._open/_close engine (flags, validation order, D1 guard + pinned message, D6 debug line, pid capture, close-kill-wait), TPipe.each per PLAN §2.2–2.5 with TPIPE_INDEX, frame-local TPipe.stop, TPipe.lastRc; pins F1–F3, F5–F6, F9–F10, F12–F13 as tests.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "Skeleton: guard, locale, tpipe._ret, class with ALL 7 members declared and every one given a tpipe._pending body (rc 2 + debug, never RESULT); __TPIPE_STOP=0 / __TPIPE_RC=-1 at load",
+          "category": "infra",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Sources under set -eu on both bashes; `build` accepts the class (it refuses a declared member without a body); 001/002 written against this skeleton are RED and the counts are recorded here."
+        },
+        {
+          "id": "P0.2",
+          "title": "Engine: flag parser (-0, -c, unknown flag rc 2), validation order §2.5 (word after operand must be `--`; empty argv after `--` rc 2), D1 guard with the pinned message, D6 debug line, exec {fd}< <(argv) + pid capture, delimiter passed as a VALUE (-d \"$d\"), close-[kill -TERM]-wait with `wait || __TPIPE_RC=$?`",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "Validation precedes _open: every rc 2 path runs nothing and leaves stdin unread (here-string probe, F14). wait returns the producer rc (F3, incl. a function producer and 127 for a missing command). Closing the fd kills `yes` (F4). A SIGPIPE-ignoring producer that STOPS WRITING (`trap '' PIPE; echo a; sleep 8`) is terminated in < 1 s with lastRc 143 (F5). $! clobber inside a callback is harmless (F6). IFS=':' around a -0 call still yields the right records (F11). The stop path never runs a bare `wait` (004 under set -eu with a failing producer)."
+        },
+        {
+          "id": "P0.3",
+          "title": "TPipe.each + TPipe.stop (local __TPIPE_STOP in every sink frame) + TPipe.lastRc + TPIPE_INDEX per the §2.4 contract",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "IFS= read -r with the unterminated-tail rule (F10, incl. a final empty record); callback validated once up front (declare -F), plain fn / r.onLine / static member all work (F9), dangling name rc 2, a non-`--` word after CB rc 2; callback rc ignored; stop stops the innermost sink only AND an outer stop requested before an inner sink survives it (F12); stray stop harmless; stop leaves RESULT untouched; TPIPE_INDEX 1-based per sink call and nested-safe (F13); RESULT = records delivered; rc 0 on producer 0 or stopped, rc 1 silent on producer ≠0 WITH the count kept (named deviation); lastRc raw for the `--` form, -1 before any sink and after a stdin-form sink; zero forks per record (BASHPID probe)."
+        },
+        {
+          "id": "P0.4",
+          "title": "tests 001_Each.sh + 002_Stop.sh (red-first against the P0.1 skeleton), README first cut (three forms, D1 message verbatim, D6 note, instance-dispatch cost)",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red counts recorded; green on 5.2.37 and 5.3.9; every test sets its own stdin; stop-path producers carry 2>/dev/null; master sweep 0 [FAIL] on both (run by the reviewer)."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Other sinks + flags",
+      "goal": "toArray/toList/first/count; -0/-c through every sink; stub helper deleted.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "toArray (mapfile -t [-d ''] -u fd; kk._outName NAME __tpi_ __TPIPE_; associative or readonly target rc 2 with no stderr; array REPLACED), toList (declare -F INST.Add; Add rc ignored with `|| :`; RESULT = records offered), first (read one + stop path), count; -0/-c wired; sentinel-absence test",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "Each sink equals its bare-bash oracle (mapfile / head -n1 / wc -l) on the exotic-record matrix byte-exact except NUL (documented carve-out); unterminated tail delivered by mapfile on both bashes (F8); rc 2 paths run nothing; F15/F16 hold; first on `yes` < 250 ms; toList with a rejecting .Add (THashSet duplicate) neither aborts nor miscounts."
+        },
+        {
+          "id": "P1.2",
+          "title": "tests 003_Sinks.sh + 004_Contract.sh (set -eu incl. a failing producer, debug-switch output exactly one line per rc 2 path with the D1 line verbatim, nothing from TPipe otherwise)",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red-first counts recorded; green both bashes; sweep 0 [FAIL]."
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Closeout",
+      "goal": "bench, README final, docs/TPipe.md, TEST_COVERAGE_NOTES, kcl README §2 row, ledger COMPLETE.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P2.1",
+          "title": "bench.sh on TStopwatch.getTimeStamp, run in --mode single: each/no-op FUNCTION ≤ 2× bare loop over 10k records (measured 1.18×/1.25×), each/r.onLine published not gated (~3×, kklass instance dispatch 200/167 µs), toArray ≤ 1.5× bare mapfile (1.02×/1.01×), first-on-yes ≤ 250 ms (33/41 ms), zero-fork probe; 005_Bench.sh asserts ceilings ≥ 3× the measured values (ktests default is threaded ×8)",
+          "category": "perf",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "Numbers on both bashes with the bash version in README; gates hold under the threaded runner; rc 0 under bash -eu."
+        },
+        {
+          "id": "P2.2",
+          "title": "README final (named rc 1 deviation, three forms, D1/D6, frame-local stop, stdin pass-through, NUL carve-out, _ret-in-pipe-RHS note, kk._outName context note), docs/TPipe.md (the 2026-09-10 supervisor and critic probes as reproducible scripts), TEST_COVERAGE_NOTES.md, kcl README §2 row (static, kcl addition, the deviation), ledger COMPLETE with SHAs",
+          "category": "docs",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "kcl README table row present; final master sweep 0 [FAIL] on both bashes."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-09-10",
+      "batch": "planning",
+      "summary": "Owner asked for a way to call an object's method per line of a tool's output (`TGrep.search x | Obj.onLine`) plus a wrapper base. Measured on bash 5.2.37 + 5.3.9: RHS of | loses object state (n=0), `< <()` and lastpipe keep it; BASH_SUBSHELL distinguishes the two; exec {fd}< <(cmd) + wait $pid gives the producer rc; closing the fd kills an infinite producer (141); -d '' NUL records; mapfile -u; nested kklass dispatch keeps the callee's state. Design: TPipe (this unit, five sinks + stop + lastRc, `--` argv form and guarded stdin form) separate from TUtil/TGrep (kcl/tutil/PLAN.md). Owner accepted D1–D5. PLAN.md + this ledger written; no code."
+    },
+    {
+      "date": "2026-09-10",
+      "batch": "critic pass",
+      "summary": "Opus critic, 15 probe scripts on both bashes (scratchpad critic_tpipe/). BLOCKERS: (1) `${d:+-d ''}` in the read header is split by the CALLER's IFS — with IFS=':' the delimiter silently became a space; fixed by passing the delimiter as a value `-d \"$d\"`. (2) `wait` after closing the fd hangs for the life of a producer that ignores SIGPIPE and stops writing (8.1 s measured); fixed by close → kill -TERM → guarded wait on the stop path (returns in ~50 ms, rc 143; `kill -- -pid` does not work, procsub is not a group leader). MAJORS: global stop flag with reset-on-exit lost an outer stop requested before an inner sink → stop flag is now a `local` of the sink frame (dynamic scoping gives all four nested semantics for free); the `--` form under $( )/( )/pipe RHS also loses instance-callback state → D6 (allowed + debug line, flagged to the owner); rc 1 with non-empty RESULT is a named deviation from kcl §1.2; perf gates re-based on a plain-function callback (instance dispatch is 200/167 µs per record, published not gated); ktests runs threaded ×8 by default → ceilings ≥ 3×, first-latency 250 ms; mapfile into an assoc/readonly target prints a bash diagnostic → rc 2 pre-check; the producer inherits the caller's stdin → documented, tests set their own stdin; bare `wait` aborts a set -e caller → guarded everywhere. MINOR/NIT: lastRc -1 for the stdin form (read PIPESTATUS), NUL-in-record carve-out, blocking producers documented, ForEach citation corrected to onNotify (ForEach is rc 1), word-after-operand rule, D1 message pinned with the job-control caveat, _ret prints in a pipe RHS (tpath contract, documented), red-first is against the P0.1 skeleton (build refuses a bodiless member), producer stderr scoped out of the silence assertion, stop leaves RESULT untouched, kk._outName instance-array refusal is context-dependent, -c kept and explained, record ordinal exposed as TPIPE_INDEX (a frame-local variable, not a second positional — that would break printf-style callbacks). 20+ claims verified correct and listed in PLAN §8 so the worker does not re-probe them."
+    }
+  ]
+}
