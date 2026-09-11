@@ -422,6 +422,10 @@ red there; the count goes in the ledger. Later phases stash the unit file.
 - grep with **no** path reads stdin; an instance with no paths therefore reads stdin,
   and in the `--` form of TPipe that stdin is the calling shell's — document, do not
   "fix". `search` is the exception (§2.5).
+- A plain `var` property read at a CALL SITE (`u.crlf`) PRINTS the value on stdout
+  and leaves `RESULT` empty — unlike a `func`. `$(u.crlf)` is the only correct read
+  spelling outside a member; inside a member the var is a nameref (`$crlf`). No
+  member body or test may do `u.crlf; use "$RESULT"` (P0 worker finding).
 - Test files: no own `EXIT` trap; fixtures through ktests; symlinks through the
   tdirectory helper (§4).
 

@@ -2,21 +2,21 @@
   "schema_version": 1,
   "project": "kcl/tutil + kcl/tgrep — TUtil: CLI-tool wrapper base (FPC TProcess kinship; typed options → argv, rc normalisation, sinks via TPipe); TGrep: the first wrapper over GNU grep 3.0.",
   "created": "2026-09-10",
-  "updated": "2026-09-10",
-  "status": "PLANNED, critic-hardened. Depends on kcl/tpipe P0–P1. Design accepted by the owner 2026-09-10 (D1–D5 in tpipe/PLAN.md §2.0). Critic pass 2026-09-10: 23 findings (5 BLOCKER, 10 MAJOR, 6 MINOR, 2 NIT), all folded into PLAN.md §1–§7 (record in §8). No code.",
+  "updated": "2026-09-11",
+  "status": "P0 DONE 2026-09-11 (kcl <SHA-TU0>). tutil suite 59/59 on bash 5.2.37 and 5.3.9; master sweep 22/22 suites 0 [FAIL] on both. Earlier: Depends on kcl/tpipe P0–P1. Design accepted by the owner 2026-09-10 (D1–D5 in tpipe/PLAN.md §2.0). Critic pass 2026-09-10: 23 findings (5 BLOCKER, 10 MAJOR, 6 MINOR, 2 NIT), all folded into PLAN.md §1–§7 (record in §8). No code.",
   "phases": [
     {
       "id": "P0",
       "name": "TUtil core",
       "goal": "Concrete generic runner: cmd/args/argv model, buildArgv (virtual by kklass default), addArg/clearArgs/argv, run, mapRc (virtual), lastRc, destructor; constructor assigns every var.",
-      "status": "planned",
+      "status": "done",
       "tasks": [
         {
           "id": "P0.1",
           "title": "tutil.sh skeleton + Create (assigns EVERY var: cmd, crlf=0, nul=0, _lastRc=-1)/Destroy/buildArgv/addArg/clearArgs/argv/mapRc/lastRc; sinks as stubs answering `kk._return \"__TUTIL_PENDING__\"; return 2`",
           "category": "infra",
           "severity": "high",
-          "status": "planned",
+          "status": "done",
           "acceptance": "U2/U3 hold incl. `declare -p ${inst}_data` listing every declared var right after new; argv validates the out-name with kk._outName NAME __tu_ __tg_ AND refuses ${inst}_args|_argv|_paths with rc 2 (the tqueuestack helper shape, status converted); cmd='' → rc 2 everywhere and nothing runs (U4); every internal member call is `kk.call_silent \"$__inst__\" NAME …`, never `$this.NAME`."
         },
         {
@@ -24,7 +24,7 @@
           "title": "run: `command -v -- \"$cmd\"` pre-check (rc 1, _lastRc=127, one debug line, nothing runs), foreground `\"${argv[@]}\" || rc=$?` (never bare), stdout inherited, raw rc into per-instance _lastRc, mapRc via kk.call_silent → member rc",
           "category": "feature",
           "severity": "critical",
-          "status": "planned",
+          "status": "done",
           "acceptance": "U5: missing cmd → rc 1, lastRc 127, exactly one stderr line under debug and NONE without it (no bash 'command not found'). U7: `od -c < <(u.run)`, `$(u.run)` and `u.run | od -c` byte-identical to the bare tool — no leaked kk._return digits. A failing tool under set -e does not abort the caller (003)."
         },
         {
@@ -32,7 +32,7 @@
           "title": "tests 001_Core.sh (red-first against the P0.1 skeleton) + README first cut",
           "category": "test",
           "severity": "high",
-          "status": "planned",
+          "status": "done",
           "acceptance": "Red count recorded; green on 5.2.37 and 5.3.9; sweep 0 [FAIL]."
         }
       ]
@@ -111,6 +111,11 @@
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-11",
+      "batch": "P0 — TUtil core",
+      "summary": "Opus worker, supervisor review against the live tree. tutil.sh (374 lines): guard, locale, class TUtil per PLAN §1.2; Create assigns every var (cmd, crlf=0, nul=0, _lastRc=-1) and creates ${inst}_args/${inst}_argv with declare -ga, ctor args verbatim (--format=%H, words with spaces); Destroy unsets both arrays; buildArgv (virtual, cmd empty -> kk._return '' + rc 2); addArg/clearArgs; argv NAME (tutil._badOut = kk._outName NAME __tu_ __tg_ + the three instance arrays, rc 2 before any nameref; COPY of the built argv; runs nothing); run (kk.call_silent buildArgv -> command -v pre-check -> \"${argv[@]}\" || rc=$? -> per-instance _lastRc -> kk.call_silent mapRc -> return RESULT); mapRc base (0->0, 127->1 + debug, else 1 silent); lastRc; the five sinks are stubs (funcs answer __TUTIL_PENDING__ through kk._return, rc 2 + debug). No $this. call anywhere. Red-first against the all-stub skeleton: 47 FAIL of 59. Green: 59/59 on 5.2.37 AND 5.3.9, threaded and --mode single. Reviewer probes on both bashes: $(u.run), od -c < <(u.run) and u.run | od -c byte-identical to the bare tool with -n / a space / a backslash (no leaked kk._return digits); missing cmd rc 1 + lastRc 127 + exactly one debug line; exit 3 -> rc 1 + lastRc 3 silent; two instances keep separate _lastRc; bad out-name rc 2 RESULT ''; delete removes the arrays. Worker deviations accepted: one helper tutil._badOut with rc 0 = refused polarity; func stubs also emit a debug line; argv propagates buildArgv's rc; section G of 001 asserts the stubs (P1 deletes it). Worker fact recorded in PLAN §6: a plain var read at a call site PRINTS and leaves RESULT empty — $(u.crlf) is the only correct read spelling outside a member. Master sweep: 22/22 suites 0 [FAIL] on 5.2.37 and 5.3.9. Committed as kcl <SHA-TU0>."
+    },
     {
       "date": "2026-09-10",
       "batch": "planning",
