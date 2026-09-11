@@ -3,7 +3,7 @@
   "project": "kcl/tutil + kcl/tgrep — TUtil: CLI-tool wrapper base (FPC TProcess kinship; typed options → argv, rc normalisation, sinks via TPipe); TGrep: the first wrapper over GNU grep 3.0.",
   "created": "2026-09-10",
   "updated": "2026-09-11",
-  "status": "P1 DONE 2026-09-11 (kcl 956f2b0). tutil suite 164/164 on bash 5.2.37 and 5.3.9 (tpipe 171/171 after the __TPIPE_QUIET seam); master sweep 22/22 suites 0 [FAIL] on both. P0 DONE 2026-09-11 (kcl 8771cab). tutil suite 59/59 on bash 5.2.37 and 5.3.9; master sweep 22/22 suites 0 [FAIL] on both. Earlier: Depends on kcl/tpipe P0–P1. Design accepted by the owner 2026-09-10 (D1–D5 in tpipe/PLAN.md §2.0). Critic pass 2026-09-10: 23 findings (5 BLOCKER, 10 MAJOR, 6 MINOR, 2 NIT), all folded into PLAN.md §1–§7 (record in §8). No code.",
+  "status": "P2 (TGrep) DONE 2026-09-11 (kcl <SHA-TU2>). tgrep suite 174/174 on bash 5.2.37 and 5.3.9 (tutil 164/164, tpipe 171/171 unchanged); master sweep 23/23 suites 0 [FAIL] on both. P1 DONE 2026-09-11 (kcl 956f2b0). tutil suite 164/164 on bash 5.2.37 and 5.3.9 (tpipe 171/171 after the __TPIPE_QUIET seam); master sweep 22/22 suites 0 [FAIL] on both. P0 DONE 2026-09-11 (kcl 8771cab). tutil suite 59/59 on bash 5.2.37 and 5.3.9; master sweep 22/22 suites 0 [FAIL] on both. Earlier: Depends on kcl/tpipe P0–P1. Design accepted by the owner 2026-09-10 (D1–D5 in tpipe/PLAN.md §2.0). Critic pass 2026-09-10: 23 findings (5 BLOCKER, 10 MAJOR, 6 MINOR, 2 NIT), all folded into PLAN.md §1–§7 (record in §8). No code.",
   "phases": [
     {
       "id": "P0",
@@ -65,14 +65,14 @@
       "id": "P2",
       "name": "TGrep",
       "goal": "kcl/tgrep/tgrep.sh: typed grep options → pinned argv shape, rc 2 list (empty pattern, -F/-E, -l/-L, -h/-H, bad or negative maxCount), mapRc 0/1/≥2 with the partial-output rule, derived -0 for -Z with -l/-L, `binary` (-U), paths, `search` = grep -r with ≥1 path and a unique throw-away instance name.",
-      "status": "planned",
+      "status": "done",
       "tasks": [
         {
           "id": "P2.1",
           "title": "TGrep class; Create calls `parent.constructor grep` explicitly (NEVER `inherited` — it forwards \"$@\" and doubled every path) and assigns all 22 vars; buildArgv override (argv shape PLAN §1.3); mapRc override; paths; destructor (own arrays then inherited); static search with `__tg_s_${BASHPID}_${__TG_SEQ}`",
           "category": "feature",
           "severity": "critical",
-          "status": "planned",
+          "status": "done",
           "acceptance": "G1–G4 by array comparison without running grep (incl. ${g}_args empty after new g PAT PATH; maxCount via $__KK_INT, -1 rejected); G5–G12 on the fixture tree; search implies -r and refuses zero paths; instance never implies -r; nested search keeps the outer instance alive; -r does not descend a REAL directory symlink (kt_make_symlink); one missing file among good ones → records kept, RESULT = count, rc 1, lastRc 2."
         },
         {
@@ -80,7 +80,7 @@
           "title": "tests 004_Argv.sh, 005_Search.sh (GNU banner gate first; fixtures via kt_fixture_tmpdir_create, no own EXIT trap), 006_Contract.sh + tgrep/README.md",
           "category": "test",
           "severity": "high",
-          "status": "planned",
+          "status": "done",
           "acceptance": "Red-first; green both bashes; the README three-forms example (G9, with recursive=1 / search) executed by a test; sweep 0 [FAIL]."
         }
       ]
@@ -111,6 +111,11 @@
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-11",
+      "batch": "P2 — TGrep (kcl/tgrep)",
+      "summary": "Opus worker, supervisor review against the live tree. New unit dir kcl/tgrep: tgrep.sh (403 lines) sources ../tutil/tutil.sh; class TGrep : TUtil with the 22 typed vars of PLAN §1.3 plus a private 23rd `_nulDerived`; Create = `parent.constructor grep` (explicit, never `inherited`) + every var assigned + ${inst}_paths; Destroy frees _paths then inherited; paths replaces the operand list; buildArgv override in the PINNED order with the rc 2 list (cmd/pattern empty, -F+-E, -l+-L, -h+-H, maxCount not an int or negative via $__KK_INT without writing back) and the §2.7 derivation (-Z with -l/-L -> nul=1, recorded in _nulDerived so the derivation is UNDONE when the condition stops holding and a caller-set nul is never touched — the brief's set-only rule was not idempotent, worker deviation accepted); mapRc override (0->0, 1->1 silent, >=2->1 + one debug line, 127->1 + debug); static search = `grep -r` on a throw-away instance `__tg_s_${BASHPID}_${__TG_SEQ}`, >=1 path required (rc 2). GNU grep 3.0 under both bashes (msys and cygwin builds); real NTFS symlinks and a newline-in-name fixture were creatable, so no case degraded to SKIP. Red-first against the stubbed skeleton: 143 FAIL of 174 (004: 62/73, 005: 49/53, 006: 32/48). Green: 174/174 on 5.2.37 AND 5.3.9, threaded and --mode single; tutil 164/164 and tpipe 171/171 re-proved. G1–G12 each pinned (see the worker table in the P2 review): argv byte-exact per flag and in combination, -e always, -- iff paths, addArg slot, the four rc 2 pairs, maxCount 08->8 / +5->5 / -1 rc 2, pattern -v/--help/-e/newline as data, no-match rc 1 silent, -E + `(` rc 1 lastRc 2 one line vs literal `(` without -E, -l -Z names with a space and a newline intact while -c -Z stays \\n-framed, directory without recursive rc 1 lastRc 2, search byte-identical to bare grep -r in three positions, the three forms equal under lastpipe (n=2/2/2), partial failure keeps records with rc 1 lastRc 2 (named deviation), nested search keeps the outer instance, -r skips a real directory symlink while -R descends and a command-line symlink is followed, CRLF table (text mode strips CR, binary=1 keeps it), Binary-file record + addArg -a. No TUtil change was needed. Reviewer probes on both bashes: the owner's flagship `TGrep.search needle DIR | TPipe.each r.onLine` == `TPipe.each r.onLine -- TGrep.search …` == `g.each r.onLine` with r's counter at 3 in all three forms, argv `grep -i -r -n -m 8 -e needle -- DIR`, bad ERE rc 1/lastRc 2, search without a path rc 2, CRLF text vs binary, partial failure, delete frees _paths. Master sweep: 23/23 suites 0 [FAIL] on 5.2.37 and 5.3.9. Committed as kcl <SHA-TU2>."
+    },
     {
       "date": "2026-09-11",
       "batch": "P1 — the five sinks through TPipe",

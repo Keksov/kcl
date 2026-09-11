@@ -290,7 +290,10 @@ output it only replaces the separator after the file name and records still end 
 `\n` (verified on grep 3.0: `a.txt\0 2\n`). Feeding those to TPipe `-0` would
 mis-frame every record. buildArgv therefore **derives** the sinks' `-0` from
 `nullOut == 1 && (filesOnly == 1 || filesWithoutMatch == 1)`; `nul` stays the
-caller's own manual override for other shapes. A plain `var` cannot set another var
+caller's own manual override for other shapes. A private 23rd var `_nulDerived`
+records that buildArgv set it, so the derivation is undone when the condition
+stops holding and a caller-set `nul` is never touched (a set-only rule was not
+idempotent — P2 worker finding). A plain `var` cannot set another var
 (only a `property … write _setX` could), so `nullOut` never touches `nul`.
 
 ---
