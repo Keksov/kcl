@@ -26,11 +26,12 @@
 #   E  mapRc's base table (0→0, 127→1 + one debug line, anything else → 1 silent)
 #   F  the `set -eu` contract: loading, re-loading, and a FAILING tool under
 #      `run` that must NOT abort the caller (PLAN §2.3)
-#   G  the five sinks are P0 STUBS — they answer the `__TUTIL_PENDING__`
-#      sentinel with rc 2. P1.1 removes them and this section with them.
+#   G  the P0 sink STUBS are gone (P1.1): no member answers the
+#      `__TUTIL_PENDING__` sentinel, the string is absent from the source, and
+#      the whole PLAN §1.2 surface is bound to a real body
 #
-# U1 (`u.each cb` delivers records) and U6/U8 are P1 facts: the sinks do not
-# exist yet, so they are not asserted here.
+# U1, U6 and U8 — what the sinks DO — are 002_Sinks.sh's subject; the `set -eu`
+# and debug-switch contract for them is 003_Contract.sh's.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -672,24 +673,60 @@ else
 fi
 
 # ===========================================================================
-kt_test_section "G. the five sinks are P0 stubs (P1.1 removes this section)"
+kt_test_section "G. the P0 sink stubs are GONE (P1.1)"
 # ===========================================================================
+# P0 shipped the five sinks as stubs answering `__TUTIL_PENDING__` with rc 2,
+# and this section asserted exactly that. P1 gave them real bodies, so the same
+# section now asserts the ABSENCE of the sentinel: no member of a live instance
+# may answer it, on a valid call or on a refused one. The sinks' behaviour
+# itself is 002/003's subject.
 
-kt_test_start "each/toArray/toList/first/count answer rc 2; the four funcs answer the __TUTIL_PENDING__ sentinel"
-TUtil.new uS printf x
+kt_test_start "no member answers the \`__TUTIL_PENDING__\` sentinel any more"
+TUtil.new uS printf '%s\n' a b
+declare -a SOUT=()
+TCollectS_RECS=()
+collect_s() { TCollectS_RECS+=( "$1" ); return 0; }
 bad=""
-RESULT="sentinel"
-uS.each noop_cb >/dev/null 2>&1; rc=$?
-[[ $rc -eq 2 ]] || bad="$bad each(rc=$rc)"
-for m in toArray toList first count; do
+# every sink on a VALID call
+RESULT="sentinel"; uS.each collect_s >/dev/null 2>&1 || :
+[[ "$RESULT" != "__TUTIL_PENDING__" ]] || bad="$bad each"
+for m in first count; do
     RESULT="sentinel"
-    "uS.$m" arg >/dev/null 2>&1; rc=$?
-    [[ $rc -eq 2 ]] || bad="$bad $m(rc=$rc)"
-    [[ "$RESULT" == "__TUTIL_PENDING__" ]] || bad="$bad $m(RESULT='$RESULT')"
+    "uS.$m" >/dev/null 2>&1 || :
+    [[ "$RESULT" != "__TUTIL_PENDING__" ]] || bad="$bad $m"
+done
+RESULT="sentinel"; uS.toArray SOUT >/dev/null 2>&1 || :
+[[ "$RESULT" != "__TUTIL_PENDING__" ]] || bad="$bad toArray"
+# and on a REFUSED one (rc 2 must answer '' — never the sentinel)
+for m in each toArray toList first count; do
+    RESULT="sentinel"
+    "uS.$m" "1bad" >/dev/null 2>&1 || :
+    [[ "$RESULT" != "__TUTIL_PENDING__" ]] || bad="$bad refused-$m"
 done
 if [[ -z "$bad" ]]; then
-    kt_test_pass "all five are stubs, the funcs answer through kk._return"
+    kt_test_pass "the sentinel is gone from every member, valid call and refusal alike"
 else
-    kt_test_fail "unexpected:$bad"
+    kt_test_fail "still pending:$bad"
 fi
 uS.delete
+
+kt_test_start "the string \`__TUTIL_PENDING__\` is not in the unit source at all"
+if bad="$(grep -n '__TUTIL_PENDING__' "$UNIT")"; then
+    kt_test_fail "sentinel still in the source: ${bad//$'\n'/ | }"
+else
+    kt_test_pass "no stub left behind"
+fi
+
+kt_test_start "every declared member exists as a real body (none is a bare rc 2 stub)"
+TUtil.new uR2 printf '%s\n' a b
+missing=""
+for m in cmd crlf nul _lastRc buildArgv addArg clearArgs argv run \
+         each toArray toList first count lastRc mapRc; do
+    declare -F -- "uR2.$m" >/dev/null 2>&1 || missing="$missing $m"
+done
+uR2.delete
+if [[ -z "$missing" ]]; then
+    kt_test_pass "all 16 members of the PLAN §1.2 surface are bound"
+else
+    kt_test_fail "missing:$missing"
+fi

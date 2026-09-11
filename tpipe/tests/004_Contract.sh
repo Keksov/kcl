@@ -496,3 +496,108 @@ else
 fi
 
 DL.delete
+
+# ===========================================================================
+kt_test_section "6. __TPIPE_QUIET — the caller's opt-out from the subshell echo"
+# ===========================================================================
+# `tpipe._ret` prints RESULT under any `BASH_SUBSHELL > 0`, which is the right
+# default for a caller that IS the answer. A composing caller — a kklass member
+# that runs a sink and then answers through its OWN return channel — would have
+# the value printed twice (measured: `$(u.count)` read back as `22` while tutil
+# P1 was being written). kklass's `__kk_return_silent` cannot be borrowed for
+# this: the THIN static dispatcher sets it to 1 for every static body already,
+# so a static member could never tell "quiet" from "loud". Hence a dedicated,
+# dynamically scoped opt-out the CALLER declares as a `local` of its own frame.
+
+quiet_p() { printf '%s\n' a b c; }
+quiet_add() { printf 'add:%s\n' "$1"; return 0; }
+
+# the composing caller: a plain function is enough to prove the frame rule
+quiet_caller() {
+    local __TPIPE_QUIET=1
+    TPipe.count -- quiet_p
+    printf 'N=%s' "$RESULT"
+}
+loud_caller() {
+    TPipe.count -- quiet_p
+    printf 'N=%s' "$RESULT"
+}
+
+kt_test_start "with \`local __TPIPE_QUIET=1\` in the caller's frame the sink prints NOTHING and RESULT is still set"
+out="$(quiet_caller 2>/dev/null)"
+if [[ "$out" == "N=3" ]]; then
+    kt_test_pass "only the caller's own bytes: '$out'"
+else
+    kt_test_fail "got '$out', want 'N=3'"
+fi
+
+kt_test_start "without it the same sink prints its RESULT once (the default is unchanged)"
+out="$(loud_caller 2>/dev/null)"
+if [[ "$out" == "3N=3" ]]; then
+    kt_test_pass "the echo is still there by default: '$out'"
+else
+    kt_test_fail "got '$out', want '3N=3'"
+fi
+
+kt_test_start "the opt-out silences only tpipe._ret — a callback's own stdout still flows"
+q_echo() { printf 'rec:%s\n' "$1"; }
+quiet_each() {
+    local __TPIPE_QUIET=1
+    TPipe.each q_echo -- quiet_p
+}
+out="$(quiet_each 2>/dev/null)"
+if [[ "$out" == $'rec:a\nrec:b\nrec:c' ]]; then
+    kt_test_pass "three callback lines and no record count"
+else
+    kt_test_fail "got '$out'"
+fi
+
+kt_test_start "the opt-out does not touch a toList target's own stdout either"
+class TQuietList
+    public
+        constructor Create
+        proc        Add
+end
+TQuietList.Create() { return 0; }
+TQuietList.Add()    { printf 'add:%s\n' "$1"; return 0; }
+build TQuietList
+TQuietList.new QL
+quiet_list() {
+    local __TPIPE_QUIET=1
+    TPipe.toList QL -- quiet_p
+}
+out="$(quiet_list 2>/dev/null)"
+if [[ "$out" == $'add:a\nadd:b\nadd:c' ]]; then
+    kt_test_pass "three Add lines and no record count"
+else
+    kt_test_fail "got '$out'"
+fi
+QL.delete
+
+kt_test_start "a DIRECT call is unaffected by the flag in either state (nothing is printed anyway)"
+: > "$ERRF"
+QOUT="$TMP/quiet.out"
+{
+    __TPIPE_QUIET=1
+    TPipe.count -- quiet_p
+    a="$RESULT"
+    __TPIPE_QUIET=0
+    TPipe.count -- quiet_p
+    b="$RESULT"
+} >"$QOUT" 2>"$ERRF"
+if [[ "$a" == "3" && "$b" == "3" && ! -s "$QOUT" && ! -s "$ERRF" ]]; then
+    kt_test_pass "RESULT=3 both ways, no stdout at BASH_SUBSHELL 0"
+else
+    kt_test_fail "a='$a' b='$b' stdout='$(cat "$QOUT")' stderr='$(cat "$ERRF")'"
+fi
+
+kt_test_start "the load-time global exists, so reading it under \`set -u\` outside any sink is safe"
+out="$(timeout 20 "$BASH" -c "set -eu
+source '$UNIT'
+printf 'q=%s' \"\$__TPIPE_QUIET\"" 2>"$ERRF" </dev/null)"; rc=$?
+err="$(<"$ERRF")"
+if [[ $rc -eq 0 && "$out" == "q=0" && -z "$err" ]]; then
+    kt_test_pass "declared 0 at load"
+else
+    kt_test_fail "rc=$rc out='$out' stderr='$err'"
+fi

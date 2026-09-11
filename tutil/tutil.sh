@@ -19,6 +19,14 @@ fi
 TUTIL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TUTIL_DIR/../../kklass/kklass_pascal.sh"
 
+# TPipe is the engine behind all five sinks (PLAN §2.3): `each`, `toArray`,
+# `toList`, `first` and `count` are one `TPipe.<sink> … -- "${argv[@]}"` call
+# each. It is sourced ONCE here, at load time and after kklass, because the
+# sinks are member bodies and a member body may not source anything; `tpipe.sh`
+# carries its own re-source guard, so a caller that already loaded it pays
+# nothing.
+source "$TUTIL_DIR/../tpipe/tpipe.sh"
+
 # ---------------------------------------------------------------------------
 # TUtil — the CLI-tool wrapper base, and a usable generic runner on its own.
 #
@@ -39,7 +47,7 @@ source "$TUTIL_DIR/../../kklass/kklass_pascal.sh"
 #
 # ---- Surface (PLAN §1.2) ---------------------------------------------------
 #   var  cmd        executable / function / builtin name; '' = not runnable
-#   var  crlf       1 -> the P1 sinks strip one trailing CR per record (TPipe -c)
+#   var  crlf       1 -> the sinks strip one trailing CR per record (TPipe -c)
 #   var  nul        1 -> records are NUL-terminated (TPipe -0)
 #   var  _lastRc    raw rc of the last run/sink; -1 until one ran
 #   Create [CMD [ARG...]]   assigns EVERY var; ARGs become ${inst}_args
@@ -50,7 +58,11 @@ source "$TUTIL_DIR/../../kklass/kklass_pascal.sh"
 #   argv NAME               buildArgv, then COPY into the caller's array;
 #                           RESULT = count; runs NOTHING
 #   run                     execute in the FOREGROUND, stdout inherited
-#   each/toArray/toList/first/count      P1: delegate to TPipe (stubs here)
+#   each CB                 TPipe.each    [-0] [-c] CB   -- "${argv[@]}"
+#   toArray NAME            TPipe.toArray [-0] [-c] NAME -- "${argv[@]}"
+#   toList INST             TPipe.toList  [-0] [-c] INST -- "${argv[@]}"
+#   first                   TPipe.first   [-0] [-c]      -- "${argv[@]}"
+#   count                   TPipe.count   [-0] [-c]      -- "${argv[@]}"
 #   lastRc                  RESULT = _lastRc
 #   mapRc RAW               virtual; RESULT = the normalised rc
 #
@@ -172,6 +184,58 @@ tutil._badOut() {
         esac
     fi
     return 1
+}
+
+# tutil._prep MEMBER — the prologue every sink runs before it hands the argv to
+# TPipe. It is the `run` prologue (PLAN §2.3) with the flag words added, in one
+# place instead of five copies, so `each` and the four `func` sinks cannot drift
+# apart and a descendant inherits ONE order.
+#
+#   1. `buildArgv` through `kk.call_silent` — VIRTUAL (a TGrep override runs),
+#      and silent, so the callee's `kk._return` cannot print when the sink is
+#      under `$( )` / `|` / `<( )`. Its rc is passed straight back: the base
+#      answers 2 for an empty `cmd`, and nothing may run after it.
+#   2. `command -v -- "$cmd"` (a builtin, no fork). A missing command is
+#      `_lastRc=127` + ONE `kk.debug` line + rc 1, and NOTHING runs — without it
+#      bash prints its own unconditional `command not found`, attributed to
+#      kklass.sh. TPipe deliberately does not pre-check (it takes an arbitrary
+#      argv); TUtil owns `cmd`, so it can. `_lastRc` IS updated here: the call
+#      was well formed, it simply could not be executed.
+#   3. the TPipe flag words, from the two properties: `nul == 1` -> `-0`,
+#      `crlf == 1` -> `-c`. They go into the caller's `__tu_fl` ARRAY, never
+#      into an expansion-built option word (`${nul:+-0}` is re-split by the
+#      caller's IFS — the bug tpipe PLAN §2.3 records). Booleans are compared as
+#      strings: `(( nul ))` on a non-numeric property is 0 in silence, or an
+#      arithmetic injection.
+#
+# `$cmd`, `$nul`, `$crlf`, `$_lastRc` and `$__inst__` are the member frame's
+# namerefs/locals, reached through bash's DYNAMIC scoping exactly as the
+# `tpipe._*` helpers reach their caller's `__tpi_*` — the assignment to
+# `_lastRc` therefore writes through the property nameref into
+# `${inst}_data[_lastRc]`. The single OUT parameter is `__tu_fl`, which the
+# caller must have declared.
+#
+# rc 0 = ready to delegate; rc 1 = the command does not exist (diagnostic and
+# `_lastRc` already done); anything else = buildArgv's own rc (2 for the base).
+tutil._prep() {
+    local __tu_m="$1" __tu_rc=0
+    kk.call_silent "$__inst__" buildArgv || __tu_rc=$?
+    if [[ "$__tu_rc" != "0" ]]; then
+        return "$__tu_rc"
+    fi
+    if ! command -v -- "$cmd" >/dev/null 2>&1; then
+        _lastRc=127
+        kk.debug "Error: TUtil.$__tu_m: command not found: '$cmd'"
+        return 1
+    fi
+    __tu_fl=()
+    if [[ "$nul" == 1 ]]; then
+        __tu_fl+=( -0 )
+    fi
+    if [[ "$crlf" == 1 ]]; then
+        __tu_fl+=( -c )
+    fi
+    return 0
 }
 
 # ===========================================================================
@@ -330,43 +394,255 @@ TUtil.mapRc() {
     return 0
 }
 
-# ---------------------------------------------------------------------------
-# P0 STUBS — the five sinks land in P1, delegating to TPipe with
-# `-- "${argv[@]}"` (PLAN §2.3, §5 P1.1).
+# ===========================================================================
+# The five sinks (PLAN §2.3, §2.4)
 #
-# The four `func`s answer the `__TUTIL_PENDING__` sentinel through `kk._return`
-# rather than just returning: a func stub that does not call `kk._return` leaves
-# the CALLER's RESULT in place (kk._invoke restores it), which no test can tell
-# from a member that answered correctly. `each` is a `proc` and has no return
-# channel, so it is rc 2 plus the diagnostic and nothing else.
-# ---------------------------------------------------------------------------
+# A sink is the wrapper AS A PRODUCER: it builds the argv, then hands it to
+# TPipe's `--` form, which reads the records in THIS shell (never in the
+# subshell a real `|` would create) so a callback keeps its object's state. The
+# whole body of each of the five is
+#
+#     tutil._prep NAME                     # buildArgv + pre-check + flag words
+#     TPipe.<sink> "${__tu_fl[@]}" [OP] -- "${argv[@]}"
+#     <the ordered tail>
+#
+# and TPipe owns the OPERAND rules — `CB` must be a function, `NAME` must be a
+# fillable output array, `INST` must have an `.Add` — so they are not repeated
+# here (the one thing TPipe cannot know is this family's own local prefixes and
+# extra arrays; `toArray` adds that check, see its body).
+#
+# ---- The ordered tail, and why the order is not negotiable ----------------
+# An explicit `return` SKIPS the `kk._return "$RESULT"` trailer `build` compiles
+# onto a `func`, and `kk._invoke` then restores the CALLER's RESULT
+# (kklass.sh:399). A `func` that must answer both a value and a non-zero rc has
+# exactly one spelling: `kk._return V; return N`, with V captured BEFORE
+# anything else can overwrite RESULT. Hence:
+#
+#     TPipe.<sink> …          || __tu_prc=$?   # never bare: a non-zero rc here
+#     local __tu_n="$RESULT"                   #   is normal, and `set -e` would
+#     [[ rc == 2 ]] && kk._return ""; return 2 #   abort the caller
+#     TPipe.lastRc; _lastRc="$RESULT"
+#     [[ rc == 0 ]] && kk._return "$__tu_n"; return 0      # the consumer-stop
+#     kk.call_silent … mapRc "$_lastRc"                    # case: NO mapRc
+#     kk._return "$__tu_n"; return "$__tu_m"
+#
+#   * RESULT is saved IMMEDIATELY after the TPipe call — `TPipe.lastRc` and
+#     `mapRc` both overwrite it.
+#   * rc 2 from TPipe is a malformed CALL: nothing ran, so `_lastRc` is left
+#     exactly as it was (a fresh instance still reads -1) and RESULT is ''.
+#   * rc 0 from TPipe ALSO covers "the callback called TPipe.stop": the producer
+#     was killed, so its raw rc is 141/143 and mapping it would turn the
+#     consumer's success into rc 1. `mapRc` is applied only when TPipe itself
+#     answered non-zero (PLAN §2.4).
+#   * `first` is the exception to the last line: TPipe answering 1 means "there
+#     was no record", which is `first`'s OWN answer and does not depend on what
+#     the producer's status turned out to be. `mapRc` is still called there, for
+#     its diagnostic side effect, but its value is discarded — see that body.
+#
+# ---- RESULT under `$( )`: `local __TPIPE_QUIET=1` -------------------------
+# `tpipe._ret` prints TPipe's RESULT whenever `BASH_SUBSHELL > 0`, which is
+# right for a caller that IS the answer and wrong for one that COMPOSES: the
+# sink's own `kk._return` would print the same value a second time, and
+# `$(u.count)` measured as `22`. `kk.call_silent` cannot help — `tpipe._ret`
+# does not know `__kk_return_silent`, and kklass's thin static dispatcher sets
+# that flag to 1 for every static body anyway, so it could not be reused.
+#
+# TPipe therefore carries a dedicated, DYNAMICALLY SCOPED opt-out (tpipe
+# README §7): a composing caller declares `local __TPIPE_QUIET=1` in its own
+# frame and the setting reaches the sink and ends with the frame, exactly as
+# `local __TPIPE_STOP` does. ALL FIVE sinks declare it, `each` included, and no
+# TPipe call here is redirected:
+#
+#   * `$(u.count)` prints `2` once — the member's own value, not TPipe's;
+#   * `u.each cb | cat` carries ONLY what `cb` printed (a `>/dev/null` here
+#     would have swallowed that, and a redirect on `each` was never possible);
+#   * `$(u.toList l)` still shows whatever a printing `.Add` writes;
+#   * `TPipe.lastRc`, our own bookkeeping, never reaches the stream either.
+#
+# The one consequence of dynamic scoping: a CALLBACK invoked by one of these
+# sinks also sees the 1, so a callback that itself captures a sink
+# (`x=$(TPipe.count -- …)`) must declare `local __TPIPE_QUIET=0` first.
+# ===========================================================================
+
+# each CB — call `CB RECORD` once per record, IN THIS SHELL.
+#
+# A `proc`: the record count is TPipe's RESULT, but `kk._invoke` restores the
+# CALLER's RESULT when a body never calls `kk._return`, so `each` answers with
+# its rc ALONE. Use `count` (or `toArray` and `${#arr[@]}`) when the number
+# matters.
 TUtil.each() {
-    kk.debug "Error: TUtil.each: not implemented before P1 (the TPipe sinks)"
-    return 2
+    local -a __tu_fl=()
+    local __TPIPE_QUIET=1
+    local __tu_rc=0
+    tutil._prep each || __tu_rc=$?
+    if [[ "$__tu_rc" != "0" ]]; then
+        return "$__tu_rc"
+    fi
+    local -n __tu_v="${__inst__}_argv"
+    local __tu_prc=0
+    TPipe.each "${__tu_fl[@]}" "${1:-}" -- "${__tu_v[@]}" || __tu_prc=$?
+    if [[ "$__tu_prc" == "2" ]]; then
+        return 2
+    fi
+    TPipe.lastRc
+    _lastRc="$RESULT"
+    if [[ "$__tu_prc" == "0" ]]; then
+        return 0
+    fi
+    kk.call_silent "$__inst__" mapRc "$_lastRc"
+    return "$RESULT"
 }
 
+# toArray NAME — REPLACE the caller's array with the records; RESULT = how many.
+#
+# The out-name is checked HERE as well as in TPipe, and the two checks do not
+# overlap: `tpipe._isOutArr` knows kklass's reserved set and its own
+# `__tpi_`/`__TPIPE_` space, but it cannot know that `__tu_v` is the nameref
+# this very body holds on `${inst}_argv`, or that `${inst}_args`/`_argv` are the
+# instance's own storage. Without this line `u.toArray __tu_v -- cmd` mapfiles
+# the records straight into the instance's argv and the caller's array stays
+# empty while RESULT reports a healthy count — the silent-loss class kcl
+# README §1.7 exists to prevent. It runs FIRST, before `buildArgv`, so a refused
+# call has still run nothing at all.
 TUtil.toArray() {
-    kk.debug "Error: TUtil.toArray: not implemented before P1 (the TPipe sinks)"
-    kk._return "__TUTIL_PENDING__"
-    return 2
+    if tutil._badOut "${1:-}"; then
+        kk.debug "Error: TUtil.toArray: bad output array name '${1:-}'"
+        kk._return ""
+        return 2
+    fi
+    local -a __tu_fl=()
+    local __TPIPE_QUIET=1
+    local __tu_rc=0
+    tutil._prep toArray || __tu_rc=$?
+    if [[ "$__tu_rc" != "0" ]]; then
+        kk._return ""
+        return "$__tu_rc"
+    fi
+    local -n __tu_v="${__inst__}_argv"
+    local __tu_prc=0
+    TPipe.toArray "${__tu_fl[@]}" "$1" -- "${__tu_v[@]}" || __tu_prc=$?
+    local __tu_n="$RESULT"
+    if [[ "$__tu_prc" == "2" ]]; then
+        kk._return ""
+        return 2
+    fi
+    TPipe.lastRc
+    _lastRc="$RESULT"
+    if [[ "$__tu_prc" == "0" ]]; then
+        kk._return "$__tu_n"
+        return 0
+    fi
+    kk.call_silent "$__inst__" mapRc "$_lastRc"
+    local __tu_m="$RESULT"
+    kk._return "$__tu_n"
+    return "$__tu_m"
 }
 
+# toList INST — call `INST.Add RECORD` per record; RESULT = records OFFERED.
+#
+# Duck-typed by TPipe: anything with an `.Add` qualifies, and `.Add`'s own exit
+# status is ignored (THashSet.Add answers 1 for a duplicate, TStringList.Add
+# does under `dupError`), so RESULT counts what was offered, not what the list
+# chose to keep.
 TUtil.toList() {
-    kk.debug "Error: TUtil.toList: not implemented before P1 (the TPipe sinks)"
-    kk._return "__TUTIL_PENDING__"
-    return 2
+    local -a __tu_fl=()
+    local __TPIPE_QUIET=1
+    local __tu_rc=0
+    tutil._prep toList || __tu_rc=$?
+    if [[ "$__tu_rc" != "0" ]]; then
+        kk._return ""
+        return "$__tu_rc"
+    fi
+    local -n __tu_v="${__inst__}_argv"
+    local __tu_prc=0
+    TPipe.toList "${__tu_fl[@]}" "${1:-}" -- "${__tu_v[@]}" || __tu_prc=$?
+    local __tu_n="$RESULT"
+    if [[ "$__tu_prc" == "2" ]]; then
+        kk._return ""
+        return 2
+    fi
+    TPipe.lastRc
+    _lastRc="$RESULT"
+    if [[ "$__tu_prc" == "0" ]]; then
+        kk._return "$__tu_n"
+        return 0
+    fi
+    kk.call_silent "$__inst__" mapRc "$_lastRc"
+    local __tu_m="$RESULT"
+    kk._return "$__tu_n"
+    return "$__tu_m"
 }
 
+# first — RESULT = the FIRST record, then the producer is stopped.
+#
+# The one sink whose RESULT is a record and not a count, and the one whose rc is
+# not `mapRc`'s. A record that was read puts TPipe on its consumer-stop path, so
+# TPipe answers rc 0 and the producer's 141/143 never reaches `mapRc`. TPipe
+# answering rc 1 means "there was NO record", and that is this member's answer
+# too — rc 1 with RESULT='' — whatever the producer's status turned out to be: a
+# `grep` that matched nothing (raw 1) and a tool that succeeded silently (raw 0)
+# are the same question answered the same way, and `count` is the member to ask
+# when the question is "how many". `mapRc` is still CALLED on that path, because
+# a descendant's override is where a real tool error gets its `kk.debug` line
+# (TGrep: raw >= 2), but its value is discarded.
 TUtil.first() {
-    kk.debug "Error: TUtil.first: not implemented before P1 (the TPipe sinks)"
-    kk._return "__TUTIL_PENDING__"
-    return 2
+    local -a __tu_fl=()
+    local __TPIPE_QUIET=1
+    local __tu_rc=0
+    tutil._prep first || __tu_rc=$?
+    if [[ "$__tu_rc" != "0" ]]; then
+        kk._return ""
+        return "$__tu_rc"
+    fi
+    local -n __tu_v="${__inst__}_argv"
+    local __tu_prc=0
+    TPipe.first "${__tu_fl[@]}" -- "${__tu_v[@]}" || __tu_prc=$?
+    local __tu_n="$RESULT"
+    if [[ "$__tu_prc" == "2" ]]; then
+        kk._return ""
+        return 2
+    fi
+    TPipe.lastRc
+    _lastRc="$RESULT"
+    if [[ "$__tu_prc" == "0" ]]; then
+        kk._return "$__tu_n"
+        return 0
+    fi
+    # No record. `mapRc` runs for its diagnostic only — the rc below is 1
+    # because `first` has no answer, not because the tool failed.
+    kk.call_silent "$__inst__" mapRc "$_lastRc"
+    kk._return ""
+    return 1
 }
 
+# count — RESULT = the number of records. No callback, nothing to stop.
 TUtil.count() {
-    kk.debug "Error: TUtil.count: not implemented before P1 (the TPipe sinks)"
-    kk._return "__TUTIL_PENDING__"
-    return 2
+    local -a __tu_fl=()
+    local __TPIPE_QUIET=1
+    local __tu_rc=0
+    tutil._prep count || __tu_rc=$?
+    if [[ "$__tu_rc" != "0" ]]; then
+        kk._return ""
+        return "$__tu_rc"
+    fi
+    local -n __tu_v="${__inst__}_argv"
+    local __tu_prc=0
+    TPipe.count "${__tu_fl[@]}" -- "${__tu_v[@]}" || __tu_prc=$?
+    local __tu_n="$RESULT"
+    if [[ "$__tu_prc" == "2" ]]; then
+        kk._return ""
+        return 2
+    fi
+    TPipe.lastRc
+    _lastRc="$RESULT"
+    if [[ "$__tu_prc" == "0" ]]; then
+        kk._return "$__tu_n"
+        return 0
+    fi
+    kk.call_silent "$__inst__" mapRc "$_lastRc"
+    local __tu_m="$RESULT"
+    kk._return "$__tu_n"
+    return "$__tu_m"
 }
 
 # Finalize: extract the bodies above into the `TUtil` class and generate the

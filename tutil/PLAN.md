@@ -426,6 +426,16 @@ red there; the count goes in the ledger. Later phases stash the unit file.
   and leaves `RESULT` empty — unlike a `func`. `$(u.crlf)` is the only correct read
   spelling outside a member; inside a member the var is a nameref (`$crlf`). No
   member body or test may do `u.crlf; use "$RESULT"` (P0 worker finding).
+- Every sink declares `local __TPIPE_QUIET=1` before delegating to TPipe: `tpipe._ret`
+  prints under any `BASH_SUBSHELL > 0`, so without it `$(u.count)` read `22` (TPipe's
+  print plus the sink's own `kk._return`) and `u.each cb | cat` carried the count.
+  A `>/dev/null` on the TPipe call is NOT the fix — it swallows the callback's and
+  `.Add`'s own stdout under `$( )` (P1 finding).
+- `first` answers rc 1 whenever `TPipe.first` answered non-zero — "no record" is the
+  answer regardless of the producer's own rc (`mapRc` still runs for its debug line).
+- A trailing CR is dropped from a word of a compound array assignment on this
+  platform (`A=( $'cr\r' )` → length 2); CR-bearing fixtures go through a scalar or
+  `printf -v` (P1 finding, also in tpipe PLAN §6).
 - Test files: no own `EXIT` trap; fixtures through ktests; symlinks through the
   tdirectory helper (§4).
 

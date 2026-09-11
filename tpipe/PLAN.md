@@ -268,7 +268,13 @@ Further notes:
 - rc 2 paths **run nothing**: the producer is not started, stdin is not touched
   (verified: a here-string is fully readable after a validation-only rc 2). This
   is why validation precedes `tpipe._open`.
-- Under `$( )` the values print once (`tpipe._ret`, the tpath helper verbatim).
+- Under `$( )` the values print once (`tpipe._ret`, the tpath helper plus one
+  opt-out): a caller that composes a TPipe sink inside a member of its own that
+  answers through its own return channel declares `local __TPIPE_QUIET=1` in its
+  frame and `tpipe._ret` then prints nothing — otherwise `$(u.count)` in tutil read
+  `22`, TPipe's print and the wrapper's (tutil P1 finding). kklass's own
+  `__kk_return_silent` cannot serve here: the thin static dispatcher sets it to 1
+  for every static body. `__TPIPE_QUIET=0` is declared at load (`set -u`).
   `tpipe._ret` prints under **any** `BASH_SUBSHELL > 0`, which includes the RHS of
   a pipe without lastpipe: a `--`-form sink used there writes its `RESULT` into the
   pipeline's stdout (measured). This is the tpath contract verbatim; documented,
@@ -501,6 +507,12 @@ byte-identical to their P1 state.
 - kklass reserved names: `this __inst__ __class__ RESULT REPLY IFS state __kk_*`;
   tpipe adds `__tpi_*`, `__TPIPE_*` and `TPIPE_INDEX`; never bind an output array to
   any of them.
+- **A trailing CR is dropped from a word of a compound array assignment** on this
+  platform: `A=( $'cr\r' )` yields length 2, `B=$'cr\r'; C=( "$B" )` keeps it
+  (measured on both bashes, tutil P1 finding). Build CR-bearing fixtures through a
+  scalar or `printf -v`, never as an array literal; tpipe's 003 exotic matrix
+  carried `cr`, not `cr\r`, for that reason (the `-c` cases use a producer function
+  and are unaffected).
 - Test files: no own `EXIT` trap (it would replace ktests' trap — see tutil PLAN §4);
   own stdin always explicit; producers on the stop path get `2>/dev/null`.
 

@@ -42,6 +42,27 @@ source "$TPIPE_DIR/../../kklass/kklass_pascal.sh"
 declare -g __TPIPE_STOP=0
 declare -g __TPIPE_RC=-1
 
+# __TPIPE_QUIET — the CALLER's opt-out from the `$( )` echo (README §7).
+#
+# `tpipe._ret` prints RESULT whenever `BASH_SUBSHELL > 0`, which is right for a
+# caller that IS the answer (`n=$(TPipe.count -- cmd)`). It is wrong for a
+# COMPOSING caller: a kklass member that runs a sink and then answers through
+# its own return channel gets the value printed TWICE — measured while tutil P1
+# was written, `$(u.count)` read back as `22`. A caller in that position
+# declares `local __TPIPE_QUIET=1` in its own frame; bash's DYNAMIC scoping
+# makes the setting reach this unit's members and end with the frame, exactly as
+# `local __TPIPE_STOP` does for `TPipe.stop`.
+#
+# kklass's `__kk_return_silent` cannot be borrowed: the THIN static dispatcher
+# sets it to 1 for EVERY static body (kklass.sh:~990), so a static member could
+# never tell "quiet" from "loud".
+#
+# It silences `tpipe._ret` and nothing else — a callback's own stdout, a
+# `toList` target's `.Add`, and the producer's stderr all pass through
+# untouched. The load-time global exists so that a read under `set -u` outside
+# any sink is safe.
+declare -g __TPIPE_QUIET=0
+
 # TPIPE_INDEX is the 1-based ordinal of the record the callback is looking at.
 # Every sink shadows it with a `local` too, for the same reason: a nested sink
 # gets its own counter. The load-time global exists so that a shared callback
@@ -138,9 +159,14 @@ end
 
 # The return contract of every member (see the header note).
 # $1 = value, $2 = exit status (default 0).
+#
+# RESULT is set unconditionally; the ECHO is what `__TPIPE_QUIET` turns off, so
+# a composing caller still reads the value the normal way (see the note at the
+# declaration of `__TPIPE_QUIET`). The `:-0` keeps `set -u` happy even if the
+# load-time global was unset by hand.
 tpipe._ret() {
     RESULT="$1"
-    if (( BASH_SUBSHELL > 0 )); then
+    if (( BASH_SUBSHELL > 0 )) && [[ "${__TPIPE_QUIET:-0}" != 1 ]]; then
         printf '%s' "$1"
     fi
     return "${2:-0}"

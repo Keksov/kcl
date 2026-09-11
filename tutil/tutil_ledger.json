@@ -3,7 +3,7 @@
   "project": "kcl/tutil + kcl/tgrep — TUtil: CLI-tool wrapper base (FPC TProcess kinship; typed options → argv, rc normalisation, sinks via TPipe); TGrep: the first wrapper over GNU grep 3.0.",
   "created": "2026-09-10",
   "updated": "2026-09-11",
-  "status": "P0 DONE 2026-09-11 (kcl 8771cab). tutil suite 59/59 on bash 5.2.37 and 5.3.9; master sweep 22/22 suites 0 [FAIL] on both. Earlier: Depends on kcl/tpipe P0–P1. Design accepted by the owner 2026-09-10 (D1–D5 in tpipe/PLAN.md §2.0). Critic pass 2026-09-10: 23 findings (5 BLOCKER, 10 MAJOR, 6 MINOR, 2 NIT), all folded into PLAN.md §1–§7 (record in §8). No code.",
+  "status": "P1 DONE 2026-09-11 (kcl <SHA-TU1>). tutil suite 164/164 on bash 5.2.37 and 5.3.9 (tpipe 171/171 after the __TPIPE_QUIET seam); master sweep 22/22 suites 0 [FAIL] on both. P0 DONE 2026-09-11 (kcl 8771cab). tutil suite 59/59 on bash 5.2.37 and 5.3.9; master sweep 22/22 suites 0 [FAIL] on both. Earlier: Depends on kcl/tpipe P0–P1. Design accepted by the owner 2026-09-10 (D1–D5 in tpipe/PLAN.md §2.0). Critic pass 2026-09-10: 23 findings (5 BLOCKER, 10 MAJOR, 6 MINOR, 2 NIT), all folded into PLAN.md §1–§7 (record in §8). No code.",
   "phases": [
     {
       "id": "P0",
@@ -41,14 +41,14 @@
       "id": "P1",
       "name": "Sinks via TPipe",
       "goal": "each/toArray/toList/first/count delegate to TPipe with -- \"${argv[@]}\"; nul/crlf → -0/-c; func sinks answer RESULT = count AND rc = mapped via `kk._return n; return m`; lastRc copied from TPipe.lastRc; mapRc not applied when the consumer stopped.",
-      "status": "planned",
+      "status": "done",
       "tasks": [
         {
           "id": "P1.1",
           "title": "Five sinks per PLAN §2.3 ordering (save RESULT immediately after the TPipe call; kk._return count; return mapped rc) + stub removal + sentinel-absence test",
           "category": "feature",
           "severity": "critical",
-          "status": "planned",
+          "status": "done",
           "acceptance": "U1/U6/U8; each sink equals TPipe called directly with the same argv; RESULT = count with rc = mapped both direct and under $( ); three-frame nested dispatch (g.each → TPipe.each → r.onLine) keeps r's state; BASHPID zero-fork probe in the callback; no member answers __TUTIL_PENDING__."
         },
         {
@@ -56,7 +56,7 @@
           "title": "tests 002_Sinks.sh + 003_Contract.sh",
           "category": "test",
           "severity": "high",
-          "status": "planned",
+          "status": "done",
           "acceptance": "Red-first counts recorded; set -eu path incl. a failing tool; debug switch one line per rc 2 path; sweep 0 [FAIL]."
         }
       ]
@@ -111,6 +111,11 @@
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-11",
+      "batch": "P1 — the five sinks through TPipe",
+      "summary": "Opus worker, supervisor review against the live tree. tutil.sh 374 -> 650 lines: sources ../tpipe/tpipe.sh; tutil._prep MEMBER (kk.call_silent buildArgv -> command -v pre-check -> the __tu_fl flag array from nul/crlf); each/toArray/toList/first/count delegate with -- \"${argv[@]}\" and the ORDERED tail (RESULT saved immediately, TPipe.lastRc -> _lastRc, mapRc via kk.call_silent, kk._return count; return mapped); toArray re-validates the out-name with tutil._badOut (tpipe cannot know __tu_/__tg_ or the family's arrays — without it `u.toArray __tu_v` mapfile'd into the instance's own argv); first answers rc 1 whenever TPipe.first answered non-zero (no record is the answer, producer rc irrelevant; mapRc still runs for its debug line); stubs removed, 001 §G is now the sentinel-ABSENCE section. Red-first against the P0 unit: 77 FAIL of 159 (001: 2, 002: 43, 003: 32) + 4 + 4 for the review changes. Green: 164/164 on 5.2.37 AND 5.3.9, threaded and --mode single. Two worker findings, both cross-unit: (1) tpipe._ret prints under any BASH_SUBSHELL>0, so a wrapper answering through its own kk._return printed the value twice ($(u.count) -> 22) and `u.each cb | cat` carried the count; the worker's first fix (>/dev/null on the TPipe call) swallowed a callback's / .Add's own stdout under $( ) and was replaced on review by a proper seam: tpipe._ret honours a dynamically scoped `__TPIPE_QUIET=1` (declared 0 at load), every tutil sink declares it as a local — kklass's __kk_return_silent cannot serve because the thin static dispatcher sets it to 1 for every static body; tpipe 004 gained 6 cases (171/171), tpipe README §7 documents it. (2) A trailing CR is dropped from a word of a compound array assignment on this platform (`A=( $'cr\\r' )` -> length 2; a scalar keeps it): documented in both READMEs and PLAN §6; tpipe's 003 exotic matrix carried `cr` for that reason (its -c cases use a producer function and are unaffected). Reviewer probes on both bashes: $(u.count) once, each|cat only the callback's bytes, toArray, first-on-true rc 1 / lastRc 0, count on exit 3 keeps the count with rc 1, nul=1 -> NUL records, direct TPipe still prints under $( ). Master sweep: 22/22 suites 0 [FAIL] on 5.2.37 and 5.3.9. Committed as kcl <SHA-TU1>."
+    },
     {
       "date": "2026-09-11",
       "batch": "P0 — TUtil core",

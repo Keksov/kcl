@@ -2,7 +2,7 @@
 
 > **Status: COMPLETE (P0–P2).** All seven members — `each`, `toArray`, `toList`,
 > `first`, `count`, `stop`, `lastRc` — have real bodies, the `-0`/`-c` flags are
-> wired through every sink, and the suite is **165 checks, green on bash 5.2.37
+> wired through every sink, and the suite is **171 checks, green on bash 5.2.37
 > and on bash 5.3.9**. Design record and the measurements the unit is built on:
 > [docs/TPipe.md](docs/TPipe.md). What the tests pin, case by case:
 > [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). Numbers: `bench.sh`
@@ -75,6 +75,12 @@ TPipe.lastRc                                   # RESULT = raw rc of the last `--
 | `stop` | *untouched* | always 0 |
 | `lastRc` | raw rc of the last `--` producer, `-1` if there was none | always 0 |
 
+Every one of those RESULTs is also **printed once** when the sink runs inside a
+subshell — see [`__TPIPE_QUIET`](#7-traps-and-limits) in §7 for the one-line
+opt-out a *composing* caller (a member of your own class that runs a sink and
+then answers through its own return channel) declares so that the value is not
+printed twice.
+
 Flags:
 
 * **`-0`** — records are NUL-terminated (`find -print0`, `grep -lZ`), read with
@@ -134,10 +140,11 @@ TPipe.each r.onLine -- TGrep.search "needle" src/  # 2. no shell pipe, safe anyw
 g.each r.onLine                                    # 3. sugar on a tutil wrapper (PLANNED)
 ```
 
-Form 3 belongs to `tutil` / `TGrep`, which are **planned, not written**
-(`kcl/tutil/PLAN.md`); they will delegate their sinks to this unit, so forms 1
-and 2 are what exists today. Forms 1 and 2 are pinned against each other in
-`tests/001_Each.sh` §I, with a plain function and with an instance member.
+Form 3 belongs to [`tutil`](../tutil/README.md), whose five sinks are one call
+into this unit each (`TGrep` is still P2). Forms 1 and 2 are pinned against each
+other in `tests/001_Each.sh` §I, with a plain function and with an instance
+member; all three are pinned against each other in `tutil/tests/002_Sinks.sh`
+§L. A wrapper composing a sink this way declares `local __TPIPE_QUIET=1` (§7).
 
 **`--` present** → the words after it are the producer argv, run through
 `exec {fd}< <("${argv[@]}")`. No `eval`, no string splitting, ever. `--` with an
@@ -209,7 +216,8 @@ One consequence to know about: `tpipe._ret` prints `RESULT` under **any**
 `BASH_SUBSHELL > 0`, which includes the right-hand side of a pipe without
 `lastpipe`. A legal `--`-form sink used there writes its record count into the
 pipeline's stdout. That is the tpath contract verbatim (kcl `README.md` §1.1),
-documented rather than fixed.
+documented rather than fixed — and a caller that is *composing* rather than
+consuming turns it off with `__TPIPE_QUIET` (§7).
 
 ---
 
@@ -443,6 +451,35 @@ Reading the table:
   producer inherits the caller's stdin untouched (§2).
 * **Single producer.** `-- a -- b` is not a pipeline; a real `|` under `lastpipe`
   already composes any number of stages.
+* **`__TPIPE_QUIET` — the composing caller's opt-out from the `$( )` echo.**
+  `tpipe._ret` prints `RESULT` under any `BASH_SUBSHELL > 0`, which is right for
+  a caller that *is* the answer (`n=$(TPipe.count -- cmd)`) and wrong for one
+  that *composes*: a member of your own class that runs a sink and then answers
+  through its own `kk._return` gets the value printed **twice** (measured while
+  `tutil` P1 was written: `$(u.count)` read back as `22`). Such a caller
+  declares the flag as a `local` of its own frame, and bash's **dynamic**
+  scoping carries it into the sink and ends it with the frame — the same
+  mechanism `local __TPIPE_STOP` uses:
+
+  ```bash
+  TMy.count() {                       # a kklass member that wraps a sink
+      local __TPIPE_QUIET=1
+      TPipe.count -- "${argv[@]}" || :
+      kk._return "$RESULT"            # ONE print under $( ), not two
+  }
+  ```
+
+  It silences `tpipe._ret` and **nothing else**: a callback's own stdout, a
+  `toList` target's `.Add` output and the producer's stderr all pass through
+  untouched, and `RESULT` is set exactly as before, so a direct call is
+  unaffected either way. kklass's `__kk_return_silent` cannot be borrowed for
+  this — the thin static dispatcher sets it to `1` for every static body, so a
+  static member could never tell the two states apart. Sourcing the unit
+  declares `__TPIPE_QUIET=0` globally, so a read under `set -u` outside any sink
+  is safe. **The one thing to know:** dynamic scoping means a *callback* invoked
+  by that sink also sees the `1`, so a callback that itself does
+  `x=$(TPipe.count -- …)` must declare `local __TPIPE_QUIET=0` first. Pinned in
+  `tests/004_Contract.sh` §6.
 * **Reserved names.** `__tpi_*`, `__TPIPE_*` and `TPIPE_INDEX` belong to this
   unit, on top of kklass's `this __inst__ __class__ RESULT REPLY IFS state
   __kk_*`. Never bind an output array to any of them — `TPipe.toArray` refuses
@@ -478,7 +515,7 @@ bash kcl/tpipe/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tpipe/tests/tests.sh
 ```
 
-**165 checks**, green on bash 5.2.37 and on 5.3.9, in the default threaded mode
+**171 checks**, green on bash 5.2.37 and on 5.3.9, in the default threaded mode
 and under `--mode single`. Every case is indexed in
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
@@ -487,7 +524,7 @@ and under `--mode single`. Every case is indexed in
 | `001_Each.sh` | 37 | the producer's real rc through `wait` (F3), delivery and the unterminated/empty tail (F10), records as data (the exotic matrix), `TPIPE_INDEX` (F13), the callback matrix — plain / instance / static, from top level and from inside another member (F9), every rc 2 path, the D1 refusal and its pinned message (F1), `lastpipe` (F2), the two README forms, D6 |
 | `002_Stop.sh` | 13 | the close-kill-wait path on an infinite producer (F4) and on a SIGPIPE-ignoring one (F5), both through `each` + `stop` and through `first`, `$!` clobbered by a callback (F6), the frame-local stop in all four shapes (F12), `stop` leaves `RESULT` alone, the `lastRc` sentinels |
 | `003_Sinks.sh` | 68 | `toArray`/`toList`/`first`/`count` against their bare-bash oracles (`mapfile`, a `while read` loop, `head -n1`, `wc -l`), the exotic matrix byte-exact through `toArray`, a kklass class and a real `TStringList` (64 KiB record included), the `-0` NUL path over `find -print0` on names with a space and a newline (F7), `-c` stripping exactly one CR through every sink, the delimiter surviving `IFS=':'` (F11), the assoc/integer/readonly refusal (F15), rc 2 paths running nothing (F14), stdin pass-through (F16), the rc 1 + non-empty RESULT deviation, a rejecting `.Add`, nesting, and the zero-fork probes |
-| `004_Contract.sh` | 41 | `bash -n` + the open-quote grep, every sink in both forms under `set -eu` (including the stop path, a rejecting `.Add`, a predicate callback and a producer exiting 4 — the child must die of the member's rc 1, not the producer's 4), exactly one `kk.debug` line per rc 2 path with the switch on and none with it off, and the D1 and D6 lines verbatim for all five sinks |
+| `004_Contract.sh` | 47 | `bash -n` + the open-quote grep, every sink in both forms under `set -eu` (including the stop path, a rejecting `.Add`, a predicate callback and a producer exiting 4 — the child must die of the member's rc 1, not the producer's 4), exactly one `kk.debug` line per rc 2 path with the switch on and none with it off, the D1 and D6 lines verbatim for all five sinks, and §6 `__TPIPE_QUIET`: the flag silences `tpipe._ret` only (a callback's and a `.Add`'s stdout still flow), the default is unchanged, a direct call is unaffected either way, and the load-time global is readable under `set -u` |
 | `005_Bench.sh` | 6 | the `PLAN.md` §2.6 gates as assertions with ceilings 3× looser than the measured values (the runner is threaded ×8), the `first`-on-`yes` latency in a child under `timeout`, and zero forks per record for every sink |
 
 The exact numbers come from `bench.sh`, run by hand — §6.
