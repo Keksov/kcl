@@ -1,7 +1,12 @@
 # TPipe — stream-to-callback adaptor plan (kcl/tpipe)
 
-**Status: PLANNED, critic-hardened (2026-09-10). No code yet.** Owner accepted the
-design and the recommended defaults D1–D5 (§2.0). A critic pass (§8) found 2
+**Status: COMPLETE (P0–P2), 2026-09-11.** All seven members shipped, suite
+`001`–`005` = **165 checks green on bash 5.2.37 and 5.3.9** (threaded and
+`--mode single`); `bench.sh`, `README.md`, `docs/TPipe.md`,
+`TEST_COVERAGE_NOTES.md` and the kcl `README.md` §2 row are in place. Phase
+records: `tpipe_ledger.json` `execution_log`; the P2 numbers are under §5 P2
+below. Originally PLANNED, critic-hardened (2026-09-10): owner accepted the
+design and the recommended defaults D1–D5 (§2.0); a critic pass (§8) found 2
 blockers and 8 majors in the first draft; every one is folded into the sections
 below, so the worker reads the sections, not §8. One new decision, **D6**, is
 recorded with the supervisor's choice and flagged to the owner.
@@ -433,6 +438,32 @@ Runner: `tests/tests.sh` → ktests, as every unit.
   (design record: the 2026-09-10 probes and the critic's probes as reproducible
   scripts), `TEST_COVERAGE_NOTES.md`, kcl README §2 row (kind: static, "kcl addition
   — no FPC source", the rc 1 deviation), ledger COMPLETE with SHAs.
+
+**DONE 2026-09-11.** `bench.sh` (10 000 records, 2 000 dispatched calls, clock =
+`TStopwatch.getTimeStamp`), `tests/005_Bench.sh` (6 cases), README final,
+`docs/TPipe.md` (13 sections, 9 probe scripts with their output on both bashes),
+`TEST_COVERAGE_NOTES.md` (all 165 cases), kcl README §2 row + "Eighteen units".
+Suite **165/165 on 5.2.37 and on 5.3.9**, threaded and `--mode single`;
+`bench.sh` rc 0 under `bash -eu` on both. Measured on Windows 11 / MSYS2 with
+the threaded runner idle (5.2.37 / 5.3.9):
+
+| path | measured | gate |
+|---|---|---|
+| plain function call | 8.0 / 7.6 µs | — |
+| kklass static member | 29.1 / 26.6 µs | — |
+| kklass instance member (`r.onLine`) | 166.0 / 170.5 µs | — |
+| bare `while IFS= read -r`, 10 k records | 1831 / 1860 ms | baseline |
+| `each` + a no-op **function** | 2059 / 2108 ms — **1.12× / 1.13×** | ≤ 2× **PASS** |
+| `each` + `r.onLine` | 4172 / 4338 ms — **2.27× / 2.33×** | published, not gated |
+| bare `mapfile -t`, 10 k records | 1663 / 1737 ms | baseline |
+| `toArray` | 1764 / 1812 ms — **1.06× / 1.04×** | ≤ 1.5× **PASS** |
+| `first -- yes` | 41 / 42 ms, `lastRc` 141 | ≤ 250 ms **PASS** |
+| forks per record | 0 / 0 | 0 **PASS** |
+
+`tests/005_Bench.sh` asserts the same three shapes at 6× / 4.5× / 750 ms (§4:
+the runner is threaded ×8); under the runner it measured 122 % and 116 % of its
+own in-process baselines and 29 ms of latency. `tpipe.sh` and tests 001–004 are
+byte-identical to their P1 state.
 
 ---
 

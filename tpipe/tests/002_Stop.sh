@@ -11,7 +11,9 @@
 #   C  F5  a producer that IGNORES SIGPIPE and then stops writing
 #          (`trap '' PIPE; echo a; sleep 8; echo b`) is TERMINATED — without the
 #          `kill -TERM` of PLAN §2.3 `wait` blocks for its whole remaining life
-#          (8.1 s measured). The whole case runs in a child under `timeout 5`,
+#          (8.1 s measured). The whole case runs in a child under `timeout 20` —
+#          a cold `source tpipe.sh` alone is ~1 s idle and ~4 s under the
+#          threaded runner (measured; a 5 s budget timed out in a master sweep),
 #          also through both `each` + `stop` and `first`.
 #   D  F6  `$!` clobbered by a callback that starts a job does not affect the
 #          captured producer pid
@@ -112,7 +114,7 @@ CHILD_EOF
 
 # run_child MODE -> sets CH_RC (timeout's rc) and CH_OUT (the child's line)
 run_child() {
-    CH_OUT="$(timeout 5 "$BASH" "$CHILD" "$TP_DIR" "$1" 2>/dev/null)"
+    CH_OUT="$(timeout 20 "$BASH" "$CHILD" "$TP_DIR" "$1" 2>/dev/null)"
     CH_RC=$?
     return 0
 }
