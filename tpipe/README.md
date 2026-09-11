@@ -1,9 +1,9 @@
 # tpipe — `TPipe`, a stream-to-callback adaptor
 
-> **Status: P0.** The engine, `TPipe.each`, `TPipe.stop` and `TPipe.lastRc` are
-> implemented and tested on bash 5.2.37 and 5.3.9. `toArray`, `toList`, `first`
-> and `count` are declared but still answer rc 2 ("not implemented yet"); they
-> land at P1 together with the `-0`/`-c` test matrix. See `PLAN.md`.
+> **Status: P1.** All seven members — `each`, `toArray`, `toList`, `first`,
+> `count`, `stop`, `lastRc` — are implemented and tested on bash 5.2.37 and
+> 5.3.9, with the `-0`/`-c` flags wired through every sink. `bench.sh`,
+> `docs/TPipe.md` and the measured numbers land at P2. See `PLAN.md`.
 
 `TPipe` is a **kcl addition** — there is no FPC class behind it. It exists
 because of one bash fact:
@@ -35,25 +35,40 @@ TPipe.each r.onLine -- git log --format=%H     # r keeps every mutation
 printf '%s\n' "$RESULT"                        # -> number of records delivered
 ```
 
+…and, when a callback is more machinery than the job needs, the same engine
+answers with an array, a list, a first record or a count:
+
+```bash
+declare -a shas
+TPipe.toArray shas -- git log --format=%H      # RESULT = ${#shas[@]}
+TPipe.toList  l    -- git log --format=%H      # l.Add per record; RESULT = offered
+TPipe.first        -- git log --format=%H      # RESULT = the newest sha, producer stopped
+TPipe.count        -- git log --format=%H      # RESULT = how many
+```
+
 ---
 
 ## 1. Surface
 
 ```bash
-TPipe.each  [-0] [-c] CB [-- CMD ARG...]   # call `CB RECORD` per record, in this shell
-TPipe.stop                                 # from inside a callback: stop after this record
-TPipe.lastRc                               # RESULT = raw rc of the last `--` producer
+TPipe.each    [-0] [-c] CB   [-- CMD ARG...]   # call `CB RECORD` per record, in this shell
+TPipe.toArray [-0] [-c] NAME [-- CMD ARG...]   # REPLACE the caller's array NAME
+TPipe.toList  [-0] [-c] INST [-- CMD ARG...]   # call `INST.Add RECORD` per record
+TPipe.first   [-0] [-c]      [-- CMD ARG...]   # RESULT = the first record, then stop
+TPipe.count   [-0] [-c]      [-- CMD ARG...]   # RESULT = the number of records
+TPipe.stop                                     # from inside a callback: stop after this record
+TPipe.lastRc                                   # RESULT = raw rc of the last `--` producer
 ```
 
-| member | state | RESULT | rc |
-|---|---|---|---|
-| `each` | **P0** | records delivered | 0 producer rc 0 **or stopped**; 1 producer rc ≠ 0 (RESULT kept, §4); 2 malformed call |
-| `stop` | **P0** | *untouched* | always 0 |
-| `lastRc` | **P0** | raw rc of the last `--` producer, `-1` if there was none | always 0 |
-| `toArray` | *pending (P1)* | — | 2 + `kk.debug` |
-| `toList` | *pending (P1)* | — | 2 + `kk.debug` |
-| `first` | *pending (P1)* | — | 2 + `kk.debug` |
-| `count` | *pending (P1)* | — | 2 + `kk.debug` |
+| member | RESULT | rc |
+|---|---|---|
+| `each` | records **delivered** | 0 producer rc 0 **or stopped**; 1 producer rc ≠ 0 (RESULT kept, §4); 2 malformed call |
+| `toArray` | records **stored** (the array is replaced) | same as `each` |
+| `toList` | records **offered** to `INST.Add` | same as `each` |
+| `first` | the first record, `''` if there was none | 0 a record was read (the producer's own rc is irrelevant — *we* stopped it); 1 no record; 2 malformed call |
+| `count` | records **counted** | same as `each` |
+| `stop` | *untouched* | always 0 |
+| `lastRc` | raw rc of the last `--` producer, `-1` if there was none | always 0 |
 
 Flags:
 
@@ -61,15 +76,24 @@ Flags:
 * **`-c`** — strip **one** trailing `\r` from each record. The letter is "CR",
   not "command". Off by default: records are data. CRLF sources that keep the CR
   are `cat`, `head` and bash-function producers; GNU grep/sed/awk strip it
-  themselves on this platform.
+  themselves on this platform. `-c` is accepted by `count` for surface symmetry
+  and is a no-op there — stripping a CR cannot change how many records there are.
 
 Flags come first, are single-letter, and stop at the first non-flag word. After
-the callback the **only** legal next word is `--`; anything else is rc 2 — which
-is what catches a flag written after the operand:
+the sink's operand the **only** legal next word is `--`; anything else is rc 2 —
+which is what catches a flag written after the operand:
 
 ```bash
 TPipe.each cb -c -- cat file        # rc 2: the flag belongs BEFORE cb
 TPipe.each -c cb -- cat file        # right
+```
+
+`first` and `count` take **no operand**, so for them the first non-flag word must
+already be `--`:
+
+```bash
+TPipe.count -0 -- find . -print0    # right
+TPipe.count -0 x -- find . -print0  # rc 2: 'x' is not '--'
 ```
 
 `TPIPE_INDEX` is readable from the callback as the **1-based ordinal** of the
@@ -126,6 +150,20 @@ callback never called**, and under `VERBOSE_KKLASS=debug` exactly one line:
 Error: TPipe.each: stdin form ran in a subshell (BASH_SUBSHELL=1); use `TPipe.each CB -- CMD ...`, or `shopt -s lastpipe` at the top of a NON-interactive script (lastpipe is inert while job control is on)
 ```
 
+Every sink prints the same line, with its own name **and its own operand label**,
+so the suggested fix is copy-pasteable as it stands:
+
+```
+… use `TPipe.each CB -- CMD ...`, …
+… use `TPipe.toArray NAME -- CMD ...`, …
+… use `TPipe.toList INST -- CMD ...`, …
+… use `TPipe.first -- CMD ...`, …          # first and count take no operand
+… use `TPipe.count -- CMD ...`, …
+```
+
+Every other character of the line is pinned (`PLAN.md` §2.5) and asserted
+verbatim for all five sinks in `tests/004_Contract.sh`.
+
 `lastpipe` is worth knowing: it makes the last element of a pipeline run in the
 current shell, it applies to a kklass static member, and `PIPESTATUS` is correct
 there. It is **inert while job control is on**, i.e. in an interactive shell —
@@ -153,17 +191,35 @@ documented rather than fixed.
 
 ## 4. Return contract, and one named deviation
 
-**Named deviation from kcl `README.md` §1.2.** For `each`, rc 1 means *the
-producer exited non-zero*, not *no answer*: **`RESULT` still carries the number
-of records delivered**, and everything the callback did before the producer
-failed still happened. Callers who want all-or-nothing check the member's rc (or
+| member | RESULT | rc 0 | rc 1 (silent) | rc 2 (malformed call, one `kk.debug` line) |
+|---|---|---|---|---|
+| `each` | records delivered | producer rc 0, or stopped | producer rc ≠ 0 | CB is not a function; bad flag; a word after CB that is not `--`; `--` with no argv; D1 |
+| `toArray` | records stored (the array is **replaced**) | same | same | NAME fails `kk._outName`, or is an **associative** array, **integer-attributed** or **readonly**; the rest as above |
+| `toList` | records **offered** to `INST.Add` | same | same | `INST.Add` is not a function; the rest as above |
+| `first` | the first record, `''` if none | a record was read | no record | bad flag; a word where `--` belongs; `--` with no argv; D1 |
+| `count` | records counted | producer rc 0 | producer rc ≠ 0 | as `first` |
+| `stop` | *untouched* | always | — | — |
+| `lastRc` | raw rc of the last `--` producer, `-1` if there was none | always | — | — |
+
+**Named deviation from kcl `README.md` §1.2.** For the four counting/collecting
+sinks, rc 1 means *the producer exited non-zero*, not *no answer*: **`RESULT`
+still carries the number of records**, `toArray`'s array and `toList`'s list
+still hold everything read before the producer died, and everything the callback
+did still happened. Callers who want all-or-nothing check the member's rc (or
 `TPipe.lastRc`) before using the data.
 
 ```bash
 TPipe.each cb -- grep needle file   # no match: rc 1, RESULT=0 — grep's own 1
 TPipe.each cb -- some_failing_cmd   # rc 1, RESULT=<records read before it died>
-TPipe.lastRc                        # RESULT = 1 / 2 / 127 / … — grep's raw rc
+TPipe.toArray out -- some_failing_cmd   # rc 1, `out` holds what did arrive
+TPipe.lastRc                        # RESULT = 1 / 2 / 127 / … — the raw rc
 ```
+
+`first` is the one sink that does **not** deviate: it answers rc 1 exactly when
+it has no answer, and rc 0 whenever a record was read — the producer's rc is
+irrelevant there, because the consumer is what ended the stream (§5). A record
+that is legitimately **empty** is still a record: `rc 0` with `RESULT=''`, as
+against `rc 1` with `RESULT=''` for a producer that wrote nothing.
 
 `TPipe.lastRc` is the raw exit status of the last `--` producer, and **`-1`**
 when there was no producer of ours: before any sink has run, and after a
@@ -171,13 +227,64 @@ stdin-form sink. For the stdin form read `${PIPESTATUS[0]}` immediately after th
 pipeline instead.
 
 rc 2 is a malformed **call** and those paths **run nothing**: the producer is not
-started and stdin is not touched. `each` answers rc 2 for
+started and stdin is not touched — a here-string handed to a refused call is
+still fully readable afterwards (F14).
 
-* a callback that is not a function (checked with `declare -F` up front),
-* an unknown flag, or a flag written after the callback,
-* any word other than `--` after the callback,
-* `--` with no producer command,
-* the D1 subshell refusal.
+### `toArray` — the output-array rules
+
+The array **name** is validated before any nameref is bound (kcl `README.md`
+§1.7), and the array is **replaced**, not appended to: `mapfile` clears it first.
+
+```bash
+declare -a hits
+TPipe.toArray hits -- git log --format=%H   # RESULT = ${#hits[@]}
+```
+
+Refused with rc 2 (and **no** stderr of any kind):
+
+* a name that is not a plain identifier, or one of kklass's reserved names
+  (`this`, `__inst__`, `__class__`, `RESULT`, `REPLY`, `IFS`, `state`, the
+  `__kk_`/`__KK_` space) or this unit's own `__tpi_*` / `__TPIPE_*` /
+  `TPIPE_INDEX`;
+* a name that is currently an **associative array**, **readonly** or
+  **integer-attributed** (**F15**). The first two make `mapfile` print a bash
+  diagnostic and return 1 (measured on both bashes), and a kcl unit never emits
+  one. The third is worse than a diagnostic: `mapfile` into a `declare -i`
+  target **succeeds silently** and evaluates every record arithmetically on the
+  way in —
+
+  ```bash
+  declare -i v=0
+  TPipe.toArray v -- printf 'abc\ndef\n'   # rc 2 now; without the check:
+                                           # declare -ai v=([0]="0" [1]="0")
+  ```
+
+  Records are data, so a target that rewrites them is a malformed call.
+
+An existing **scalar** is fine: `mapfile` converts it to an indexed array. So are
+an unset name and a bare `declare -a out`.
+
+`kk._outName` refuses `${__inst__}_data` / `_class` / `_items` only when
+`__inst__` is set, i.e. when the sink is called from inside an instance member. A
+top-level `TPipe.toArray h_items -- cmd` is **not** refused and would replace a
+live `THashSet`'s storage — a documented boundary, not a bug.
+
+### `toList` — duck-typed, and it counts what it OFFERED
+
+`toList` needs one thing from `INST`: a function called `INST.Add`. That is all
+it checks (`declare -F -- "$INST.Add"`), so a `TStringList`, a `TList`, a
+`THashSet` and a user class all work and this unit sources none of them.
+
+**`.Add`'s exit status is ignored.** `THashSet.Add` answers rc 1 for a duplicate
+and `TStringList.Add` does the same under `dupError`; neither is a stream error.
+`RESULT` is therefore the number of records **offered**, which is not always the
+number the list kept:
+
+```bash
+THashSet.new h
+TPipe.toList h -- printf 'a\nb\na\nb\nc\n'   # RESULT = 5 (offered)
+h.Count                                       # RESULT = 3 (kept)
+```
 
 ---
 
@@ -214,6 +321,19 @@ TPipe.each onLine -- find . -type f
   finished, `lastRc` after a stop is simply its own rc, so `lastRc` is only
   meaningful on the stop path as "141 / 143 / whatever the producer managed".
 
+`TPipe.first` takes that same stop path for free — it reads one record and ends
+the stream — which is why `TPipe.first -- yes` answers in tens of milliseconds
+instead of never:
+
+```bash
+TPipe.first -- yes 2>/dev/null   # RESULT='y', rc 0, lastRc 141 or 143
+```
+
+`TPipe.stop` from inside a `toList` target's `.Add` works exactly as it does from
+a callback: the record that asked for it is still offered, and the sink is rc 0.
+`toArray`, `first` and `count` run no callback of yours, so nothing can request a
+stop inside them.
+
 ---
 
 ## 6. Cost
@@ -225,12 +345,18 @@ record: zero forks** — one `read`, one function call, one arithmetic expansion
 | path | ratio to bare bash (5.2.37 / 5.3.9) |
 |---|---|
 | `TPipe.each` + a no-op **function** vs a bare `while read` | 1.18× / 1.25× |
+| `TPipe.toArray` (no flags) vs a bare `mapfile` | 1.02× / 1.01× |
+
+`toArray` is the cheap sink: `mapfile` reads the whole stream in one builtin
+call, so there is no per-record cost at all. `-c` adds one extra pass over the
+finished array (still fork-free). `toList` costs whatever `INST.Add` costs — a
+full kklass instance dispatch per record.
 
 **An instance-member callback is a different order of magnitude, and it is
 kklass's price, not TPipe's.** kklass dispatch costs 6.8/6.5 µs for a plain
 function, 30/22 µs for a static member and **200/167 µs for an instance member**,
 so `TPipe.each r.onLine` over 10 000 records runs roughly 3× the bare loop.
-Callers with 10⁵-record streams should reach for `toArray` + a plain loop (P1),
+Callers with 10⁵-record streams should reach for `TPipe.toArray` + a plain loop,
 or for a plain-function callback that forwards to the object only when it must.
 
 (The numbers above are the design measurements from `PLAN.md` §1.1/§2.6;
@@ -250,12 +376,25 @@ or for a plain-function callback that forwards to the object only when it must.
 * **The producer's stderr passes through untouched.** A caller who wants it
   captured redirects it inside a wrapper function named as `CMD`. On the stop
   path a producer routinely prints `write error: Broken pipe`; that is the
-  producer's output, not TPipe's.
+  producer's output, not TPipe's — and `TPipe.first` is always on the stop path,
+  so `TPipe.first -- yes 2>/dev/null` is the idiomatic spelling.
+* **stdin is shared, not consumed whole.** `TPipe.first` in the stdin form reads
+  exactly one record and leaves the rest of stdin for the caller; the `--` form's
+  producer inherits the caller's stdin untouched (**F16**), so
+  `TPipe.count -- cat <<< "$s"` counts `$s`.
 * **Single producer.** `-- a -- b` is not a pipeline; a real `|` under `lastpipe`
   already composes any number of stages.
 * **Reserved names.** `__tpi_*`, `__TPIPE_*` and `TPIPE_INDEX` belong to this
   unit, on top of kklass's `this __inst__ __class__ RESULT REPLY IFS state
-  __kk_*`. Never bind an output array to any of them.
+  __kk_*`. Never bind an output array to any of them — `TPipe.toArray` refuses
+  every one of them with rc 2.
+* **The `-c` pattern lives in `__TPIPE_CR`, never inline.** `build` re-creates
+  every member body from `declare -f` through `eval`, and a literal `$'\r'`
+  written inside a body does **not** survive that round trip: `declare -f` prints
+  it as a raw carriage return inside quotes and the re-parse drops it, leaving
+  `${x%''}`, which strips nothing and says nothing (measured on 5.2.37 and
+  5.3.9). Any future member that needs a CR — or any other character bash's
+  parser eats — must take it from a variable built at load time.
 
 ---
 
@@ -270,5 +409,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tpipe/test
 |---|---|
 | `001_Each.sh` | the producer's real rc through `wait` (F3), delivery and the unterminated/empty tail (F10), records as data (the exotic matrix), `TPIPE_INDEX` (F13), the callback matrix — plain / instance / static, from top level and from inside another member (F9), every rc 2 path, the D1 refusal and its pinned message (F1), `lastpipe` (F2), the two README forms, D6 |
 | `002_Stop.sh` | the close-kill-wait path on an infinite producer (F4) and on a SIGPIPE-ignoring one (F5), `$!` clobbered by a callback (F6), the frame-local stop in all four shapes (F12), `stop` leaves `RESULT` alone, `lastRc` sentinels |
+| `003_Sinks.sh` | `toArray`/`toList`/`first`/`count` against their bare-bash oracles (`mapfile`, a `while read` loop, `head -n1`, `wc -l`), the exotic matrix byte-exact through `toArray`, a kklass class and a real `TStringList` (64 KiB record included), the `-0` NUL path over `find -print0` on names with a space and a newline (F7), `-c` stripping exactly one CR through every sink, the delimiter surviving `IFS=':'` (F11), the assoc/integer/readonly refusal (F15), rc 2 paths running nothing (F14), stdin pass-through (F16), the rc 1 + non-empty RESULT deviation, a rejecting `.Add`, F4/F5 in the `first` shape, nesting, and the zero-fork probes |
+| `004_Contract.sh` | `bash -n` + the open-quote grep, every sink in both forms under `set -eu` (including the stop path, a rejecting `.Add`, a predicate callback and a producer exiting 4 — the child must die of the member's rc 1, not the producer's 4), exactly one `kk.debug` line per rc 2 path with the switch on and none with it off, and the D1 and D6 lines verbatim for all five sinks |
 
-`003_Sinks.sh`, `004_Contract.sh` and `005_Bench.sh` arrive with P1 and P2.
+`005_Bench.sh` arrives with P2.

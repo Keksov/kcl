@@ -5,11 +5,14 @@
 #   A  lastRc is -1 before any sink has run (this section MUST stay first)
 #   B  F4  closing the fd (plus the kill -TERM behind it) ends an infinite
 #          producer: a stop on the first record of `yes` returns promptly, with
-#          lastRc 141 (SIGPIPE) or 143 (SIGTERM) — see the note at the case
+#          lastRc 141 (SIGPIPE) or 143 (SIGTERM) — see the note at the case.
+#          Pinned twice: through `each` + `TPipe.stop` (P0) and through
+#          `TPipe.first` (P1 re-points F4/F5 at it, PLAN §3).
 #   C  F5  a producer that IGNORES SIGPIPE and then stops writing
 #          (`trap '' PIPE; echo a; sleep 8; echo b`) is TERMINATED — without the
 #          `kill -TERM` of PLAN §2.3 `wait` blocks for its whole remaining life
-#          (8.1 s measured). The whole case runs in a child under `timeout 5`.
+#          (8.1 s measured). The whole case runs in a child under `timeout 5`,
+#          also through both `each` + `stop` and `first`.
 #   D  F6  `$!` clobbered by a callback that starts a job does not affect the
 #          captured producer pid
 #   E  F12 stop is FRAME-LOCAL: an outer stop requested before an inner sink
@@ -95,9 +98,11 @@ sigpipe_producer() { trap '' PIPE; printf 'a\n'; sleep 8; printf 'b\n'; }
 t0="${EPOCHREALTIME/[.,]/}"
 rc=0
 case "$2" in
-    yes)  TPipe.each stopper -- yes 2>/dev/null              || rc=$? ;;
-    sigp) TPipe.each stopper -- sigpipe_producer 2>/dev/null || rc=$? ;;
-    *)    printf 'bad mode\n' >&2; exit 9 ;;
+    yes)   TPipe.each stopper -- yes 2>/dev/null              || rc=$? ;;
+    sigp)  TPipe.each stopper -- sigpipe_producer 2>/dev/null || rc=$? ;;
+    fyes)  TPipe.first -- yes 2>/dev/null                     || rc=$? ;;
+    fsigp) TPipe.first -- sigpipe_producer 2>/dev/null        || rc=$? ;;
+    *)     printf 'bad mode\n' >&2; exit 9 ;;
 esac
 res="$RESULT"
 t1="${EPOCHREALTIME/[.,]/}"
@@ -135,6 +140,29 @@ if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=1 lastrc=143 us="* \
     kt_test_pass "F5: $CH_OUT (under 1 s, not the producer's 8 s)"
 else
     kt_test_fail "F5 (SIGPIPE-ignoring): timeout rc=$CH_RC out='$CH_OUT'"
+fi
+
+# P1 re-points F4/F5 at `TPipe.first`, which takes the same close-kill-wait path
+# for free after its single record (PLAN §3). The each+stop cases above stay:
+# they pin the same engine path reached through an explicit TPipe.stop.
+kt_test_start "F4 (first): \`TPipe.first -- yes\` returns 'y' in < 250 ms, lastRc 141 or 143"
+run_child fyes
+us="${CH_OUT##*us=}"
+if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=y lastrc=14"[13]" us="* \
+      && "$us" =~ ^[0-9]+$ && $us -lt 250000 ]]; then
+    kt_test_pass "F4 (first): $CH_OUT"
+else
+    kt_test_fail "F4 (first -- yes): timeout rc=$CH_RC out='$CH_OUT'"
+fi
+
+kt_test_start "F5 (first): a SIGPIPE-ignoring producer that stops writing is TERMINATED (lastRc 143)"
+run_child fsigp
+us="${CH_OUT##*us=}"
+if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=a lastrc=143 us="* \
+      && "$us" =~ ^[0-9]+$ && $us -lt 1000000 ]]; then
+    kt_test_pass "F5 (first): $CH_OUT (under 1 s, not the producer's 8 s)"
+else
+    kt_test_fail "F5 (first, SIGPIPE-ignoring): timeout rc=$CH_RC out='$CH_OUT'"
 fi
 
 # ===========================================================================

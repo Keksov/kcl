@@ -244,7 +244,7 @@ consumer's success, not the producer's failure.
 | member | RESULT | rc 0 | rc 1 (silent) | rc 2 (malformed call, `kk.debug`) |
 |---|---|---|---|---|
 | `each` | records delivered | producer rc 0, or stopped | producer rc ≠ 0 (grep "no match" = 1 lands here naturally) | CB not a function (`declare -F` up front, like `THashSet.onNotify` `thashset.sh:638` — **not** `THashSet.ForEach` `:409`, which answers rc 1 for the same condition); bad flag; word after CB that is not `--`; D1 |
-| `toArray` | records stored (the array is **replaced**, `mapfile` clears it first) | same | same | NAME fails `kk._outName NAME __tpi_ __TPIPE_`, or is currently an **associative** array or **readonly** (`mapfile` into either prints a bash diagnostic and returns 1 — measured; an existing scalar is converted and fine); bad flag; D1 |
+| `toArray` | records stored (the array is **replaced**, `mapfile` clears it first) | same | same | NAME fails `kk._outName NAME __tpi_ __TPIPE_ TPIPE_INDEX` (the third prefix because every sink shadows `TPIPE_INDEX` with a `local`, so a nameref to that name would fill the sink's own slot and the caller would silently get nothing), or is currently an **associative** array, **integer-attributed** (`declare -i`: `mapfile` "succeeds" and evaluates every record arithmetically, `abc` → `0`) or **readonly** (`mapfile` into either prints a bash diagnostic and returns 1 — measured; an existing scalar is converted and fine); bad flag; D1 |
 | `toList` | records **offered** to `INST.Add` (its rc is ignored with `\|\| :` — `THashSet.Add` says 1 for a duplicate, `TStringList.Add` under `dupError` too) | same | same | `declare -F "$INST.Add"` false; bad flag; D1 |
 | `first` | first record, `''` if none | a record was read (producer stopped after it, §2.3) | no record | bad flag; D1 |
 | `count` | records | producer rc 0 | producer rc ≠ 0 | bad flag; D1 |
@@ -290,13 +290,15 @@ Further notes:
 The D1 message, pinned (004 asserts exactly one line matching it):
 
 ```
-Error: TPipe.each: stdin form ran in a subshell (BASH_SUBSHELL=N); use `TPipe.each CB -- CMD ...`, or `shopt -s lastpipe` at the top of a NON-interactive script (lastpipe is inert while job control is on)
+Error: TPipe.MEMBER: stdin form ran in a subshell (BASH_SUBSHELL=N); use `TPipe.MEMBER [OPERAND] -- CMD ...`, or `shopt -s lastpipe` at the top of a NON-interactive script (lastpipe is inert while job control is on)
 ```
+
+`MEMBER` is the sink name and `[OPERAND]` is `CB` for `each`, `NAME` for `toArray`, `INST` for `toList`, and absent (single space) for `first`/`count`.
 
 The D6 line, pinned the same way (one line, `Warning:` prefix, only under the switch):
 
 ```
-Warning: TPipe.each: running in a subshell (BASH_SUBSHELL=N); records are delivered, but every mutation the callback makes is lost when the subshell exits
+Warning: TPipe.MEMBER: running in a subshell (BASH_SUBSHELL=N); records are delivered, but every mutation the callback makes is lost when the subshell exits
 ```
 
 CMD is executed as `"${argv[@]}"` inside the process substitution: a bash function
@@ -342,7 +344,7 @@ plain-function callback that forwards to the object only when needed.
 | F4 | closing the fd kills an infinite producer (141), `wait` returns | 002 (P0: via `each` + `TPipe.stop`; re-pointed at `first` in P1): `TPipe.first -- yes` returns `y` in < 250 ms, lastRc 141 **or 143** (the close and the `kill -TERM` race: under load the TERM lands before `yes` attempts its next write — seen in the 5.3.9 master sweep) |
 | F5 | a SIGPIPE-ignoring producer that **stops writing** is terminated | 002: producer function `trap '' PIPE; echo a; sleep 8; echo b` (stderr to /dev/null); `first` returns in < 1 s, lastRc 143; whole test under `timeout 5` |
 | F6 | `$!` clobbered by a callback does not affect the captured pid | 002: callback runs `( : ) & wait $!`; lastRc still the producer's |
-| F7 | `-d ''` delivers NUL records | 003: `-0 -- find … -print0` count equals `-print` count on names with spaces/newlines |
+| F7 | `-d ''` delivers NUL records | 003: `-0 -- find … -print0` count equals a bare `mapfile -t -d ''` oracle over the same producer, and a name containing a newline round-trips byte-exact (the `-print` form OVER-counts such a name — that is what `-print0` exists for) |
 | F8 | `mapfile -t -u fd` fills from the fd, unterminated tail delivered | 003: `toArray` 10k records equals a bare `mapfile`; `-- printf 'a\nb'` → 2 elements on both bashes |
 | F9 | nested dispatch: `b.onLine` from inside a static member keeps `b`'s state, from top level and from inside another member | 001 |
 | F10 | last record without `\n` is delivered; a final empty record after `\n` is delivered | 001: `-- printf 'a\nb'` → 2; `-- printf 'a\n\n'` → 2 |
@@ -454,8 +456,15 @@ Runner: `tests/tests.sh` → ktests, as every unit.
   EOF with the buffer filled — hence the `|| [[ -n ]]` tail.
 - A `static proc` body must not end on `kk._return` — the thin dispatcher would print
   on the direct call; `tpipe._ret` only.
-- `${__tpi_line%$'\r'}` strips exactly one CR (verified `x\r\r` → `x\r`); do not use
-  `tr` (a fork per call and it would also eat embedded CRs).
+- **An inline `$'\r'` inside a MEMBER body is silently lost**: `build` re-creates every
+  member from `declare -f` through `eval`; `declare -f` prints the pattern as `'<raw CR>'`
+  and the re-parse drops the CR, so the rebuilt body strips nothing (measured on both
+  bashes; P0 shipped `-c` as a no-op this way, caught at P1). Plain helpers are not
+  affected. The CR therefore lives in a load-time `printf -v __TPIPE_CR '\r'` and the
+  bodies spell `${__tpi_line%"$__TPIPE_CR"}`; it strips exactly one CR (verified
+  `x\r\r` → `x\r`); do not use `tr` (a fork per call and it would also eat embedded
+  CRs). This is a kklass-wide trap for any member body carrying `$'…'` with a control
+  character.
 - `local __TPIPE_STOP=0 TPIPE_INDEX=0` at the top of every sink; the globals of the
   same names exist only so `set -u` never trips on a stray `TPipe.stop`.
 - kklass reserved names: `this __inst__ __class__ RESULT REPLY IFS state __kk_*`;

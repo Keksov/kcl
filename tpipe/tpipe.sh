@@ -49,6 +49,24 @@ declare -g __TPIPE_RC=-1
 # very first read aborts a `set -u` caller.
 declare -g TPIPE_INDEX=0
 
+# The `-c` strip pattern, as a VALUE — never as a literal `$'\r'` in a member
+# body.
+#
+# P1 finding, measured on 5.2.37 and 5.3.9: `build` extracts every member body
+# with `declare -f` and re-creates it with `eval`. `declare -f` prints
+# `${x%$'\r'}` as `${x%'<CR>'}` with a RAW carriage return inside the quotes, and
+# the re-parse of that text DROPS the CR — the rebuilt body reads `${x%''}`,
+# which strips nothing at all and is silent about it. So the pattern lives in a
+# variable, whose value survives because it is never re-parsed:
+#
+#     __tpi_line="${__tpi_line%"$__TPIPE_CR"}"
+#
+# The double quotes around the expansion keep it a LITERAL match, not a glob.
+# It strips EXACTLY one trailing CR (`x\r\r` -> `x\r`); `tr` would be a fork per
+# call and would also eat CRs inside the record.
+declare -g __TPIPE_CR
+printf -v __TPIPE_CR '\r'
+
 # ---------------------------------------------------------------------------
 # TPipe: run a producer and hand every record to a callback IN THIS SHELL.
 #
@@ -59,12 +77,18 @@ declare -g TPIPE_INDEX=0
 # callback keeps its state; the stdin form is allowed too, and refused with rc 2
 # when it would run in a subshell (decision D1).
 #
-#     TPipe.each  [-0] [-c] CB [-- CMD ARG...]   # cb RECORD per record
-#     TPipe.stop                                 # from inside a callback
-#     TPipe.lastRc                               # raw rc of the last `--` producer
+#     TPipe.each    [-0] [-c] CB   [-- CMD ARG...]  # cb RECORD per record
+#     TPipe.toArray [-0] [-c] NAME [-- CMD ARG...]  # REPLACE a caller array
+#     TPipe.toList  [-0] [-c] INST [-- CMD ARG...]  # INST.Add RECORD per record
+#     TPipe.first   [-0] [-c]      [-- CMD ARG...]  # RESULT = first record
+#     TPipe.count   [-0] [-c]      [-- CMD ARG...]  # RESULT = number of records
+#     TPipe.stop                                    # from inside a callback
+#     TPipe.lastRc                                  # raw rc of the last `--` producer
 #
 # `-0` = NUL-terminated records (find -print0), `-c` = strip ONE trailing CR.
-# Flags come first; after the callback the ONLY legal word is `--`.
+# Flags come first; after the sink's operand the ONLY legal word is `--`.
+# `first` and `count` take no operand, so for them the first non-flag word must
+# already be `--`.
 #
 # ---- Return contract (kcl/README.md §1.1) ---------------------------------
 # A DIRECT call prints NOTHING and leaves the value in RESULT; inside `$( )` the
@@ -74,10 +98,15 @@ declare -g TPIPE_INDEX=0
 # `static func` would echo on every call (the same measurement tpath, tfile and
 # tregex record in their headers).
 #
-# `each` answers RESULT = the number of records DELIVERED, rc 0 when the producer
-# exited 0 or the consumer stopped the stream, rc 1 (silent) when the producer
-# exited non-zero — and RESULT KEEPS the count in that case. That last part is a
-# named deviation from kcl/README.md §1.2, spelled out in README.md §4.
+# `each`, `toArray`, `toList` and `count` answer RESULT = the number of records
+# delivered / stored / offered / counted, rc 0 when the producer exited 0 or the
+# consumer stopped the stream, rc 1 (silent) when the producer exited non-zero —
+# and RESULT KEEPS the count in that case, with `toArray`'s array and `toList`'s
+# list holding everything read before the failure. That last part is a named
+# deviation from kcl/README.md §1.2, spelled out in README.md §4. `first` is the
+# odd one out: RESULT is the record itself, rc 0 when a record was read (the
+# producer's rc is irrelevant then — the consumer stopped it on purpose) and
+# rc 1 with RESULT='' when the producer had nothing.
 # A malformed CALL is rc 2 + RESULT='' and runs nothing at all.
 #
 # ---- Internal helpers ------------------------------------------------------
@@ -117,14 +146,6 @@ tpipe._ret() {
     return "${2:-0}"
 }
 
-# P0 placeholder for the four sinks that land at P1. rc 2 + one kk.debug line,
-# and RESULT is never touched, so a test can prove a member is still a stub.
-# $1 = member name.
-tpipe._pending() {
-    kk.debug "Error: TPipe.$1: not implemented yet (kcl/tpipe/PLAN.md P1)"
-    return 2
-}
-
 # Callback validator (the operand check of `each`). $1 = member, $2 = name.
 # `declare -F` is the same up-front check THashSet.onNotify uses (thashset.sh:638);
 # THashSet.ForEach (:409) answers rc 1 for this condition and is NOT the model —
@@ -140,6 +161,83 @@ tpipe._isFunc() {
     fi
     kk.debug "Error: TPipe.$1: '$2' is not a function"
     return 2
+}
+
+# List validator (the operand check of `toList`). $1 = member, $2 = instance.
+#
+# DUCK-TYPED on purpose: anything with an `.Add` wrapper qualifies — a
+# TStringList, a TList, a THashSet, a user class — and this unit sources none of
+# them. `.Add`'s own exit status is IGNORED by the sink (THashSet.Add answers 1
+# for a duplicate, TStringList.Add under `dupError` too), so the ONLY thing that
+# can be checked up front is that the member exists at all.
+#
+# `declare -F --` for the same reason as above.
+tpipe._isAddable() {
+    if declare -F -- "$2.Add" >/dev/null 2>&1; then
+        return 0
+    fi
+    kk.debug "Error: TPipe.$1: '$2' has no .Add member"
+    return 2
+}
+
+# Is the named variable one that `mapfile` cannot fill CORRECTLY? Three
+# attributes are refused up front (PLAN §2.4 toArray, F15):
+#
+#   A  an ASSOCIATIVE array — "mapfile: NAME: not an indexed array", rc 1;
+#   r  a READONLY variable of any shape — "NAME: readonly variable", rc 1;
+#   i  an INTEGER-attributed variable — this one is worse than a diagnostic:
+#      mapfile SUCCEEDS (rc 0, silent) and every record is evaluated
+#      arithmetically on the way in, so `declare -i v=0` + two records `abc`,
+#      `def` yields `declare -ai v=([0]="0" [1]="0")`. Records are DATA; a
+#      target that silently rewrites them is a malformed call, not a value the
+#      caller may legitimately try (measured on 5.2.37 and 5.3.9).
+#
+# The first two make bash print a diagnostic, which a kcl unit must never emit;
+# the third corrupts in silence. An existing SCALAR is fine: mapfile converts it
+# to an indexed array (measured on both bashes), as does an unset name and a
+# declared-but-never-assigned `declare -a`.
+#
+# `${ref@a}` aborts under `set -u` whenever the target has no value yet, and
+# `declare -a out=()` — the normal way to prepare a receiving array — is exactly
+# that shape; `local -` makes `$-` local to THIS function so the option can be
+# switched off without a fork and without leaking to the caller (the thashset
+# TSet._isAssoc shape, thashset.sh:242).
+#
+# rc 0 = unusable target, rc 1 = fine.
+tpipe._isBadTarget() {
+    local -
+    set +u
+    local -n __tpi_probe="$1" 2>/dev/null || return 0
+    case "${__tpi_probe@a}" in
+        *A*|*i*|*r*) return 0 ;;
+    esac
+    return 1
+}
+
+# Output-array validator (the operand check of `toArray`). $1 = member, $2 = name.
+#
+# The §1.7 rule first (identifier shape, the kklass reserved set, the
+# `__kk_`/`__KK_` space and this unit's own `__tpi_` / `__TPIPE_` locals — bash
+# scopes locals DYNAMICALLY, so a name equal to one of them would bind the
+# caller's array to our scratch), then the mapfile-can-fill-it check.
+#
+# `TPIPE_INDEX` is passed as a third reserved prefix even though PLAN §2.5 spells
+# the call as `kk._outName NAME __tpi_ __TPIPE_`: every sink shadows
+# `TPIPE_INDEX` with a `local` of its own frame (PLAN §6), so a nameref bound to
+# that name would fill the SINK's local and the caller would see nothing at all
+# while RESULT still reported the count — the silent-loss class `kk._outName`
+# exists to prevent (measured on both bashes). README.md §7 already lists the
+# name as reserved.
+tpipe._isOutArr() {
+    if ! kk._outName "$2" __tpi_ __TPIPE_ TPIPE_INDEX; then
+        kk.debug "Error: TPipe.$1: bad output array name '$2'"
+        return 2
+    fi
+    if tpipe._isBadTarget "$2"; then
+        kk.debug "Error: TPipe.$1: '$2' is an associative array, integer-attributed or readonly and cannot receive the records"
+        return 2
+    fi
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -166,7 +264,7 @@ tpipe._isFunc() {
 #   6. only now open
 # ---------------------------------------------------------------------------
 tpipe._open() {
-    local __tpi_m="$1" __tpi_v="$2"
+    local __tpi_m="$1" __tpi_v="$2" __tpi_lbl=''
     shift 2
 
     # 1. flags
@@ -230,8 +328,21 @@ tpipe._open() {
     #     shell. In a subshell (the RHS of a pipe without lastpipe, `$( )`,
     #     `( )`) every mutation the callback makes is lost, so refuse instead of
     #     losing state silently.
+    #
+    #     The suggested `--` form is spelled with THIS sink's operand label, so
+    #     the advice is copy-pasteable: `TPipe.toArray NAME -- CMD ...`, and
+    #     `TPipe.first -- CMD ...` for the two sinks that take no operand at all.
+    #     The label comes from the VALIDATOR, which is the one thing `_open`
+    #     already knows about the caller's surface. Everything else in the line
+    #     is pinned verbatim (PLAN §2.5).
     if (( BASH_SUBSHELL > 0 )); then
-        kk.debug "Error: TPipe.$__tpi_m: stdin form ran in a subshell (BASH_SUBSHELL=$BASH_SUBSHELL); use \`TPipe.$__tpi_m CB -- CMD ...\`, or \`shopt -s lastpipe\` at the top of a NON-interactive script (lastpipe is inert while job control is on)"
+        case "$__tpi_v" in
+            tpipe._isFunc)    __tpi_lbl=' CB' ;;
+            tpipe._isOutArr)  __tpi_lbl=' NAME' ;;
+            tpipe._isAddable) __tpi_lbl=' INST' ;;
+            *)                __tpi_lbl='' ;;
+        esac
+        kk.debug "Error: TPipe.$__tpi_m: stdin form ran in a subshell (BASH_SUBSHELL=$BASH_SUBSHELL); use \`TPipe.$__tpi_m$__tpi_lbl -- CMD ...\`, or \`shopt -s lastpipe\` at the top of a NON-interactive script (lastpipe is inert while job control is on)"
         return 2
     fi
     __tpi_fd=0
@@ -303,7 +414,7 @@ TPipe.each() {
         # Zero forks per record; the only fork per call is the producer.
         while IFS= read -r -d "$__tpi_d" -u "$__tpi_fd" __tpi_line || [[ -n "$__tpi_line" ]]; do
             if [[ -n "$__tpi_crlf" ]]; then
-                __tpi_line="${__tpi_line%$'\r'}"
+                __tpi_line="${__tpi_line%"$__TPIPE_CR"}"
             fi
             __tpi_n=$(( __tpi_n + 1 ))
             TPIPE_INDEX=$__tpi_n
@@ -324,19 +435,120 @@ TPipe.each() {
 }
 
 TPipe.toArray() {
-    tpipe._pending toArray
+    # The §6 frame invariant: every sink owns its stop slot and record ordinal.
+    # No callback runs in THIS frame (mapfile is a builtin), so nothing can set
+    # them — they are declared so that a nested sink started from a NEIGHBOURING
+    # frame can never see ours, and so that the reserved-name rule of
+    # tpipe._isOutArr is true by construction.
+    local __TPIPE_STOP=0 TPIPE_INDEX=0
+    local __tpi_d=$'\n' __tpi_crlf='' __tpi_op='' __tpi_fd='' __tpi_pid='' \
+          __tpi_rc=0 __tpi_i=0 __tpi_n=0
+    if tpipe._open toArray tpipe._isOutArr "$@"; then
+        # The nameref is bound only AFTER the name passed kk._outName AND the
+        # assoc/readonly check inside tpipe._open (PLAN §2.4): `local -n` on a
+        # bad name prints a bash diagnostic and still returns 0.
+        local -n __tpi_out="$__tpi_op"
+        # mapfile CLEARS the array first, so the caller's array is REPLACED, not
+        # appended to. The delimiter is passed as a VALUE for the same reason the
+        # reader loop does it (an expansion-built `-d ''` is split by the
+        # CALLER's IFS); `-d $'\n'` is identical to the default (measured).
+        # Zero per-record overhead: one builtin call for the whole stream.
+        mapfile -t -d "$__tpi_d" -u "$__tpi_fd" __tpi_out
+        __tpi_n=${#__tpi_out[@]}
+        # -c is one extra pass over the array: the strip takes EXACTLY one
+        # trailing CR (verified `x\r\r` -> `x\r`), and never forks. The pattern
+        # comes from __TPIPE_CR, not from an inline `$'\r'` — see the note at
+        # its declaration.
+        if [[ -n "$__tpi_crlf" ]]; then
+            for (( __tpi_i = 0; __tpi_i < __tpi_n; __tpi_i++ )); do
+                __tpi_out[__tpi_i]="${__tpi_out[__tpi_i]%"$__TPIPE_CR"}"
+            done
+        fi
+        tpipe._close 0
+        tpipe._ret "$__tpi_n" "$__tpi_rc"
+    else
+        tpipe._ret "" 2
+    fi
 }
 
 TPipe.toList() {
-    tpipe._pending toList
+    local __TPIPE_STOP=0 TPIPE_INDEX=0
+    local __tpi_d=$'\n' __tpi_crlf='' __tpi_op='' __tpi_fd='' __tpi_pid='' \
+          __tpi_rc=0 __tpi_add='' __tpi_line='' __tpi_n=0
+    if tpipe._open toList tpipe._isAddable "$@"; then
+        __tpi_add="$__tpi_op.Add"
+        # The `each` loop with `INST.Add` in the callback's place (PLAN §2.2).
+        while IFS= read -r -d "$__tpi_d" -u "$__tpi_fd" __tpi_line || [[ -n "$__tpi_line" ]]; do
+            if [[ -n "$__tpi_crlf" ]]; then
+                __tpi_line="${__tpi_line%"$__TPIPE_CR"}"
+            fi
+            __tpi_n=$(( __tpi_n + 1 ))
+            TPIPE_INDEX=$__tpi_n
+            # `.Add`'s exit status is IGNORED: THashSet.Add answers 1 for a
+            # duplicate and TStringList.Add under `dupError` does too, and
+            # neither is a stream error. RESULT therefore counts the records
+            # OFFERED, not the ones the list chose to keep. Without the `|| :`
+            # a rejecting Add would abort a `set -e` caller.
+            "$__tpi_add" "$__tpi_line" || :
+            if (( __TPIPE_STOP )); then
+                break
+            fi
+        done
+        tpipe._close "$__TPIPE_STOP"
+        tpipe._ret "$__tpi_n" "$__tpi_rc"
+    else
+        tpipe._ret "" 2
+    fi
 }
 
 TPipe.first() {
-    tpipe._pending first
+    local __TPIPE_STOP=0 TPIPE_INDEX=0
+    local __tpi_d=$'\n' __tpi_crlf='' __tpi_op='' __tpi_fd='' __tpi_pid='' \
+          __tpi_rc=0 __tpi_line='' __tpi_got=0
+    if tpipe._open first '' "$@"; then
+        # One record, then stop. `read`'s own rc is not the test: the `|| [[ -n ]]`
+        # tail is what delivers an unterminated last record, and a record that is
+        # legitimately EMPTY arrives with read rc 0 — which is exactly what
+        # separates "an empty record" (rc 0, RESULT='') from "no record at all"
+        # (rc 1, RESULT='').
+        if IFS= read -r -d "$__tpi_d" -u "$__tpi_fd" __tpi_line || [[ -n "$__tpi_line" ]]; then
+            __tpi_got=1
+        fi
+        if [[ -n "$__tpi_crlf" ]]; then
+            __tpi_line="${__tpi_line%"$__TPIPE_CR"}"
+        fi
+        # With a record in hand this is the CONSUMER-initiated stop path
+        # (close -> kill -TERM -> guarded wait, PLAN §2.3), so an infinite
+        # producer dies instead of blocking. With no record the producer already
+        # hit EOF, so the plain close/wait gives its real rc through lastRc.
+        tpipe._close "$__tpi_got"
+        if (( __tpi_got )); then
+            # rc 0 whatever the producer's rc turned out to be: WE ended it.
+            tpipe._ret "$__tpi_line" 0
+        else
+            tpipe._ret "" 1
+        fi
+    else
+        tpipe._ret "" 2
+    fi
 }
 
 TPipe.count() {
-    tpipe._pending count
+    local __TPIPE_STOP=0 TPIPE_INDEX=0
+    local __tpi_d=$'\n' __tpi_crlf='' __tpi_op='' __tpi_fd='' __tpi_pid='' \
+          __tpi_rc=0 __tpi_line='' __tpi_n=0
+    if tpipe._open count '' "$@"; then
+        # No callback, so nothing can request a stop and nothing reads the record
+        # but the counter. `-c` is accepted for surface symmetry and is a no-op
+        # here: stripping a CR cannot change how many records there are.
+        while IFS= read -r -d "$__tpi_d" -u "$__tpi_fd" __tpi_line || [[ -n "$__tpi_line" ]]; do
+            __tpi_n=$(( __tpi_n + 1 ))
+        done
+        tpipe._close 0
+        tpipe._ret "$__tpi_n" "$__tpi_rc"
+    else
+        tpipe._ret "" 2
+    fi
 }
 
 TPipe.stop() {
