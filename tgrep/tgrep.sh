@@ -276,9 +276,18 @@ TGrep.buildArgv() {
     # idempotent: turning `filesOnly` back off takes the `-0` off again, while a
     # `nul = 1` the CALLER set (for `-z`, or for a shape this wrapper does not
     # model) is never touched. buildArgv mutates no other state.
+    #
+    # The inner guard is P3-F1: claiming ownership whenever the CONDITION held —
+    # even when `nul` was already 1 because the caller set it — made the undo one
+    # condition too coarse, and a later build that stopped deriving cleared the
+    # caller's own `nul`. We claim it only when we really set it, so the three
+    # states stay distinct: derived (ours, undo it), caller-set (never touch),
+    # and off.
     if [[ "$nullOut" == 1 ]] && [[ "$filesOnly" == 1 || "$filesWithoutMatch" == 1 ]]; then
-        nul=1
-        _nulDerived=1
+        if [[ "$nul" != 1 ]]; then
+            nul=1
+            _nulDerived=1
+        fi
     elif [[ "$_nulDerived" == 1 ]]; then
         nul=0
         _nulDerived=0

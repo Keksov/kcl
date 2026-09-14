@@ -1,6 +1,14 @@
 # TUtil — CLI-tool wrapper base, and TGrep, the first wrapper (kcl/tutil, kcl/tgrep)
 
-**Status: PLANNED, critic-hardened (2026-09-10). No code yet.** Owner accepted the
+**Status: COMPLETE (P0–P3), 2026-09-11.** Both units shipped:
+`kcl/tutil` (`TUtil`, **172/172** on bash 5.2.37 and on 5.3.9) and `kcl/tgrep`
+(`TGrep : TUtil`, **184/184** on both), threaded and under `--mode single`; both
+benches rc 0 under `bash -eu` with every gate PASS. One code fix landed in the
+closeout, **P3-F1** — see the P3 note in §5. Phase history and every
+measured number: `tutil_ledger.json`; the design record and the `TProcess`
+comparison: `tutil/docs/TUtil.md`.
+
+Originally **PLANNED, critic-hardened (2026-09-10)**: owner accepted the
 design and the defaults D1–D5 in `kcl/tpipe/PLAN.md` §2.0. A critic pass (§8)
 found 5 blockers and 10 majors in the first draft; every one is folded into the
 sections below, so the worker reads the sections, not §8.
@@ -394,6 +402,58 @@ red there; the count goes in the ledger. Later phases stash the unit file.
   table, the binary-file note), `docs/TUtil.md` (TProcess comparison),
   `TEST_COVERAGE_NOTES.md` for both units, kcl README §2 rows for tutil and tgrep
   naming both deviations, ledger COMPLETE with SHAs.
+
+**DONE 2026-09-11.** `tutil/bench.sh`, `tutil/tests/004_Bench.sh` (8 cases),
+`tutil/docs/TUtil.md`, `tutil/TEST_COVERAGE_NOTES.md`, `tgrep/bench.sh`,
+`tgrep/tests/007_Bench.sh` (9 cases), `tgrep/TEST_COVERAGE_NOTES.md`, both
+READMEs rewritten, two kcl `README.md` §2 rows (Eighteen → Twenty).
+`tutil.sh` and tests 001–003, 005, 006 unchanged; `tgrep.sh` and
+`tgrep/tests/004_Argv.sh` changed only for the P3-F1 fix below.
+Suites: **tutil 172/172, tgrep 184/184** on bash 5.2.37 and on 5.3.9, threaded,
+and again under `--mode single`. Both benches rc 0 under `bash -eu` on both
+bashes. Measured with the runner idle (5.2.37 / 5.3.9):
+
+| gate / number | 5.2.37 | 5.3.9 |
+|---|---|---|
+| **P3.1 gate** `u.each` vs `TPipe.each` DIRECT on the same argv (≤ 1.1×) | 2030 ms vs 2078 ms — **0.97×** | 2089 ms vs 2072 ms — **1.00×** |
+| `u.toArray` vs `TPipe.toArray` direct (published) | 1873 ms vs 1782 ms — 1.05× | 1798 ms vs 1874 ms — 0.95× |
+| `u.each` + an instance-member callback (published) | 4428 ms — 2.18× | 4290 ms — 2.05× |
+| `buildArgv` / `argv NAME`, base class | 266.8 / 779.2 µs | 295.9 / 793.0 µs |
+| `u.run` on `true` (per CALL, not per record) | 1026.4 µs | 1123.4 µs |
+| **P3.1 gate** `TGrep.search` vs a bare `grep -r`, 10 000-line corpus (≤ 1.3×) | 33.77 ms vs 28.65 ms — **1.17×** | 33.30 ms vs 26.97 ms — **1.23×** |
+| `TGrep.new` + `.delete` — *the search delta* | 2547.8 µs | 2410.4 µs |
+| `g.count` vs `grep -c` / `countOnly` + `toArray` vs `grep -c` (published) | 1.47× / 1.09× | 1.50× / 1.10× |
+| `buildArgv` / `argv NAME`, 22 typed options | 895.5 / 1508.2 µs | 909.6 / 1637.0 µs |
+| forks per record (tutil) / per call (tgrep) | 0 / 1 (grep) | 0 / 1 |
+
+Three worker notes, all recorded in the ledger:
+
+* **P3-F1 — found while writing `docs/TUtil.md`, FIXED in the same phase.**
+  §2.7's `_nulDerived` was claimed whenever the derivation *condition* held, even
+  when `nul` was already `1` because the caller set it — so the next build that
+  stopped deriving cleared the caller's own `nul`. The bookkeeping has to tell
+  three states apart (derived = ours, undo it; caller-set = never touch; off) and
+  was only telling two. The fix is one guard inside the deriving branch of
+  `TGrep.buildArgv` — `if [[ "$nul" != 1 ]]; then nul=1; _nulDerived=1; fi` —
+  with the un-derive branch unchanged. Red-first: the new case in
+  `tgrep/tests/004_Argv.sh` §G failed **1 of 184** against the unguarded code;
+  green 184/184 after. The §2.7 claim "a caller-set `nul` is never touched" is
+  now true. `tgrep.sh` and `tgrep/tests/004_Argv.sh` are the only sources this
+  phase touched, on the reviewer's instruction after the first P3 report.
+* **Medians, not means, for the tgrep bench.** Each number there is one process
+  start plus a scan, and one start in twenty takes ~200 ms on this box: timing
+  the two shapes in separate blocks made the search ratio read 1.07×, 1.19×,
+  1.23×, 1.46× and 1.51× across consecutive runs of identical code. The shapes
+  are now interleaved one per iteration and the published ratio is the median.
+* **Warm every measured shape.** The first sink call in a process pays a one-off
+  bind cost; without warming, whichever shape ran first was penalised and
+  tutil's `each` ratio read 1.13× instead of ~1.00×.
+
+The gates in the two `*_Bench.sh` files are set at **5×** (tutil) and **10×**
+(tgrep) rather than at the measured values, because ktests runs test files
+threaded with 8 workers: tutil's two cases have been seen at 0.94× and 1.87×
+under that load, and tgrep's search case at 4.18× on one run and 1.16× on the
+next. Each file's header records those numbers.
 
 ---
 

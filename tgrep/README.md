@@ -1,13 +1,24 @@
 # tgrep — `TGrep`, the GNU grep wrapper
 
-> **Status: P2 landed.** `TGrep : TUtil` is complete — the typed option set, the
-> pinned argv, the rc 2 list, the `mapRc` override, `paths`, the destructor and
-> the static `search`. Suite: `tests/004_Argv.sh`, `tests/005_Search.sh`,
-> `tests/006_Contract.sh` — **174 checks green on bash 5.2.37 and on bash
-> 5.3.9**, threaded and under `--mode single`, against **GNU grep 3.0**. Still to
-> come: the bench/doc closeout (P3). Design record and phase history:
+> **Status: COMPLETE (P2 + P3).** `TGrep : TUtil` is the whole unit — the typed
+> option set, the pinned argv, the rc 2 list, the `mapRc` override, `paths`, the
+> destructor, the static `search`, the bench and the docs. Suite:
+> `tests/004_Argv.sh`, `tests/005_Search.sh`, `tests/006_Contract.sh`,
+> `tests/007_Bench.sh` — **184 checks green on bash 5.2.37 and 184 on bash
+> 5.3.9**, threaded and under `--mode single`, against **GNU grep 3.0**.
+> What the tests pin, case by case:
+> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. The design record, the
+> `TProcess` comparison and every measurement the family rests on:
+> **[../tutil/docs/TUtil.md](../tutil/docs/TUtil.md)**. Phase history:
 > [../tutil/PLAN.md](../tutil/PLAN.md) /
 > [../tutil/tutil_ledger.json](../tutil/tutil_ledger.json).
+>
+> **`P3-F1`, found and fixed at P3:** the §4 `-0` derivation used to clear a
+> `nul = 1` the **caller** set, if the same instance also went through a `-Z` +
+> `-l/-L` build and back again. Found while writing these docs, fixed in the
+> same phase with a one-line guard, and pinned by `tests/004_Argv.sh` §G — the
+> sequence and the measurement are in §4 and in
+> [../tutil/docs/TUtil.md §3.8](../tutil/docs/TUtil.md#38-27--the--0-derivation-and-the-shape-it-used-to-get-wrong).
 
 `TGrep` is the first wrapper built on [`TUtil`](../tutil/README.md): typed
 properties instead of a hand-built command string, one rc convention, and the
@@ -229,13 +240,42 @@ g.toArray files      # names with a space — or a NEWLINE — arrive intact
 
 The derivation is **idempotent**: turning `filesOnly` back off takes the `-0`
 back off, because `buildArgv` remembers that it was the one who set it (the
-private `_nulDerived` bookkeeping var). A `nul = 1` that the **caller** set — for
-`-z`, or for a shape this wrapper does not model — is never touched:
+private `_nulDerived` var). A `nul = 1` the **caller** set — for `-z`, or for a
+shape this wrapper does not model — is never touched, in any order:
 
 ```bash
 g.nullData = 1       # -z: NUL-terminated input AND output
 g.nul      = 1       # the caller's own framing decision, kept
 ```
+
+### `P3-F1` — three states, not two
+
+The bookkeeping has to tell **derived** (ours, undo it) from **caller-set**
+(never touch) from **off**, and the first version of it claimed ownership
+whenever the derivation *condition* held — even when `nul` was already `1`
+because the caller had set it. A later build that stopped deriving then took the
+caller's own `nul` down with it:
+
+```bash
+TGrep.new g needle .
+g.nul = 1                     # the caller's decision
+g.nullOut = 1; g.filesOnly = 1
+g.buildArgv                   # was: nul=1 _nulDerived=1  <- claimed, but it was already 1
+g.filesOnly = 0
+g.buildArgv                   # was: nul=0                <- the caller's 1 was gone
+```
+
+Found at P3 while writing these docs, measured identically on both bashes
+([../tutil/docs/TUtil.md §3.8](../tutil/docs/TUtil.md#38-27--the--0-derivation-and-the-shape-it-used-to-get-wrong)),
+and **fixed in the same phase** with one guard — claim ownership only when the
+derivation really changes the value:
+
+```bash
+if [[ "$nul" != 1 ]]; then nul=1; _nulDerived=1; fi
+```
+
+The sequence now reads `nul=1 _nulDerived=0` throughout, and it is pinned by
+`tests/004_Argv.sh` §G alongside the six ordinary shapes.
 
 `buildArgv` mutates no other state.
 
@@ -358,22 +398,109 @@ rule:
   method wrapper is generated after the property wrapper and wins silently, so
   `obj.count = 5` would be accepted and discarded.
 
-And one more that is specific to a body like `buildArgv`: an internal call to
-another member is `kk.call_silent "$__inst__" NAME …`, never `$this.NAME` —
-`$this.NAME` does not set the silent flag, so the callee's `kk._return` would
-*print* whenever the outer member runs under `$( )`, `|` or `<( )`.
+And three more that are specific to a body like `buildArgv`:
+
+* an internal call to another member is `kk.call_silent "$__inst__" NAME …`,
+  never `$this.NAME` — `$this.NAME` does not set the silent flag, so the callee's
+  `kk._return` would *print* whenever the outer member runs under `$( )`, `|` or
+  `<( )` ([../tutil/docs/TUtil.md §3.1](../tutil/docs/TUtil.md#31-c1--thisfunc-prints-under--));
+* a boolean is `[[ "$x" == 1 ]]`, never `(( x ))`, and an integer option goes
+  through `kk.isInt` with the normalised value read back from `$__KK_INT` and
+  `>= 0` checked separately — `kk.isInt` accepts a negative and grep 3.0 reads
+  `-m -1` as *no limit* in silence;
+* `${inst}_argv` is rebuilt through a nameref (`local -n a=…; a=()`), never with
+  `unset "${inst}_argv[…]"` in double quotes, and no member body may carry an
+  inline `$'\r'` — `build` re-creates every body from `declare -f` through
+  `eval` and a literal control character does not survive that round trip.
+
+The full list, one repro per rule, is
+[`TUtil` `README.md` §5](../tutil/README.md#5-writing-a-descendant). Two of them
+bite **tests** rather than bodies and matter here: a test file installs no
+`trap … EXIT` of its own (it would replace ktests'), and a raw CR is dropped from
+a **word of an array compound assignment** on this platform —
+`A=( $'cr\r' )` has length 2, so a CR-bearing expected value is built with
+`printf -v CR '\r'; A=( "cr$CR" )` and copied with a plain `C=( "${A[@]}" )`,
+never `declare -a C=( … )`. `tests/005_Search.sh` §I does exactly that for the
+CRLF cases.
 
 ---
 
-## 9. Tests
+## 9. Performance
+
+`bash kcl/tgrep/bench.sh [NL] [NR] [ND]` — a generated corpus of NL = 10 000
+lines in `tree/big.txt` (every 100th carrying the needle) plus `tree/sub/small.txt`,
+NR = 20 interleaved runs per shape, ND = 300 per-call measurements, timed with
+`TStopwatch.getTimeStamp`. Measured **2026-09-11** on Windows 11 / MSYS2 with the
+threaded test runner idle, against **GNU grep 3.0**:
+
+| Measurement | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `buildArgv` — the override, 22 typed options | 895.5 µs/call | 909.6 µs/call |
+| `argv NAME` (build + validate + copy, 11 words) | 1508.2 µs/call | 1637.0 µs/call |
+| **baseline** — bare `grep -r -e needle -- TREE` (median of 20) | 28.65 ms | 26.97 ms |
+| `TGrep.search needle TREE` (median of 20) | 33.77 ms — **1.17×** | 33.30 ms — **1.23×** |
+| `TGrep.new` + `.delete` — *the search delta* | 2547.8 µs/call | 2410.4 µs/call |
+| **baseline** — bare `grep -c -r` (median of 20) | 27.91 ms | 26.81 ms |
+| `g.count`, 101 records read into bash | 41.05 ms — **1.47×** | 40.41 ms — **1.50×** |
+| `g.countOnly = 1; g.toArray` — 2 records | 30.70 ms — **1.09×** | 29.60 ms — **1.10×** |
+| `g.count`, **dense** — 10 002 records | 1534.84 ms — **54.97×** | 1525.05 ms — **56.87×** |
+| forks per call | **1** (grep itself) | **1** |
+
+Reading the table:
+
+- **The gate is the `TGrep.search` row** (PLAN §5 P3.1): at most **1.3×** a bare
+  `grep -r` over the same tree. It passes on both bashes. The delta is one
+  throw-away instance construction (~2.5 ms, measured on its own line) plus four
+  kklass dispatches — a fixed few milliseconds against a process start and a
+  scan, and it does not grow with the corpus.
+- **Medians, not means.** Every number here is one process start plus a scan, and
+  on this platform a process start occasionally takes 200 ms for reasons outside
+  this repo. Timed in separate blocks, the search ratio read 1.07×, 1.23× and
+  1.51× on three consecutive runs of the same code; interleaving the two shapes
+  and taking medians pinned it at 1.20 ± 0.03×. `bench.sh` prints the mean next
+  to each median — a gap between them *is* the box telling you it was not idle.
+- **`argv` runs nothing** and forks nothing: section (a) of the bench points
+  `cmd` at a function that counts its own invocations and builds 300 times — the
+  counter stays at 0.
+- **The `count` sink is not `grep -c`, and the dense row is why.** The sink reads
+  every matching line into bash at ~150 µs a record; `grep -c` counts inside grep
+  and prints one line per file. On a sparse pattern the difference is 13 ms; on a
+  pattern that matches every line it is 55×. When the answer you want is the
+  *number*, let grep compute it:
+
+  ```bash
+  g.countOnly = 1          # -c: one record per FILE, holding grep's own count
+  g.toArray counts         # ('big.txt:10000' 'sub/small.txt:2')
+  ```
+
+- **Small corpora.** The 1.3× gate is calibrated for NL = 10 000. Shrink the
+  corpus (`bench.sh 200`) and the wrapper's fixed few milliseconds become a
+  visible fraction of the whole — that is not a regression, re-run at the default.
+- `tests/007_Bench.sh` asserts the same shapes with a ceiling of **10×**: under
+  the threaded runner the two sides do not inflate together (grep is its own
+  process and roughly doubles; the wrapper's share is bash work in the contended
+  shell and has been seen to grow tenfold), and a first threaded run measured
+  4.18× where the next measured 1.16×.
+
+---
+
+## 10. Tests
 
 ```bash
 bash kcl/tgrep/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tgrep/tests/tests.sh
 ```
 
+**184 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+mode and under `--mode single`, against GNU grep 3.0. Case-by-case:
+[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). The behavioural files all open
+with the **GNU banner gate**: this box carries a non-GNU `grep` (Embarcadero)
+that can win the PATH race, and D4 pins the *dialect*, so without the banner
+every behavioural case is a loud SKIP and the case count is unchanged.
+
 | File | Cases | What it pins |
 |---|---|---|
-| `004_Argv.sh` | 73 | **grep is never executed.** The lifecycle (all 23 declared vars present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions |
+| `004_Argv.sh` | 74 | **grep is never executed.** The lifecycle (all 23 declared vars present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions, including P3-F1 (a deriving build never CLAIMS a `nul` the caller already set) |
 | `005_Search.sh` | 53 | The GNU banner gate first, then a fixture tree (names with a space, a newline and a leading `-`, UTF-8, CRLF, a NUL-bearing file, a subdir, and **real** NTFS symlinks through `kt_make_symlink`) with the bare tool as the oracle: G5 no match on all five runners; G6 the `-E` dialect and the literal `(` without it; G7 the `-Z` framing in both directions; G8 a directory operand without `recursive`, `search` implying `-r`, and `search` refusing zero paths or an empty pattern; G9 the three forms; G10 the partial-failure deviation; G11 a nested `search` from inside a callback, in both shapes; G12 `-r` versus a real directory symlink (and `-R` as the counter-oracle); the CRLF table of §5; every remaining typed option against bare grep; and the binary-file record with its two escape hatches |
 | `006_Contract.sh` | 48 | `bash -n`, the open-quote and inline-`$'\r'` greps, no `$this.` call, `parent.constructor` in the constructor and `inherited` in the destructor, no `var` shadowing an inherited member; every shape from a child script under `set -eu` (an instance, both `TPipe` forms, `search` as a producer, a hit, no match, a grep error, a partial failure, a refused build, a refused `search`, the stdin form, `run` streaming, `delete`); and the debug switch — exactly one line on each of the 9 rc 2 paths and the 3 grep-error paths, **none** on any rc 0 or no-match path, with complete silence from us when the switch is off while grep's own lines pass through |
+| `007_Bench.sh` | 9 | The PLAN §5 P3.1 gates as assertions, behind the same banner gate and with a 10× ceiling: `TGrep.search` against a bare `grep -r` over a 2000-line corpus (interleaved, medians, both sides asserted to find the same 21 hits), `TGrep.new` + `.delete` under 50 ms, `g.count` and the `countOnly` shortcut against `grep -c` (with grep's own per-file numbers compared as a set); that 200 `buildArgv` + `argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback and `.Add` run in this process, and the seven builder members plus `run` and `search` leave `$BASHPID` untouched |

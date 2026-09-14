@@ -664,6 +664,27 @@ else
     kt_test_fail "nul='$(gZ.nul)'"
 fi
 
+# P3-F1. The undo used to be one condition too coarse: `_nulDerived` was claimed
+# whenever the derivation CONDITION held, even when `nul` was already 1 because
+# the CALLER set it — so the next build that stopped deriving took the caller's
+# own `nul` down to 0 with it. The guard is "claim it only if we really set it",
+# and this case is the sequence that needs all three steps.
+kt_test_start "§2.7 (P3-F1): a deriving build does not CLAIM a \`nul = 1\` the caller already set"
+reset gZ pat f
+gZ.nul = 1                      # the caller's own framing decision
+gZ.nullOut   = 1
+gZ.filesOnly = 1
+gZ.argv GOT >/dev/null          # derives: the condition holds, but nul was already 1
+mid="$(gZ.nul)" middrv="$(gZ._nulDerived)"
+gZ.filesOnly = 0
+gZ.argv GOT >/dev/null          # stops deriving: must NOT clear the caller's nul
+end="$(gZ.nul)" enddrv="$(gZ._nulDerived)"
+if [[ "$mid" == "1" && "$middrv" == "0" && "$end" == "1" && "$enddrv" == "0" ]]; then
+    kt_test_pass "nul stays the caller's 1 through -lZ and back; _nulDerived never claimed it"
+else
+    kt_test_fail "after -lZ: nul='$mid' _nulDerived='$middrv'; after filesOnly=0: nul='$end' _nulDerived='$enddrv'"
+fi
+
 kt_test_start "§2.7: \`crlf\` is never touched by buildArgv"
 reset gZ pat f
 gZ.crlf = 1
