@@ -1,9 +1,10 @@
 # tutil — test coverage notes
 
-**Status: FINALIZED at P3 (2026-09-11).** Suite `001`–`004` = **172 cases**,
+**Status: updated at P4 (D6 final, `subshellOk`, 2026-09-15); previously
+FINALIZED at P3 (2026-09-11).** Suite `001`–`004` = **184 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single`. The per-file row counts below sum to
-172 — 61 + 56 + 47 + 8 — and **every case in the suite has a row**.
+184 — 61 + 64 + 51 + 8 — and **every case in the suite has a row**.
 
 **Protocol.** `TUtil` has **no upstream to port**: it is a kcl addition in the
 spirit of FPC `fcl-process` `TProcess` (decision D3), so there is no Pascal seed
@@ -64,12 +65,12 @@ behaviour of this unit):
 |---|---|---|---|---|
 | 001.parse | — | the unit source parses (`bash -n`) | contract | §4 — two earlier sweeps corrupted sources while tests stayed green |
 | 001.openquote | — | no single-quoted `printf` format is left open at end of line | contract | §4 |
-| 001.data-defaults | Create | right after `new`, `${inst}_data` lists `cmd`/`crlf`/`nul`/`_lastRc` with the documented defaults | contract | **U3**, **C3** |
+| 001.data-defaults | Create | right after `new`, `${inst}_data` lists `cmd`/`crlf`/`nul`/`_lastRc`/**`subshellOk`** with the documented defaults (`subshellOk` = `0`) | contract | **U3**, **C3**, **D6 final Q9** |
 | 001.arrays-created | Create | `${inst}_args` and `${inst}_argv` exist as EMPTY indexed arrays right after `new` | contract | **U3**, §2.1 |
 | 001.lastrc-initial | lastRc | `lastRc` is `-1` until something ran | contract | §2.1 — `RESULT=-1` has corpus precedent (tarray, tlist) |
 | 001.delete-frees | Destroy | after `delete` neither `${inst}_args` nor `${inst}_argv` nor `${inst}_data` exists | contract | **U3**, §1.9 |
 | 001.reuse-clean | Create | a SECOND instance reusing the name starts empty — no storage left over | boundary | **C3** — `.new` over a live instance does not clear `_data` |
-| 001.setu-vars | Create | every declared var is readable under `set -u` right after `new` | bash-convention | **C3** — unbound on 5.3.9, silently empty on 5.2.37 ([docs §3.3](docs/TUtil.md#33-c3--an-unassigned-var-is-unbound-under-set--u--and-the-two-bashes-disagree)) |
+| 001.setu-vars | Create | every declared var — `subshellOk` included — is readable under `set -u` right after `new` | bash-convention | **C3** — unbound on 5.3.9, silently empty on 5.2.37 ([docs §3.3](docs/TUtil.md#33-c3--an-unassigned-var-is-unbound-under-set--u--and-the-two-bashes-disagree)) |
 | 001.ctor-verbatim | Create | constructor arguments reach `Create` verbatim, `--format=%H` included | representation | **U2**, §1.2 |
 | 001.buildargv-base | buildArgv | fills `${inst}_argv` with `cmd` + args; RESULT = the count | contract | **U2** |
 | 001.buildargv-rebuild | buildArgv | calling it twice does not accumulate | boundary | §2.2 |
@@ -122,9 +123,9 @@ behaviour of this unit):
 | 001.eu-badcall | argv | a malformed CALL (bad out-name) does not abort a `set -eu` caller | contract | §1.2 |
 | 001.stub-gone | all | no member answers the `__TUTIL_PENDING__` sentinel any more | contract | **C23**, §5 P1.1 |
 | 001.stub-source | — | the string `__TUTIL_PENDING__` is not in the unit source at all | contract | **C23** |
-| 001.members-real | all | every declared member exists as a real body — none is a bare rc 2 stub | contract | §1.2 |
+| 001.members-real | all | all **17** declared members exist as real bodies — none is a bare rc 2 stub | contract | §1.2 |
 
-## 002_Sinks.sh — the five sinks through TPipe (P1) — 56 cases
+## 002_Sinks.sh — the five sinks through TPipe (P1, §B extended at P4) — 64 cases
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
@@ -142,6 +143,14 @@ behaviour of this unit):
 | 002.each-cmdsubst | each | `each` under `$( )` carries ONLY what the callback printed | contract | **P1-F1** — a `>/dev/null` "fix" would have eaten this |
 | 002.each-pipe | each | `each` on the LHS of a pipe carries ONLY what the callback printed | contract | **P1-F1** |
 | 002.tolist-printing | toList | a PRINTING `.Add` still reaches stdout, and the count prints once | contract | **P1-F1** |
+| 002.warn-toarray | toArray | `$(u.toArray NAME)` warns ONCE, with the **TPipe** line verbatim (`MEMBER` = `TPipe.toArray`, the `$( )` template — a sink always delegates in the `--` form) | contract | **D6 final Q2**, tutil PLAN P4.2 |
+| 002.warn-tolist | toList | `$(u.toList INST)` warns ONCE too, naming the instance's `.Add` | contract | **D6 final Q2** |
+| 002.sink-subshellok | toArray, toList | `subshellOk = 1` silences every sink of that instance; `RESULT` unchanged | contract | **D6 final Q9** |
+| 002.sink-subshellok-percall | toArray | set back to `0`, the very next call warns again — the property is read per call, not latched | boundary | **D6 final Q9** |
+| 002.sink-kkvar | toArray | `KK_SUBSHELL_OK=1 u.toArray …` silences it **through two frames of wrapper**, with no TUtil code at all | contract | **D6 final Q3/Q4** |
+| 002.sink-quiet | toArray | `VERBOSE_KKLASS=quiet` silences it | contract | **D6 final Q6** |
+| 002.sink-count-first-silent | count, first | `$(u.count)` and `$(u.first)` never warn — `RESULT` is the answer and the caller reads it | contract | **D6 final Q2** |
+| 002.sink-warn-kind | each | `$(u.each r.onLine)` warns with the verbatim line, `$(u.each fn)` does not — the callback-kind rule survives the wrapper | contract | **D6 final Q2** |
 | 002.u8-mapped-rc | all four | rc = the MAPPED rc, under `$( )` as well as direct (producer exits 3) | contract | **U8**, **C5** |
 | 002.argv-handover | argv | `argv` hands over exactly what the sinks will run | cross-check | §2.2 — the premise of every comparison below |
 | 002.xc-toarray | toArray | `toArray` == `TPipe.toArray` on the exotic producer, byte-exact, 9 records | cross-check | §2.3 |
@@ -185,7 +194,7 @@ behaviour of this unit):
 | 002.three-forms | run, each | `u.run \| TPipe.each cb` under `lastpipe` == the `--` form == `u.each cb` | cross-check | §3 — the three forms |
 | 002.producer-in-pipe | run | the wrapper as a producer inside a pipeline: `u.run \| wc -l` is the tool's stream only | contract | §1.1 deviation |
 
-## 003_Contract.sh — the kcl contract for the sinks (P1) — 47 cases
+## 003_Contract.sh — the kcl contract for the sinks (P1, §3 extended at P4) — 51 cases
 
 Section 1 runs each case in a CHILD script under `set -eu` with the unit freshly
 sourced, so an abort fails the case instead of the file; the child must end rc 0,
@@ -239,7 +248,11 @@ print exactly `OK`, and write **nothing** to stderr.
 | 003.silent-tolist-1 | toList | a plain rc 1 says NOTHING | contract | §2.4 |
 | 003.silent-count-1 | count | a plain rc 1 says NOTHING | contract | §2.4 |
 | 003.dbg-names-member | all five | the `127` line names the MEMBER that was called, not just `run` | contract | **C15** — the diagnostic must send the reader to the right place |
-| 003.d6-warn | toArray | the `--` form under `$( )` warns ONCE under the switch and is silent without it | contract | **D6** |
+| 003.d6-count-first-silent | count, first | `$(u.count)` and `$(u.first)` **never** warn, switch on or off — this row replaced the P1 one, which asserted the opposite for `count` | contract | **D6 final Q2** |
+| 003.d6-warn-switch-off | toArray | `$(u.toArray NAME)` warns ONCE with the debug switch **off**, the line verbatim | contract | **D6 final Q6** |
+| 003.d6-warn-debug-same | toArray | the SAME single line under `VERBOSE_KKLASS=debug` — no second copy | contract | **D6 final Q5/Q6** |
+| 003.d6-silencers | toArray | `subshellOk = 1`, `KK_SUBSHELL_OK=1` and `VERBOSE_KKLASS=quiet` each silence it, `RESULT` unchanged in all three | contract | **D6 final Q3/Q6/Q9** |
+| 003.d6-direct-silent | toArray | a DIRECT sink call (`BASH_SUBSHELL` 0) warns about nothing | contract | **D6 final Q2** |
 
 ## 004_Bench.sh — the P3.1 performance gates (P3) — 8 cases
 

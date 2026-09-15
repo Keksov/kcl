@@ -11,7 +11,11 @@
 #   A  U1   `each` delivers every record in THIS shell; a plain function and an
 #           instance member both keep their state
 #   B  U8   the four `func` sinks answer RESULT = count / record AND rc =
-#           mapped, on a DIRECT call and under `$( )`
+#           mapped, on a DIRECT call and under `$( )`; and (D6 final, tutil PLAN
+#           P4.2) the TPipe subshell warning as it reaches a caller THROUGH a
+#           wrapper — `toArray`/`toList`/`each r.onLine` warn once, `count`/
+#           `first`/`each fn` never, and `subshellOk = 1`, `KK_SUBSHELL_OK=1`
+#           and `VERBOSE_KKLASS=quiet` each silence it
 #   C       each sink == `TPipe.<sink>` with the same argv, byte-exact on a
 #           producer emitting `-n`, a space, a backslash, a bare CR, UTF-8 and
 #           an unterminated tail
@@ -136,6 +140,10 @@ ERRF="$TMP/sink.err"
 # producers ------------------------------------------------------------------
 p2()      { printf '%s\n' a b; }
 p4()      { printf '%s\n' a b c d; }
+# p4 with its OWN stderr discarded: `first` always takes the close-kill-wait
+# path, where a producer routinely reports a broken pipe, so a case that ASSERTS
+# on stderr (the D6 warning cases in §B) must not see the producer's noise.
+p4q()     { { printf '%s\n' a b c d; } 2>/dev/null; }
 pfail3()  { printf '%s\n' a b; return 3; }
 pnul()    { printf 'a b\0c\0'; }
 pcr()     { printf 'x\r\ny\r\n'; }
@@ -327,17 +335,135 @@ fi
 
 kt_test_start "U8: under \`\$( )\` each func sink prints its value EXACTLY ONCE"
 declare -a BS=()
-o_arr="$(uB.toArray BS)"; ra=$?
+o_arr="$(uB.toArray BS 2>/dev/null)"; ra=$?
 o_cnt="$(uB.count)"; rn=$?
 o_fst="$(uB.first 2>/dev/null)"; rf=$?
 TCollector.new LS
-o_lst="$(uB.toList LS)"; rl=$?
+o_lst="$(uB.toList LS 2>/dev/null)"; rl=$?
 LS.delete
 if [[ "$o_arr" == "4" && "$o_cnt" == "4" && "$o_fst" == "a" && "$o_lst" == "4" \
    && $ra -eq 0 && $rn -eq 0 && $rf -eq 0 && $rl -eq 0 ]]; then
     kt_test_pass "no doubled value: TPipe's own subshell echo is discarded"
 else
     kt_test_fail "toArray='$o_arr'($ra) count='$o_cnt'($rn) first='$o_fst'($rf) toList='$o_lst'($rl)"
+fi
+
+# --- D6 final (tutil PLAN P4.2): the subshell warning through a wrapper -----
+# A sink always delegates in TPipe's `--` form, so the template is the `$( )`
+# one and MEMBER is the TPipe member the sink delegated to — `TPipe.toArray`,
+# not `TUtil.toArray`. The line is rebuilt here from its parts, so the assertion
+# pins the text rather than comparing the unit with itself.
+w_cmd() {   # $1 = TPipe member, $2 = WHAT
+    printf '%s' "Warning: TPipe.$1: $2 inside a subshell (BASH_SUBSHELL=1) — the calling shell will not see it; move the call out of \$( ) / ( ); if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1"
+}
+
+SUBERR="$TMP/sub.err"
+
+# sub_err COMMAND... — run it inside `$( )`; SUB_OUT = stdout, SUB_RC = rc,
+# ERRL/ERRN = the stderr lines.
+sub_err() {
+    : > "$SUBERR"
+    SUB_OUT="$( "$@" 2>"$SUBERR" )"
+    SUB_RC=$?
+    ERRL=()
+    local ln
+    while IFS= read -r ln || [[ -n "$ln" ]]; do ERRL+=( "$ln" ); done < "$SUBERR"
+    ERRN=${#ERRL[@]}
+    return 0
+}
+
+kt_test_start "D6: \`\$(u.toArray NAME)\` warns ONCE, with the TPipe line verbatim"
+declare -a BW=()
+sub_err uB.toArray BW
+exp="$(w_cmd toArray "the array BW is filled")"
+if [[ $SUB_RC -eq 0 && "$SUB_OUT" == "4" && $ERRN -eq 1 && "${ERRL[0]:-}" == "$exp" ]]; then
+    kt_test_pass "one line, verbatim, value still 4"
+else
+    kt_test_fail "rc=$SUB_RC out='$SUB_OUT' lines=$ERRN got='${ERRL[0]:-}'"
+fi
+
+kt_test_start "D6: \`\$(u.toList INST)\` warns ONCE too, naming the instance's \`.Add\`"
+TCollector.new LW
+sub_err uB.toList LW
+exp="$(w_cmd toList "LW.Add runs")"
+if [[ $SUB_RC -eq 0 && "$SUB_OUT" == "4" && $ERRN -eq 1 && "${ERRL[0]:-}" == "$exp" ]]; then
+    kt_test_pass "one line, verbatim"
+else
+    kt_test_fail "rc=$SUB_RC out='$SUB_OUT' lines=$ERRN got='${ERRL[0]:-}'"
+fi
+LW.delete
+
+kt_test_start "D6: \`subshellOk = 1\` silences every sink of THIS instance (Q9)"
+uB.subshellOk = 1
+declare -a BQ=()
+sub_err uB.toArray BQ
+a_n=$ERRN; a_out="$SUB_OUT"
+TCollector.new LQ
+sub_err uB.toList LQ
+l_n=$ERRN; l_out="$SUB_OUT"
+LQ.delete
+uB.subshellOk = 0
+if [[ $a_n -eq 0 && $l_n -eq 0 && "$a_out" == "4" && "$l_out" == "4" ]]; then
+    kt_test_pass "the property is the object-style spelling of TPipe's \`-s\`"
+else
+    kt_test_fail "toArray lines=$a_n out='$a_out' / toList lines=$l_n out='$l_out'"
+fi
+
+kt_test_start "D6: with \`subshellOk = 0\` again the very next call warns (it is not sticky)"
+sub_err uB.toArray BQ
+if [[ $ERRN -eq 1 ]]; then
+    kt_test_pass "the switch is read per call, from the property"
+else
+    kt_test_fail "lines=$ERRN got='${ERRL[0]:-}'"
+fi
+
+kt_test_start "D6: \`KK_SUBSHELL_OK=1 u.toArray …\` reaches TPipe through the wrapper (Q3)"
+# No TUtil code at all: the variable is dynamically scoped, so it is visible in
+# TUtil's frame and in TPipe's below it.
+: > "$SUBERR"
+k_out="$(KK_SUBSHELL_OK=1 uB.toArray BQ 2>"$SUBERR")"; k_rc=$?
+k_err="$(<"$SUBERR")"
+if [[ "$k_out" == "4" && $k_rc -eq 0 && -z "$k_err" ]]; then
+    kt_test_pass "silent through two frames of wrapper"
+else
+    kt_test_fail "out='$k_out' rc=$k_rc err='$k_err'"
+fi
+
+kt_test_start "D6: \`VERBOSE_KKLASS=quiet\` silences it as well"
+VERBOSE_KKLASS=quiet
+sub_err uB.toArray BQ
+VERBOSE_KKLASS=
+if [[ $ERRN -eq 0 && "$SUB_OUT" == "4" ]]; then
+    kt_test_pass "nothing on stderr under quiet"
+else
+    kt_test_fail "lines=$ERRN out='$SUB_OUT' got='${ERRL[0]:-}'"
+fi
+
+kt_test_start "D6: \`\$(u.count)\` and \`\$(u.first)\` NEVER warn — RESULT is the answer"
+sub_err uB.count
+c_n=$ERRN; c_out="$SUB_OUT"
+TUtil.new uQ p4q
+sub_err uQ.first
+f_n=$ERRN; f_out="$SUB_OUT"
+uQ.delete
+if [[ $c_n -eq 0 && "$c_out" == "4" && $f_n -eq 0 && "$f_out" == "a" ]]; then
+    kt_test_pass "count and first are silent in a subshell by contract (Q2)"
+else
+    kt_test_fail "count lines=$c_n out='$c_out' / first lines=$f_n out='$f_out'"
+fi
+
+kt_test_start "D6: \`\$(u.each r.onLine)\` warns, \`\$(u.each fn)\` does not (the callback-kind rule)"
+TRec.new RW
+sub_err uB.each RW.onLine
+i_n=$ERRN; i_1="${ERRL[0]:-}"
+RW.delete
+sub_err uB.each cb_collect
+p_n=$ERRN
+exp="$(w_cmd each "the instance member RW.onLine runs")"
+if [[ $i_n -eq 1 && "$i_1" == "$exp" && $p_n -eq 0 ]]; then
+    kt_test_pass "an instance-member callback warns; a plain function is silent"
+else
+    kt_test_fail "instance lines=$i_n got='$i_1' / plain lines=$p_n"
 fi
 
 kt_test_start "U8: on the LHS of a pipe the value is printed exactly once too"
@@ -370,7 +496,7 @@ fi
 
 kt_test_start "\`toList\` under \`\$( )\`: a PRINTING .Add still reaches stdout, and the count once"
 TPrinter.new PR
-out="$(uB.toList PR)"
+out="$(uB.toList PR 2>/dev/null)"      # the D6 warning has its own cases above
 PR.delete
 if [[ "$out" == $'add:a\nadd:b\nadd:c\nadd:d\n4' ]]; then
     kt_test_pass "the target's own 4 lines are untouched, then the member's value once"

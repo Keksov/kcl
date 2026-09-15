@@ -138,12 +138,17 @@ fi
 kt_test_section "A. U3 — lifecycle, and every declared var assigned"
 # ===========================================================================
 
-kt_test_start "U3: right after \`new\` \${inst}_data lists cmd/crlf/nul/_lastRc with the documented defaults"
+kt_test_start "U3: right after \`new\` \${inst}_data lists cmd/crlf/nul/_lastRc/subshellOk with the documented defaults"
+# `subshellOk` is the D6-final Q9 property: 1 makes every sink pass `-s` to
+# TPipe. Like every other declared var it MUST be assigned by the constructor —
+# kklass binds a property as a nameref onto `${inst}_data[NAME]`, and an
+# unassigned one is unbound under `set -u`.
 TUtil.new uL
 d="$(declare -p uL_data 2>&1)"
 if [[ "$d" == *'[cmd]=""'* && "$d" == *'[crlf]="0"'* \
-   && "$d" == *'[nul]="0"'* && "$d" == *'[_lastRc]="-1"'* ]]; then
-    kt_test_pass "all four vars present: $d"
+   && "$d" == *'[nul]="0"'* && "$d" == *'[_lastRc]="-1"'* \
+   && "$d" == *'[subshellOk]="0"'* ]]; then
+    kt_test_pass "all five vars present: $d"
 else
     kt_test_fail "declare -p uL_data = $d"
 fi
@@ -194,9 +199,10 @@ run_child 'TUtil.new u
 u.cmd    >/dev/null
 u.crlf   >/dev/null
 u.nul    >/dev/null
-u._lastRc >/dev/null'
+u._lastRc >/dev/null
+u.subshellOk >/dev/null'
 if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" == "OK" && -z "$CHILD_ERRTXT" ]]; then
-    kt_test_pass "all four vars bound"
+    kt_test_pass "all five vars bound"
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
@@ -720,13 +726,13 @@ fi
 kt_test_start "every declared member exists as a real body (none is a bare rc 2 stub)"
 TUtil.new uR2 printf '%s\n' a b
 missing=""
-for m in cmd crlf nul _lastRc buildArgv addArg clearArgs argv run \
+for m in cmd crlf nul _lastRc subshellOk buildArgv addArg clearArgs argv run \
          each toArray toList first count lastRc mapRc; do
     declare -F -- "uR2.$m" >/dev/null 2>&1 || missing="$missing $m"
 done
 uR2.delete
 if [[ -z "$missing" ]]; then
-    kt_test_pass "all 16 members of the PLAN §1.2 surface are bound"
+    kt_test_pass "all 17 members of the PLAN §1.2 surface are bound"
 else
     kt_test_fail "missing:$missing"
 fi

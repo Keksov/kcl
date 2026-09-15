@@ -1,9 +1,10 @@
 # tgrep — test coverage notes
 
-**Status: FINALIZED at P3 (2026-09-11).** Suite `004`–`007` = **184 cases**,
+**Status: updated at tutil P4 (D6 final, `subshellOk`, 2026-09-15); previously
+FINALIZED at P3 (2026-09-11).** Suite `004`–`007` = **185 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single`, against **GNU grep 3.0**. The per-file
-row counts below sum to 184 — 74 + 53 + 48 + 9 — and **every case in the suite
+row counts below sum to 185 — 74 + 53 + 49 + 9 — and **every case in the suite
 has a row**.
 
 **Protocol.** `TGrep` has no FPC upstream: it is the first wrapper on
@@ -85,8 +86,8 @@ before/after measurement is in
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 004.vars-present | Create | all 23 declared vars are present in `${inst}_data` right after `new` | contract | **C3**, §2.1 |
-| 004.vars-defaults | Create | the documented defaults: booleans `0`, strings `''`, `cmd` `grep`, `_lastRc` `-1` | contract | §2.1 |
+| 004.vars-present | Create | all 23 declared vars **plus TUtil's five** (`cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`) are present in `${inst}_data` right after `new` | contract | **C3**, §2.1, **D6 final Q9** |
+| 004.vars-defaults | Create | the documented defaults: booleans `0` (**`subshellOk` among them**), strings `''`, `cmd` `grep`, `_lastRc` `-1` | contract | §2.1 |
 | 004.args-empty | Create | `${g}_args` is EMPTY after `TGrep.new g PAT PATH` | contract | **C2** — the `inherited` trap doubled every path ([docs §3.2](../tutil/docs/TUtil.md#32-c2--inherited-in-a-constructor-forwards-)) |
 | 004.paths-verbatim | Create | `${g}_paths` holds the constructor's paths verbatim, once each | representation | §2.1 |
 | 004.reuse-clean | Create | a REUSED instance name starts clean — every var re-assigned | boundary | **C3** |
@@ -318,7 +319,7 @@ README §1, except where noted.
 
 ---
 
-## 006_Contract.sh — the kcl contract for TGrep (P2) — 48 cases
+## 006_Contract.sh — the kcl contract for TGrep (P2, one case added at tutil P4) — 49 cases
 
 ### 0. source integrity (7)
 
@@ -365,6 +366,7 @@ the child must end rc 0, print exactly `OK` and write nothing to stderr. Class
 | 006.eu-delete | `delete` on an instance that never ran anything | §1.9 |
 | 006.eu-stdin | an instance reading STDIN (no path) under `set -eu` | §6 |
 | 006.eu-cmdsubst | the `$( )` position: a func sink prints its value exactly ONCE | **P1-F1** |
+| 006.subshellok | **D6 final Q9**: `g.subshellOk = 1` silences TPipe's subshell warning through two frames of wrapper (the child's stderr must be empty), while the same `$(g2.toArray A2)` without it carries the verbatim `Warning: TPipe.toArray: the array A2 is filled inside a subshell (BASH_SUBSHELL=1) — …` line | **D6 final Q3/Q9**, tutil PLAN P4.2 |
 
 ### 2. the debug switch (21)
 

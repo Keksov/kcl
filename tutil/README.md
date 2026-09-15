@@ -72,6 +72,7 @@ TUtil.new INST [CMD [ARG...]]    # cmd + the initial extra args
 | `crlf` | var | `1` → the sinks strip ONE trailing CR per record (`TPipe -c`) | — |
 | `nul` | var | `1` → records are NUL-terminated (`TPipe -0`) | — |
 | `_lastRc` | var | raw rc of the last `run`/sink; `-1` until one ran | — |
+| `subshellOk` | var | `1` → every sink passes `-s` to `TPipe`, i.e. "the subshell scope is **intended**"; silences TPipe's subshell warning for this instance (§3). Default `0` | — |
 | `buildArgv` | func | **virtual.** Fills `${inst}_argv`. Base: `cmd` + the extras | word count |
 | `addArg ARG...` | proc | append to `${inst}_args` — the un-modelled-option hatch | — |
 | `clearArgs` | proc | empty `${inst}_args` | — |
@@ -219,8 +220,9 @@ in a subshell and the mutations are lost. `tests/002_Sinks.sh` §L and
 |---|---|---|
 | `nul = 1` | `-0` | records are NUL-terminated (`find -print0`, `grep -lZ`) |
 | `crlf = 1` | `-c` | strip **one** trailing CR per record |
+| `subshellOk = 1` | `-s` | "the subshell scope is intended" — silences TPipe's subshell warning (below) |
 
-Both default to `0`, and the caller never spells a flag: `u.each -c cb` is not
+All three default to `0`, and the caller never spells a flag: `u.each -c cb` is not
 the surface. The words are built into an array and passed as `"${__tu_fl[@]}"`,
 never as an expansion-built option word — `${nul:+-0}` is re-split by the
 caller's `IFS`.
@@ -328,6 +330,41 @@ must declare `local __TPIPE_QUIET=0` first.
 Under `$( )` the instance's `_lastRc` is **not** updated either — the subshell is
 thrown away with the mutation, the same line §2 carries for `run`.
 
+### `subshellOk` — the subshell warning, and how to say you meant it
+
+A sink always delegates in `TPipe`'s `--` form, so when the sink itself runs in a
+subshell `TPipe` warns exactly as it does on a direct call
+([tpipe README §3](../tpipe/README.md#3-a-sink-in-a-subshell--d6-final), owner
+ruling **D6 final**, 2026-09-15). One line on stderr, printed **with the debug
+switch off**, changing neither the rc nor `RESULT`:
+
+```bash
+n="$(u.toArray results)"    # -> n=4, and one line on stderr:
+# Warning: TPipe.toArray: the array results is filled inside a subshell (BASH_SUBSHELL=1) — the calling shell will not see it; move the call out of $( ) / ( ); if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1
+```
+
+The member named in the line is the **`TPipe`** member the sink delegated to, not
+the `TUtil` one — that is where the flag and the variable live. Which calls warn
+is `TPipe`'s rule, unchanged by the wrapper: `toArray`, `toList` and
+`each` **with an instance-member callback** do; `each` with a plain function,
+`count` and `first` never do (`n="$(u.count)"` is the intended spelling and is
+silent by design).
+
+Three ways to silence it, all of which leave everything else alone:
+
+```bash
+u.subshellOk = 1                 # this instance, until it is set back to 0
+KK_SUBSHELL_OK=1 u.toArray a     # one call — reaches TPipe through this frame
+VERBOSE_KKLASS=quiet             # every warning of every kcl unit
+```
+
+`subshellOk` is the object-style spelling of `TPipe`'s `-s` flag and **nothing
+else**: `tutil._prep` appends `-s` to the flag array when it is `1`, next to
+`nul`→`-0` and `crlf`→`-c`. The dynamically scoped `KK_SUBSHELL_OK` needs no
+`TUtil` code at all — it is visible in this frame and in `TPipe`'s below it, so
+it works through any depth of wrapper, `TGrep` included. Both are read **per
+call**, so setting the property back to `0` re-arms the warning immediately.
+
 ---
 
 ## 4. Reserved member names
@@ -335,7 +372,7 @@ thrown away with the mutation, the same line §2 carries for `run`.
 `TUtil` owns
 
 ```
-cmd  crlf  nul  _lastRc
+cmd  crlf  nul  _lastRc  subshellOk
 buildArgv  addArg  clearArgs  argv  run
 each  toArray  toList  first  count  lastRc  mapRc
 ```
@@ -475,13 +512,13 @@ bash kcl/tutil/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tutil/tests/tests.sh
 ```
 
-**172 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+**184 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
 mode and under `--mode single`. Case-by-case:
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
 | File | Cases | What it pins |
 |---|---|---|
-| `001_Core.sh` | 61 | source integrity; the lifecycle (every var present in `${inst}_data` with its default, both arrays created and freed, every var readable under `set -u`); the argv model (`--format=%H` verbatim, `addArg`/`clearArgs`, `argv` is a copy and runs nothing, rebuild without accumulation); `argv`'s out-name validation (11 refusals, each rc 2 with `RESULT=''` and storage intact); `run` (cmd `''` runs nothing and leaves a here-string unread; a missing command is rc 1 + `lastRc` 127 + exactly one stderr line under the switch and none without; a tool exiting 3 is rc 1 + `lastRc` 3 and silent; two instances keep separate `_lastRc`); byte-identity of the stream in all three positions, including a producer emitting `-n`, a backslash, a glob, a CR and an unterminated tail; `mapRc`'s base table; the `set -eu` contract including a failing and a missing tool; and that the P0 sink stubs are **gone** (no member answers `__TUTIL_PENDING__`, the string is absent from the source, all 16 members of the surface are bound) |
-| `002_Sinks.sh` | 56 | U1 (`each` delivers, a plain function and an instance member both keep their state, `each` is rc-only); U8 (each `func` sink's RESULT **and** mapped rc, direct, under `$( )` and on the LHS of a pipe, with the value printed exactly once); every sink compared with `TPipe` called directly on the argv `u.argv` handed over, byte-exact over a producer emitting `-n`, `-neE`, a backslash, a glob, a space, UTF-8, a bare CR and an unterminated tail; `nul`→`-0` and `crlf`→`-c` (and off by default); three-frame dispatch `g.each → TPipe.each → r.onLine` and a nested sink inside a callback; zero forks per record (`$BASHPID`); a rejecting `.Add` (THashSet duplicates: 5 offered, 3 kept); the rc 1 + count-kept deviation for all five; `first` answering rc 1 with RESULT '' whenever there was no record, including a producer that SUCCEEDED silently, and staying quiet while doing it; U6 (`TPipe.stop` and `first` on `yes`, in a child under `timeout`, `lastRc` 141/143); every malformed shape (`cmd=''`, a missing command, a non-function CB, an INST without `.Add`, ten refused out-names) with rc, `RESULT`, an untouched `lastRc` and a flag file proving nothing ran; separate `_lastRc` per instance; and the three forms (`u.run \| TPipe.each cb` under `lastpipe` == the `--` form == `u.each cb`) |
-| `003_Contract.sh` | 47 | `bash -n` + the open-quote and inline-`$'\r'` greps; every sink from a child script under `set -eu` — a succeeding tool, a tool exiting 3 (the child must die of the member's rc 1, never the tool's 3), a callback answering rc 1 on every record, a `TPipe.stop` where `wait` returns 141/143 while the member answers 0, a rejecting `.Add`, `cmd=''`, a missing command, a malformed CB/out-name/list, and the sinks under `$( )`; the zero-fork probe under `set -eu`; exactly ONE `kk.debug` line on each of the 15 rc 2 / `127` paths and **none** on any rc 0 or plain rc 1 path, with complete silence when the switch is off; and D6's one Warning line for the `--` form under `$( )` |
+| `001_Core.sh` | 61 | source integrity; the lifecycle (every var present in `${inst}_data` with its default, both arrays created and freed, every var readable under `set -u`); the argv model (`--format=%H` verbatim, `addArg`/`clearArgs`, `argv` is a copy and runs nothing, rebuild without accumulation); `argv`'s out-name validation (11 refusals, each rc 2 with `RESULT=''` and storage intact); `run` (cmd `''` runs nothing and leaves a here-string unread; a missing command is rc 1 + `lastRc` 127 + exactly one stderr line under the switch and none without; a tool exiting 3 is rc 1 + `lastRc` 3 and silent; two instances keep separate `_lastRc`); byte-identity of the stream in all three positions, including a producer emitting `-n`, a backslash, a glob, a CR and an unterminated tail; `mapRc`'s base table; the `set -eu` contract including a failing and a missing tool; and that the P0 sink stubs are **gone** (no member answers `__TUTIL_PENDING__`, the string is absent from the source, all 17 members of the surface are bound, `subshellOk` among them with its `0` default) |
+| `002_Sinks.sh` | 64 | U1 (`each` delivers, a plain function and an instance member both keep their state, `each` is rc-only); U8 (each `func` sink's RESULT **and** mapped rc, direct, under `$( )` and on the LHS of a pipe, with the value printed exactly once); every sink compared with `TPipe` called directly on the argv `u.argv` handed over, byte-exact over a producer emitting `-n`, `-neE`, a backslash, a glob, a space, UTF-8, a bare CR and an unterminated tail; `nul`→`-0` and `crlf`→`-c` (and off by default); three-frame dispatch `g.each → TPipe.each → r.onLine` and a nested sink inside a callback; zero forks per record (`$BASHPID`); a rejecting `.Add` (THashSet duplicates: 5 offered, 3 kept); the rc 1 + count-kept deviation for all five; `first` answering rc 1 with RESULT '' whenever there was no record, including a producer that SUCCEEDED silently, and staying quiet while doing it; U6 (`TPipe.stop` and `first` on `yes`, in a child under `timeout`, `lastRc` 141/143); every malformed shape (`cmd=''`, a missing command, a non-function CB, an INST without `.Add`, ten refused out-names) with rc, `RESULT`, an untouched `lastRc` and a flag file proving nothing ran; separate `_lastRc` per instance; and the three forms (`u.run \| TPipe.each cb` under `lastpipe` == the `--` form == `u.each cb`); and the **D6-final** matrix as it reaches a caller through a wrapper — `$(u.toArray NAME)` and `$(u.toList INST)` each warn ONCE with the `TPipe` line verbatim, `subshellOk = 1` silences every sink of that instance and is read per call (setting it back re-arms), `KK_SUBSHELL_OK=1 u.toArray …` silences through two wrapper frames, `VERBOSE_KKLASS=quiet` silences it, `$(u.count)` / `$(u.first)` never warn, and `$(u.each r.onLine)` warns while `$(u.each fn)` does not |
+| `003_Contract.sh` | 51 | `bash -n` + the open-quote and inline-`$'\r'` greps; every sink from a child script under `set -eu` — a succeeding tool, a tool exiting 3 (the child must die of the member's rc 1, never the tool's 3), a callback answering rc 1 on every record, a `TPipe.stop` where `wait` returns 141/143 while the member answers 0, a rejecting `.Add`, `cmd=''`, a missing command, a malformed CB/out-name/list, and the sinks under `$( )`; the zero-fork probe under `set -eu`; exactly ONE `kk.debug` line on each of the 15 rc 2 / `127` paths and **none** on any rc 0 or plain rc 1 path, with complete silence when the switch is off; and the **D6-final** rules at contract level — `$(u.count)`/`$(u.first)` never warn (switch on or off), `$(u.toArray NAME)` warns ONCE with the debug switch **off** and the same single line under `debug`, `subshellOk = 1` / `KK_SUBSHELL_OK=1` / `VERBOSE_KKLASS=quiet` each silence it with `RESULT` unchanged, and a DIRECT sink call warns about nothing |
 | `004_Bench.sh` | 8 | the PLAN §5 P3.1 gates as assertions with a 5× ceiling (`u.each` and `u.toArray` against `TPipe` called directly on the same argv, N = 2000, both shapes warmed first); that 200 `buildArgv` + `argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback, `.Add` and the `cmd` that `run` executes all report this process's `$BASHPID`, and the only extra pid in a sink call is the one producer |

@@ -85,8 +85,15 @@ TGrep.new INST [PATTERN [PATH...]]
 | `TGrep.search PATTERN PATH...` | static proc | — | `grep -r`, streamed; §7 |
 
 Inherited from [`TUtil`](../tutil/README.md) unchanged: `cmd` (`grep`), `crlf`,
-`nul`, `_lastRc`, `addArg`, `clearArgs`, `argv NAME`, `run`, `lastRc`, and the
-five sinks `each` / `toArray` / `toList` / `first` / `count`.
+`nul`, `_lastRc`, **`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`,
+`lastRc`, and the five sinks `each` / `toArray` / `toList` / `first` / `count`.
+
+`subshellOk` is the D6-final switch (default `0`): `g.subshellOk = 1` makes every
+sink pass `-s` to `TPipe`, which silences the subshell warning `$(g.toArray a)`
+otherwise prints — see [tutil README §3](../tutil/README.md#subshellok--the-subshell-warning-and-how-to-say-you-meant-it)
+and [tpipe README §3](../tpipe/README.md#3-a-sink-in-a-subshell--d6-final). It is
+inherited, not redeclared: a descendant that declared a `var` of that name would
+have it silently overridden by the method wrapper.
 
 A `var` is read as `$(g.pattern)` and written as `g.pattern = value` — a plain
 `var` read at a **call site** prints and leaves `RESULT` empty, so `$( )` is the
@@ -393,8 +400,8 @@ rule:
   under `set -u`, and `.new` over a still-live instance does not clear `_data`,
   so it can inherit the previous instance's value.
 * **Never declare a `var` named like an inherited member.** `TUtil` owns
-  `cmd crlf nul _lastRc buildArgv addArg clearArgs argv run each toArray toList
-  first count lastRc mapRc` and kklass owns `property call parent delete`; the
+  `cmd crlf nul _lastRc subshellOk buildArgv addArg clearArgs argv run each
+  toArray toList first count lastRc mapRc` and kklass owns `property call parent delete`; the
   method wrapper is generated after the property wrapper and wins silently, so
   `obj.count = 5` would be accepted and discarded.
 
@@ -491,7 +498,7 @@ bash kcl/tgrep/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tgrep/tests/tests.sh
 ```
 
-**184 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+**185 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
 mode and under `--mode single`, against GNU grep 3.0. Case-by-case:
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). The behavioural files all open
 with the **GNU banner gate**: this box carries a non-GNU `grep` (Embarcadero)
@@ -500,7 +507,7 @@ every behavioural case is a loud SKIP and the case count is unchanged.
 
 | File | Cases | What it pins |
 |---|---|---|
-| `004_Argv.sh` | 74 | **grep is never executed.** The lifecycle (all 23 declared vars present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions, including P3-F1 (a deriving build never CLAIMS a `nul` the caller already set) |
+| `004_Argv.sh` | 74 | **grep is never executed.** The lifecycle (all 23 declared vars plus TUtil's five — `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk` — present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions, including P3-F1 (a deriving build never CLAIMS a `nul` the caller already set) |
 | `005_Search.sh` | 53 | The GNU banner gate first, then a fixture tree (names with a space, a newline and a leading `-`, UTF-8, CRLF, a NUL-bearing file, a subdir, and **real** NTFS symlinks through `kt_make_symlink`) with the bare tool as the oracle: G5 no match on all five runners; G6 the `-E` dialect and the literal `(` without it; G7 the `-Z` framing in both directions; G8 a directory operand without `recursive`, `search` implying `-r`, and `search` refusing zero paths or an empty pattern; G9 the three forms; G10 the partial-failure deviation; G11 a nested `search` from inside a callback, in both shapes; G12 `-r` versus a real directory symlink (and `-R` as the counter-oracle); the CRLF table of §5; every remaining typed option against bare grep; and the binary-file record with its two escape hatches |
-| `006_Contract.sh` | 48 | `bash -n`, the open-quote and inline-`$'\r'` greps, no `$this.` call, `parent.constructor` in the constructor and `inherited` in the destructor, no `var` shadowing an inherited member; every shape from a child script under `set -eu` (an instance, both `TPipe` forms, `search` as a producer, a hit, no match, a grep error, a partial failure, a refused build, a refused `search`, the stdin form, `run` streaming, `delete`); and the debug switch — exactly one line on each of the 9 rc 2 paths and the 3 grep-error paths, **none** on any rc 0 or no-match path, with complete silence from us when the switch is off while grep's own lines pass through |
+| `006_Contract.sh` | 49 | `bash -n`, the open-quote and inline-`$'\r'` greps, no `$this.` call, `parent.constructor` in the constructor and `inherited` in the destructor, no `var` shadowing an inherited member; every shape from a child script under `set -eu` (an instance, both `TPipe` forms, `search` as a producer, a hit, no match, a grep error, a partial failure, a refused build, a refused `search`, the stdin form, `run` streaming, `delete`); and the debug switch — exactly one line on each of the 9 rc 2 paths and the 3 grep-error paths, **none** on any rc 0 or no-match path, with complete silence from us when the switch is off while grep's own lines pass through; and one **D6-final** case: `g.subshellOk = 1` silences TPipe's subshell warning through two frames of wrapper (the child's stderr must be empty), while without it `$(g2.toArray A2)` carries the verbatim `Warning: TPipe.toArray: …` line |
 | `007_Bench.sh` | 9 | The PLAN §5 P3.1 gates as assertions, behind the same banner gate and with a 10× ceiling: `TGrep.search` against a bare `grep -r` over a 2000-line corpus (interleaved, medians, both sides asserted to find the same 21 hits), `TGrep.new` + `.delete` under 50 ms, `g.count` and the `countOnly` shortcut against `grep -c` (with grep's own per-file numbers compared as a set); that 200 `buildArgv` + `argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback and `.Add` run in this process, and the seven builder members plus `run` and `search` leave `$BASHPID` untouched |

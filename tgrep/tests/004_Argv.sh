@@ -151,7 +151,10 @@ TG_VARS=( pattern ignoreCase invert wordRegexp lineRegexp fixed extended
           recursive lineNumber filesOnly filesWithoutMatch countOnly
           onlyMatching noFilename withFilename maxCount include exclude
           excludeDir binary nullData nullOut _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc )
+# `subshellOk` is TUtil's (D6 final Q9): TGrep inherits it and must NOT
+# redeclare it — a descendant `var` with an ancestor member's name is silently
+# overridden by the method wrapper (kklass.sh:911).
+TU_VARS=( cmd crlf nul _lastRc subshellOk )
 
 kt_test_start "every declared var is present in \`\${inst}_data\` right after \`new\` (§2.1)"
 TGrep.new gA needle f1
@@ -172,7 +175,8 @@ kt_test_start "the documented defaults: booleans 0, strings '', cmd grep, _lastR
 bad=""
 for v in ignoreCase invert wordRegexp lineRegexp fixed extended recursive \
          lineNumber filesOnly filesWithoutMatch countOnly onlyMatching \
-         noFilename withFilename binary nullData nullOut _nulDerived crlf nul; do
+         noFilename withFilename binary nullData nullOut _nulDerived crlf nul \
+         subshellOk; do
     got="$(gA."$v")"
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
 done

@@ -1,5 +1,7 @@
 # TUtil — CLI-tool wrapper base, and TGrep, the first wrapper (kcl/tutil, kcl/tgrep)
 
+**P4 (D6 final: `var subshellOk`, owner ruling 2026-09-15) PLANNED — see §5 P4; runs in the same worker cycle as tpipe P3.**
+
 **Status: COMPLETE (P0–P3), 2026-09-11.** Both units shipped:
 `kcl/tutil` (`TUtil`, **172/172** on bash 5.2.37 and on 5.3.9) and `kcl/tgrep`
 (`TGrep : TUtil`, **184/184** on both), threaded and under `--mode single`; both
@@ -58,6 +60,7 @@ class TUtil
         var  crlf           # 1 → sinks strip one trailing \r per record (TPipe -c)
         var  nul            # 1 → records are NUL-terminated (TPipe -0)
         var  _lastRc        # raw rc of the last run/sink; -1 until one ran
+        var  subshellOk     # 1 → every sink passes -s to TPipe (D6 final Q9); default 0
         constructor Create  # [CMD [ARG...]] — cmd + initial extra args; assigns EVERY var
         destructor  Destroy # frees ${inst}_args and ${inst}_argv (§1.9)
         func buildArgv      # virtual by kklass default; fills ${inst}_argv; RESULT = count. Base: cmd + args
@@ -80,8 +83,8 @@ whole TProcess use case with no subclass (constructor arguments after the instan
 name reach `Create` verbatim, `--format=%H` included — verified). A descendant adds
 typed properties and overrides `buildArgv` (and usually `mapRc`).
 
-**Reserved member names.** `TUtil` owns `cmd crlf nul _lastRc buildArgv addArg
-clearArgs argv run each toArray toList first count lastRc mapRc`; kklass owns
+**Reserved member names.** `TUtil` owns `cmd crlf nul _lastRc subshellOk buildArgv
+addArg clearArgs argv run each toArray toList first count lastRc mapRc`; kklass owns
 `property call parent delete` on every instance. A descendant must **not** declare
 a `var` with any of these names: the method wrapper is generated after the property
 wrapper and wins silently (`kklass.sh:911`), so `obj.count = 5` would be accepted
@@ -457,6 +460,25 @@ next. Each file's header records those numbers.
 
 ---
 
+### P4 — D6 final: `subshellOk` (owner ruling 2026-09-15, Q9; same worker cycle as tpipe P3)
+
+- P4.1 `var subshellOk` (assigned `0` in `Create`; TGrep inherits it and does not
+  redeclare it); `tutil._prep` appends `-s` to the flag array when `subshellOk == 1`.
+  The dynamically scoped `KK_SUBSHELL_OK=1` reaches TPipe through every wrapper
+  without any TUtil code (verified), so the property is the object-style spelling of
+  the same switch and nothing else.
+- P4.2 Tests: 002/003 cases that run `toArray`/`toList` under `$( )` now expect ONE
+  `kk.warn` line (the tpipe template with `MEMBER` = the TPipe member) and its
+  silence under `subshellOk = 1`, under `KK_SUBSHELL_OK=1 u.toArray …` and under
+  `VERBOSE_KKLASS=quiet`; `u.count`/`u.first` under `$( )` stay silent; `u.each` with an
+  instance-member callback under `$( )` warns, with a plain function does not. 001 U3
+  lists `subshellOk` among the vars present after `new`. tgrep 004 pins that
+  `${g}_data` carries `subshellOk=0` after `new` and 006 has one `subshellOk = 1`
+  case. READMEs (tutil member table + reserved names, tgrep surface), coverage notes,
+  ledger entry.
+
+---
+
 ## 6. Bash and kklass traps to respect
 
 - `$this.NAME` inside a member **prints** the callee's `kk._return` value under
@@ -489,6 +511,8 @@ next. Each file's header records those numbers.
   and leaves `RESULT` empty — unlike a `func`. `$(u.crlf)` is the only correct read
   spelling outside a member; inside a member the var is a nameref (`$crlf`). No
   member body or test may do `u.crlf; use "$RESULT"` (P0 worker finding).
+- `subshellOk` is a plain 0/1 var like the others: tested as `[[ "$subshellOk" == 1 ]]`,
+  assigned in every constructor, never redeclared by a descendant (D6 final Q9).
 - Every sink declares `local __TPIPE_QUIET=1` before delegating to TPipe: `tpipe._ret`
   prints under any `BASH_SUBSHELL > 0`, so without it `$(u.count)` read `22` (TPipe's
   print plus the sink's own `kk._return`) and `u.each cb | cat` carried the count.

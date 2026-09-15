@@ -1634,6 +1634,10 @@
       {
          "date" : "2026-09-09",
          "entry" : "Closing round by the reviewer on owner decisions D9: P2-F1, P5-F1, P9-F4 (kcl) and P8-F2 (ktests) fixed red-first; fpjson O1-O3 recorded in fpjson/PLAN.md. Master sweep gate, then commits and push of every repository."
+      },
+      {
+         "date" : "2026-09-15",
+         "entry" : "D6 final (owner quiz, nine answers) for the tpipe/tutil/tgrep family: kkore gains `kk.warn` (stderr always, silenced by VERBOSE_KKLASS=quiet; three levels quiet / default / debug) and kcl README §1.2 gains the warnings paragraph; TPipe never refuses a call because of a subshell (D1 superseded), warns through kk.warn only when the loss is certain (each with an instance-member callback, toArray, toList), `-s` / `KK_SUBSHELL_OK=1` silence per call, `TPipe.each` never prints RESULT under $( )/a pipe (named §1.1 deviation), TUtil gets `var subshellOk`. kkore tests/001 fixed: its `rm -rf tests/.tmp` deleted the suite's shared fixture dir under the threaded runner (surfaced when 007 grew). Suites: kkore 455/455, tpipe 190/190, tutil 184/184, tgrep 185/185 on both bashes; master sweep 23/23 0 [FAIL] on both. Commits: kkore c355309, kcl <SHA-D6>, kbool bump."
       }
    ],
    "defaults" : [

@@ -1,6 +1,6 @@
 # TPipe — stream-to-callback adaptor plan (kcl/tpipe)
 
-**Status: COMPLETE (P0–P2), 2026-09-11.** All seven members shipped, suite
+**Status: COMPLETE (P0–P2), 2026-09-11; P3 (D6 final, owner ruling 2026-09-15) PLANNED.** All seven members shipped, suite
 `001`–`005` = **165 checks green on bash 5.2.37 and 5.3.9** (threaded and
 `--mode single`); `bench.sh`, `README.md`, `docs/TPipe.md`,
 `TEST_COVERAGE_NOTES.md` and the kcl `README.md` §2 row are in place. Phase
@@ -107,10 +107,16 @@ TPipe.lastRc                                     # RESULT = raw rc of the last `
   record.
 - **`--` present** → the words after it are the producer argv, run through
   `exec {fd}< <("${argv[@]}")`. No `eval`, no string splitting, ever.
-- **`--` absent** → the producer is **stdin**. Allowed only when the member runs in
-  the calling shell: `(( BASH_SUBSHELL > 0 ))` → **rc 2**, `RESULT=""`, nothing
-  read, one `kk.debug` line (decision **D1**, message pinned in §2.5). A stdin form
-  outside any pipe (`TPipe.each cb < file`) is fine (`BASH_SUBSHELL` is 0).
+- **`--` absent** → the producer is **stdin**. Works everywhere, including the RHS of
+  a pipe without `lastpipe` (D1 final: nothing is refused because of a subshell). When
+  the sink runs in a subshell AND the loss is certain (§2.0 D6), ONE `Warning:` line
+  goes to stderr through `kk.warn`; `-s` or `KK_SUBSHELL_OK=1` silences it. A stdin
+  form outside any pipe (`TPipe.each cb < file`) has `BASH_SUBSHELL` 0 and never warns.
+- `-s` — "subshell scope intended": silences the D6 warning for this call. Accepted by
+  every sink (inert on `first`/`count`, which never warn). The dynamically scoped
+  variable `KK_SUBSHELL_OK=1` is the same switch for a whole block or through a
+  wrapper (`KK_SUBSHELL_OK=1 g.each r.onLine` reaches TPipe through TGrep/TUtil —
+  verified). Neither changes anything but the warning.
 - **stdin passes through untouched, both ways.** The process substitution inherits
   the caller's stdin, so a producer given no file operand (`-- grep needle`,
   `-- cat`, `-- sort`) reads whatever the *caller's* stdin is — including the pipe
@@ -159,12 +165,12 @@ g.each r.onLine                                    # 3. sugar on a tutil wrapper
 
 | ID | Decision |
 |---|---|
-| **D1** (owner, 2026-09-10) | stdin form in a subshell (`cmd \| TPipe.each cb` without lastpipe, or under `$( )`) is **refused**: rc 2, `RESULT=""`, nothing read, `kk.debug` names the fixes. Silent state loss is worse than a refusal. |
+| **D1** (owner, 2026-09-10; **superseded 2026-09-15 by D6 final, Q1**) | Was: stdin form in a subshell refused with rc 2. Now: nothing is refused because of a subshell; the stdin form in a pipe RHS without `lastpipe` works and, when the loss is certain, warns (see D6). The old refusal text and the rc 2 tests are removed at P3. |
 | **D2** (owner) | early stop is an explicit **`TPipe.stop`** call from inside the callback; the callback's own rc is **ignored** (a §1.3 predicate legitimately returns rc 1 and must not tear the stream). |
 | **D3** (owner) | names: `TPipe` (this unit), `TUtil` for the wrapper base, `TGrep` for the first wrapper. |
 | **D4** (owner) | first-wave wrappers target **GNU** tools as shipped by MSYS2; no BSD/macOS layer. Affects tutil. |
 | **D5** (owner) | TPipe is a **kcl unit** (`kcl/tpipe`, own tests, own README, kcl README §2 row), not a kkore helper. |
-| **D6** (supervisor, flagged) | The `--` form under `BASH_SUBSHELL > 0` (`x=$(TPipe.each r.onLine -- cmd)`, `( … )`, a pipe RHS) also loses an instance callback's mutations and a `toArray` nameref fill (measured). The critic proposed refusing the three mutating sinks there. **Chosen: allowed, with one `kk.debug` line** — because `out=$(TPipe.each fmt -- cmd)` with a *plain* formatting function is a legitimate stateless use and the `$( )` there is the caller's own explicit choice, unlike the accidental subshell of `\|` that D1 covers. The README names the trap in the D1 paragraph. Owner may flip this to rc 2 before P0 starts. |
+| **D6** (owner, 2026-09-15 — FINAL, a nine-answer quiz) | **Q1** D1 and D6 are one rule: a sink in a subshell is never refused. **Q2** A warning is printed only when the loss is *certain*: `each` whose callback is an **instance member** (name `inst.member` with a live `${inst}_data` — verified detectable), `toArray` (the fill cannot reach the caller) and `toList` (`INST.Add` mutates a list the caller will not see); `each` with a plain function or a static member is silent; `first`/`count` never warn. **Q3** Two ways to silence, per call: the flag `-s` and the dynamically scoped variable `KK_SUBSHELL_OK=1` (`KK_SUBSHELL_OK=1 g.each r.onLine`, or `local KK_SUBSHELL_OK=1` for a block); the variable is the primitive, the flag is sugar. **Q4** The names carry the precise meaning "the subshell scope is intended" and the variable is kcl-wide (`KK_`), so other callback-taking members can honour it later. **Q5** One warning per call, no de-duplication. **Q6** The line goes through a new shared helper **`kk.warn`** in `kkore/klib.sh` (stderr, unconditional, silenced by `VERBOSE_KKLASS=quiet`; three levels quiet / default / debug), and kcl README §1.2 gets a "warnings" paragraph — TPipe follows a corpus rule, not an exception. **Q7** `TPipe.each` never prints `RESULT` (its stdout belongs to the callback; `x=$(TPipe.each fmt -- cmd)` and `TPipe.each fmt -- cmd \| sort` used to get the count appended); `RESULT` is still set on a direct call — a named §1.1 deviation for that one member. **Q8** "a subshell is unavoidable and the state must come back" = documented recipes (`toArray` at top level; the callback collects and prints) plus a kklass roadmap item `snapshot`/`restore` of an instance; nothing in TPipe. **Q9** TUtil gets `var subshellOk` (→ `-s`), see tutil PLAN P4. |
 
 ### 2.1 One reader, five sinks
 
@@ -248,7 +254,7 @@ consumer's success, not the producer's failure.
 
 | member | RESULT | rc 0 | rc 1 (silent) | rc 2 (malformed call, `kk.debug`) |
 |---|---|---|---|---|
-| `each` | records delivered | producer rc 0, or stopped | producer rc ≠ 0 (grep "no match" = 1 lands here naturally) | CB not a function (`declare -F` up front, like `THashSet.onNotify` `thashset.sh:638` — **not** `THashSet.ForEach` `:409`, which answers rc 1 for the same condition); bad flag; word after CB that is not `--`; D1 |
+| `each` | records delivered | producer rc 0, or stopped | producer rc ≠ 0 (grep "no match" = 1 lands here naturally) | CB not a function (`declare -F` up front, like `THashSet.onNotify` `thashset.sh:638` — **not** `THashSet.ForEach` `:409`, which answers rc 1 for the same condition); bad flag; word after CB that is not `--`. **Never prints RESULT** under `$( )` / a pipe (Q7); RESULT is set on a direct call |
 | `toArray` | records stored (the array is **replaced**, `mapfile` clears it first) | same | same | NAME fails `kk._outName NAME __tpi_ __TPIPE_ TPIPE_INDEX` (the third prefix because every sink shadows `TPIPE_INDEX` with a `local`, so a nameref to that name would fill the sink's own slot and the caller would silently get nothing), or is currently an **associative** array, **integer-attributed** (`declare -i`: `mapfile` "succeeds" and evaluates every record arithmetically, `abc` → `0`) or **readonly** (`mapfile` into either prints a bash diagnostic and returns 1 — measured; an existing scalar is converted and fine); bad flag; D1 |
 | `toList` | records **offered** to `INST.Add` (its rc is ignored with `\|\| :` — `THashSet.Add` says 1 for a duplicate, `TStringList.Add` under `dupError` too) | same | same | `declare -F "$INST.Add"` false; bad flag; D1 |
 | `first` | first record, `''` if none | a record was read (producer stopped after it, §2.3) | no record | bad flag; D1 |
@@ -262,6 +268,25 @@ records delivered, and `toArray`/`toList` still hold everything read before the
 producer failed. Callers that want all-or-nothing check the member's rc (or
 `TPipe.lastRc`) before using the data. This goes in `kcl/tpipe/README.md` and in
 the kcl README §2 row, in the tregex/thashset format.
+
+**Subshell warnings (D6 final).** A sink that runs with `BASH_SUBSHELL > 0` prints ONE
+line through `kk.warn` when the loss is certain — `each` with an instance-member
+callback, `toArray`, `toList` — unless `-s` was given or `KK_SUBSHELL_OK` is `1`;
+`first`/`count` never warn. The line is printed after validation and before the
+producer starts (so an rc 2 path never warns), and the call then proceeds normally
+(rc and RESULT exactly as in the table). Two pinned templates, keyed on the FORM
+(the stdin form is almost always a pipe RHS, the `--` form almost always `$( )`):
+
+```
+Warning: TPipe.MEMBER: WHAT inside a subshell (BASH_SUBSHELL=N) — the calling shell will not see it; in a pipeline use `shopt -s lastpipe` (non-interactive scripts) or the `TPipe.MEMBER [OPERAND] -- CMD ...` form at top level; if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1
+Warning: TPipe.MEMBER: WHAT inside a subshell (BASH_SUBSHELL=N) — the calling shell will not see it; move the call out of $( ) / ( ); if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1
+```
+
+`WHAT` is `the instance member CB runs` (CB = the callback name as given) for `each`,
+`the array NAME is filled` for `toArray`, `INST.Add runs` for `toList`; `[OPERAND]` as in
+§2.5. 004 asserts both templates byte-exact for all three sinks, the silence of
+`first`/`count`, of `each` with a plain function and with a static member, and of
+every sink under `-s`, under `KK_SUBSHELL_OK=1` and under `VERBOSE_KKLASS=quiet`.
 
 Further notes:
 
@@ -294,23 +319,16 @@ Further notes:
 3. the word after the operand must be `--` or absent → else rc 2;
 4. `--` present with an **empty** argv after it → rc 2 (`TPipe.each cb --` is a
    mistake, not "read stdin");
-5. `--` absent → the D1 subshell check; `--` present and `BASH_SUBSHELL > 0` → one
-   `kk.debug` line, continue (D6);
+5. `--` absent and `BASH_SUBSHELL > 0`, or `--` present and `BASH_SUBSHELL > 0` →
+   the D6 warning rule (§2.4): `each` with an instance-member callback / `toArray` /
+   `toList` print ONE `kk.warn` line unless `-s` or `KK_SUBSHELL_OK=1`; everything
+   else is silent; the call continues in every case;
 6. only now `tpipe._open`.
 
-The D1 message, pinned (004 asserts exactly one line matching it):
-
-```
-Error: TPipe.MEMBER: stdin form ran in a subshell (BASH_SUBSHELL=N); use `TPipe.MEMBER [OPERAND] -- CMD ...`, or `shopt -s lastpipe` at the top of a NON-interactive script (lastpipe is inert while job control is on)
-```
-
-`MEMBER` is the sink name and `[OPERAND]` is `CB` for `each`, `NAME` for `toArray`, `INST` for `toList`, and absent (single space) for `first`/`count`.
-
-The D6 line, pinned the same way (one line, `Warning:` prefix, only under the switch):
-
-```
-Warning: TPipe.MEMBER: running in a subshell (BASH_SUBSHELL=N); records are delivered, but every mutation the callback makes is lost when the subshell exits
-```
+The warning templates are pinned in §2.4 (the former D1 "Error:" refusal and its
+message are gone — D1 is superseded). `MEMBER` is the sink name and `[OPERAND]` is
+`CB` for `each`, `NAME` for `toArray`, `INST` for `toList`, and absent (single
+space) for `first`/`count`.
 
 CMD is executed as `"${argv[@]}"` inside the process substitution: a bash function
 (a kklass static member such as `TGrep.search`, a user wrapper that redirects
@@ -473,11 +491,44 @@ byte-identical to their P1 state.
 
 ---
 
+### P3 — D6 final (owner ruling 2026-09-15; gate: 001–005 green on both bashes, sweep)
+
+- P3.1 **kkore**: `kk.warn MSG...` in `kkore/klib.sh` next to `kk.debug` — prints `$*` to
+  stderr unless `VERBOSE_KKLASS=quiet`, always rc 0, the message is data
+  (`printf '%s\n'`); cases in `kkore/tests/007_DebugAndOutName.sh` (default prints,
+  `debug` prints, `quiet` silent, rc 0, `-n`/`-e` verbatim). **kcl README §1.2** gets
+  the paragraph: three levels of `VERBOSE_KKLASS` (quiet / default / debug); an
+  *error* is `kk.debug` (debug only); a *warning* — the call worked but very likely
+  not as intended — is `kk.warn` (always, unless quiet), and a unit that warns
+  documents the exact line and the per-call way to silence it.
+- P3.2 **tpipe**: the D1 refusal branch becomes the D6 warning rule (§2.4, §2.5):
+  callback-kind detection for `each` (`[[ $cb == *.* ]] && declare -p "${cb%%.*}_data"`,
+  builtin, no fork, on the warning path only), the `-s` flag through the parser,
+  `KK_SUBSHELL_OK`, the two pinned templates via `kk.warn`; `TPipe.each` stops
+  printing RESULT (`RESULT=$n; return $rc`, no `tpipe._ret` on any of its paths);
+  the stdin form in a pipe RHS now reads and delivers. Tests: 001 F1 (was rc 2) and
+  every D1 case rewritten to the new behaviour; 004 gets the warning matrix (§2.4)
+  and the `each`-never-prints pins (`x=$(TPipe.each fmt -- …)` is exactly fmt's
+  bytes; `TPipe.each fmt -- cmd | cat` likewise). README: the D1/D6 section rewritten
+  around the owner's nine answers, the recipes for Q8, the kklass roadmap pointer;
+  docs/TPipe.md §11 + a "D6 final" section; TEST_COVERAGE_NOTES; kcl README §2 row:
+  deviation (b) is now "`each` never prints RESULT" (the refusal is gone); ledger.
+- P3.3 tutil P4 in the same worker cycle (tutil PLAN §5 P4).
+
+---
+
 ## 6. Bash traps to respect
 
 - `read` without `IFS=` strips leading/trailing blanks; without `-r` eats backslashes.
 - The delimiter is passed as a value (`-d "$d"`), never as an expansion-built option
   word (§2.2, F11).
+- The subshell warning is decided AFTER validation and BEFORE `_open`: an rc 2 path
+  never warns, and the warning never changes rc or RESULT (D6 final).
+- `each` answers `RESULT=$n; return $rc` directly — never `tpipe._ret` — so nothing of
+  ours reaches a stdout that belongs to the callback (Q7).
+- Callback-kind detection is `[[ "$cb" == *.* ]] && declare -p "${cb%%.*}_data"`: an
+  instance wrapper is `inst.member` with a live `${inst}_data`; a static member
+  (`Class.member`) has none and is treated like a plain function.
 - `(( __TPIPE_STOP ))` as a statement returns 1 when 0 → always inside `if`.
 - `declare -F "$cb"` ACCEPTS `--` as a callback (it is read as the end-of-options marker, rc 0, no output — measured on both bashes): the validator is `declare -F -- "$cb"`, and `_open` refuses an operand equal to `--` on its own (P0 finding).
 - `exec {fd}<&-` **before** `wait`, never after — otherwise a blocked producer never

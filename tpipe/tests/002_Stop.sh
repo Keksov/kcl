@@ -147,11 +147,11 @@ fi
 # P1 re-points F4/F5 at `TPipe.first`, which takes the same close-kill-wait path
 # for free after its single record (PLAN §3). The each+stop cases above stay:
 # they pin the same engine path reached through an explicit TPipe.stop.
-kt_test_start "F4 (first): \`TPipe.first -- yes\` returns 'y' in < 250 ms, lastRc 141 or 143"
+kt_test_start "F4 (first): \`TPipe.first -- yes\` returns 'y' in < 1 s (the 250 ms gate lives in bench.sh/005; this ceiling is loose for the threaded runner), lastRc 141 or 143"
 run_child fyes
 us="${CH_OUT##*us=}"
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=y lastrc=14"[13]" us="* \
-      && "$us" =~ ^[0-9]+$ && $us -lt 250000 ]]; then
+      && "$us" =~ ^[0-9]+$ && $us -lt 1000000 ]]; then
     kt_test_pass "F4 (first): $CH_OUT"
 else
     kt_test_fail "F4 (first -- yes): timeout rc=$CH_RC out='$CH_OUT'"

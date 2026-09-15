@@ -1,9 +1,13 @@
 # tpipe — test coverage notes
 
-**Status: FINALIZED at P2 (2026-09-11).** Suite `001`–`005` = **165 cases**,
-green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
-threaded mode and under `--mode single`. The per-file row counts below sum to
-165 — 37 + 13 + 68 + 41 + 6 — and **every case in the suite has a row**.
+**Status: updated at P3 (D6 final, 2026-09-15); previously FINALIZED at P2
+(2026-09-11).** Suite `001`–`005` = **190 cases**, green on bash 5.2.37 (primary)
+and on bash 5.3.9 (secondary), in the default threaded mode and under
+`--mode single`. The per-file counts below sum to 190 —
+44 + 13 + 68 + 59 + 6 — and **every case in the suite has a row**. (The P2
+edition of this page carried 165 with `004` written down as 41; the file was
+already 47 cases then, because `004`'s `check_rc2` / `expect_clean` helpers each
+raise a case of their own. The counts here are now the runner's.)
 
 **Protocol.** `TPipe` has **no upstream**: it is a kcl addition (`PLAN.md` §1.2),
 so there is no FPC seed procedure to cite and nothing to argue from a Pascal
@@ -15,7 +19,9 @@ gives — and the design rests on a list of measured bash facts, **F1–F16**
 * **F1–F16** — a pinned fact of `PLAN.md` §3. The measurement behind each one,
   as a runnable script with its output on both bashes, is
   [docs/TPipe.md](docs/TPipe.md).
-* **D1 / D2 / D6** — an owner or supervisor decision (`PLAN.md` §2.0).
+* **D2 / D6 final (Q1–Q9)** — an owner decision (`PLAN.md` §2.0). **D1**, the old
+  rc 2 refusal of the stdin form in a subshell, was **superseded** by D6 final on
+  2026-09-15; the rows that cited it are now the warning rows of §G / §3.
 * **C1–C23** — a finding of the 2026-09-10 critic pass (`PLAN.md` §8, same
   numbering).
 * **P0-Fn / P1-Fn** — a finding made by the implementing worker in that phase
@@ -51,11 +57,11 @@ gives — and the design rests on a list of measured bash facts, **F1–F16**
 
 ---
 
-## 001_Each.sh — the engine and `TPipe.each` (P0) — 37 cases
+## 001_Each.sh — the engine and `TPipe.each` (P0, §G/§J rewritten at P3) — 44 cases
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 001.harness-frame | — | the test file itself runs at `BASH_SUBSHELL` 0 | contract | the D1 message pins the value, so this must hold for §G to mean anything |
+| 001.harness-frame | — | the test file itself runs at `BASH_SUBSHELL` 0 | contract | the warning templates pin `BASH_SUBSHELL=1`, so this must hold for §G to mean anything |
 | 001.rc-external-4 | each, lastRc | an external producer exiting 4 → `RESULT` 1, rc 1, `lastRc` 4 | contract | **F3** |
 | 001.rc-function-6 | each, lastRc | a shell **function** producer exiting 6 → `lastRc` 6 | contract | **F3** — a function is as good a producer as an executable (this is what lets `-- TGrep.search …` work) |
 | 001.rc-missing-127 | each, lastRc | a command that does not exist → 0 records, rc 1, `lastRc` 127 | contract | **F3**, §2.5 — no `type` pre-check; `wait` reports it |
@@ -79,10 +85,14 @@ gives — and the design rests on a list of measured bash facts, **F1–F16**
 | 001.rc2-flag-after-cb | each | a flag written **after** the callback → rc 2 | contract | §2.5 step 3, C15 |
 | 001.rc2-word-after-cb | each | any other word after the callback → rc 2 | contract | §2.5 step 3, C15 |
 | 001.rc2-empty-argv | each | `--` with an empty producer argv → rc 2, not "read stdin" | contract | §2.5 step 4 |
-| 001.d1-refusal | each | `producer \| TPipe.each cb` → rc 2, `RESULT=''`, the callback **never** runs | contract | **F1**, **D1** — proved with a callback that appends to a FILE, the only side effect that survives a subshell |
-| 001.d1-message | each | under `VERBOSE_KKLASS=debug` the refusal prints **exactly** the pinned line | contract | **D1**, §2.5, C16 |
-| 001.d1-silent | each | with the switch off the refusal is completely silent | contract | §1.2 |
-| 001.d1-cmdsubst | each | the same refusal inside `$( )` — the other accidental subshell | contract | **D1**, **F2** |
+| 001.sub-delivers | each | `producer \| TPipe.each r.onLine` **delivers** both records and answers rc 0 — nothing is refused | contract | **F1**, **D6 final Q1** — proved with an instance callback that also appends to a FILE, the only side effect that survives a subshell |
+| 001.sub-parent-untouched | each | …and the object in the **parent** is unchanged (`RL.N` still 0) — the reason the warning exists | bash-convention | **F1** |
+| 001.sub-warn-verbatim | each | exactly ONE line, the **stdin template**, byte-exact, with the callback name as written and the operand label `CB` | contract | **D6 final Q2/Q3**, §2.4 |
+| 001.sub-warn-switch-off | each | the same single line with `VERBOSE_KKLASS` **unset** and under `debug` — it is `kk.warn`, not `kk.debug` | contract | **D6 final Q6** |
+| 001.sub-warn-flag-s | each | `-s` silences it and the records still arrive | contract | **D6 final Q3** |
+| 001.sub-warn-quiet | each | `VERBOSE_KKLASS=quiet` silences it | contract | **D6 final Q6** |
+| 001.sub-plain-silent | each | a **plain function** callback in the same pipe RHS delivers and says nothing | contract | **D6 final Q2** — a plain callback loses nothing a subshell can take |
+| 001.sub-cmdsubst | each | the stdin form inside `$( )` — same template, delivered, and **nothing on stdout** | contract | **D6 final Q1/Q7**, **F2** |
 | 001.stdin-ok | each | the stdin form **outside** any subshell works | contract | §1.3 |
 | 001.stdin-lastrc | each, lastRc | after a stdin-form sink `lastRc` is `-1` | contract | C11 — there was no producer of ours |
 | 001.lastpipe-delivers | each | under `shopt -s lastpipe` the pipe RHS runs in this shell and delivers | bash-convention | **F2** |
@@ -90,8 +100,11 @@ gives — and the design rests on a list of measured bash facts, **F1–F16**
 | 001.lastpipe-pipestatus | each, lastRc | `PIPESTATUS[0]` is the producer's own rc; `lastRc` stays `-1` | bash-convention | **F2**, C11 |
 | 001.form12-plain | each | README form 1 (pipe + `lastpipe`) and form 2 (`--`) agree, plain function | cross-check | README §2 |
 | 001.form12-instance | each | the same two forms agree with `r.onLine` | cross-check | README §2 |
-| 001.d6-allowed | each | `x=$(TPipe.each fn -- cmd)` is allowed and `tpipe._ret` prints `RESULT` exactly once | contract | **D6**, C17 |
-| 001.d6-warning | each | the D6 line is a **warning**, not a refusal — the records are still delivered | contract | **D6**, C4 |
+| 001.q7-cmdsubst | each | `x="$(TPipe.each fmt -- p3)"` is **exactly** what `fmt` wrote — no record count | contract | **D6 final Q7**, C17 |
+| 001.q7-pipe | each | `TPipe.each fmt -- p3 \| cat` likewise | contract | **D6 final Q7** |
+| 001.q7-direct | each | a DIRECT call still sets `RESULT` to the count and prints nothing | contract | **D6 final Q7**, §2.4 |
+| 001.q7-rc2 | each | an rc 2 path leaves `RESULT=''` and prints nothing, direct or in `$( )` | contract | **D6 final Q7**, §1.2 |
+| 001.cmd-plain-silent | each | the `--` form under `$( )` with a plain callback delivers, prints nothing, warns not at all | contract | **D6 final Q2**, C4 |
 
 ## 002_Stop.sh — `stop`, `lastRc`, the close-kill-wait path (P0) — 13 cases
 
@@ -100,7 +113,7 @@ gives — and the design rests on a list of measured bash facts, **F1–F16**
 | 002.lastrc-initial | lastRc | `-1` before any sink has run (this section must stay first in the file) | contract | §2.4 — the "no producer of ours" sentinel |
 | 002.f4-each-yes | each, stop, lastRc | a stop on the first record of `yes` → 1 record, rc 0, the producer dead, `lastRc` **141 or 143** | bash-convention | **F4** — the close/kill race; both answers correct (§2.3) |
 | 002.f5-each-sigpipe | each, stop, lastRc | a producer that **ignores SIGPIPE and stops writing** (`trap '' PIPE; echo a; sleep 8`) is terminated in < 1 s with `lastRc` 143 | bash-convention | **F5**, **C2** — without the `kill -TERM`, `wait` blocks 8.0 s (measured, docs §4) |
-| 002.f4-first-yes | first, lastRc | `TPipe.first -- yes` returns `y` in < 250 ms, `lastRc` 141 or 143 | bash-convention | **F4**, re-pointed at `first` at P1 (`PLAN.md` §3) |
+| 002.f4-first-yes | first, lastRc | `TPipe.first -- yes` returns `y` in < 1 s (loose for the threaded runner; the 250 ms gate is 005/bench.sh — a 263 ms run under the 5.3.9 master sweep tripped the old ceiling), `lastRc` 141 or 143 | bash-convention | **F4**, re-pointed at `first` at P1 (`PLAN.md` §3) |
 | 002.f5-first-sigpipe | first, lastRc | the same SIGPIPE-ignoring producer through `first`: < 1 s, `lastRc` 143 | bash-convention | **F5** |
 | 002.f6-bang-clobber | each, lastRc | a callback that starts a background job (`( : ) & wait $!`) does not disturb the captured producer pid | bash-convention | **F6** |
 | 002.f12-outer-first | each, stop | an outer stop requested **before** an inner sink survives it: outer 2, inner 4 | boundary | **F12**, **C3** — the frame-local slot; the global-flag draft lost this |
@@ -241,7 +254,7 @@ and give the producer `2>/dev/null`: a closed pipe routinely makes it print
 | 003.fork-arr | toArray | the only fork per call is the producer: 5 records, one producer pid | contract | §1.8 |
 | 003.fork-count-first | count, first | the same single producer pid | contract | §1.8 |
 
-## 004_Contract.sh — the kcl-wide contract (P1) — 41 cases
+## 004_Contract.sh — the kcl-wide contract (P1, §3/§4 rewritten at P3) — 59 cases
 
 ### 0. source integrity — 2 cases
 
@@ -297,26 +310,54 @@ Each row asserts three things at once: rc 2, **exactly one** line on stderr with
 | 004.dbg-count-noargv | count | `--` with no producer |
 | 004.dbg-each-notfn | each | a callback that is not a function |
 
-### 3. the D1 line, verbatim — 3 cases
+### 3. the D6-final subshell warnings — 12 cases
+
+Both templates are **rebuilt from their parts inside the test file**, so the
+assertions pin the text rather than comparing the unit with itself. The driver
+runs each call inside `$( )` (`BASH_SUBSHELL` 1, exactly as a pipe RHS) with a
+two-record here-string on stdin.
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 004.d1-verbatim | all five | the stdin form in a subshell is rc 2 with **exactly** the pinned line, for every sink — the operand label varies (`CB` / `NAME` / `INST` / nothing) and **nothing else does**, including the single space where `first`/`count` have no operand | contract | **D1**, §2.5, C16 |
-| 004.d1-silent | all five | with the switch off the refusal is completely silent | contract | §1.2 |
-| 004.d1-pipe-rhs | each | the pipe-RHS shape (no `lastpipe`) refuses too and reads **nothing** | contract | **F1**, **D1** |
+| 004.d6-templates | each, toArray, toList | **both** templates, byte-exact, for all three warning sinks (6 sub-cases): the stdin form names `lastpipe` and the `--` form with the operand **label**; the `--` form says "move the call out of `$( )` / `( )`" | contract | **D6 final Q2**, §2.4 |
+| 004.d6-answer-unchanged | toArray, toList | the records still arrive next to the warning: `RESULT` 2, rc 0 | contract | **D6 final Q1** — a warning changes neither rc nor `RESULT` |
+| 004.d6-first-count-silent | first, count | **never** warn, in either form (4 sub-cases) | contract | **D6 final Q2** — `RESULT` is the answer and the caller reads it |
+| 004.d6-callback-kind | each | a **plain function** and a **static member** callback are both silent, in either form (4 sub-cases) — a dotted static name has no `_data` | contract | **D6 final Q2**, §6 (`declare -p "${cb%%.*}_data"`) |
+| 004.d6-flag-s | each, toArray, toList | `-s` silences all three in both forms (6 sub-cases) and leaves the rc alone | contract | **D6 final Q3** |
+| 004.d6-flag-s-inert | first, count | `-s` is **accepted** by the operand-less sinks and is inert (no rc 2 for an unknown flag) | contract | §1.3 |
+| 004.d6-var-prefix | toArray | `KK_SUBSHELL_OK=1 TPipe.toArray … ` as a **prefix assignment** silences it | contract | **D6 final Q3** — the variable is the primitive |
+| 004.d6-var-block | each, toArray, toList | `local KK_SUBSHELL_OK=1` covers a whole frame and ends with it; the next call outside warns again | contract | **D6 final Q3/Q4**, the dynamic-scoping seam `__TPIPE_QUIET` uses |
+| 004.d6-quiet | each, toArray | `VERBOSE_KKLASS=quiet` silences it corpus-wide, `RESULT` unchanged | contract | **D6 final Q6** |
+| 004.d6-switch-off-and-on | toArray | the **same single line** with the debug switch off and with it on — a warning is not a debug line, and there is no second copy | contract | **D6 final Q6** |
+| 004.d6-rc2-never-warns | toArray | an rc 2 path in a subshell prints its `Error:` line under `debug`, nothing without it, and **never** a `Warning:` | contract | **D6 final**, §2.5 step 5 — the decision is made after validation |
+| 004.d6-subshell-zero | each, toArray, toList | at `BASH_SUBSHELL` 0 nothing warns at all, the stdin form included (6 calls) | contract | **F2** — the position the unit exists for |
 
-### 4. the D6 warning, verbatim — 2 cases
+### 4. Q7 — `each` never prints — 5 cases
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 004.d6-verbatim | all five | the `--` form in a subshell is **allowed** with exactly the pinned warning, for every sink | contract | **D6**, C4 |
-| 004.d6-silent | all five | with the switch off it is silent | contract | §1.2 |
+| 004.q7-cmdsubst | each | `x="$(TPipe.each fmt -- printf 'a\nb\n')"` is exactly `fmt`'s output | contract | **D6 final Q7**, C17 |
+| 004.q7-pipe | each | `TPipe.each fmt -- cmd \| cat` likewise | contract | **D6 final Q7** |
+| 004.q7-direct | each | a DIRECT call sets `RESULT` to the count and writes nothing to stdout | contract | **D6 final Q7**, §2.4 |
+| 004.q7-rc2 | each | an rc 2 path leaves `RESULT=''` and prints nothing, direct or in `$( )` | contract | §1.2 |
+| 004.q7-rc1-count | each, lastRc | rc 1 (producer exited 4) still answers with the count in `RESULT`, `lastRc` 4, nothing printed | contract | the named deviation, C5 |
 
 ### 5. silence on the success paths — 1 case
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
 | 004.silent-rc01 | all seven | TPipe prints nothing on any rc 0 / rc 1 path, **with the debug switch on** | contract | §1.1/§1.2; the producer's own stderr is out of scope (C19), so stop-path producers get `2>/dev/null` |
+
+### 6. `__TPIPE_QUIET` — the composing caller's opt-out — 6 cases
+
+| ID | Members | Case | Class | Basis |
+|---|---|---|---|---|
+| 004.quiet-on | count | with `local __TPIPE_QUIET=1` in the caller's frame the sink prints nothing and `RESULT` is still set | contract | **P1 finding** — `$(u.count)` read `22` without it |
+| 004.quiet-default | count | without it the same sink prints its `RESULT` once (the default is unchanged) | contract | §1.1 |
+| 004.quiet-callback-stdout | each | the opt-out silences `tpipe._ret` only — a callback's own stdout still flows | contract | README §7 |
+| 004.quiet-add-stdout | toList | nor does it touch a `toList` target's `.Add` output | contract | README §7 — a `>/dev/null` on the delegated call would have |
+| 004.quiet-direct | count | a DIRECT call is unaffected in either state (nothing is printed at `BASH_SUBSHELL` 0 anyway) | contract | §1.1 |
+| 004.quiet-setu-global | (unit) | the load-time global is readable under `set -u` outside any sink | contract | §6 — the `set -u` floor for every `__TPIPE_*` name |
 
 ## 005_Bench.sh — the §2.6 performance gates (P2) — 6 cases
 
@@ -345,8 +386,8 @@ milliseconds earlier, so a slow machine moves both numbers.
 
 | Fact | Where it is asserted |
 |---|---|
-| **F1** RHS of `\|` is a subshell; object state lost | 001.d1-refusal, 001.d1-message, 004.d1-pipe-rhs |
-| **F2** `BASH_SUBSHELL` 1 in the pipe RHS, 0 under `lastpipe`, also for a static member | 001.lastpipe-delivers, 001.lastpipe-mutates, 001.lastpipe-pipestatus, 001.d1-cmdsubst |
+| **F1** RHS of `\|` is a subshell; object state lost | 001.sub-delivers, 001.sub-parent-untouched, 001.sub-warn-verbatim |
+| **F2** `BASH_SUBSHELL` 1 in the pipe RHS, 0 under `lastpipe`, also for a static member | 001.lastpipe-delivers, 001.lastpipe-mutates, 001.lastpipe-pipestatus, 001.sub-cmdsubst, 004.d6-subshell-zero |
 | **F3** `exec {fd}< <(cmd); pid=$!; wait $pid` = the producer's rc | 001.rc-external-4, 001.rc-function-6, 001.rc-missing-127, 003.dev-127 |
 | **F4** closing the fd kills an infinite producer; `wait` returns | 002.f4-each-yes, 002.f4-first-yes, 005.gate-first |
 | **F5** a SIGPIPE-ignoring producer that stops writing is terminated | 002.f5-each-sigpipe, 002.f5-first-sigpipe |
@@ -361,3 +402,17 @@ milliseconds earlier, so a slow machine moves both numbers.
 | **F14** rc 2 paths run nothing and leave stdin intact | 003.f14-arr, 003.f14-others |
 | **F15** an associative / readonly / integer target is refused with rc 2 and no stderr | 003.bad-assoc, 003.bad-ro-array, 003.bad-ro-scalar, 003.bad-int, 004.dbg-arr-assoc, 004.dbg-arr-int |
 | **F16** the producer inherits the caller's stdin | 003.f16-arr, 003.f16-others |
+
+## D6 final (2026-09-15) — where each of the nine answers is asserted
+
+| Answer | Where |
+|---|---|
+| **Q1** nothing is refused because of a subshell | 001.sub-delivers, 001.sub-cmdsubst, 004.d6-answer-unchanged |
+| **Q2** a warning only where the loss is certain (callback kind; `first`/`count` never) | 004.d6-templates, 004.d6-callback-kind, 004.d6-first-count-silent, 001.sub-plain-silent, 001.cmd-plain-silent, 002.sink-warn-kind *(tutil)* |
+| **Q3** `-s` and `KK_SUBSHELL_OK=1`, per call and per block | 004.d6-flag-s, 004.d6-flag-s-inert, 004.d6-var-prefix, 004.d6-var-block, 001.sub-warn-flag-s |
+| **Q4** the switch is kcl-wide (`KK_`) and survives a wrapper | 004.d6-var-block; tutil `002.sink-kkvar`, tgrep `006.subshellok` |
+| **Q5** one line per call, no de-duplication | every `ERRN -eq 1` assertion of 004 §3 |
+| **Q6** the line goes through `kk.warn`: printed with the debug switch off, silenced by `quiet` | 004.d6-switch-off-and-on, 004.d6-quiet, 001.sub-warn-switch-off, 001.sub-warn-quiet, and `kkore/tests/007_DebugAndOutName.sh` for the helper itself |
+| **Q7** `each` never prints | 004 §4 (5 cases), 001 §J (5 cases) |
+| **Q8** recipes, no unit change | `../README.md` §3 — nothing to assert in code |
+| **Q9** `tutil` gets `var subshellOk` | tutil `001`/`002`/`003`, tgrep `004`/`006` |

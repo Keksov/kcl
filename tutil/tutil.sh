@@ -50,6 +50,9 @@ source "$TUTIL_DIR/../tpipe/tpipe.sh"
 #   var  crlf       1 -> the sinks strip one trailing CR per record (TPipe -c)
 #   var  nul        1 -> records are NUL-terminated (TPipe -0)
 #   var  _lastRc    raw rc of the last run/sink; -1 until one ran
+#   var  subshellOk 1 -> every sink passes `-s` to TPipe, i.e. "the subshell
+#                   scope is intended", which silences TPipe's D6 subshell
+#                   warning for this instance's calls (D6 final Q9); default 0
 #   Create [CMD [ARG...]]   assigns EVERY var; ARGs become ${inst}_args
 #   Destroy                 frees ${inst}_args and ${inst}_argv (§1.9)
 #   buildArgv               virtual; fills ${inst}_argv; RESULT = count
@@ -67,8 +70,8 @@ source "$TUTIL_DIR/../tpipe/tpipe.sh"
 #   mapRc RAW               virtual; RESULT = the normalised rc
 #
 # ---- Reserved member names (PLAN §1.2) -------------------------------------
-# TUtil owns `cmd crlf nul _lastRc buildArgv addArg clearArgs argv run each
-# toArray toList first count lastRc mapRc`; kklass owns `property call parent
+# TUtil owns `cmd crlf nul _lastRc subshellOk buildArgv addArg clearArgs argv
+# run each toArray toList first count lastRc mapRc`; kklass owns `property call parent
 # delete` on every instance. A DESCENDANT must never declare a `var` with any of
 # those names: the method wrapper is generated after the property wrapper and
 # wins silently (kklass.sh:911), so `obj.count = 5` would be accepted and
@@ -133,6 +136,7 @@ class TUtil
         var  crlf
         var  nul
         var  _lastRc
+        var  subshellOk
         constructor Create
         destructor  Destroy
         func buildArgv
@@ -201,12 +205,18 @@ tutil._badOut() {
 #      kklass.sh. TPipe deliberately does not pre-check (it takes an arbitrary
 #      argv); TUtil owns `cmd`, so it can. `_lastRc` IS updated here: the call
 #      was well formed, it simply could not be executed.
-#   3. the TPipe flag words, from the two properties: `nul == 1` -> `-0`,
-#      `crlf == 1` -> `-c`. They go into the caller's `__tu_fl` ARRAY, never
-#      into an expansion-built option word (`${nul:+-0}` is re-split by the
-#      caller's IFS — the bug tpipe PLAN §2.3 records). Booleans are compared as
-#      strings: `(( nul ))` on a non-numeric property is 0 in silence, or an
-#      arithmetic injection.
+#   3. the TPipe flag words, from the three properties: `nul == 1` -> `-0`,
+#      `crlf == 1` -> `-c`, `subshellOk == 1` -> `-s`. They go into the caller's
+#      `__tu_fl` ARRAY, never into an expansion-built option word (`${nul:+-0}`
+#      is re-split by the caller's IFS — the bug tpipe PLAN §2.3 records).
+#      Booleans are compared as strings: `(( nul ))` on a non-numeric property
+#      is 0 in silence, or an arithmetic injection.
+#
+#      `subshellOk` is the object-style spelling of TPipe's `-s` (D6 final Q9)
+#      and does nothing but silence TPipe's subshell warning for this
+#      instance's sinks. The dynamically scoped `KK_SUBSHELL_OK=1` is the same
+#      switch for one call or one block and needs no code here at all: it
+#      reaches TPipe straight through this frame.
 #
 # `$cmd`, `$nul`, `$crlf`, `$_lastRc` and `$__inst__` are the member frame's
 # namerefs/locals, reached through bash's DYNAMIC scoping exactly as the
@@ -235,6 +245,9 @@ tutil._prep() {
     if [[ "$crlf" == 1 ]]; then
         __tu_fl+=( -c )
     fi
+    if [[ "$subshellOk" == 1 ]]; then
+        __tu_fl+=( -s )
+    fi
     return 0
 }
 
@@ -254,6 +267,7 @@ TUtil.Create() {
     crlf=0
     nul=0
     _lastRc=-1
+    subshellOk=0
     declare -ga "${__inst__}_args=()"
     declare -ga "${__inst__}_argv=()"
     local -n __tu_a="${__inst__}_args"

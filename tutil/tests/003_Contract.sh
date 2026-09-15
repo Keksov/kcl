@@ -16,7 +16,11 @@
 #   §1.2 diagnostics  exactly ONE `kk.debug` line on every rc 2 path and on the
 #                     rc 1 + `lastRc` 127 path, NOTHING on any rc 0 or plain
 #                     rc 1 path, and nothing at all with the switch off.
-#   D6                the `--` form under `$( )` is allowed and says so once.
+#   D6 final          a sink under `$( )` is never refused; `toArray`/`toList`
+#                     warn ONCE through `kk.warn` (printed with the debug switch
+#                     OFF), `count`/`first` never do, and `subshellOk = 1`,
+#                     `KK_SUBSHELL_OK=1` and `VERBOSE_KKLASS=quiet` each
+#                     silence it.
 #   zero forks        the callback runs at the script's own BASHPID under
 #                     `set -eu`.
 #
@@ -411,22 +415,89 @@ else
     kt_test_fail "count line='$l1' toArray line='$l2'"
 fi
 
-kt_test_start "D6: the \`--\` form under \`\$( )\` warns ONCE under the switch and is silent without it"
-: > "$DBGF"
+# --- D6 final (owner ruling 2026-09-15, tutil PLAN P4.2) --------------------
+# The subshell warning is NOT a debug line: it goes through `kk.warn`, so it is
+# printed with the switch OFF and silenced only by `VERBOSE_KKLASS=quiet`, by
+# `-s` (spelled `subshellOk = 1` on an instance) or by `KK_SUBSHELL_OK=1`. And
+# it is printed only where the loss is CERTAIN: `count` and `first`, whose whole
+# answer is RESULT, never warn — which is what the case below used to assert the
+# opposite of.
+
+# sub3 COMMAND... — run it inside `$( )`; SUB_OUT / SUB_RC / SUB_N / SUB_1.
+sub3() {
+    : > "$DBGF"
+    SUB_OUT="$( "$@" 2>"$DBGF" )"
+    SUB_RC=$?
+    local ln
+    SUB_L=()
+    while IFS= read -r ln || [[ -n "$ln" ]]; do SUB_L+=( "$ln" ); done < "$DBGF"
+    SUB_N=${#SUB_L[@]}
+    SUB_1="${SUB_L[0]:-}"
+    return 0
+}
+
+kt_test_start "D6: \`\$(u.count)\` and \`\$(u.first)\` NEVER warn, switch on or off"
+sub3 dOk.count
+c_n=$SUB_N; c_out="$SUB_OUT"
 VERBOSE_KKLASS=debug
-o="$(dOk.count 2>"$DBGF")"
+sub3 dOk.count
+c_dn=$SUB_N
 VERBOSE_KKLASS=
-DBG_LINES=()
-while IFS= read -r ln || [[ -n "$ln" ]]; do DBG_LINES+=( "$ln" ); done < "$DBGF"
-n=${#DBG_LINES[@]}
-first="${DBG_LINES[0]:-}"
-: > "$DBGF"
-o2="$(dOk.count 2>"$DBGF")"
-q="$(<"$DBGF")"
-if [[ "$o" == "2" && "$o2" == "2" && $n -eq 1 && "$first" == "Warning: TPipe.count: running in a subshell"* && -z "$q" ]]; then
-    kt_test_pass "one Warning line, value still '2': ${first:0:70}"
+sub3 dQ.first
+f_n=$SUB_N; f_out="$SUB_OUT"
+if [[ $c_n -eq 0 && $c_dn -eq 0 && $f_n -eq 0 && "$c_out" == "2" && "$f_out" == "a" ]]; then
+    kt_test_pass "silent both ways, values still 2 and 'a'"
 else
-    kt_test_fail "out='$o'/'$o2' lines=$n first='$first' quiet='$q'"
+    kt_test_fail "count lines=$c_n/$c_dn out='$c_out' / first lines=$f_n out='$f_out'"
+fi
+
+kt_test_start "D6: \`\$(u.toArray NAME)\` warns ONCE with the DEBUG SWITCH OFF"
+declare -a D6_ARR=()
+sub3 dOk.toArray D6_ARR
+exp="Warning: TPipe.toArray: the array D6_ARR is filled inside a subshell (BASH_SUBSHELL=1) — the calling shell will not see it; move the call out of \$( ) / ( ); if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1"
+if [[ "$SUB_OUT" == "2" && $SUB_RC -eq 0 && $SUB_N -eq 1 && "$SUB_1" == "$exp" ]]; then
+    kt_test_pass "one line, verbatim, value still '2'"
+else
+    kt_test_fail "out='$SUB_OUT' rc=$SUB_RC lines=$SUB_N first='$SUB_1'"
+fi
+
+kt_test_start "D6: and the SAME single line under \`VERBOSE_KKLASS=debug\` — no second copy"
+VERBOSE_KKLASS=debug
+sub3 dOk.toArray D6_ARR
+VERBOSE_KKLASS=
+if [[ $SUB_N -eq 1 && "$SUB_1" == "$exp" ]]; then
+    kt_test_pass "a warning is not a debug line"
+else
+    kt_test_fail "lines=$SUB_N first='$SUB_1'"
+fi
+
+kt_test_start "D6: \`subshellOk = 1\`, \`KK_SUBSHELL_OK=1\` and \`quiet\` each silence it"
+dOk.subshellOk = 1
+sub3 dOk.toArray D6_ARR
+s_n=$SUB_N; s_out="$SUB_OUT"
+dOk.subshellOk = 0
+: > "$DBGF"
+k_out="$(KK_SUBSHELL_OK=1 dOk.toArray D6_ARR 2>"$DBGF")"
+k_err="$(<"$DBGF")"
+VERBOSE_KKLASS=quiet
+sub3 dOk.toArray D6_ARR
+VERBOSE_KKLASS=
+q_n=$SUB_N; q_out="$SUB_OUT"
+if [[ $s_n -eq 0 && "$s_out" == "2" && -z "$k_err" && "$k_out" == "2" \
+   && $q_n -eq 0 && "$q_out" == "2" ]]; then
+    kt_test_pass "three switches, three silences, RESULT unchanged each time"
+else
+    kt_test_fail "subshellOk lines=$s_n out='$s_out' / KK_SUBSHELL_OK err='$k_err' out='$k_out' / quiet lines=$q_n out='$q_out'"
+fi
+
+kt_test_start "D6: a DIRECT sink call (BASH_SUBSHELL 0) warns about nothing"
+: > "$DBGF"
+dOk.toArray D6_ARR 2>"$DBGF" >/dev/null
+d_err="$(<"$DBGF")"
+if [[ -z "$d_err" ]]; then
+    kt_test_pass "the position the unit exists for is silent"
+else
+    kt_test_fail "stderr='$d_err'"
 fi
 
 dEmpty.delete

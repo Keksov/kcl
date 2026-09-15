@@ -15,8 +15,15 @@
 #                         rc 1 must be what ends the child — exit status 1, not
 #                         the producer's 4 leaking out of an unguarded `wait`.
 #   §1.2 diagnostics  a malformed CALL is rc 2 and prints EXACTLY ONE line under
-#                     `VERBOSE_KKLASS=debug` and NOTHING without it; the D1 and
-#                     D6 lines are asserted VERBATIM (PLAN §2.5) for every sink.
+#                     `VERBOSE_KKLASS=debug` and NOTHING without it.
+#   D6 final          a sink in a subshell is never refused; when the loss is
+#                     CERTAIN it prints ONE `kk.warn` line — both templates
+#                     (PLAN §2.4) asserted VERBATIM for `each` / `toArray` /
+#                     `toList`, with the silence of `first` / `count`, of a
+#                     plain-function and a static-member callback, and of every
+#                     sink under `-s`, `KK_SUBSHELL_OK=1` and
+#                     `VERBOSE_KKLASS=quiet`.
+#   D6 final Q7       `TPipe.each` never prints: its stdout is the callback's.
 #   §1.1/§1.2 silence TPipe itself prints nothing on any rc 0 / rc 1 path.
 #
 # Every test sets its own stdin explicitly: ktests gives a test child the
@@ -342,119 +349,345 @@ check_rc2 "count: '--' with no producer"            TPipe.count --
 check_rc2 "each: a callback that is not a function" TPipe.each tpipe_no_cb_004 -- dbg_p
 
 # ===========================================================================
-kt_test_section "3. the D1 line, verbatim, for every sink"
+kt_test_section "3. the D6-final subshell warnings, verbatim"
 # ===========================================================================
+# The owner's ruling of 2026-09-15 (PLAN §2.0 D6 final, nine answers):
+#
+#   Q1  a sink in a subshell is NEVER refused — the D1 rc 2 is gone;
+#   Q2  a warning only when the loss is CERTAIN: `each` whose callback is an
+#       INSTANCE member, `toArray`, `toList`. `each` with a plain function or a
+#       STATIC member, and `first`/`count`, say nothing at all;
+#   Q3  two per-call ways to silence it: the flag `-s` and the dynamically
+#       scoped `KK_SUBSHELL_OK=1`;
+#   Q5  one line per call, no de-duplication;
+#   Q6  it goes through `kk.warn`, so it is printed with the debug switch OFF
+#       and silenced by `VERBOSE_KKLASS=quiet`.
+#
+# The two templates are rebuilt HERE from their parts, so the assertion is a
+# real pin and not a comparison of the unit with itself.
 
-# PLAN §2.5 pins this text. Two things vary and nothing else does: the member
-# name, and the OPERAND label in the suggested `--` form — `CB` for `each`,
-# `NAME` for `toArray`, `INST` for `toList`, and nothing at all for `first` and
-# `count`, which take no operand (so the line reads `TPipe.first -- CMD ...`,
-# with single spaces and no double space where the operand would have been).
-d1_line() {   # $1 = member, $2 = operand label ('' for the operand-less sinks)
-    local __use="TPipe.$1"
-    if [[ -n "$2" ]]; then
-        __use="$__use $2"
+# w_line MEMBER WHAT LABEL FORM — the expected line, byte-exact (PLAN §2.4).
+# FORM `stdin` (no `--`, almost always a pipe RHS) names `lastpipe` and the
+# `--` form; FORM `cmd` (`--` present, almost always an explicit `$( )`) says
+# "move the call out".
+w_line() {
+    if [[ "$4" == "stdin" ]]; then
+        printf '%s' "Warning: TPipe.$1: $2 inside a subshell (BASH_SUBSHELL=1) — the calling shell will not see it; in a pipeline use \`shopt -s lastpipe\` (non-interactive scripts) or the \`TPipe.$1 $3 -- CMD ...\` form at top level; if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1"
+    else
+        printf '%s' "Warning: TPipe.$1: $2 inside a subshell (BASH_SUBSHELL=1) — the calling shell will not see it; move the call out of \$( ) / ( ); if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1"
     fi
-    printf '%s' "Error: TPipe.$1: stdin form ran in a subshell (BASH_SUBSHELL=1); use \`$__use -- CMD ...\`, or \`shopt -s lastpipe\` at the top of a NON-interactive script (lastpipe is inert while job control is on)"
 }
 
-# The stdin form inside `$( )` — BASH_SUBSHELL is 1 there, and the printed
-# RESULT (tpipe._ret prints in a subshell) must be empty on the refusal.
-kt_test_start "D1: the stdin form in a subshell is rc 2 with EXACTLY the pinned line, per sink"
-d1_ok=1
-d1_detail=""
-for member in toArray toList first count each; do
+# sub_case COMMAND... — run the command inside `$( )`, which is BASH_SUBSHELL 1
+# exactly as the RHS of a pipe is, with a two-record here-string on stdin (the
+# stdin form needs it; a `--` producer here ignores it). Sets SUB_OUT (stdout),
+# SUB_RC, ERRL (stderr, one element per line) and ERRN.
+sub_case() {
     : > "$ERRF"
-    VERBOSE_KKLASS=debug
-    case "$member" in
-        toArray) out="$(TPipe.toArray DBG_ARR 2>"$ERRF" <<< $'x\ny')"; drc=$?; lbl="NAME" ;;
-        toList)  out="$(TPipe.toList DL 2>"$ERRF" <<< $'x\ny')";       drc=$?; lbl="INST" ;;
-        each)    out="$(TPipe.each dbg_cb 2>"$ERRF" <<< $'x\ny')";     drc=$?; lbl="CB" ;;
-        first)   out="$(TPipe.first 2>"$ERRF" <<< $'x\ny')";           drc=$?; lbl="" ;;
-        count)   out="$(TPipe.count 2>"$ERRF" <<< $'x\ny')";           drc=$?; lbl="" ;;
-    esac
-    VERBOSE_KKLASS=
-    LNS=()
-    while IFS= read -r ln || [[ -n "$ln" ]]; do LNS+=( "$ln" ); done < "$ERRF"
-    exp="$(d1_line "$member" "$lbl")"
-    if [[ $drc -ne 2 || -n "$out" || ${#LNS[@]} -ne 1 || "${LNS[0]:-}" != "$exp" ]]; then
-        d1_ok=0
-        d1_detail="$d1_detail [$member rc=$drc out='$out' lines=${#LNS[@]} got='${LNS[0]:-}']"
-    fi
-done
-if (( d1_ok )); then
-    kt_test_pass "five sinks, one verbatim line each, RESULT empty"
-else
-    kt_test_fail "$d1_detail"
-fi
-
-kt_test_start "D1: with the switch OFF the refusal is completely silent"
-: > "$ERRF"
-out="$(TPipe.toArray DBG_ARR 2>"$ERRF" <<< $'x\ny')"; rc=$?
-if [[ $rc -eq 2 && -z "$out" && ! -s "$ERRF" ]]; then
-    kt_test_pass "rc 2, nothing on stderr"
-else
-    kt_test_fail "rc=$rc out='$out' err='$(cat "$ERRF")'"
-fi
-
-kt_test_start "D1: the pipe-RHS shape (no lastpipe) refuses too and reads nothing"
-CBLOG="$TMP/d1_cb.log"
-: > "$CBLOG"
-logcb() { printf '%s\n' "$1" >> "$CBLOG"; return 0; }
-OUTF="$TMP/d1.out"
-{ printf 'x\ny\n' | TPipe.each logcb; rc=$?; } 2>/dev/null >"$OUTF"
-n=0
-while IFS= read -r ln; do n=$(( n + 1 )); done < "$CBLOG"
-if [[ $rc -eq 2 && $n -eq 0 && ! -s "$OUTF" ]]; then
-    kt_test_pass "rc 2, callback never ran, RESULT empty"
-else
-    kt_test_fail "rc=$rc callback lines=$n stdout='$(cat "$OUTF")'"
-fi
-
-# ===========================================================================
-kt_test_section "4. the D6 warning, verbatim, for every sink"
-# ===========================================================================
-
-d6_line() {   # $1 = member
-    printf '%s' "Warning: TPipe.$1: running in a subshell (BASH_SUBSHELL=1); records are delivered, but every mutation the callback makes is lost when the subshell exits"
+    SUB_OUT="$( "$@" 2>"$ERRF" <<< $'x\ny' )"
+    SUB_RC=$?
+    ERRL=()
+    local ln
+    while IFS= read -r ln || [[ -n "$ln" ]]; do ERRL+=( "$ln" ); done < "$ERRF"
+    ERRN=${#ERRL[@]}
+    return 0
 }
 
-kt_test_start "D6: the \`--\` form in a subshell is ALLOWED with EXACTLY the pinned warning, per sink"
-d6_ok=1
-d6_detail=""
-for member in toArray toList first count each; do
-    : > "$ERRF"
-    VERBOSE_KKLASS=debug
+# An INSTANCE callback: `DR.onLine` is `inst.member` with a live `DR_data`,
+# which is the whole callback-kind test (`declare -p "${cb%%.*}_data"`).
+class TDbgRec
+    public
+        var         N
+        constructor Create
+        proc        onLine
+end
+TDbgRec.Create() { N=0; return 0; }
+TDbgRec.onLine() { N=$(( N + 1 )); return 0; }
+build TDbgRec
+TDbgRec.new DR
+
+# A STATIC member: `TDbgStat.onLine` also contains a dot, and a static class has
+# no `_data` array — so it is treated like a plain function and never warns.
+class TDbgStat
+    public
+        static proc onLine
+end
+TDbgStat.onLine() { return 0; }
+build TDbgStat
+
+kt_test_start "D6: both templates, byte-exact, for each / toArray / toList"
+w_ok=1
+w_detail=""
+for member in each toArray toList; do
     case "$member" in
-        toArray) out="$(TPipe.toArray DBG_ARR -- dbg_p 2>"$ERRF")"; drc=$?; expres="2" ;;
-        toList)  out="$(TPipe.toList DL -- dbg_p 2>"$ERRF")";       drc=$?; expres="2" ;;
-        each)    out="$(TPipe.each dbg_cb -- dbg_p 2>"$ERRF")";     drc=$?; expres="2" ;;
-        first)   out="$(TPipe.first -- dbg_pq 2>"$ERRF")";          drc=$?; expres="a" ;;
-        count)   out="$(TPipe.count -- dbg_p 2>"$ERRF")";           drc=$?; expres="2" ;;
+        each)    w_what="the instance member DR.onLine runs"; w_lbl="CB" ;;
+        toArray) w_what="the array DBG_ARR is filled";         w_lbl="NAME" ;;
+        toList)  w_what="DL.Add runs";                         w_lbl="INST" ;;
     esac
-    VERBOSE_KKLASS=
-    LNS=()
-    while IFS= read -r ln || [[ -n "$ln" ]]; do LNS+=( "$ln" ); done < "$ERRF"
-    exp="$(d6_line "$member")"
-    if [[ $drc -ne 0 || "$out" != "$expres" || ${#LNS[@]} -ne 1 || "${LNS[0]:-}" != "$exp" ]]; then
-        d6_ok=0
-        d6_detail="$d6_detail [$member rc=$drc out='$out' want='$expres' lines=${#LNS[@]} got='${LNS[0]:-}']"
-    fi
+    for form in stdin cmd; do
+        case "$member/$form" in
+            each/stdin)    sub_case TPipe.each DR.onLine ;;
+            each/cmd)      sub_case TPipe.each DR.onLine -- dbg_p ;;
+            toArray/stdin) sub_case TPipe.toArray DBG_ARR ;;
+            toArray/cmd)   sub_case TPipe.toArray DBG_ARR -- dbg_p ;;
+            toList/stdin)  sub_case TPipe.toList DL ;;
+            toList/cmd)    sub_case TPipe.toList DL -- dbg_p ;;
+        esac
+        w_exp="$(w_line "$member" "$w_what" "$w_lbl" "$form")"
+        if [[ $SUB_RC -ne 0 || $ERRN -ne 1 || "${ERRL[0]:-}" != "$w_exp" ]]; then
+            w_ok=0
+            w_detail="$w_detail [$member/$form rc=$SUB_RC lines=$ERRN got='${ERRL[0]:-}']"
+        fi
+    done
 done
-if (( d6_ok )); then
-    kt_test_pass "five sinks, records delivered, one verbatim warning each"
+if (( w_ok )); then
+    kt_test_pass "6 cases: 3 sinks x 2 templates, one verbatim line each, rc 0"
 else
-    kt_test_fail "$d6_detail"
+    kt_test_fail "$w_detail"
 fi
 
-kt_test_start "D6: with the switch OFF the \`--\` form in a subshell is silent"
-: > "$ERRF"
-out="$(TPipe.count -- dbg_p 2>"$ERRF")"; rc=$?
-if [[ $rc -eq 0 && "$out" == "2" && ! -s "$ERRF" ]]; then
-    kt_test_pass "rc 0, RESULT printed once, nothing on stderr"
+kt_test_start "D6: the records still arrive — a warning never changes rc or RESULT"
+# `toArray` in a subshell fills an array nobody will read, but it fills it: the
+# member's own answer is exactly the contract table's.
+sub_case TPipe.toArray DBG_ARR -- dbg_p
+a_out="$SUB_OUT"; a_rc=$SUB_RC
+sub_case TPipe.toList DL -- dbg_p
+l_out="$SUB_OUT"; l_rc=$SUB_RC
+if [[ "$a_out" == "2" && $a_rc -eq 0 && "$l_out" == "2" && $l_rc -eq 0 ]]; then
+    kt_test_pass "toArray and toList both answered 2 / rc 0 next to their warning"
 else
-    kt_test_fail "rc=$rc out='$out' err='$(cat "$ERRF")'"
+    kt_test_fail "toArray='$a_out'($a_rc) toList='$l_out'($l_rc)"
 fi
+
+kt_test_start "D6: \`first\` and \`count\` NEVER warn, in either form (Q2)"
+fc_ok=1
+fc_detail=""
+for spec in "first stdin" "first cmd" "count stdin" "count cmd"; do
+    case "$spec" in
+        "first stdin") sub_case TPipe.first ;;
+        "first cmd")   sub_case TPipe.first -- dbg_pq ;;
+        "count stdin") sub_case TPipe.count ;;
+        "count cmd")   sub_case TPipe.count -- dbg_p ;;
+    esac
+    if [[ $ERRN -ne 0 ]]; then
+        fc_ok=0
+        fc_detail="$fc_detail [$spec lines=$ERRN got='${ERRL[0]:-}']"
+    fi
+done
+if (( fc_ok )); then
+    kt_test_pass "4 cases, not a byte on stderr — RESULT is the answer and the caller reads it"
+else
+    kt_test_fail "$fc_detail"
+fi
+
+kt_test_start "D6: \`each\` with a PLAIN FUNCTION and with a STATIC MEMBER is silent (Q2)"
+k_ok=1
+k_detail=""
+for spec in "fn stdin" "fn cmd" "static stdin" "static cmd"; do
+    case "$spec" in
+        "fn stdin")     sub_case TPipe.each dbg_cb ;;
+        "fn cmd")       sub_case TPipe.each dbg_cb -- dbg_p ;;
+        "static stdin") sub_case TPipe.each TDbgStat.onLine ;;
+        "static cmd")   sub_case TPipe.each TDbgStat.onLine -- dbg_p ;;
+    esac
+    if [[ $ERRN -ne 0 || $SUB_RC -ne 0 ]]; then
+        k_ok=0
+        k_detail="$k_detail [$spec rc=$SUB_RC lines=$ERRN got='${ERRL[0]:-}']"
+    fi
+done
+if (( k_ok )); then
+    kt_test_pass "a dotted STATIC name has no \`_data\` and is not an instance callback"
+else
+    kt_test_fail "$k_detail"
+fi
+
+kt_test_start "D6: \`-s\` silences every warning, in both forms (Q3)"
+s_ok=1
+s_detail=""
+for spec in "each stdin" "each cmd" "toArray stdin" "toArray cmd" "toList stdin" "toList cmd"; do
+    case "$spec" in
+        "each stdin")    sub_case TPipe.each -s DR.onLine ;;
+        "each cmd")      sub_case TPipe.each -s DR.onLine -- dbg_p ;;
+        "toArray stdin") sub_case TPipe.toArray -s DBG_ARR ;;
+        "toArray cmd")   sub_case TPipe.toArray -s DBG_ARR -- dbg_p ;;
+        "toList stdin")  sub_case TPipe.toList -s DL ;;
+        "toList cmd")    sub_case TPipe.toList -s DL -- dbg_p ;;
+    esac
+    if [[ $ERRN -ne 0 || $SUB_RC -ne 0 ]]; then
+        s_ok=0
+        s_detail="$s_detail [$spec rc=$SUB_RC lines=$ERRN got='${ERRL[0]:-}']"
+    fi
+done
+if (( s_ok )); then
+    kt_test_pass "6 cases, silent, rc unchanged — \`-s\` touches nothing but the warning"
+else
+    kt_test_fail "$s_detail"
+fi
+
+kt_test_start "D6: \`-s\` is accepted by \`first\`/\`count\` too and is inert there"
+sub_case TPipe.first -s -- dbg_pq
+i_out="$SUB_OUT"; i_rc=$SUB_RC; i_n=$ERRN
+sub_case TPipe.count -s -- dbg_p
+c_out="$SUB_OUT"; c_rc=$SUB_RC; c_n=$ERRN
+if [[ "$i_out" == "a" && $i_rc -eq 0 && $i_n -eq 0 && "$c_out" == "2" && $c_rc -eq 0 && $c_n -eq 0 ]]; then
+    kt_test_pass "first='a', count=2, no rc 2 for an unknown flag"
+else
+    kt_test_fail "first='$i_out'($i_rc,$i_n) count='$c_out'($c_rc,$c_n)"
+fi
+
+kt_test_start "D6: \`KK_SUBSHELL_OK=1 TPipe.toArray …\` as a PREFIX assignment silences it (Q3)"
+: > "$ERRF"
+p_out="$(KK_SUBSHELL_OK=1 TPipe.toArray DBG_ARR -- dbg_p 2>"$ERRF")"; p_rc=$?
+p_err="$(<"$ERRF")"
+if [[ "$p_out" == "2" && $p_rc -eq 0 && -z "$p_err" ]]; then
+    kt_test_pass "the variable is the primitive; the flag is sugar over it"
+else
+    kt_test_fail "out='$p_out' rc=$p_rc err='$p_err'"
+fi
+
+kt_test_start "D6: \`local KK_SUBSHELL_OK=1\` covers a whole BLOCK, through a wrapper frame (Q3)"
+# Dynamic scoping: the setting reaches every sink called below this frame and
+# ends with it — the same seam `__TPIPE_QUIET` and `__TPIPE_STOP` use.
+ok_block() {
+    local KK_SUBSHELL_OK=1
+    TPipe.toArray DBG_ARR -- dbg_p
+    TPipe.toList DL -- dbg_p
+    TPipe.each DR.onLine -- dbg_p
+    return 0
+}
+: > "$ERRF"
+b_out="$(ok_block 2>"$ERRF")"; b_rc=$?
+b_err="$(<"$ERRF")"
+: > "$ERRF"
+n_out="$(TPipe.toArray DBG_ARR -- dbg_p 2>"$ERRF")"
+n_err="$(<"$ERRF")"
+if [[ $b_rc -eq 0 && -z "$b_err" && -n "$n_err" ]]; then
+    kt_test_pass "three sinks silent inside the frame, the next call outside it warns again"
+else
+    kt_test_fail "block rc=$b_rc out='$b_out' err='$b_err' / after='$n_err'"
+fi
+
+kt_test_start "D6: \`VERBOSE_KKLASS=quiet\` silences the warning corpus-wide (Q6)"
+VERBOSE_KKLASS=quiet
+sub_case TPipe.toArray DBG_ARR -- dbg_p
+q_n=$ERRN; q_out="$SUB_OUT"
+sub_case TPipe.each DR.onLine
+q_n2=$ERRN
+VERBOSE_KKLASS=
+if [[ $q_n -eq 0 && $q_n2 -eq 0 && "$q_out" == "2" ]]; then
+    kt_test_pass "nothing on stderr under quiet, RESULT unchanged"
+else
+    kt_test_fail "toArray lines=$q_n out='$q_out' / each lines=$q_n2"
+fi
+
+kt_test_start "D6: the warning is printed with the debug switch OFF **and** under debug (Q6)"
+# Everything above ran with the switch off, which is the point: a warning is not
+# a debug line. Under `debug` the SAME single line appears — no second copy.
+sub_case TPipe.toArray DBG_ARR -- dbg_p
+off_n=$ERRN; off_1="${ERRL[0]:-}"
+VERBOSE_KKLASS=debug
+sub_case TPipe.toArray DBG_ARR -- dbg_p
+VERBOSE_KKLASS=
+on_n=$ERRN; on_1="${ERRL[0]:-}"
+w_exp="$(w_line toArray "the array DBG_ARR is filled" NAME cmd)"
+if [[ $off_n -eq 1 && $on_n -eq 1 && "$off_1" == "$w_exp" && "$on_1" == "$w_exp" ]]; then
+    kt_test_pass "one identical line either way"
+else
+    kt_test_fail "off=$off_n '$off_1' / on=$on_n '$on_1'"
+fi
+
+kt_test_start "D6: an rc 2 path in a subshell warns NEVER — only its debug line, and only under debug"
+# The warning is decided AFTER validation, so a malformed call cannot reach it
+# (PLAN §2.5 step 5, §6).
+VERBOSE_KKLASS=debug
+sub_case TPipe.toArray RESULT -- dbg_p
+r2_n=$ERRN; r2_1="${ERRL[0]:-}"; r2_rc=$SUB_RC; r2_out="$SUB_OUT"
+VERBOSE_KKLASS=
+sub_case TPipe.toArray RESULT -- dbg_p
+r2q_n=$ERRN; r2q_rc=$SUB_RC
+if [[ $r2_rc -eq 2 && -z "$r2_out" && $r2_n -eq 1 && "$r2_1" == "Error: TPipe.toArray:"* \
+   && $r2q_rc -eq 2 && $r2q_n -eq 0 ]]; then
+    kt_test_pass "one Error line under debug, nothing without it, no Warning either way"
+else
+    kt_test_fail "debug rc=$r2_rc lines=$r2_n first='$r2_1' / quiet rc=$r2q_rc lines=$r2q_n"
+fi
+
+kt_test_start "D6: at BASH_SUBSHELL 0 nothing warns at all — the stdin form included"
+: > "$ERRF"
+{
+    TPipe.toArray DBG_ARR <<< $'x\ny'
+    TPipe.toList DL <<< $'x\ny'
+    TPipe.each DR.onLine <<< $'x\ny'
+    TPipe.toArray DBG_ARR -- dbg_p
+    TPipe.toList DL -- dbg_p
+    TPipe.each DR.onLine -- dbg_p
+} >/dev/null 2>"$ERRF"
+z_err="$(<"$ERRF")"
+if [[ -z "$z_err" ]]; then
+    kt_test_pass "6 calls in the calling shell, not one warning"
+else
+    kt_test_fail "stderr='$z_err'"
+fi
+
+# ===========================================================================
+kt_test_section "4. Q7 — \`TPipe.each\` never prints; its stdout is the callback's"
+# ===========================================================================
+# D6 final Q7, a named deviation from kcl §1.1 for this one member: `each` sets
+# RESULT and returns, and never calls `tpipe._ret`. Before the ruling the record
+# count was glued onto the callback's bytes in every subshell position.
+
+q7_fmt() { printf 'F:%s\n' "$1"; return 0; }
+
+kt_test_start "Q7: \`x=\$(TPipe.each fmt -- printf 'a\\nb\\n')\` is EXACTLY fmt's output"
+x="$(TPipe.each q7_fmt -- printf 'a\nb\n' 2>/dev/null)"; rc=$?
+if [[ "$x" == $'F:a\nF:b' && $rc -eq 0 ]]; then
+    kt_test_pass "two formatted lines, no record count"
+else
+    kt_test_fail "x='$x' rc=$rc"
+fi
+
+kt_test_start "Q7: \`TPipe.each fmt -- cmd | cat\` likewise"
+x="$(TPipe.each q7_fmt -- printf 'a\nb\n' 2>/dev/null | cat)"; rc=$?
+if [[ "$x" == $'F:a\nF:b' && $rc -eq 0 ]]; then
+    kt_test_pass "the LHS of a pipe carries only the callback's bytes"
+else
+    kt_test_fail "x='$x' rc=$rc"
+fi
+
+kt_test_start "Q7: a DIRECT call still sets RESULT to the record count"
+RESULT="sentinel"
+Q7OUT="$TMP/q7.out"
+TPipe.each dbg_cb -- dbg_p >"$Q7OUT" 2>/dev/null; rc=$?
+if [[ "$RESULT" == "2" && $rc -eq 0 && ! -s "$Q7OUT" ]]; then
+    kt_test_pass "RESULT=2, rc 0, stdout empty"
+else
+    kt_test_fail "RESULT='$RESULT' rc=$rc stdout='$(cat "$Q7OUT")'"
+fi
+
+kt_test_start "Q7: an rc 2 path leaves RESULT '' and prints nothing, direct or in \$( )"
+RESULT="sentinel"
+TPipe.each tpipe_no_cb_q7 -- dbg_p >"$Q7OUT" 2>/dev/null; rc=$?
+dres="$RESULT"
+x="$(TPipe.each tpipe_no_cb_q7 -- dbg_p 2>/dev/null)"; src=$?
+if [[ $rc -eq 2 && -z "$dres" && ! -s "$Q7OUT" && $src -eq 2 && -z "$x" ]]; then
+    kt_test_pass "rc 2 both ways, RESULT='', not a byte on stdout"
+else
+    kt_test_fail "direct rc=$rc RESULT='$dres' out='$(cat "$Q7OUT")' / subst rc=$src x='$x'"
+fi
+
+kt_test_start "Q7: rc 1 (the producer failed) still answers with the count in RESULT"
+RESULT="sentinel"
+q7_fail() { printf 'a\nb\n'; return 4; }
+TPipe.each dbg_cb -- q7_fail >"$Q7OUT" 2>/dev/null; rc=$?
+n="$RESULT"
+TPipe.lastRc; lr="$RESULT"
+if [[ $rc -eq 1 && "$n" == "2" && "$lr" == "4" && ! -s "$Q7OUT" ]]; then
+    kt_test_pass "rc 1, RESULT=2, lastRc 4, nothing printed (the §2.4 deviation is unchanged)"
+else
+    kt_test_fail "rc=$rc RESULT='$n' lastRc='$lr' stdout='$(cat "$Q7OUT")'"
+fi
+
+DR.delete
 
 # ===========================================================================
 kt_test_section "5. TPipe says nothing on any rc 0 / rc 1 path"

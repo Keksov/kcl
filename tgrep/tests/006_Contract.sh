@@ -361,6 +361,26 @@ n="$(g.count)"
 [[ "$n" == "2" ]] || { printf "n=%s (a doubled value means __TPIPE_QUIET is not in place)\n" "$n" >&2; exit 9; }
 g.delete'
 
+# D6 final Q9: `subshellOk` is TUtil's, inherited unchanged, and it reaches
+# TPipe as the `-s` flag through two frames of wrapper. The case asserts BOTH
+# directions: silent with the property set (the child's stderr must be empty),
+# and the verbatim TPipe warning without it.
+expect_clean "D6 final: \`subshellOk = 1\` silences TPipe's subshell warning through TGrep" '
+TGrep.new g needle "$FX/plain.txt"
+g.subshellOk = 1
+declare -a A=()
+n="$(g.toArray A)"
+[[ "$n" == "2" ]] || { printf "n=%s\n" "$n" >&2; exit 9; }
+g.delete
+TGrep.new g2 needle "$FX/plain.txt"
+declare -a A2=()
+w="$( { g2.toArray A2 >/dev/null; } 2>&1 )"
+case "$w" in
+    "Warning: TPipe.toArray: the array A2 is filled inside a subshell (BASH_SUBSHELL=1) — "*) : ;;
+    *) printf "unexpected warning: %s\n" "$w" >&2; exit 8 ;;
+esac
+g2.delete'
+
 # ===========================================================================
 kt_test_section "2. the debug switch — one line per rc 2 / grep-error path"
 # ===========================================================================

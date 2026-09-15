@@ -603,7 +603,96 @@ where each finding ended up in the shipped unit.
 Twenty-odd further claims the critic verified as **correct** are listed at the
 end of `PLAN.md` §8 so that no later phase re-probes them.
 
-## 12. What the worker phases found on top
+## 12. D6 final — the subshell ruling of 2026-09-15, and its probes
+
+D1 (refuse the stdin form in a subshell, rc 2) and the first D6 (allow the `--`
+form with a `kk.debug` line) were the design as shipped at P2. The owner replaced
+both with a single rule in a nine-answer ruling — `PLAN.md` §2.0 **D6 final**,
+summarised for callers in [../README.md §3](../README.md#3-a-sink-in-a-subshell--d6-final):
+**nothing is refused**; one `kk.warn` line where the loss is *certain*; two
+per-call silencers (`-s`, `KK_SUBSHELL_OK=1`); and `TPipe.each` stops printing
+`RESULT` altogether.
+
+The probe script is `scratchpad`-local and reproduced here; it takes the path of
+a `tpipe.sh` so the two states can be measured side by side. Output below is from
+**2026-09-15**, run against the P2 unit ("before") and the P3 unit ("after"), on
+bash **5.2.37** (msys) and **5.3.9** (cygwin) — both bashes printed identical
+lines, so the tables are not duplicated.
+
+```bash
+source "$1"                       # $1 = the tpipe.sh under test
+class PRec … PRec.onLine() { N=$(( N + 1 )); } ; build PRec ; PRec.new R
+class PStat ; public ; static proc onLine ; end ; build PStat
+fmt() { printf 'F:%s\n' "$1"; }   ; p2() { printf 'a\nb\n'; }
+```
+
+**Probe 1 — the `$( )` count leak on `each` (Q7).** `each`'s stdout belongs to
+the callback, but `tpipe._ret` used to append the record count to it in every
+subshell position:
+
+| call | before (P2) | after (P3) |
+|---|---|---|
+| `x="$(TPipe.each fmt -- p2)"` | `$'F:a\nF:b\n2'` | `$'F:a\nF:b'` |
+| `TPipe.each fmt -- p2 \| cat` | `$'F:a\nF:b\n2'` | `$'F:a\nF:b'` |
+| direct call, then `$RESULT` | `2` | `2` |
+
+The third row is the one that had to stay: the count is still the member's
+answer, it is simply never written to a stream.
+
+**Probe 2 — the stdin form as the right-hand side of a pipe (Q1, Q2).**
+
+```
+before:  { printf 'x\ny\n' | TPipe.each R.onLine; }   rc=2   parent R.N=0   stderr: (empty)
+after:   { printf 'x\ny\n' | TPipe.each R.onLine; }   rc=0   parent R.N=0   stderr:
+Warning: TPipe.each: the instance member R.onLine runs inside a subshell (BASH_SUBSHELL=1) — the calling shell will not see it; in a pipeline use `shopt -s lastpipe` (non-interactive scripts) or the `TPipe.each CB -- CMD ...` form at top level; if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1
+```
+
+`R.N` is `0` in the parent in **both** columns — that is the whole point, and it
+is why a warning replaced a refusal rather than the state loss being "fixed".
+What changed is that the records now arrive (the callback ran twice, in the
+subshell), the member answers rc 0, and the caller is told once, on stderr, with
+the debug switch **off**.
+
+**Probe 3 — callback-kind detection.** The expression the unit uses is
+`[[ $cb == *.* ]] && declare -p "${cb%%.*}_data"`, a builtin and no fork, run
+only on the warning path:
+
+| callback | `${cb%%.*}_data` exists? | treated as |
+|---|---|---|
+| `R.onLine` (instance member) | yes (`R_data`) | **instance** → warns |
+| `PStat.onLine` (static member) | no | plain → silent |
+| `fmt` (plain function) | no dot at all | plain → silent |
+
+A static class has no per-instance array, which is exactly the distinction the
+rule needs: `TPipe.count` used as a callback name is a static member and must not
+warn.
+
+**Probe 4 — the silencers, on `toArray` under `$( )`.** Stderr line counts,
+after:
+
+| call | RESULT printed | our stderr lines |
+|---|---|---|
+| `$(TPipe.toArray A -- p2)` | `2` | **1** |
+| `$(TPipe.toArray -s A -- p2)` | `2` | 0 |
+| `$(KK_SUBSHELL_OK=1 TPipe.toArray A -- p2)` | `2` | 0 |
+| `$(VERBOSE_KKLASS=quiet TPipe.toArray A -- p2)` | `2` | 0 |
+| `$(TPipe.count -- p2)` | `2` | 0 |
+
+`RESULT` is `2` on every row: a silencer touches the warning and nothing else.
+In the **before** column the `-s` row read `rc 2, RESULT=''` — `-s` was an
+unknown flag then, which is also the cheapest way for a caller to tell the two
+versions apart.
+
+**Why the line is `kk.warn` and not `kk.debug` (Q6).** An error explains an
+answer the caller already has; a warning says the answer is right and the effect
+is not. A caller who never sets `VERBOSE_KKLASS=debug` is precisely the caller
+who would lose state in silence, so the warning channel is opt-**out**:
+printed at every level except `quiet`. The helper lives in `kkore/klib.sh` next
+to `kk.debug`, and the three-level contract is written up once in
+[kcl/README.md §1.2](../../README.md#12-errors) — TPipe follows a corpus rule
+rather than inventing an exception.
+
+## 13. What the worker phases found on top
 
 Three findings came out of implementation rather than review, and all three
 changed the unit:
@@ -613,16 +702,18 @@ changed the unit:
 | P0 | `declare -F` accepts `--` (§7). The record counter also had to live in `__tpi_n` with `TPIPE_INDEX` as a **mirror**, so that a callback assigning `TPIPE_INDEX` cannot corrupt `RESULT` |
 | P1 | the inline `$'\r'` lost by `build` (§8) — `-c` was a silent no-op as shipped at P0 |
 | P1 | `mapfile` into a `declare -i` target succeeds and rewrites every record arithmetically (§9) — added to the refusal set, which the critic's list had as assoc/readonly only. `TPIPE_INDEX` was added as a third reserved out-name prefix for `kk._outName`, because every sink shadows it with a `local` and a nameref bound to that name would fill the sink's own slot |
+| P3 | `kkore/tests/001_KKLibTests.sh` ended with `rm -rf "$SCRIPT_DIR/.tmp"` — the fixture directory of the **whole suite**. With ktests' default 8 workers it wiped the directory out from under whichever file was still running; it stayed invisible only while that file happened to finish last, and surfaced the moment `007_DebugAndOutName` grew its `kk.warn` cases and outlived it. Fixed to `rm -f "$temp_file"` (§12 of this phase's report) |
 
-## 13. Where to look next
+## 14. Where to look next
 
 * **[../README.md](../README.md)** — the API, the contract, the traps and the
   measured cost table. The normative page.
 * **[../TEST_COVERAGE_NOTES.md](../TEST_COVERAGE_NOTES.md)** — every case of
   `001`–`005`, with the pin or finding it closes.
 * **[../PLAN.md](../PLAN.md)** — the plan this unit was built from: §1 scoping,
-  §2 design decisions D1–D6, §3 the pinned facts F1–F16, §4 the test model, §6
-  the bash traps, §8 the critic pass.
+  §2 design decisions D1–D6 (**D6 final**, the owner's nine answers, supersedes
+  D1), §3 the pinned facts F1–F16, §4 the test model, §6 the bash traps, §8 the
+  critic pass.
 * **[../tpipe_ledger.json](../tpipe_ledger.json)** — the phase journal: what each
   phase closed, the red-first counts, the gate numbers and the commits.
 * **[../bench.sh](../bench.sh)** — the numbers, re-runnable.

@@ -89,6 +89,22 @@ kk.debug "Error: TList.Get: index out of bounds"   # stderr only under the switc
 silently becomes the member's own exit status when it is the last statement of
 a function (section 1.4).
 
+`VERBOSE_KKLASS` has **three levels** — `quiet`, unset (the default) and
+`debug` — because a unit has two things to say. An **error** is `kk.debug`:
+the call did not work (rc 1 + `RESULT=""`, or rc 2 for a malformed call), and
+the reason is printed only under `debug`. A **warning** is `kk.warn`: the call
+*worked* — rc and `RESULT` are exactly what the contract promises — but it very
+likely did not do what the caller meant, and neither the rc nor the value can
+say so, so the line is printed **always except under `quiet`** and changes
+nothing else. A unit that warns documents the exact line and the **per-call**
+way to silence it (tpipe's subshell warning: the `-s` flag, or
+`KK_SUBSHELL_OK=1`).
+
+```bash
+kk.warn "Warning: TPipe.toArray: the array A is filled inside a subshell …"
+VERBOSE_KKLASS=quiet   # the corpus-wide off switch for every warning
+```
+
 ### 1.3 Boolean answers
 
 A predicate answers with its **exit status**, not with a printed word and not
@@ -252,7 +268,7 @@ meant to stay; a unit marked "§1 in full" satisfies 1.1–1.9 with no exception
 | [tlist](tlist/README.md) | `TList` | instance | §1 in full (P1, P2). Open item `P2-F1`: `BatchInsert`/`BatchDelete` are `proc`, so the count they assign to `RESULT` never reaches the caller; the README documents them as rc-only until the owner picks `func` or drops the assignment |
 | [tobjectlist](tobjectlist/README.md) | `TObjectList` | instance | §1 in full (P1, P2). Inherits tlist's `P2-F1` for the two batch members |
 | [tpath](tpath/README.md) | `TPath` (Delphi `System.IOUtils`) | static | §1 in full (P1, P3). Deviation: `DirectorySeparatorChar='/'` on MSYS/cygwin (D5); the parsers accept `\` on input |
-| [tpipe](tpipe/README.md) | **kcl addition — no FPC/Delphi source**: `TPipe`, a stream-to-callback adaptor | static | §1 in full (P0–P2 of its own roadmap, complete) with **two named deviations**: (a) for `each`/`toArray`/`toList`/`count` **rc 1 means the producer exited non-zero**, not "no answer" — `RESULT` still carries the record count, and the array/list keep everything read before the failure (check the member's rc, or `TPipe.lastRc`, before using the data); (b) the **stdin form is refused with rc 2 inside a subshell** (`producer \| TPipe.each cb` without `lastpipe`, `$( )`, `( )`), because every mutation the callback makes would be thrown away with the subshell — decision D1, with the `--` producer form and `shopt -s lastpipe` named in the diagnostic. The `--` form in a subshell is allowed with one `kk.debug` warning (D6) |
+| [tpipe](tpipe/README.md) | **kcl addition — no FPC/Delphi source**: `TPipe`, a stream-to-callback adaptor | static | §1 in full (P0–P3 of its own roadmap, complete) with **two named deviations**: (a) for `each`/`toArray`/`toList`/`count` **rc 1 means the producer exited non-zero**, not "no answer" — `RESULT` still carries the record count, and the array/list keep everything read before the failure (check the member's rc, or `TPipe.lastRc`, before using the data); (b) **`each` never prints `RESULT`** under `$( )` or on the LHS of a pipe — its stdout is the **callback's**, byte for byte, and the count is read from `RESULT` after a direct call (decision D6 final Q7). A sink in a subshell is **never refused**; where the loss is certain (`each` with an instance-member callback, `toArray`, `toList`) it prints one **subshell warning** through `kk.warn`, silenced per call by `-s` or `KK_SUBSHELL_OK=1` and corpus-wide by `VERBOSE_KKLASS=quiet` |
 | [tqueuestack](tqueuestack/README.md) | `TQueue`, `TStack`, `TObjectQueue`, `TObjectStack` | instance | §1 in full (P1, P2). Note: a rejected constructor token creates the instance **with defaults** and answers rc 1, the same in both owning classes (R3) |
 | [tregex](tregex/README.md) | `TRegEx` (Delphi `System.RegularExpressions`) | static | §1 with one named exception: the three scalar members (`escape`, `replace`, `replaceCb`) set `RESULT` **and** echo their result, so `$( )` stays ergonomic — §1.1 otherwise holds and the four silent members are call-direct. Deviation by construction: the **engine is bash POSIX ERE**, not PCRE — no lazy quantifiers, no lookaround, no `\b`, no named groups; the full delta is `docs/ERE-vs-PCRE.md`. `T4` (an anchored zero-length match) is closed by documentation and tests only (R12) |
 | [tstopwatch](tstopwatch/README.md) | `TStopwatch` (Delphi `System.Diagnostics`) | instance | §1 in full (P1, P6). Deviation: no `TTimeSpan` — the numeric getters (µs/ms/s/ticks) are the whole surface |

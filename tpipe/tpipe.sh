@@ -95,21 +95,25 @@ printf -v __TPIPE_CR '\r'
 # so `producer | obj.method` throws away every mutation `obj.method` makes
 # (measured: n=0 after three lines, PLAN §1.1). `TPipe.each obj.method -- producer`
 # reads the producer through `exec {fd}< <(...)` in the CALLING shell, so the
-# callback keeps its state; the stdin form is allowed too, and refused with rc 2
-# when it would run in a subshell (decision D1).
+# callback keeps its state; the stdin form is allowed everywhere too, including
+# the RHS of a pipe without `lastpipe` (D6 final Q1 — NOTHING is refused because
+# of a subshell; when the loss is certain, ONE `kk.warn` line says so).
 #
-#     TPipe.each    [-0] [-c] CB   [-- CMD ARG...]  # cb RECORD per record
-#     TPipe.toArray [-0] [-c] NAME [-- CMD ARG...]  # REPLACE a caller array
-#     TPipe.toList  [-0] [-c] INST [-- CMD ARG...]  # INST.Add RECORD per record
-#     TPipe.first   [-0] [-c]      [-- CMD ARG...]  # RESULT = first record
-#     TPipe.count   [-0] [-c]      [-- CMD ARG...]  # RESULT = number of records
-#     TPipe.stop                                    # from inside a callback
-#     TPipe.lastRc                                  # raw rc of the last `--` producer
+#     TPipe.each    [-0] [-c] [-s] CB   [-- CMD ARG...]  # cb RECORD per record
+#     TPipe.toArray [-0] [-c] [-s] NAME [-- CMD ARG...]  # REPLACE a caller array
+#     TPipe.toList  [-0] [-c] [-s] INST [-- CMD ARG...]  # INST.Add RECORD per record
+#     TPipe.first   [-0] [-c] [-s]      [-- CMD ARG...]  # RESULT = first record
+#     TPipe.count   [-0] [-c] [-s]      [-- CMD ARG...]  # RESULT = number of records
+#     TPipe.stop                                         # from inside a callback
+#     TPipe.lastRc                                       # raw rc of the last `--` producer
 #
-# `-0` = NUL-terminated records (find -print0), `-c` = strip ONE trailing CR.
-# Flags come first; after the sink's operand the ONLY legal word is `--`.
-# `first` and `count` take no operand, so for them the first non-flag word must
-# already be `--`.
+# `-0` = NUL-terminated records (find -print0), `-c` = strip ONE trailing CR,
+# `-s` = "the subshell scope is intended", which silences the D6 warning for
+# THIS call (inert on `first`/`count`, which never warn). `KK_SUBSHELL_OK=1` is
+# the same switch as a dynamically scoped variable, for a whole block or through
+# a wrapper. Flags come first; after the sink's operand the ONLY legal word is
+# `--`. `first` and `count` take no operand, so for them the first non-flag word
+# must already be `--`.
 #
 # ---- Return contract (kcl/README.md §1.1) ---------------------------------
 # A DIRECT call prints NOTHING and leaves the value in RESULT; inside `$( )` the
@@ -118,6 +122,13 @@ printf -v __TPIPE_CR '\r'
 # re-prints kk._return's value UNCONDITIONALLY, i.e. on a direct call too, so a
 # `static func` would echo on every call (the same measurement tpath, tfile and
 # tregex record in their headers).
+#
+# `each` is the ONE member that never prints (D6 final Q7): its stdout belongs
+# to the CALLBACK, so `x=$(TPipe.each fmt -- cmd)` is exactly what `fmt` wrote
+# and `TPipe.each fmt -- cmd | sort` sorts exactly that. It answers `RESULT=N;
+# return RC` directly and never goes through tpipe._ret; a DIRECT call still
+# reads the count from RESULT. (Before Q7 the count was appended to the
+# callback's bytes in both positions.)
 #
 # `each`, `toArray`, `toList` and `count` answer RESULT = the number of records
 # delivered / stored / offered / counted, rc 0 when the producer exited 0 or the
@@ -267,6 +278,69 @@ tpipe._isOutArr() {
 }
 
 # ---------------------------------------------------------------------------
+# tpipe._subshellWarn MEMBER OPERAND FORM   — the D6-final warning rule.
+#
+# FORM is `stdin` (no `--`) or `cmd` (`--` present); the caller has already
+# established that `BASH_SUBSHELL > 0` and that neither `-s` nor
+# `KK_SUBSHELL_OK=1` was given. Always rc 0: a warning never changes the
+# member's answer.
+#
+# ---- WHEN (D6 final Q2: only when the loss is CERTAIN) --------------------
+#   toArray  the nameref fill cannot reach the caller           -> always
+#   toList   `INST.Add` mutates a list the caller will not see  -> always
+#   each     depends on the CALLBACK:
+#              * an INSTANCE member (`r.onLine`) mutates an object that dies
+#                with the subshell                              -> warn
+#              * a plain function or a STATIC member may print, count into a
+#                file, or answer through the producer's own stdout — all of
+#                which work perfectly well in a subshell        -> silent
+#   first    RESULT is the answer and the caller reads it       -> never
+#   count    likewise                                           -> never
+#
+# The callback kind is decided by `[[ $cb == *.* ]] && declare -p "${cb%%.*}_data"`
+# — a kklass instance wrapper is `inst.member` with a live `${inst}_data` array,
+# while a static member (`Class.member`) has no `_data` (measured on both
+# bashes: `TPipe.count` as a callback name is NOT reported). `declare -p` is a
+# builtin, so the probe costs no fork, and it runs ONLY on the warning path.
+#
+# ---- WHICH LINE (two templates, keyed on the FORM) -----------------------
+# The stdin form is almost always the RHS of a pipe, where `lastpipe` or the
+# `--` form is the fix; the `--` form in a subshell is almost always an explicit
+# `$( )`, where the only fix is to move the call out. Both templates are pinned
+# byte-exact by PLAN §2.4 and by tests/004_Contract.sh §4.
+# ---------------------------------------------------------------------------
+tpipe._subshellWarn() {
+    local __tpi_wm="$1" __tpi_wo="$2" __tpi_wf="$3" __tpi_wt='' __tpi_wl=''
+    case "$__tpi_wm" in
+        each)
+            if [[ "$__tpi_wo" != *.* ]]; then
+                return 0
+            fi
+            if ! declare -p "${__tpi_wo%%.*}_data" >/dev/null 2>&1; then
+                return 0
+            fi
+            __tpi_wt="the instance member $__tpi_wo runs"
+            __tpi_wl=' CB'
+            ;;
+        toArray)
+            __tpi_wt="the array $__tpi_wo is filled"
+            __tpi_wl=' NAME'
+            ;;
+        toList)
+            __tpi_wt="$__tpi_wo.Add runs"
+            __tpi_wl=' INST'
+            ;;
+        *)  return 0 ;;
+    esac
+    if [[ "$__tpi_wf" == "stdin" ]]; then
+        kk.warn "Warning: TPipe.$__tpi_wm: $__tpi_wt inside a subshell (BASH_SUBSHELL=$BASH_SUBSHELL) — the calling shell will not see it; in a pipeline use \`shopt -s lastpipe\` (non-interactive scripts) or the \`TPipe.$__tpi_wm$__tpi_wl -- CMD ...\` form at top level; if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1"
+    else
+        kk.warn "Warning: TPipe.$__tpi_wm: $__tpi_wt inside a subshell (BASH_SUBSHELL=$BASH_SUBSHELL) — the calling shell will not see it; move the call out of \$( ) / ( ); if the subshell scope is intended, pass -s or set KK_SUBSHELL_OK=1"
+    fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # tpipe._open MEMBER VALIDATOR ARG...
 #
 # Parses the flags and the operand, applies the §2.5 validation order, and opens
@@ -280,17 +354,19 @@ tpipe._isOutArr() {
 # Validation order (PLAN §2.5) — every rc 2 path runs NOTHING: the producer is
 # not started and stdin is not touched, which is why all of it precedes the
 # `exec` below.
-#   1. flags: -0, -c; anything else starting with `-` that is not `--` is rc 2
+#   1. flags: -0, -c, -s; anything else starting with `-` that is not `--` is rc 2
 #   2. the sink's own operand
 #   3. the word after the operand must be `--` or absent  (this is what catches
 #      a flag written after the operand)
 #   4. `--` present with an EMPTY argv after it is rc 2, not "read stdin"
-#   5. `--` absent -> the D1 subshell refusal; `--` present in a subshell -> one
-#      kk.debug line and carry on (D6)
+#   5. BASH_SUBSHELL > 0 -> the D6-final warning rule (tpipe._subshellWarn), in
+#      BOTH forms, unless `-s` or `KK_SUBSHELL_OK=1`. Nothing is refused and
+#      neither rc nor RESULT changes; an rc 2 path never gets this far, so a
+#      malformed call never warns.
 #   6. only now open
 # ---------------------------------------------------------------------------
 tpipe._open() {
-    local __tpi_m="$1" __tpi_v="$2" __tpi_lbl=''
+    local __tpi_m="$1" __tpi_v="$2" __tpi_sok=0 __tpi_form=''
     shift 2
 
     # 1. flags
@@ -298,6 +374,7 @@ tpipe._open() {
         case "$1" in
             -0)  __tpi_d=''; shift ;;
             -c)  __tpi_crlf=1; shift ;;
+            -s)  __tpi_sok=1; shift ;;
             --)  break ;;
             -*)  kk.debug "Error: TPipe.$__tpi_m: unknown flag '$1'"
                  return 2 ;;
@@ -335,41 +412,41 @@ tpipe._open() {
             kk.debug "Error: TPipe.$__tpi_m: '--' with no producer command"
             return 2
         fi
-        # 5b. D6: the `--` form READS correctly in a subshell, but a callback
-        #     that mutates an object (or a nameref fill) is thrown away with the
-        #     subshell. That is the caller's own explicit `$( )` / `( )`, so it
-        #     is allowed with one diagnostic line.
-        if (( BASH_SUBSHELL > 0 )); then
-            kk.debug "Warning: TPipe.$__tpi_m: running in a subshell (BASH_SUBSHELL=$BASH_SUBSHELL); records are delivered, but every mutation the callback makes is lost when the subshell exits"
-        fi
-        # 6. open. The producer argv is run as "$@" — no eval, no word splitting
-        #    of a command string, ever. The process substitution inherits the
-        #    CALLER's stdin, so `-- grep needle` reads whatever the caller reads.
+        __tpi_form=cmd
+    else
+        __tpi_form=stdin
+    fi
+
+    # 5. D6 final (owner ruling 2026-09-15). NOTHING is refused because of a
+    #    subshell any more — the old D1 rc 2 for the stdin form is gone, and so
+    #    is the D6 debug-only line for the `--` form. Both forms now take the
+    #    same rule: when the sink runs with BASH_SUBSHELL > 0 and the loss is
+    #    CERTAIN, one `kk.warn` line goes to stderr and the call proceeds with
+    #    exactly the rc and RESULT of the contract table.
+    #
+    #    Two ways to say "the subshell scope is intended", both per call and
+    #    neither changing anything but the warning: the `-s` flag (sugar) and
+    #    the dynamically scoped `KK_SUBSHELL_OK=1` (the primitive — it survives
+    #    a wrapper, so `KK_SUBSHELL_OK=1 g.each r.onLine` reaches here through
+    #    TGrep and TUtil without a line of their code). The `KK_` prefix is
+    #    kcl-wide on purpose: any other callback-taking member may honour it.
+    #
+    #    This is the LAST thing before the producer starts, so an rc 2 path can
+    #    never warn, and it is done once per call — there is no de-duplication
+    #    across calls (D6 final Q5).
+    if (( BASH_SUBSHELL > 0 )) && [[ "$__tpi_sok" != "1" && "${KK_SUBSHELL_OK:-}" != "1" ]]; then
+        tpipe._subshellWarn "$__tpi_m" "$__tpi_op" "$__tpi_form"
+    fi
+
+    # 6. open. The producer argv is run as "$@" — no eval, no word splitting of
+    #    a command string, ever. The process substitution inherits the CALLER's
+    #    stdin, so `-- grep needle` reads whatever the caller reads. With no
+    #    `--` the producer IS the caller's stdin and there is nothing of ours to
+    #    open or to close.
+    if [[ "$__tpi_form" == "cmd" ]]; then
         exec {__tpi_fd}< <( "$@" )
         __tpi_pid=$!
         return 0
-    fi
-
-    # 5a. D1: the stdin form only works when the member runs in the calling
-    #     shell. In a subshell (the RHS of a pipe without lastpipe, `$( )`,
-    #     `( )`) every mutation the callback makes is lost, so refuse instead of
-    #     losing state silently.
-    #
-    #     The suggested `--` form is spelled with THIS sink's operand label, so
-    #     the advice is copy-pasteable: `TPipe.toArray NAME -- CMD ...`, and
-    #     `TPipe.first -- CMD ...` for the two sinks that take no operand at all.
-    #     The label comes from the VALIDATOR, which is the one thing `_open`
-    #     already knows about the caller's surface. Everything else in the line
-    #     is pinned verbatim (PLAN §2.5).
-    if (( BASH_SUBSHELL > 0 )); then
-        case "$__tpi_v" in
-            tpipe._isFunc)    __tpi_lbl=' CB' ;;
-            tpipe._isOutArr)  __tpi_lbl=' NAME' ;;
-            tpipe._isAddable) __tpi_lbl=' INST' ;;
-            *)                __tpi_lbl='' ;;
-        esac
-        kk.debug "Error: TPipe.$__tpi_m: stdin form ran in a subshell (BASH_SUBSHELL=$BASH_SUBSHELL); use \`TPipe.$__tpi_m$__tpi_lbl -- CMD ...\`, or \`shopt -s lastpipe\` at the top of a NON-interactive script (lastpipe is inert while job control is on)"
-        return 2
     fi
     __tpi_fd=0
     __tpi_pid=''
@@ -454,9 +531,19 @@ TPipe.each() {
             fi
         done
         tpipe._close "$__TPIPE_STOP"
-        tpipe._ret "$__tpi_n" "$__tpi_rc"
+        # D6 final Q7: `each` NEVER prints. Its stdout belongs to the callback,
+        # so `x=$(TPipe.each fmt -- cmd)` must be exactly what `fmt` wrote and
+        # `TPipe.each fmt -- cmd | sort` must sort exactly that — while
+        # tpipe._ret would have appended the record count in both positions.
+        # RESULT is still set for the direct call, which is how the count is
+        # read; this is the one member of the unit that answers `RESULT=V;
+        # return N` instead of going through the unit's return helper, and the
+        # reason is spelled out in the header note and in README §4.
+        RESULT="$__tpi_n"
+        return "$__tpi_rc"
     else
-        tpipe._ret "" 2
+        RESULT=""
+        return 2
     fi
 }
 
