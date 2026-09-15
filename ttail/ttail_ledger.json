@@ -3,20 +3,20 @@
   "project": "kcl/ttail — TTail : TUtil, GNU coreutils 8.32 `tail` wrapper (typed options incl. -n +N and -f, sinks via TPipe with the follow rules, static one-liner TTail.take).",
   "created": "2026-09-15",
   "updated": "2026-09-15",
-  "status": "PLANNED, critic-hardened 2026-09-15 (findings folded into both plans; record in thead PLAN §8). Written together with kcl/thead (one worker per phase for both); the thead plan carries the shared decisions, ttail/PLAN.md the differences (follow with three overridden sinks, +N). No code.",
+  "status": "P0 DONE 2026-09-15 (<SHA-HT0>): ttail.sh (TTail : TUtil, follow with the three overridden sinks), tests 004_Argv / 005_Run / 006_Contract + tests.sh, README first cut. The shared tutil edits of thead P0 (tutil._badOut now refuses __tt_ too) are recorded in thead_ledger.json. Suite green on bash 5.2.37 and 5.3.9, threaded and --mode single; no follower of ours survives a run. P1 (bench, 007, TEST_COVERAGE_NOTES, kcl README row) still open.",
   "phases": [
     {
       "id": "P0",
       "name": "The unit",
       "goal": "ttail.sh (TTail : TUtil per PLAN §1.2), tests 004_Argv / 005_Run / 006_Contract, README first cut.",
-      "status": "planned",
+      "status": "done",
       "tasks": [
         {
           "id": "P0.1",
           "title": "TTail class: as THead plus `follow` (-f) with override func toArray/toList/count (follow = 1 -> rc 2, nothing runs; else `inherited X \"$@\" || rc=$?; n=$RESULT; kk._return $n; return $rc`), each/first stream until TPipe.stop (rc 0, lastRc 143); +N verbatim",
           "category": "feature",
           "severity": "critical",
-          "status": "planned",
+          "status": "done",
           "acceptance": "thead H1–H11 mirrored for tail + T1–T3; follow = 1 with each + stop returns in a child under timeout 20 with rc 0 / lastRc 143 / one record; toArray with follow = 1 is rc 2 and the flag file proves nothing ran; `-n +2` on a 5-line file counts 4."
         },
         {
@@ -24,7 +24,7 @@
           "title": "tests 004/005/006 (red-first) + tests.sh + README first cut",
           "category": "test",
           "severity": "high",
-          "status": "planned",
+          "status": "done",
           "acceptance": "Red counts recorded; green on both bashes (threaded and single); H12 mirrored; sweep 0 [FAIL] on both."
         }
       ]
@@ -55,6 +55,12 @@
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-15",
+      "batch": "P0",
+      "sha": "<SHA-HT0>",
+      "summary": "P0 implemented red-first against a stubbed skeleton (buildArgv/mapRc/paths/take and the three overridden sinks answering __TTAIL_PENDING__ + rc 2). RED on bash 5.2.37: 189 tests, 44 pass, 145 FAIL (004_Argv 58, 005_Run 51, 006_Contract 34, 2 untagged). GREEN (after one §1.3 behavioural case was added to 005, so 190 tests): 190/190 on bash 5.2.37 and on bash 5.3.9, threaded; 190/190 under --mode single on 5.2.37. Delivered: ttail.sh (TTail : TUtil, sourcing ../tutil/tutil.sh ONLY — never the head wrapper; Create with `parent.constructor tail`; the pinned argv `tail [-q|-v] [-z] [-f] [-n N|-c N] [extras] [-- PATH...]`, so `t.argv V` with follow = 1 still yields -f; the same rc 2 list and the same count regex + 19-digit guard, verbatim; `var follow`; `override func toArray/toList/count` with the rc-preserving spelling `inherited X \"$@\" || rc=$?; n=$RESULT; kk._return $n; return $rc` and, with follow = 1, one kk.debug line + kk._return '' + return 2 before anything runs; static take), tests/{tests.sh,004_Argv.sh,005_Run.sh,006_Contract.sh}, README.md first cut. T2/T3 pinned: the three refusals with a flag-file producer proving nothing ran and lastRc still -1; `each` + a stopping callback -> rc 0 / lastRc 143 / one record in a child under timeout 20; `first` -> the last line then the stop path; `run` on a growing file delivering the appended line; and, with follow = 0 and a missing operand, all three overrides answering rc 1 with RESULT = the real count (the naive spelling would have answered 0). tail -f hygiene: every follow case runs in a child that ends its own follower (the stop path, or addArg --pid=HELPER for the `run` case), the appender is started by the test with its pid recorded and kill -TERMed in the case's own teardown, and a final case asserts no `tail` process has the test as its parent. `ps -W` before and after the whole phase is byte-identical (16 foreign followers from earlier sessions, none of ours). DEVIATION: the growing-file case first used a fixed `sleep 2` for the appender and flaked — a cold `source` of the unit costs seconds under the 8-worker runner, so the append landed BEFORE tail started and `tail -n 1` printed only the appended line; replaced by a bounded READY-flag handshake (the child touches the flag immediately before `run`, the appender then waits 1 s), which keeps >= 3 s of slack before the --pid helper ends the follow. REVIEW (supervisor, 2026-09-16): ttail suite reproduced on both bashes (thead 173/173, ttail 190/190; tutil 187/187 after the _badOut extension); probes on both bashes — argv shape, -0/+0 sign table (head -0 = 5 records, tail +2 = 4, tail -0 = 0), 1K and lines+bytes rc 2, __th_ out-name refused, crlf=1 strips the CR, take one-liners, follow: count rc 2 and each+stop rc 0/lastRc 143, partial failure keeps records with rc 1. The worker's two plan corrections (8 records for the unterminated pair; overflow rc 1 only for -c -N) accepted and written into thead PLAN §2.4/§2.5/H3/H7/§8. Master sweep 25/25 suites 0 [FAIL] on 5.3.9; on 5.2.37 the first run had ONE unrelated FAIL (dateutils 001 now()-nowUTC(): two separate samplings with 1 s slack drifted 1.5 s under the loaded first suite — a pre-existing dateutils test flake, open item), the rerun 25/25 0 [FAIL]. Four phantom cygwin `tail.exe` rows in `ps -W` from the critic's probes cannot be killed (cygwin kill: no such process; PowerShell cannot see them) — process-table ghosts, not processes. Committed as kcl <SHA-HT0>."
+    },
     {
       "date": "2026-09-15",
       "batch": "critic pass",

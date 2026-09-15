@@ -411,6 +411,21 @@ override is what runs and what decides the rc. There is nothing to re-implement.
 [docs/TUtil.md §4](docs/TUtil.md#4-the-template-for-the-next-wrappers) is the
 template for the next five wrappers.
 
+**A new wrapper adds its own local prefix to `tutil._badOut`.** The helper that
+refuses an output-array name passes this family's prefixes to `kk._outName`, and
+the line is shared by every descendant because the sinks are inherited:
+
+```bash
+if ! kk._outName "$__tu_n" __tu_ __tg_ __th_ __tt_; then
+```
+
+Bash scopes locals **dynamically**, so a caller array named like the scratch
+nameref a member body holds (`__tg_p`, `__th_v`, …) would be bound to the
+instance's own storage and the caller's array would stay empty while `RESULT`
+reported a healthy count. Pick a prefix of the shape `__t<two letters>_`, use it
+for every local in the unit, and put it on that line in the same commit; the
+four are pinned in `tests/001_Core.sh` §C.
+
 ### Every trap this base is built around
 
 Each row was a measured bug before it was a rule (PLAN §6). The repro column is

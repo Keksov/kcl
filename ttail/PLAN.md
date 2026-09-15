@@ -1,6 +1,6 @@
 # TTail — GNU `tail` wrapper over TUtil (kcl/ttail)
 
-**Status: PLANNED, critic-hardened (2026-09-15). No code yet.** Written together with
+**Status: P0 DONE 2026-09-15 (unit + tests + README first cut); P1 closeout next.** Written together with
 [`kcl/thead/PLAN.md`](../thead/PLAN.md); **everything in that plan applies here**
 (source of truth, base, template, conventions, §2.1 tgrep rules, §2.2 count regex +
 19-digit guard + the sign table, §2.3 `zeroTerminated` rule incl. the rc 2 for ≥ 2

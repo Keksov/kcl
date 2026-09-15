@@ -3,20 +3,20 @@
   "project": "kcl/thead — THead : TUtil, GNU coreutils 8.32 `head` wrapper (typed options -> pinned argv, sinks via TPipe, static one-liner THead.take).",
   "created": "2026-09-15",
   "updated": "2026-09-15",
-  "status": "PLANNED, critic-hardened 2026-09-15 (19 findings: 3 BLOCKER, 5 MAJOR, 8 MINOR, 3 NIT — all folded into PLAN.md, record in §8). Written together with kcl/ttail (one worker per phase for both). No code.",
+  "status": "P0 DONE 2026-09-15 (<SHA-HT0>): thead.sh (THead : TUtil), tests 004_Argv / 005_Run / 006_Contract + tests.sh, README first cut, and the two cross-unit tutil edits (tutil._badOut extended to __tu_ __tg_ __th_ __tt_ with its 001_Core case and the 'writing a descendant' note; tutil PLAN §7 row amended). Suite green on bash 5.2.37 and 5.3.9, threaded and --mode single. P1 (bench, 007, TEST_COVERAGE_NOTES, kcl README row) still open. Written together with kcl/ttail (one worker per phase for both).",
   "phases": [
     {
       "id": "P0",
       "name": "The unit",
       "goal": "thead.sh (THead : TUtil per PLAN §1.2), tests 004_Argv / 005_Run / 006_Contract, README first cut.",
-      "status": "planned",
+      "status": "done",
       "tasks": [
         {
           "id": "P0.1",
           "title": "THead class: Create (parent.constructor head, every var assigned, ${inst}_paths), Destroy, paths, buildArgv (pinned shape; rc 2 list incl. lines+bytes, quiet+verbose, zeroTerminated with >=2 paths or verbose, count regex ^[+-]?[0-9]+$ + 19-digit guard, verbatim; zeroTerminated -> nul with the P3-F1 guard for one path), mapRc (0->0, else 1 + debug), static take (>=1 path, unique throw-away instance, tool-parity headers); PLUS the cross-unit edits: tutil._badOut extended to __tu_ __tg_ __th_ __tt_ (+ tutil 001 case), tutil PLAN §7 thead/ttail row amended (no kk.isInt; follow per ttail §2.1)",
           "category": "feature",
           "severity": "critical",
-          "status": "planned",
+          "status": "done",
           "acceptance": "H1–H5 by array comparison without running head; H6–H11 on the fixture tree with the GNU banner gate; partial failure keeps the records with RESULT = count and rc 1; crlf = 1 strips one CR; -z -> NUL records; take byte-identical to bare head in three positions; nested take keeps the outer instance."
         },
         {
@@ -24,7 +24,7 @@
           "title": "tests 004/005/006 (red-first against a stubbed skeleton) + tests.sh + README first cut",
           "category": "test",
           "severity": "high",
-          "status": "planned",
+          "status": "done",
           "acceptance": "Red counts recorded; green on bash 5.2.37 and 5.3.9 (threaded and --mode single); H12 (set -eu, debug switch, D6 warning + subshellOk); sweep 0 [FAIL] on both."
         }
       ]
@@ -55,6 +55,12 @@
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-15",
+      "batch": "P0",
+      "sha": "<SHA-HT0>",
+      "summary": "P0 implemented red-first against a stubbed skeleton (buildArgv/mapRc/paths/take answering __THEAD_PENDING__ + rc 2). RED on bash 5.2.37: 171 tests, 41 pass, 130 FAIL (004_Argv 57, 005_Run 42, 006_Contract 29, 2 untagged). GREEN (after two §1.3 behavioural cases were added to 005, so 173 tests): 173/173 on bash 5.2.37 and on bash 5.3.9, threaded; 173/173 under --mode single on 5.2.37. Delivered: thead.sh (THead : TUtil; Create with `parent.constructor head` and every var assigned; Destroy freeing ${inst}_paths then inherited; paths; buildArgv with the pinned argv `head [-q|-v] [-z] [-n N|-c N] [extras] [-- PATH...]` and the rc 2 list cmd/lines+bytes/quiet+verbose/zeroTerminated-with->=2-paths-or-verbose/bad-count; the count regex ^[+-]?[0-9]+$ held in a variable + a 19-digit guard, passed VERBATIM, no kk.isInt; the -z -> nul derivation with tgrep's P3-F1 guard; mapRc 0->0 else 1 + one debug line, 127 keeping the base wording; static take with N validation, >=1 path, throw-away instance __th_t_${BASHPID}_${__TH_SEQ}), tests/{tests.sh,004_Argv.sh,005_Run.sh,006_Contract.sh}, README.md first cut. Cross-unit (tutil): tutil._badOut now `kk._outName \"$__tu_n\" __tu_ __tg_ __th_ __tt_` with its comment rewritten, one new tutil/tests/001_Core.sh case pinning all four prefixes (and that an ordinary name still fills), a 'writing a descendant' note in tutil/README.md §5, and the tutil PLAN §7 thead/ttail row amended (count = regex + 19-digit guard, verbatim, NOT kk.isInt; follow = run/each/first stream, toArray/count/toList refused). Re-proof after the _badOut edit: tutil 001-004 and tgrep 004-007 still green on 5.2.37. DEVIATION from the plan letter: PLAN §2.4/§3 H7 says two 3-line files under -n 5 with the FIRST unterminated are 7 records; measured on coreutils 8.32 it is 8 (the separator's leading \\n terminates the previous file's last line instead of standing alone as an empty record, so exactly ONE record is lost relative to the terminated pair's 9). The test pins the measured 8. Second correction: PLAN §2.5/H3 says a 19-digit count is 'an ordinary rc 1 with the tool's own message' — `head -n 9999999999999999999` is rc 0 (it fits in uintmax); the shape that really is rc 1 is `head -c -9999999999999999999` ('invalid number of bytes: Value too large'), and that is what 005 pins. REVIEW (supervisor, 2026-09-16): thead suite reproduced on both bashes (thead 173/173, ttail 190/190; tutil 187/187 after the _badOut extension); probes on both bashes — argv shape, -0/+0 sign table (head -0 = 5 records, tail +2 = 4, tail -0 = 0), 1K and lines+bytes rc 2, __th_ out-name refused, crlf=1 strips the CR, take one-liners, follow: count rc 2 and each+stop rc 0/lastRc 143, partial failure keeps records with rc 1. The worker's two plan corrections (8 records for the unterminated pair; overflow rc 1 only for -c -N) accepted and written into thead PLAN §2.4/§2.5/H3/H7/§8. Master sweep 25/25 suites 0 [FAIL] on 5.3.9; on 5.2.37 the first run had ONE unrelated FAIL (dateutils 001 now()-nowUTC(): two separate samplings with 1 s slack drifted 1.5 s under the loaded first suite — a pre-existing dateutils test flake, open item), the rerun 25/25 0 [FAIL]. Four phantom cygwin `tail.exe` rows in `ps -W` from the critic's probes cannot be killed (cygwin kill: no such process; PowerShell cannot see them) — process-table ghosts, not processes. Committed as kcl <SHA-HT0>."
+    },
     {
       "date": "2026-09-15",
       "batch": "critic pass",

@@ -1,6 +1,6 @@
 # THead — GNU `head` wrapper over TUtil (kcl/thead)
 
-**Status: PLANNED, critic-hardened (2026-09-15). No code yet.** Owner: "приступай к
+**Status: P0 DONE 2026-09-15 (unit + tests + README first cut; two plan facts corrected at P0, see §2.4/§2.5); P1 closeout next.** Owner: "приступай к
 ttail и thead" (2026-09-15). A critic pass (§8) found 3 blockers and 5 majors in
 the first draft; every one is folded into the sections below. Sibling:
 [`kcl/ttail/PLAN.md`](../ttail/PLAN.md) — the two units are written together, by one
@@ -134,7 +134,9 @@ before every operand after the first; through the sinks those are ordinary recor
 (`count` counts them; `first` on two files returns `==> FIRST <==`). The empty
 record exists only when the previous file's last line was terminated: two
 terminated 3-line files under `-n 5` are 9 records, the same pair with the first
-file unterminated is 7 (pinned, H7). Tool parity is kept (default `quiet = 0`);
+file unterminated is **8** (the separator's leading `\n` terminates the previous
+file's last line instead of standing alone; measured at P0 — the critic's "7" was
+off by one) (pinned, H7). Tool parity is kept (default `quiet = 0`);
 the README leads its multi-file example with `quiet = 1` and says why.
 
 ### 2.5 mapRc, the partial-output rule, and the tool's stderr
@@ -145,8 +147,11 @@ carried by tgrep and repeated in this README and the kcl README row: (a) a parti
 failure (`a.txt missing`) delivers a's records with rc 1 and RESULT = the real count;
 (b) the tool's own stderr (`head: cannot open 'missing'…`) passes through
 unconditionally, and its quoting follows the locale. An overflowing count that
-passes the regex but not the guard cannot reach the tool; one that passes both
-(19 digits) is an ordinary rc 1 with the tool's own message (pinned).
+passes the regex but not the guard cannot reach the tool. A 19-digit value passes
+both and is NOT an error for `-n` (it fits `uintmax`: `head -n 9999999999999999999`
+is rc 0, measured at P0); the shape that really overflows is a NEGATIVE byte count,
+`head -c -9999999999999999999` → rc 1 with the tool's own "Value too large" message
+(pinned).
 
 ### 2.6 CRLF and `crlf`
 
@@ -187,11 +192,11 @@ that row in the same commit.
 |---|---|---|
 | H1 | argv per option singly and combined, byte-exact; `--` iff paths; extras AFTER the options and before `--`; `${h}_args` empty after `new h N PATH`; `addArg -n 5` after `lines = 3` yields both and the tool takes 5 (last-flag-wins, §1.3) | 004 |
 | H2 | `lines`+`bytes`, `quiet`+`verbose`, `zeroTerminated` with 2 paths / with `verbose`, bad N (`x`, `1K`, `1 2`, `--5`, 20 digits), empty cmd → rc 2, RESULT '', nothing runs, `${inst}_argv` empty | 004 |
-| H3 | `lines` `08`/`+3`/`-2`/`-0`/`+0`/`0` pass verbatim; the tool's reading (8 / 3 / all-but-2 / everything / nothing / nothing) pinned behaviourally; a 19-digit value → rc 1 with the tool's own message | 004/005 |
+| H3 | `lines` `08`/`+3`/`-2`/`-0`/`+0`/`0` pass verbatim; the tool's reading (8 / 3 / all-but-2 / everything / nothing / nothing) pinned behaviourally; a 19-digit `-n` is rc 0 (uintmax), `-c -<19 digits>` is rc 1 with the tool's own message; 20 digits → rc 2 | 004/005 |
 | H4 | every var in `_data` after `new` (incl. inherited `subshellOk`); `delete` frees `_paths`; **H4b** `h.argv __th_v` and `h.toArray __th_a` → rc 2 (§2.8) | 004 |
 | H5 | `zeroTerminated` derives `nul` with the P3-F1 four-state sequence (one path) | 004 |
 | H6 | `h.lines = 2; h.each cb` == bare `head -n 2` records; `count`/`toArray`/`first`/`toList` vs the bare tool; unterminated last record | 005 |
-| H7 | two files without `-q`: 9 records for two terminated 3-line files under `-n 5`, 7 with the first unterminated; `first` = `==> A <==`; `quiet = 1` data only; `verbose = 1` on one file = 2 records | 005 |
+| H7 | two files without `-q`: 9 records for two terminated 3-line files under `-n 5`, 8 with the first unterminated; `first` = `==> A <==`; `quiet = 1` data only; `verbose = 1` on one file = 2 records | 005 |
 | H8 | missing file among good ones: records kept, RESULT = count, rc 1, lastRc 1, one debug line; the tool's own stderr line matched by prefix (or under `LC_ALL=C`) | 005 |
 | H9 | `crlf = 1` strips exactly one CR per record, also in bytes mode; `crlf = 0` keeps it | 005 |
 | H10 | `-z` on a NUL-separated file → NUL records; the unterminated last NUL record delivered; a TEXT file under `-z` is one record | 005 |
@@ -254,11 +259,11 @@ findings and where each landed (the ttail-specific ones are in the ttail plan):
 | 2 | BLOCKER | "rc 2 at buildArgv" for `follow` is unimplementable (buildArgv does not know the caller; `_prep`'s `__tu_m` is unset on the `argv`/`run` paths) | ttail §2.1 (overridden sinks) |
 | 3 | BLOCKER | `-z` + several files → one record (headers stay `\n`-terminated; `-z` re-delimits the input) | §1.1, §2.3 (rc 2 with ≥ 2 paths or verbose) |
 | 4 | MAJOR | `first`/`each`/`toList` also hang under `follow` without a stopping consumer; no kcl list stops | ttail §2.1 |
-| 5 | MAJOR | the "blank line between files" is a `\n` prefix on later headers; count depends on termination | §1.1, §2.4, H7, §4 fixture |
+| 5 | MAJOR | the "blank line between files" is a `\n` prefix on later headers; count depends on termination (the critic's "7" for the unterminated pair was off by one: it is 8, corrected at P0) | §1.1, §2.4, H7, §4 fixture |
 | 6 | MAJOR | `-0`/`+0` and the sign mean opposite things in head and tail | §1.1, §2.2 table, H3 |
 | 7 | MAJOR | a 1.3× bench gate flakes; corpus size is irrelevant (~42 ms fork vs ~3.9 ms wrapper) | §5 P1 (1.5×, interleaved medians ≥ 15) |
 | 8 | MAJOR | `tutil._badOut` hard-codes `__tu_ __tg_`; `__th_`/`__tt_` not refused | §2.8 (tutil edit), H4b |
-| 9 | MINOR | an overflowing count reaches the tool as an ordinary rc 1 | §2.2 (19-digit guard), H3 |
+| 9 | MINOR | an overflowing count reaches the tool as an ordinary rc 1 (at P0: only the `-c -N` shape overflows; a 19-digit `-n` is rc 0) | §2.2 (19-digit guard), §2.5, H3 |
 | 10 | MINOR | the tool's stderr is unconditional and locale-quoted | §1.1, §2.5 (b), §4 |
 | 11 | MINOR | extras come last; `addArg -n/-c` replaces `lines`/`bytes` silently | §1.3, H1 |
 | 12 | MINOR | tutil PLAN §7 row contradicts both plans (`kk.isInt`, "sinks refuse") | §2.9 |

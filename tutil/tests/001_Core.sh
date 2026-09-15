@@ -340,6 +340,29 @@ bad_name "argv 'state' is rc 2 (kklass binds it onto \${inst}_data in every fram
 bad_name "argv 'RESULT' is rc 2" "RESULT"
 bad_name "argv '__tu_x' is rc 2 (this unit's own local prefix)" "__tu_x"
 bad_name "argv '__tg_x' is rc 2 (the tgrep prefix, reserved from P0)" "__tg_x"
+bad_name "argv '__th_x' is rc 2 (the thead prefix, reserved from thead P0)" "__th_x"
+bad_name "argv '__tt_x' is rc 2 (the ttail prefix, reserved from ttail P0)" "__tt_x"
+
+# thead PLAN §2.8: `tutil._badOut` used to hard-code `__tu_ __tg_` only, so a
+# `__th_*`/`__tt_*` caller array was ACCEPTED as an out-name while the same
+# shape was refused for the other two wrappers. All four prefixes are refused
+# from thead/ttail P0 on, and a NEW descendant adds its own to that one line.
+kt_test_start "all FOUR family prefixes are refused in one sweep, and an ordinary name still fills"
+four_ok=1
+for n in __tu_x __tg_x __th_x __tt_x; do
+    RESULT="sentinel"
+    uV.argv "$n" >/dev/null 2>&1
+    [[ $? -eq 2 ]] || four_ok=0
+done
+declare -a NEARMISS=()
+RESULT="sentinel"
+uV.argv NEARMISS >/dev/null 2>&1
+near_rc=$?
+if [[ "$four_ok" == "1" && $near_rc -eq 0 ]] && arr_is NEARMISS "printf" "hello"; then
+    kt_test_pass "__tu_/__tg_/__th_/__tt_ all rc 2; an ordinary name still fills"
+else
+    kt_test_fail "fourPrefixes=$four_ok nearRc=$near_rc NEARMISS=$(arr_show NEARMISS)"
+fi
 bad_name "argv '\${inst}_args' is rc 2 (the instance's own extra array)" "uV_args"
 bad_name "argv '\${inst}_argv' is rc 2 (the instance's own extra array)" "uV_argv"
 bad_name "argv '\${inst}_paths' is rc 2 (reserved for TGrep from P0)" "uV_paths"

@@ -166,20 +166,22 @@ end
 # does the same conversion).
 #
 # Two checks, in this order:
-#   1. `kk._outName NAME __tu_ __tg_` — the §1.7 core: identifier shape, the
-#      kklass reserved set (`this __inst__ __class__ RESULT REPLY IFS state`),
-#      the `__kk_`/`__KK_` space, the receiving instance's own
-#      `_data`/`_class`/`_items`, and this family's local prefixes. Both
-#      prefixes are passed from P0 on: bash scopes locals DYNAMICALLY, so a
-#      caller array named `__tu_v` or `__tg_p` would bind our own scratch, and
-#      tgrep (P2) shares these member bodies by inheritance.
+#   1. `kk._outName NAME __tu_ __tg_ __th_ __tt_` — the §1.7 core: identifier
+#      shape, the kklass reserved set (`this __inst__ __class__ RESULT REPLY IFS
+#      state`), the `__kk_`/`__KK_` space, the receiving instance's own
+#      `_data`/`_class`/`_items`, and EVERY local prefix in this family. They
+#      are all passed here, in the base, because bash scopes locals DYNAMICALLY:
+#      a caller array named `__tu_v`, `__tg_p`, `__th_v` or `__tt_p` would bind
+#      the scratch nameref of whichever wrapper is running, and the wrappers
+#      share these member bodies by inheritance. A NEW descendant adds its own
+#      prefix to this line (`tutil/README.md` §5, thead PLAN §2.8).
 #   2. the extra per-instance arrays this family keeps beyond the kklass three:
 #      `${inst}_args`, `${inst}_argv` and TGrep's `${inst}_paths`. Filling one
 #      of those would hand the caller the instance's own storage and then let
 #      the next `buildArgv` overwrite it.
 tutil._badOut() {
     local __tu_n="${1:-}" __tu_i="${__inst__:-}"
-    if ! kk._outName "$__tu_n" __tu_ __tg_; then
+    if ! kk._outName "$__tu_n" __tu_ __tg_ __th_ __tt_; then
         return 0
     fi
     if [[ -n "$__tu_i" ]]; then

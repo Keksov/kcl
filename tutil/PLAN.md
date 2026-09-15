@@ -541,7 +541,7 @@ which is why every wrapper emits its expression flags first, then `--`, then pat
 | tsed | GNU sed 4.9 | `expr` (`-e`, repeatable via addArg), `inPlace` (`-i`; **refused** by the sinks, `run` only), `extended` (`-E`), `quiet` (`-n`), `nullData` (`-z`) | 0→0; 1 (bad command)→1+debug; 2 (missing file)→1+debug; 4 (I/O)→1+debug | `-e` always first; `--` before paths; strips CR in text mode like grep |
 | tawk | gawk 5.0/5.4 | `program` (via `-e`) / `programFile` (`-f`), `fieldSep` (`-F`), `assign` (`-v` repeatable) | 0→0; else →1+debug | program text is data; text-mode CR strip |
 | tfind | findutils 4.10 | `name`, `iname`, `type`, `maxDepth`, `minDepth`, `newer`, `print0` (→ derived `-0`) | 0→0; 1→1+debug | options (`-maxdepth`) before tests by convention; `-print0` last |
-| thead / ttail | coreutils 8.32 | `lines` (`-n`), `bytes` (`-c`), `follow` (tail `-f`, **sinks refuse**, `run` only), `zeroTerminated` (`-z`) | 0→0; 1→1+debug | `-n` value through `kk.isInt`; these KEEP the CR — `crlf` matters here |
+| thead / ttail | coreutils 8.32 | `lines` (`-n`), `bytes` (`-c`), `follow` (tail `-f`): **run/each/first stream, `toArray`/`count`/`toList` refused** (ttail PLAN §2.1), `zeroTerminated` (`-z`) | 0→0; 1→1+debug | count = regex `^[+-]?[0-9]+$` + 19-digit guard, verbatim, **NOT `kk.isInt`** (thead PLAN §2.2); these KEEP the CR — `crlf` matters here |
 
 Each follows the P2 shape above: argv pins first (fast, no tool run), then the fixture
 suite (GNU banner gate first), then the contract file.
