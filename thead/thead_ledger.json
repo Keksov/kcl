@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "project": "kcl/thead — THead : TUtil, GNU coreutils 8.32 `head` wrapper (typed options -> pinned argv, sinks via TPipe, static one-liner THead.take).",
+  "created": "2026-09-15",
+  "updated": "2026-09-15",
+  "status": "PLANNED, critic-hardened 2026-09-15 (19 findings: 3 BLOCKER, 5 MAJOR, 8 MINOR, 3 NIT — all folded into PLAN.md, record in §8). Written together with kcl/ttail (one worker per phase for both). No code.",
+  "phases": [
+    {
+      "id": "P0",
+      "name": "The unit",
+      "goal": "thead.sh (THead : TUtil per PLAN §1.2), tests 004_Argv / 005_Run / 006_Contract, README first cut.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "THead class: Create (parent.constructor head, every var assigned, ${inst}_paths), Destroy, paths, buildArgv (pinned shape; rc 2 list incl. lines+bytes, quiet+verbose, zeroTerminated with >=2 paths or verbose, count regex ^[+-]?[0-9]+$ + 19-digit guard, verbatim; zeroTerminated -> nul with the P3-F1 guard for one path), mapRc (0->0, else 1 + debug), static take (>=1 path, unique throw-away instance, tool-parity headers); PLUS the cross-unit edits: tutil._badOut extended to __tu_ __tg_ __th_ __tt_ (+ tutil 001 case), tutil PLAN §7 thead/ttail row amended (no kk.isInt; follow per ttail §2.1)",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "H1–H5 by array comparison without running head; H6–H11 on the fixture tree with the GNU banner gate; partial failure keeps the records with RESULT = count and rc 1; crlf = 1 strips one CR; -z -> NUL records; take byte-identical to bare head in three positions; nested take keeps the outer instance."
+        },
+        {
+          "id": "P0.2",
+          "title": "tests 004/005/006 (red-first against a stubbed skeleton) + tests.sh + README first cut",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red counts recorded; green on bash 5.2.37 and 5.3.9 (threaded and --mode single); H12 (set -eu, debug switch, D6 warning + subshellOk); sweep 0 [FAIL] on both."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Closeout",
+      "goal": "bench.sh + 007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row, ledger COMPLETE.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "bench (take vs bare head -n on 10 000 lines <= 1.3x interleaved medians; argv fork-free) + 007 with loose ceilings",
+          "category": "perf",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner."
+        },
+        {
+          "id": "P1.2",
+          "title": "README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (headers-as-records note, partial-output deviation, run streams), ledger COMPLETE with SHAs",
+          "category": "docs",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-09-15",
+      "batch": "critic pass",
+      "summary": "Opus critic, 12 probe scripts on both bashes. BLOCKERS: a func override ending on `inherited` returns 0 where the base returned 1 (compiled trailer replaces the rc) -> pinned spelling `inherited X \"$@\" || rc=$?; n=$RESULT; kk._return $n; return $rc`; the follow refusal cannot live in buildArgv (it does not know its caller) -> TTail overrides toArray/toList/count; -z with several files collapses everything into ONE record (headers stay \n-terminated under -z, and -z re-delimits the INPUT) -> rc 2 with >=2 paths or verbose. MAJORS: first/each/toList also hang under follow without a stopping consumer and no kcl list stops -> run/each/first allowed, toArray/count/toList refused; the inter-file blank line is a \n PREFIX on later headers (9 vs 7 records depending on termination); -0/+0 and the sign mean opposite things in head and tail (sign table); a 1.3x bench gate flakes (fixed ~3.9 ms wrapper cost vs ~42 ms fork) -> 1.5x interleaved medians >=15; tutil._badOut hard-codes __tu_ __tg_ -> extended in P0. MINOR/NIT: 19-digit magnitude guard; the tool stderr is unconditional and locale-quoted (named deviation, tests match a prefix); addArg -n/-c replaces lines/bytes (last flag wins, documented); tutil PLAN §7 row amended; take with several paths carries headers (parity, pinned); tail -f children must be killed in test teardown (leaked followers found on the box), poll ~1 s, no ---disable-inotify; nothing shared between the two units; --pid note; dead tgrep/PLAN.md reference fixed; every sink call guarded under set -e in 006; unterminated last NUL record pinned. Verified correct: coreutils 8.32 under both bashes, the rc table, headers shapes, CR kept + crlf, the tpipe stop path ends tail -f in ~45 ms with 143, tgrep mechanics in a prototype, take byte-identical and nested-safe, D6 + subshellOk."
+    },
+    {
+      "date": "2026-09-15",
+      "batch": "planning",
+      "summary": "Owner: start thead and ttail. GNU head/tail 8.32 measured under both bashes (rc 1 for every error incl. partial output; -n 08 decimal; head -n -2 / tail -n +2; suffixes accepted by the tool but refused by the wrapper; ==> headers <== with several files unless -q; -z NUL records; CR kept; tail -f dies on TERM with 143). PLAN.md + this ledger written; the unit reuses every tgrep decision (constructor rule, _nulDerived with the P3-F1 guard, partial-output deviation, unique one-liner instance). No code."
+    }
+  ]
+}

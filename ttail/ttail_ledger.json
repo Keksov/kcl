@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "project": "kcl/ttail — TTail : TUtil, GNU coreutils 8.32 `tail` wrapper (typed options incl. -n +N and -f, sinks via TPipe with the follow rules, static one-liner TTail.take).",
+  "created": "2026-09-15",
+  "updated": "2026-09-15",
+  "status": "PLANNED, critic-hardened 2026-09-15 (findings folded into both plans; record in thead PLAN §8). Written together with kcl/thead (one worker per phase for both); the thead plan carries the shared decisions, ttail/PLAN.md the differences (follow with three overridden sinks, +N). No code.",
+  "phases": [
+    {
+      "id": "P0",
+      "name": "The unit",
+      "goal": "ttail.sh (TTail : TUtil per PLAN §1.2), tests 004_Argv / 005_Run / 006_Contract, README first cut.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "TTail class: as THead plus `follow` (-f) with override func toArray/toList/count (follow = 1 -> rc 2, nothing runs; else `inherited X \"$@\" || rc=$?; n=$RESULT; kk._return $n; return $rc`), each/first stream until TPipe.stop (rc 0, lastRc 143); +N verbatim",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "thead H1–H11 mirrored for tail + T1–T3; follow = 1 with each + stop returns in a child under timeout 20 with rc 0 / lastRc 143 / one record; toArray with follow = 1 is rc 2 and the flag file proves nothing ran; `-n +2` on a 5-line file counts 4."
+        },
+        {
+          "id": "P0.2",
+          "title": "tests 004/005/006 (red-first) + tests.sh + README first cut",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red counts recorded; green on both bashes (threaded and single); H12 mirrored; sweep 0 [FAIL] on both."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Closeout",
+      "goal": "bench.sh + 007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row, ledger COMPLETE.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "bench (take vs bare tail -n <= 1.3x; argv fork-free) + 007",
+          "category": "perf",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "Numbers on both bashes; rc 0 under bash -eu; 007 green threaded."
+        },
+        {
+          "id": "P1.2",
+          "title": "README final (follow table, +N), TEST_COVERAGE_NOTES.md, kcl README §2 row, ledger COMPLETE with SHAs",
+          "category": "docs",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "kcl README row present; final sweep 0 [FAIL] on both bashes."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-09-15",
+      "batch": "critic pass",
+      "summary": "See thead_ledger.json (the critic reviewed both plans together). ttail-specific outcomes: the follow refusal moves from buildArgv to three overridden sinks with the rc-preserving spelling; toList joins the refused set (no kcl list calls TPipe.stop); each/first documented as blocking without a stopping consumer; follow tests kill their producer in teardown and give the appender >=3 s; +0 = everything, -0 = nothing (mirror of head)."
+    },
+    {
+      "date": "2026-09-15",
+      "batch": "planning",
+      "summary": "Owner: start thead and ttail. Measured with thead (PLAN §1.1 there); tail-specific: -n +N = from line N (kk.isInt would silently turn +2 into 2 — the count regex passes it verbatim), -f follows until TERM (143, the tpipe stop path). Decision: with follow = 1 the sinks that can only finish at EOF (toArray, count) are refused with rc 2; each/toList/first stream until TPipe.stop; run streams until killed. PLAN.md + this ledger written. No code."
+    }
+  ]
+}
