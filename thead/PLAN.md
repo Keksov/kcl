@@ -1,6 +1,9 @@
 # THead — GNU `head` wrapper over TUtil (kcl/thead)
 
-**Status: P0 DONE 2026-09-15 (unit + tests + README first cut; two plan facts corrected at P0, see §2.4/§2.5); P1 closeout next.** Owner: "приступай к
+**Status: COMPLETE (P0–P1).** P0 DONE 2026-09-15 (unit + tests + README first cut;
+two plan facts corrected at P0, see §2.4/§2.5); **P1 DONE 2026-09-16** (bench.sh,
+tests/007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row,
+ledger COMPLETE) — the numbers are under §5. Owner: "приступай к
 ttail и thead" (2026-09-15). A critic pass (§8) found 3 blockers and 5 majors in
 the first draft; every one is folded into the sections below. Sibling:
 [`kcl/ttail/PLAN.md`](../ttail/PLAN.md) — the two units are written together, by one
@@ -227,6 +230,32 @@ tool's own stderr matches a prefix or runs under `LC_ALL=C`. Files: `004_Argv.sh
   `argv` fork-free), `tests/007_Bench.sh` (10× ceiling like tgrep), README final,
   `TEST_COVERAGE_NOTES.md`, kcl README §2 row (unit count 20 → 22 with ttail), ledger
   COMPLETE. Same worker cycle as ttail P1.
+
+**P1 DONE 2026-09-16.** Delivered: `bench.sh` (sections a–e: argv cost with the
+fork-free / runs-nothing proof; `new`+`argv`+`delete` on its own line; the GATED
+`THead.take` vs the bare tool in the `-n 1` and `-n 5000` shapes, interleaved,
+medians of NR = 21, means printed beside them; `count` vs the `wc -l` equivalent
+published, not gated; zero forks over every member and `take` — rc 0 under
+`bash -eu` on both bashes), `tests/007_Bench.sh` (9 cases, 10x ceiling,
+2000-line corpus), README final (§8 Performance, §9 Tests),
+`TEST_COVERAGE_NOTES.md` (182 rows), the kcl README §2 row, the ledger. Measured
+on an idle box against GNU coreutils 8.32:
+
+| | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `take 1` vs bare `head -n 1` (medians of 21) | 39.40 / 34.14 ms = **1.15x** | 43.19 / 35.88 ms = **1.20x** |
+| `take 5000` vs bare `head -n 5000` | 39.97 / 36.02 ms = **1.10x** | 41.12 / 33.23 ms = **1.23x** |
+| `new` + `argv` + `delete` (the delta) | 3120.6 us/call | 3199.5 us/call |
+| `buildArgv` / `argv NAME` | 653.4 / 1196.3 us | 692.2 / 1290.6 us |
+| `h.count` vs `head -n 5000 \| wc -l` (published) | 725.67 / 51.05 ms = 14.21x | 731.64 / 48.93 ms = 14.95x |
+| gates | **2/2 PASS** | **2/2 PASS** |
+
+Two estimates in the P1 bullet above are refined by the measurement, and the
+conclusion is unchanged: a whole tool run is **33–36 ms** (estimated ~42 ms) and
+the wrapper's fixed delta is **3.1–3.3 ms** (estimated ~3.9 ms), so the ratio is
+~(34 + 3.2)/34 and *falls* as the corpus grows — `-n 1` and `-n 5000` agree
+within a few percent. Suite after P1: **182/182** on bash 5.2.37 and on 5.3.9,
+threaded and under `--mode single`.
 
 ## 6. Traps (in addition to tutil PLAN §6, all binding)
 

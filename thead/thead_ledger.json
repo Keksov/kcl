@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/thead — THead : TUtil, GNU coreutils 8.32 `head` wrapper (typed options -> pinned argv, sinks via TPipe, static one-liner THead.take).",
   "created": "2026-09-15",
-  "updated": "2026-09-15",
-  "status": "P0 DONE 2026-09-15 (a4c01a8): thead.sh (THead : TUtil), tests 004_Argv / 005_Run / 006_Contract + tests.sh, README first cut, and the two cross-unit tutil edits (tutil._badOut extended to __tu_ __tg_ __th_ __tt_ with its 001_Core case and the 'writing a descendant' note; tutil PLAN §7 row amended). Suite green on bash 5.2.37 and 5.3.9, threaded and --mode single. P1 (bench, 007, TEST_COVERAGE_NOTES, kcl README row) still open. Written together with kcl/ttail (one worker per phase for both).",
+  "updated": "2026-09-16",
+  "status": "COMPLETE (P0–P1). P0 DONE 2026-09-15 (a4c01a8): thead.sh (THead : TUtil), tests 004_Argv / 005_Run / 006_Contract + tests.sh, README first cut, and the two cross-unit tutil edits (tutil._badOut extended to __tu_ __tg_ __th_ __tt_ with its 001_Core case and the 'writing a descendant' note; tutil PLAN §7 row amended). P1 DONE 2026-09-16 (<SHA-HT1>): bench.sh (interleaved medians of 21 runs, gate 1.5x, measured 1.10–1.23x on both bashes), tests/007_Bench.sh (9 cases, 10x ceiling), README final (§8 Performance, §9 Tests), TEST_COVERAGE_NOTES.md (182 rows), the kcl README §2 row (unit count Twenty -> Twenty-two, with the ttail row), PLAN status header + the P1 DONE block. Suite 182/182 on bash 5.2.37 and 5.3.9, threaded and --mode single. Master sweep: run by reviewer: 25/25 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suites reproduced thead 182/182, ttail 200/200 on both bashes, benches 2/2 gates PASS (1.07x / 1.13x). Written together with kcl/ttail (one worker per phase for both).",
   "phases": [
     {
       "id": "P0",
@@ -33,28 +33,34 @@
       "id": "P1",
       "name": "Closeout",
       "goal": "bench.sh + 007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row, ledger COMPLETE.",
-      "status": "planned",
+      "status": "done",
       "tasks": [
         {
           "id": "P1.1",
-          "title": "bench (take vs bare head -n on 10 000 lines <= 1.3x interleaved medians; argv fork-free) + 007 with loose ceilings",
+          "title": "bench (take vs bare head -n on 10 000 lines, INTERLEAVED medians of >= 15 runs, gate 1.5x per PLAN §5 P1 / §8 finding 7 — the 1.3x of the original ledger text is superseded; argv fork-free and runs-nothing; new+argv+delete on its own line; count vs the wc -l equivalent published) + 007_Bench.sh with a 10x ceiling and a small N",
           "category": "perf",
           "severity": "medium",
-          "status": "planned",
-          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner."
+          "status": "done",
+          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner. MET: bench.sh rc 0 under `bash -eu` on 5.2.37 and 5.3.9, gates 2/2 PASS on both (take -n 1: 1.15x / 1.20x; take -n 5000: 1.10x / 1.23x, medians of NR=21 interleaved runs with the means printed beside them); buildArgv 653.4/692.2 us, argv NAME 1196.3/1290.6 us, new+argv+delete 3120.6/3199.5 us; h.count vs `head -n 5000 | wc -l` 14.21x / 14.95x published, not gated; zero forks over all 13 members plus take, and 900 argv builds invoked a counting cmd 0 times with BASHPID unchanged. REPRODUCED: a second run of the final file on the same idle box read 1.06x / 1.11x on 5.2.37 and 1.08x / 1.09x on 5.3.9, gates 2/2 PASS on both — the up-to-nine-point spread between the two runs is the process-start variance the 1.5x head-room exists for; the README table quotes the first run and names the second. tests/007_Bench.sh: 9 cases green on both bashes, threaded and --mode single. README §8 carries both bash columns."
         },
         {
           "id": "P1.2",
           "title": "README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (headers-as-records note, partial-output deviation, run streams), ledger COMPLETE with SHAs",
           "category": "docs",
           "severity": "medium",
-          "status": "planned",
-          "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes."
+          "status": "done",
+          "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes. MET for the docs: README.md final (COMPLETE header with 182/182 per bash, the surface table, the argv shape, the rc 2 list, the sign table §4, headers-as-records with the \\n-prefix rule and the 8-records fact §6, the -z rule §5, crlf §6, the two named deviations §3, take semantics §7 incl. several paths, the addArg last-flag-wins hatch §1, subshellOk/D6 §1, bench tables for both bashes §8, the per-file test table with counts §9); TEST_COVERAGE_NOTES.md with a row for every one of the 182 cases, each with class and basis (H1–H12, H4b, C1–C19, P0-C1/P0-C2, P3-F1, D4/D6); kcl README §2 thead row inserted alphabetically (after thashset, before tinifile) with the deviations named, and the unit-count sentence Twenty -> Twenty-two. SWEEP: run by reviewer: 25/25 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suites reproduced thead 182/182, ttail 200/200 on both bashes, benches 2/2 gates PASS (1.07x / 1.13x)."
         }
       ]
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-16",
+      "batch": "P1",
+      "sha": "<SHA-HT1>",
+      "summary": "P1 closeout, no change to thead.sh or to tests 004-006 (git diff --stat empty on all four). NEW: bench.sh (344 lines), tests/007_Bench.sh (333 lines), TEST_COVERAGE_NOTES.md (416 lines). EDITED: README.md (status header -> COMPLETE (P0+P1) with 182/182 per bash and the two P0 corrections named; new §8 Performance with a both-bashes table; Tests renumbered to §9 with per-file case counts), PLAN.md (status header -> COMPLETE (P0–P1) + a 'P1 DONE 2026-09-16' block under §5 with the measured table), this ledger, and kcl/README.md (the thead row in §2, alphabetically after thashset, plus the ttail row and Twenty -> Twenty-two). bench.sh: corpus of 10 000 generated lines in a `mktemp -d` with an EXIT trap (bench only — a test file must not install one); (a) argv cost + the runs-nothing proof (cmd pointed at a counting function, 900 builds, counter 0, $BASHPID unchanged); (b) new+argv+delete measured on its own as the whole `take` delta; (c) the GATE — THead.take vs the bare tool in the -n 1 and -n 5000 shapes, INTERLEAVED one of each per iteration, medians of NR=21 with the means printed beside them, gate 1.5x (PLAN §8 finding 7: a non-interleaved loop reads up to 2.4x); (d) h.count vs `head -n 5000 -- FILE | wc -l`, published and NOT gated; (e) zero forks over every member, take, the each callback and .Add. MEASURED on an idle box, GNU coreutils 8.32 — 5.2.37: buildArgv 653.4 us, argv 1196.3 us, new+argv+delete 3120.6 us, bare head -n 1 34.14 ms vs take 39.40 ms = 1.15x, bare head -n 5000 36.02 ms vs take 39.97 ms = 1.10x, wc-equivalent 51.05 ms vs h.count 725.67 ms = 14.21x (~134 us/record), gates 2/2 PASS. 5.3.9: 692.2 / 1290.6 / 3199.5 us, 35.88 vs 43.19 ms = 1.20x, 33.23 vs 41.12 ms = 1.23x, 48.93 vs 731.64 ms = 14.95x (~136 us/record), gates 2/2 PASS. Both rc 0 under `bash -eu`. TWO PLAN ESTIMATES REFINED (conclusion unchanged, written into PLAN §5 and both bench headers): a whole tool run is 33-36 ms, not ~42 ms, and the wrapper's fixed delta is 3.1-3.3 ms, not ~3.9 ms; the ratio is therefore ~(34+3.2)/34 and falls as the corpus grows, which is why -n 1 and -n 5000 agree within a few percent. DEVIATION from the letter of the brief: the 007 `count` case runs over 200 records, not the bench's 5000 — the count sink's cost is PER RECORD (~135 us), so at 5000 records the idle ratio is already 14x and a 10x ceiling would fail by construction; at 200 records it is under 3x idle and the ceiling still catches an order-of-magnitude regression. The gated take shapes are unchanged at -n 1 and -n 1000 (2000-line corpus). GATE: thead 182/182 on bash 5.2.37 and 182/182 on 5.3.9, threaded, and 182/182 under --mode single on 5.2.37; bash -n clean on bench.sh and 007_Bench.sh; no tests/.tmp left; ps -W before and after shows only the four known phantom cygwin tail.exe rows (PIDs 4204616 4201448 4209672 4212912) and no follower of ours (thead starts none). MASTER SWEEP: run by reviewer: 25/25 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suites reproduced thead 182/182, ttail 200/200 on both bashes, benches 2/2 gates PASS (1.07x / 1.13x)."
+    },
     {
       "date": "2026-09-15",
       "batch": "P0",

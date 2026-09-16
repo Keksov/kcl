@@ -1,14 +1,24 @@
 # thead — `THead`, the GNU `head` wrapper
 
-> **Status: P0 done (the unit, the three test files, this first cut).** P1 adds
-> `bench.sh`, `tests/007_Bench.sh`, `TEST_COVERAGE_NOTES.md` and the kcl README
-> row. Suite: `tests/004_Argv.sh`, `tests/005_Run.sh`, `tests/006_Contract.sh`,
-> run against **GNU coreutils 8.32** on bash 5.2.37 and 5.3.9. Design record:
+> **Status: COMPLETE (P0 + P1).** `THead : TUtil` is the whole unit — the typed
+> option set, the pinned argv, the rc 2 list, the `mapRc` override, `paths`, the
+> destructor, the static `take`, the bench and the docs. Suite:
+> `tests/004_Argv.sh`, `tests/005_Run.sh`, `tests/006_Contract.sh`,
+> `tests/007_Bench.sh` — **182 checks green on bash 5.2.37 and 182 on bash
+> 5.3.9**, threaded and under `--mode single`, against **GNU coreutils 8.32**.
+> What the tests pin, case by case:
+> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
 > [PLAN.md](PLAN.md) (§8 is the critic pass every decision below survived) and
 > [thead_ledger.json](thead_ledger.json). The base:
 > [`../tutil/README.md`](../tutil/README.md); the worked sibling example:
 > [`../tgrep/README.md`](../tgrep/README.md); the `tail` wrapper, written from
 > the same plan: [`../ttail/README.md`](../ttail/README.md).
+>
+> **Two plan facts were corrected against the real tool at P0**, and both are
+> now what the tests pin: two 3-line files under `-n 5` with the **first**
+> unterminated are **8** records, not 7 (§6); and a 19-digit `-n` is rc **0**
+> (it fits `uintmax`) — the shape that really overflows is a negative **byte**
+> count (§4).
 
 `THead` is a [`TUtil`](../tutil/README.md) descendant: typed properties instead
 of a hand-built command string, one rc convention, and the five `TPipe` sinks
@@ -316,19 +326,89 @@ instance out from under it. Cost: one construction per call.
 
 ---
 
-## 8. Tests
+## 8. Performance
+
+`bash kcl/thead/bench.sh [NL] [NR] [ND]` — a generated corpus of NL = 10 000
+lines in a `mktemp -d` directory, NR = 21 **interleaved** runs per gated shape,
+ND = 300 per-call measurements, timed with `TStopwatch.getTimeStamp`. Measured
+**2026-09-16** on Windows 11 / MSYS2 with the machine idle, against **GNU
+coreutils 8.32**:
+
+| Measurement | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `buildArgv` — the override | 653.4 µs/call | 692.2 µs/call |
+| `argv NAME` (build + validate + copy, 6 words) | 1196.3 µs/call | 1290.6 µs/call |
+| **`new` + `argv` + `delete`** — *the whole `take` delta* | **3120.6 µs/call** | **3199.5 µs/call** |
+| **baseline** — bare `head -n 1 -- FILE` (median of 21) | 34.14 ms | 35.88 ms |
+| `THead.take 1 FILE` (median of 21) | 39.40 ms — **1.15×** | 43.19 ms — **1.20×** |
+| **baseline** — bare `head -n 5000 -- FILE` (median of 21) | 36.02 ms | 33.23 ms |
+| `THead.take 5000 FILE` (median of 21) | 39.97 ms — **1.10×** | 41.12 ms — **1.23×** |
+| **baseline** — `head -n 5000 -- FILE \| wc -l` (median of 21) | 51.05 ms | 48.93 ms |
+| `h.lines = 5000; h.count` — 5000 records into bash | 725.67 ms — **14.21×** | 731.64 ms — **14.95×** |
+| per record read into bash | ~134 µs | ~136 µs |
+| forks per call | **1** (head itself) | **1** |
+
+Reading the table:
+
+- **The gate is the two `THead.take` rows** ([PLAN.md](PLAN.md) §5 P1): at most
+  **1.5×** a bare `head -n N` on the same corpus. Both shapes pass on both
+  bashes. The delta *is* the `new` + `argv` + `delete` row — one throw-away
+  instance, measured on its own line — and it is a **per-call** cost, never a
+  per-record one.
+- **Corpus size is not the knob.** A whole `head` run costs 33–36 ms here (one
+  msys process start plus the scan); the wrapper's fixed delta is 3.1–3.3 ms.
+  The ratio is therefore ~(34 + 3.2)/34 and can only *fall* as the corpus grows
+  — which is why `-n 1` and `-n 5000` land within a few percent of each other.
+  The plan's estimates (~42 ms and ~3.9 ms) were close enough that the
+  conclusion is unchanged.
+- **Medians, not means.** Every timed number is one process start, and on this
+  box a process start occasionally takes several hundred milliseconds for
+  reasons outside this repo: the *means* printed beside these medians are
+  routinely double them. A non-interleaved loop over the two shapes has been
+  read as high as **2.4×** on code that interleaved medians put at 1.07–1.30×
+  ([PLAN.md](PLAN.md) §8, finding 7) — which is why the gate is 1.5×, the two
+  shapes are timed one-of-each per iteration, and the ratio is taken between
+  medians.
+- **`argv` runs nothing** and forks nothing: section (a) of the bench points
+  `cmd` at a function that counts its own invocations and builds 900 times — the
+  counter stays at 0 and `$BASHPID` never changes.
+- **`count` is not `wc -l`, and the 14× row is why.** The sink reads every
+  record into bash at ~135 µs a record; `wc` counts in a second process at
+  memory speed. That is the price of having the records *in this shell*, where a
+  callback can mutate an object — when all you want is the number, spell it
+  `head -n N FILE | wc -l` and skip the wrapper. This row is **published, not
+  gated**.
+- **Reproduced.** A second run of the same file on the same idle box read
+  **1.06× / 1.11×** on 5.2.37 and **1.08× / 1.09×** on 5.3.9 (the table's row is
+  the first run). The spread between the two runs — up to nine points on one
+  shape — is the process-start variance described above, and it is the reason
+  the gate has head-room at 1.5× instead of sitting at 1.3×.
+- `tests/007_Bench.sh` asserts the same shapes with a ceiling of **10×**: under
+  the threaded runner the two sides do not inflate together (head is its own
+  process; the wrapper's share is bash work in the contended shell).
+
+---
+
+## 9. Tests
 
 ```bash
 bash kcl/thead/tests/tests.sh                 # the whole suite
 bash kcl/thead/tests/tests.sh --mode single   # sequential, for a stack trace
+PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/thead/tests/tests.sh
 ```
 
-| file | what it pins | runs head? |
-|---|---|---|
-| `004_Argv.sh` | the whole option set by **array comparison**: every option singly and combined, the pinned order, the boolean rule, `--` only with paths, extras in place, the rc 2 list, the count verbatim, the `-z` derivation's four states, and the out-name refusals for all four family prefixes | **no** |
-| `005_Run.sh` | behaviour against the bare tool on a fixture tree: every sink, the headers-as-records counts, the partial failure, CRLF, `-z`, the sign table, and `THead.take` in three positions | yes (GNU banner gate first) |
-| `006_Contract.sh` | source integrity (`bash -n`, no `$this.`, no `inherited` in the constructor, no `kk.isInt`), `set -eu` through both TPipe forms with every sink call guarded, one `kk.debug` line per refusal and silence on success, and the D6 subshell warning | yes (gated) |
+**182 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+mode and under `--mode single`, against GNU coreutils 8.32. Case by case:
+[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+
+| file | cases | what it pins | runs head? |
+|---|---|---|---|
+| `004_Argv.sh` | 73 | the whole option set by **array comparison**: the lifecycle (every declared var in `${inst}_data` with its default, `${h}_args` empty after `new h N PATH`, `_paths` verbatim, a reused name starting clean, `delete` freeing all three arrays, `argv` running nothing); every option singly and combined in the pinned order; the boolean-is-exactly-`1` rule; `--` only with paths; extras after the options and before `--`, with `addArg -n 5` replacing `lines`; the rc 2 list — 13 refusals, each asserting rc 2 + `RESULT ''` + the caller's array untouched + an EMPTY `${inst}_argv` + exactly one `kk.debug` line, plus two cases proving the legal shapes still build; the count verbatim (`08`, `+3`, `-2`, `-0`, `+0`, `0`, 19 digits) with no write-back; the `-z` derivation's four states incl. `P3-F1`; and the out-name refusals for all four family prefixes (`H4b`) | **no** |
+| `005_Run.sh` | 50 | behaviour against the bare tool on a 9-file fixture tree: every sink and `run`; the unterminated last record; headers-as-records (**9** records for two terminated 3-line files under `-n 5`, **8** with the first unterminated, `first` = the header, `quiet`, `verbose` on one file); the partial failure (records kept, `RESULT` = the real count, rc 1, one line of ours, head's own matched by prefix); a directory operand; CRLF in line and byte mode; `-z` incl. the unterminated NUL record and a text file as one record; the sign table behaviourally incl. the 19-digit `-c -N` the tool itself refuses; and `THead.take` in three positions, with two paths, refused without a path, nested inside an outer `each` | yes (GNU banner gate first) |
+| `006_Contract.sh` | 50 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.` call, `parent.constructor` in the constructor and `inherited` in the destructor, no `kk.isInt`, the regex in a variable, no shadowed member name, exactly one `source` line); every shape from a child under `set -eu` — an instance, both TPipe forms, `take` as a producer, records, a tool error, a partial failure, four refused builds, a refused `take`, the stdin form, `run` streaming, `delete` — with every sink call guarded; the debug switch (exactly one line on each of the 11 rc 2 paths and the 2 tool-error paths, **none** on any rc 0 path); the **D6-final** `subshellOk` case; and `H12`, that an unguarded rc 1 aborts a `set -eu` caller | yes (gated) |
+| `007_Bench.sh` | 9 | the §5 P1 gate as assertions with a **10×** ceiling behind the same banner gate: `THead.take` against a bare `head -n` in both shapes (interleaved, medians, both sides asserted to deliver the same records), `new` + `argv` + `delete` under 50 ms, `h.count` against the `wc -l` equivalent; that 200 `buildArgv`/`argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback and `.Add` run in this process, and the seven builder members plus `run` and `take` leave `$BASHPID` untouched | yes (gated) |
 
 The behavioural files open with a **GNU banner gate**: if `head --version` does
 not begin with `head (GNU coreutils) `, every case below it is a loud `SKIP`
-rather than a failure — D4 pins the dialect, not a binary.
+rather than a failure — D4 pins the dialect, not a binary, and the case **count
+is unchanged**.

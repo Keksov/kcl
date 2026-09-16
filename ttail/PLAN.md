@@ -1,6 +1,9 @@
 # TTail — GNU `tail` wrapper over TUtil (kcl/ttail)
 
-**Status: P0 DONE 2026-09-15 (unit + tests + README first cut); P1 closeout next.** Written together with
+**Status: COMPLETE (P0–P1).** P0 DONE 2026-09-15 (unit + tests + README first
+cut); **P1 DONE 2026-09-16** (bench.sh, tests/007_Bench.sh, README final,
+TEST_COVERAGE_NOTES.md, kcl README §2 row, ledger COMPLETE) — the numbers are
+under §4. Written together with
 [`kcl/thead/PLAN.md`](../thead/PLAN.md); **everything in that plan applies here**
 (source of truth, base, template, conventions, §2.1 tgrep rules, §2.2 count regex +
 19-digit guard + the sign table, §2.3 `zeroTerminated` rule incl. the rc 2 for ≥ 2
@@ -119,3 +122,28 @@ Same two phases as thead, in the same worker cycles: **P0** unit + 004/005/006 +
 README first cut (+ the shared tutil edits listed in thead §5 P0); **P1** bench (`take`
 vs bare `tail -n`, interleaved medians ≥ 15 runs, gate 1.5×) + 007 (10× ceiling) +
 docs + kcl README §2 row + ledger COMPLETE.
+
+**P1 DONE 2026-09-16.** Delivered: `bench.sh` (sections a–e, the thead shape;
+the argv proof runs with `follow = 1` set, so it also pins that `-f` reaches the
+argv while three sinks refuse it; the GATED `TTail.take` vs the bare tool in the
+`-n 1` and `-n 5000` shapes, interleaved, medians of NR = 21, means beside them;
+`count` vs the `wc -l` equivalent published, not gated; zero forks over every
+member, `take`, **and the three `follow = 1` refusals**; no follower is ever
+started — rc 0 under `bash -eu` on both bashes), `tests/007_Bench.sh` (10 cases,
+10× ceiling, 2000-line corpus, no follower), README final (§9 Performance,
+§10 Tests), `TEST_COVERAGE_NOTES.md` (200 rows), the kcl README §2 row, the
+ledger. Measured on an idle box against GNU coreutils 8.32:
+
+| | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `take 1` vs bare `tail -n 1` (medians of 21) | 39.13 / 35.03 ms = **1.11×** | 38.72 / 35.08 ms = **1.10×** |
+| `take 5000` vs bare `tail -n 5000` | 37.57 / 33.72 ms = **1.11×** | 38.10 / 32.56 ms = **1.17×** |
+| `new` + `argv` + `delete` (the delta) | 3202.1 µs/call | 3333.2 µs/call |
+| `buildArgv` / `argv NAME` | 679.2 / 1282.2 µs | 661.9 / 1385.8 µs |
+| `t.count` vs `tail -n 5000 \| wc -l` (published) | 734.09 / 55.60 ms = 13.20× | 738.49 / 47.26 ms = 15.62× |
+| gates | **2/2 PASS** | **2/2 PASS** |
+
+`follow` is deliberately **not** benched: `tail -f` never ends on its own, so
+nothing about it is a per-call cost (§2.1). Suite after P1: **200/200** on bash
+5.2.37 and on 5.3.9, threaded and under `--mode single`, with no follower of
+ours surviving a run.

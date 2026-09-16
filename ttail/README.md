@@ -1,9 +1,14 @@
 # ttail — `TTail`, the GNU `tail` wrapper
 
-> **Status: P0 done (the unit, the three test files, this first cut).** P1 adds
-> `bench.sh`, `tests/007_Bench.sh`, `TEST_COVERAGE_NOTES.md` and the kcl README
-> row. Suite: `tests/004_Argv.sh`, `tests/005_Run.sh`, `tests/006_Contract.sh`,
-> run against **GNU coreutils 8.32** on bash 5.2.37 and 5.3.9. Design record:
+> **Status: COMPLETE (P0 + P1).** `TTail : TUtil` is the whole unit — the typed
+> option set (`follow` included), the pinned argv, the rc 2 list, the `mapRc`
+> override, the three overridden sinks, `paths`, the destructor, the static
+> `take`, the bench and the docs. Suite: `tests/004_Argv.sh`, `tests/005_Run.sh`,
+> `tests/006_Contract.sh`, `tests/007_Bench.sh` — **200 checks green on bash
+> 5.2.37 and 200 on bash 5.3.9**, threaded and under `--mode single`, against
+> **GNU coreutils 8.32**, with no follower of ours surviving a run. What the
+> tests pin, case by case:
+> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
 > [PLAN.md](PLAN.md) plus [`../thead/PLAN.md`](../thead/PLAN.md), which carries
 > every shared decision (§8 there is the critic pass), and
 > [ttail_ledger.json](ttail_ledger.json). The base:
@@ -57,7 +62,7 @@ TTail.new INST [N [PATH...]]          # N becomes `lines`
 | `buildArgv` | func | — | override; fills `${inst}_argv`, RESULT = word count |
 | `mapRc RAW` | func | — | override; §3 |
 | `toArray` / `toList` / `count` | func | — | **overridden**: rc 2 when `follow = 1` — §6 |
-| `TTail.take N PATH...` | static proc | — | `tail -n N -- PATH...`, streamed; §7 |
+| `TTail.take N PATH...` | static proc | — | `tail -n N -- PATH...`, streamed; §8 |
 
 Inherited from [`TUtil`](../tutil/README.md) unchanged: `cmd` (`tail`), `crlf`,
 `nul`, `_lastRc`, **`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`,
@@ -221,6 +226,35 @@ A caller who cannot guarantee a stop should use `run` under an external
 `timeout`. Every test in this unit that starts a follower ends it — see the
 header of `tests/005_Run.sh`.
 
+### The spelling the three overrides must use
+
+With `follow = 0` the overrides do nothing but chain — and chaining has a trap
+that was measured before it was a rule (critic finding C1): a `func` body that
+merely **ends on** `inherited` returns **0** where the base returned 1, because
+the compiled `kk._return` trailer replaces the rc. That would have silently
+thrown away the partial-failure rc of §3 (a). So each override captures both
+halves and re-raises them:
+
+```bash
+TTail.toArray() {
+    if [[ "$follow" == 1 ]]; then
+        kk.debug "Error: TTail.toArray: cannot finish with follow = 1 (tail -f never reaches EOF); use each with a stopping callback, first, or run"
+        kk._return ""
+        return 2
+    fi
+    local __tt_rc=0
+    inherited toArray "$@" || __tt_rc=$?
+    local __tt_n="$RESULT"
+    kk._return "$__tt_n"
+    return "$__tt_rc"
+}
+```
+
+`tests/006_Contract.sh` §0 greps the three bodies for that shape, and
+`tests/005_Run.sh` §H pins the behaviour it protects: with `follow = 0` and one
+missing operand among good ones, all three answer **rc 1 with `RESULT` = the
+real count** — which the naive spelling would have reported as rc 0.
+
 ---
 
 ## 7. Two things tail shares with head
@@ -267,20 +301,93 @@ started from inside the callback of an outer sink is safe.
 
 ---
 
-## 9. Tests
+## 9. Performance
+
+`bash kcl/ttail/bench.sh [NL] [NR] [ND]` — a generated corpus of NL = 10 000
+lines in a `mktemp -d` directory, NR = 21 **interleaved** runs per gated shape,
+ND = 300 per-call measurements, timed with `TStopwatch.getTimeStamp`. Measured
+**2026-09-16** on Windows 11 / MSYS2 with the machine idle, against **GNU
+coreutils 8.32**:
+
+| Measurement | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `buildArgv` — the override | 679.2 µs/call | 661.9 µs/call |
+| `argv NAME` (build + validate + copy, 6 words) | 1282.2 µs/call | 1385.8 µs/call |
+| **`new` + `argv` + `delete`** — *the whole `take` delta* | **3202.1 µs/call** | **3333.2 µs/call** |
+| **baseline** — bare `tail -n 1 -- FILE` (median of 21) | 35.03 ms | 35.08 ms |
+| `TTail.take 1 FILE` (median of 21) | 39.13 ms — **1.11×** | 38.72 ms — **1.10×** |
+| **baseline** — bare `tail -n 5000 -- FILE` (median of 21) | 33.72 ms | 32.56 ms |
+| `TTail.take 5000 FILE` (median of 21) | 37.57 ms — **1.11×** | 38.10 ms — **1.17×** |
+| **baseline** — `tail -n 5000 -- FILE \| wc -l` (median of 21) | 55.60 ms | 47.26 ms |
+| `t.lines = 5000; t.count` — 5000 records into bash | 734.09 ms — **13.20×** | 738.49 ms — **15.62×** |
+| per record read into bash | ~135 µs | ~138 µs |
+| forks per call | **1** (tail itself) | **1** |
+
+Reading the table:
+
+- **The gate is the two `TTail.take` rows** ([PLAN.md](PLAN.md) §4 P1, the
+  shared text is [`../thead/PLAN.md`](../thead/PLAN.md) §5 P1): at most **1.5×**
+  a bare `tail -n N` on the same corpus. Both shapes pass on both bashes. The
+  delta *is* the `new` + `argv` + `delete` row — one throw-away instance,
+  measured on its own line — and it is a **per-call** cost, never a per-record
+  one.
+- **Corpus size is not the knob.** A whole `tail` run costs 32–36 ms here (one
+  msys process start plus the scan); the wrapper's fixed delta is 3.2–3.4 ms.
+  The ratio is therefore ~(34 + 3.3)/34 and can only *fall* as the corpus grows
+  — which is why `-n 1` and `-n 5000` land within a few percent of each other.
+- **Medians, not means.** Every timed number is one process start, and on this
+  box a process start occasionally takes several hundred milliseconds for
+  reasons outside this repo: the *means* printed beside these medians are
+  routinely double them. A non-interleaved loop has been read as high as **2.4×**
+  on code that interleaved medians put at 1.07–1.30×
+  ([`../thead/PLAN.md`](../thead/PLAN.md) §8, finding 7) — which is why the gate
+  is 1.5×, the two shapes are timed one-of-each per iteration, and the ratio is
+  taken between medians.
+- **`argv` runs nothing** and forks nothing — with `follow = 1` set, so the
+  proof covers the `-f` build that three sinks refuse: the bench points `cmd` at
+  a function that counts its own invocations and builds 900 times; the counter
+  stays at 0 and `$BASHPID` never changes.
+- **`follow` is not benched, and cannot be.** `tail -f` never ends on its own,
+  so every shape it appears in is timed by the consumer's stopping rule or by an
+  external kill, not by the wrapper (§6). The bench starts **no** follower, so it
+  can leak none. For the record, measured at P0: the TPipe stop path ends
+  `tail -f` in ~45 ms with raw rc 143 on both bashes; there is no inotify on
+  msys, so an appended line reaches `each` after ~2 s (poll interval ~1 s).
+- **`count` is not `wc -l`, and the 13–16× row is why.** The sink reads every
+  record into bash at ~136 µs a record; `wc` counts in a second process at
+  memory speed. That is the price of having the records *in this shell*. This row
+  is **published, not gated**.
+- **Reproduced.** A second run of the same file on the same idle box read
+  **1.15× / 1.18×** on 5.2.37 and **1.13× / 1.10×** on 5.3.9 (the table's row is
+  the first run). The spread between the two runs is the process-start variance
+  described above, and it is the reason the gate has head-room at 1.5×.
+- `tests/007_Bench.sh` asserts the same shapes with a ceiling of **10×**: under
+  the threaded runner the two sides do not inflate together.
+
+---
+
+## 10. Tests
 
 ```bash
 bash kcl/ttail/tests/tests.sh                 # the whole suite
 bash kcl/ttail/tests/tests.sh --mode single   # sequential, for a stack trace
+PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/ttail/tests/tests.sh
 ```
 
-| file | what it pins | runs tail? |
-|---|---|---|
-| `004_Argv.sh` | the whole option set by **array comparison**, `-f` in its slot included; the rc 2 list; the count verbatim (`+2`, `-0`, `08`); the `-z` derivation's four states; the out-name refusals for all four family prefixes | **no** |
-| `005_Run.sh` | behaviour against the bare tool: every sink, the headers-as-records counts, the partial failure, CRLF, `-z`, the sign table, `TTail.take` — and `follow`: the three refusals with a flag-file proof that nothing ran, `each` + stop (rc 0 / `lastRc` 143), `first`, and `run` on a file that grows | yes (GNU banner gate first) |
-| `006_Contract.sh` | source integrity (`bash -n`, no `$this.`, no `inherited` in the constructor, no `kk.isInt`, the rc-preserving spelling of the three overrides, one `source` line), `set -eu` through both TPipe forms, one `kk.debug` line per refusal, the D6 subshell warning | yes (gated) |
+**200 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+mode and under `--mode single`, against GNU coreutils 8.32. Case by case:
+[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+
+| file | cases | what it pins | runs tail? |
+|---|---|---|---|
+| `004_Argv.sh` | 74 | the whole option set by **array comparison**, `-f` in its slot included: the lifecycle (every declared var with its default, `follow` among them, `${t}_args` empty after `new t N PATH`, `_paths` verbatim, a reused name starting clean, `delete` freeing all three arrays, `argv` running nothing); every option singly and combined in the pinned order; **T2** — `argv` with `follow = 1` STILL yields `-f`, because the refusal is a *sink* rule; the boolean rule; `--` only with paths; extras after the options, incl. `addArg --pid=PID`; the rc 2 list — 13 refusals, each asserting rc 2 + `RESULT ''` + the caller's array untouched + an EMPTY `${inst}_argv` + exactly one `kk.debug` line, plus two cases proving the legal shapes still build; **T1** — the count verbatim (`+2`, `08`, `-2`, `-0`, `+0`, `0`, 19 digits) with no write-back; the `-z` derivation's four states incl. `P3-F1`; the out-name refusals for all four family prefixes | **no** |
+| `005_Run.sh` | 61 | behaviour against the bare tool: every sink (the three **overridden** ones included) and `run`; the unterminated last record; headers-as-records (**9** / **8** records, `first` = the header, `quiet`, `verbose`); the partial failure; CRLF in line and byte mode; `-z`; **T1** — the sign table where `+N` means *from line N* (`+2` on a 5-line file counts 4, the pin `kk.isInt` would have broken); **T4** — `take` in three positions incl. `+2`, with two paths, refused without a path, nested; and the **`follow` block**: the three refusals with a flag-file proof that nothing ran and `lastRc` still `-1`, `each` + a stopping callback (rc 0 / `lastRc` **143** / one record), `first`, `run` on a file that grows, the rc-1-with-a-real-`RESULT` behaviour of the three overrides with `follow = 0`, and a final case asserting **no follower of ours survived** | yes (GNU banner gate first) |
+| `006_Contract.sh` | 55 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.`, `parent.constructor` in the constructor and `inherited` in the destructor, no `kk.isInt`, the regex in a variable, no shadowed member name, exactly one `source` line, and **the rc-preserving spelling of the three overrides**); every shape from a child under `set -eu` — both TPipe forms, `take` as a producer, records, a tool error, a partial failure, refused builds, **the follow refusal**, the stdin form, `run`, `delete` — with every sink call guarded; the debug switch (one line on each of the 14 rc 2 paths and the 2 tool-error paths, none on any rc 0 path); the **D6-final** `subshellOk` case; and `H12` | yes (gated) |
+| `007_Bench.sh` | 10 | the §4 P1 gate as assertions with a **10×** ceiling behind the same banner gate: `TTail.take` against a bare `tail -n` in both shapes (interleaved, medians), `new` + `argv` + `delete` under 50 ms, `t.count` against the `wc -l` equivalent; that 200 `buildArgv`/`argv` calls with `follow = 1` invoke the `cmd` **zero** times and build the 7 words with `-f` in its slot; and zero forks for every member, for `take`, and for the three `follow = 1` refusals — which are bash-only and start no process, so this file creates no follower at all | yes (gated) |
 
 Every follow case runs in a child under `timeout 20` and ends its own `tail`;
 the background appender the growing-file case needs is started by the test, its
 pid is recorded, and it is `kill -TERM`ed in the case's own teardown. No test
-file installs a `trap … EXIT` of its own.
+file installs a `trap … EXIT` of its own. The behavioural files open with a
+**GNU banner gate**: without `tail (GNU coreutils) ` every case below it is a
+loud `SKIP` and the case **count is unchanged**.
