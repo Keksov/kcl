@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tfind — TFind : TUtil, GNU findutils 4.10.0 `find` wrapper (typed tests -> pinned expression order, start points positional, print0 -> derived -0, static one-liner TFind.byName).",
+  "created": "2026-09-16",
+  "updated": "2026-09-16",
+  "status": "PLANNED, critic-hardened 2026-09-16 (20 findings: 2 BLOCKER, 5 MAJOR, 10 MINOR, 3 NIT — all folded into PLAN.md, record in §8). No code.",
+  "phases": [
+    {
+      "id": "P0",
+      "name": "The unit",
+      "goal": "tfind.sh (TFind : TUtil per PLAN §1.2), tests 004_Argv / 005_Run / 006_Contract, README first cut, the TUTIL_OUT_PREFIXES registry in tutil.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "TFind class: Create (parent.constructor find, every var assigned, ${inst}_paths = start points), Destroy, paths, buildArgv (find [-L] [START...] [-maxdepth N] [-mindepth N] [-name P] [-iname P] [-type T] [-newer F] [extras] [-print0]; rc 2 for a start point that is empty or matches ^[-!(], a bad type, a non-int/negative depth (emitted as $__KK_INT), print0 = 1 together with an action word in the extras, empty cmd; print0 -> nul with the P3-F1 guard), mapRc (0->0, else 1 + debug), static byName (>=1 start point, unique throw-away instance); tutil._badOut -> TUTIL_OUT_PREFIXES registry with the two guards (the registry name refused as an out-name; empty/non-array registry refuses every name) + tutil 001 cases + README note + PLAN §7 tfind row",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "F1–F5 by array comparison without running find; F6–F11 on the fixture tree with the banner gate (sorted comparisons); partial failure keeps the records with RESULT = count and rc 1; newline name = 2 records under -print, 1 under print0; byName byte-identical to bare find in three positions; nested byName keeps the outer instance; tutil/tgrep/thead/ttail suites unchanged."
+        },
+        {
+          "id": "P0.2",
+          "title": "tests 004/005/006 (red-first against a stubbed skeleton) + tests.sh + README first cut",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red counts recorded; green on bash 5.2.37 and 5.3.9 (threaded and --mode single); F12; sweep 0 [FAIL] on both."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Closeout",
+      "goal": "bench.sh + 007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (22 -> 23), ledger COMPLETE.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "bench (byName vs bare find -name, interleaved medians >= 15, gate 1.5x; argv fork-free; count vs `find | wc -l` published) + 007 with 10x ceilings",
+          "category": "perf",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner."
+        },
+        {
+          "id": "P1.2",
+          "title": "README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (start points positional, print0, partial output, tool stderr), ledger COMPLETE with SHAs",
+          "category": "docs",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-09-16",
+      "batch": "critic pass",
+      "summary": "Opus critic, 18 probe scripts on both bashes (both are MSYS builds resolving their own root's find 4.10.0). BLOCKERS: (1) the TUTIL_OUT_PREFIXES registry is itself a fillable out-name — `f.argv TUTIL_OUT_PREFIXES` replaced it with the argv and every family prefix became fillable process-wide — and it fails OPEN when empty/unset (bash >= 4.4 does not fault \"${arr[@]}\" on an unset array under set -u) -> the registry name is refused in _badOut and an empty registry refuses every name; (2) print0 = 1 plus an action in the extras interleaves two actions into one corrupted NUL record, and `-exec false` short-circuits -print0 (rc 0, zero records, no diagnostic) -> rc 2 at buildArgv for any action word with print0 = 1. MAJORS: `--` ends the option list only and cannot rescue a start point (the first draft implied otherwise); `-exec CMD {} \\;` failures leave rc 0 while `{} +` propagates (third named deviation); F9's cd must happen in the test file's own shell (a subshell fills the array where the assertion cannot see it and trips D6); a line-based sort destroys a newline name -> sort -z is the comparison primitive; an empty start point '' reached the tool (rc 1) -> rc 2. MINOR/NIT: type regex admits duplicates (tool rc 1, parity); depths emitted from $__KK_INT (`+1` verbatim is rc 1) and > INT_MAX is the tool's rc 1; -newer MISSING is fatal not partial (F8 split); a Windows start point survives as a prefix with `/` separators; -L + type=l matches only broken links; -quit/-prune/-delete are order-incompatible with the fixed action position; -name is case-sensitive on NTFS under msys; caller-side glob expansion keeps one word silently (README rule + case); -size +0 needs non-empty fixtures; bench 1.13x/1.16x on 400 files, worst single pairing 1.64x, date +%s%N costs ~20 ms; `[!-(]*` is a negated class; kt_make_symlink lives in tdirectory's helper; no permission-denied test is possible here. 20+ claims verified correct and listed in PLAN §8."
+    },
+    {
+      "date": "2026-09-16",
+      "batch": "planning",
+      "summary": "Owner: start tfind. GNU findutils 4.10.0 measured under both bashes: start points positional BEFORE the expression (the reverse of grep/head), -L only before them, `--` accepted, a start point beginning with `-` is an unknown predicate (rc 1), no start point = `.`, -maxdepth 08 decimal, 4.10 no longer warns about global-option order (the wrapper still emits them first), -type f,d works, -print splits a newline name while -print0 keeps it, an explicit action suppresses the implied -print, -exec works through argv, Windows paths accepted and echoed in their own spelling, rc 1 for every error with partial output kept. Decisions: no `--`, refuse ^[-!(] start points (rc 2), typed followSymlinks (addArg -L would land in the wrong position), print0 -> derived -0 with the P3-F1 guard (no header exception: find has no headers), depths via kk.isInt + >= 0 (no sign semantics here, unlike head/tail), TFind.byName PATTERN START... one-liner, and tutil._badOut turned into the TUTIL_OUT_PREFIXES registry instead of a fourth hard-coded edit. PLAN.md + this ledger written. No code."
+    }
+  ]
+}
