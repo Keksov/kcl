@@ -1,18 +1,24 @@
 # tfind — `TFind`, the GNU `find` wrapper
 
-> **Status: P0 done (first cut).** `TFind : TUtil` is the class, the pinned
-> argv, the rc 2 list, the `mapRc` override, `paths`, the destructor and the
-> static `byName`, plus the `TUTIL_OUT_PREFIXES` registry this unit introduced
-> in [`../tutil`](../tutil/README.md). Suite: `tests/004_Argv.sh`,
-> `tests/005_Run.sh`, `tests/006_Contract.sh` — **216 checks green on bash
-> 5.2.37 and 216 on bash 5.3.9**, threaded and (5.2.37) under `--mode single`,
-> against **GNU findutils 4.10.0**. P1 adds the bench, `007_Bench.sh`,
-> `TEST_COVERAGE_NOTES.md` and the kcl README row. Design record:
+> **Status: COMPLETE (P0 + P1).** `TFind : TUtil` is the whole unit — the class,
+> the pinned argv, the rc 2 list, the `mapRc` override, `paths`, the destructor,
+> the static `byName`, the bench and the docs — plus the `TUTIL_OUT_PREFIXES`
+> registry this unit introduced in [`../tutil`](../tutil/README.md). Suite:
+> `tests/004_Argv.sh`, `tests/005_Run.sh`, `tests/006_Contract.sh`,
+> `tests/007_Bench.sh` — **226 checks green on bash 5.2.37 and 226 on bash
+> 5.3.9**, threaded and (5.2.37) under `--mode single`, against **GNU findutils
+> 4.10.0**. What the tests pin, case by case:
+> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
 > [PLAN.md](PLAN.md) (§8 is the critic pass every decision below survived) and
 > [tfind_ledger.json](tfind_ledger.json). The base:
 > [`../tutil/README.md`](../tutil/README.md); the worked siblings:
 > [`../tgrep`](../tgrep/README.md), [`../thead`](../thead/README.md),
 > [`../ttail`](../ttail/README.md).
+>
+> **One plan fact was tightened against the real tool at P0**, and it is now
+> what the tests pin: the §2.3 action scan is over the extras' **words**, so
+> `addArg -name '-exec'` — an action word used as a *value* — is refused under
+> `print0 = 1` too. A documented over-refusal with a documented hatch (§5).
 
 `TFind` is a [`TUtil`](../tutil/README.md) descendant: typed properties instead
 of a hand-built command string, one rc convention, and the five `TPipe` sinks
@@ -417,14 +423,16 @@ bash kcl/tfind/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tfind/tests/tests.sh
 ```
 
-**216 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
-mode and (5.2.37) under `--mode single`, against GNU findutils 4.10.0.
+**226 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+mode and (5.2.37) under `--mode single`, against GNU findutils 4.10.0. Case by
+case: [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
 | file | cases | what it pins | runs find? |
 |---|---|---|---|
 | `004_Argv.sh` | 110 | the whole option set by **array comparison**: the lifecycle (every declared var in `${inst}_data` with its default, `${f}_args` empty after `new f START`, `_paths` verbatim, a reused name starting clean, `delete` freeing all three arrays, `argv` running nothing); the out-name registry (`__tfd_*`, the four older prefixes, `${inst}_paths`, and `TUTIL_OUT_PREFIXES` as a NAME with the registry intact afterwards, plus the idempotent append); every option singly and combined in the pinned order; the boolean-is-exactly-`1` rule; start points positional with **no `--` in any shape**; extras between the tests and the action; the rc 2 list — 36 refusals incl. every word of the action set, each asserting rc 2 + `RESULT ''` + the caller's array untouched + an EMPTY `${inst}_argv` + exactly one `kk.debug` line; the depths normalised through `$__KK_INT` with no write-back; the `print0` derivation's four states incl. `P3-F1`; and the caller-side glob trap (F5b) | **no** |
 | `005_Run.sh` | 49 | behaviour against the bare tool on a fixture tree (depth 3, a space name, a **newline** name, a `-weird` directory, a real directory symlink and a broken one), every comparison NUL framed and `sort -z`ed: every typed option and three combinations; `-name` case-sensitive vs `-iname` on NTFS; `-L` descending the directory symlink while `-P` does not, and `-L` + `type = l` matching only the broken link; the newline name as 2 records under `-print` and 1 under `print0`; `./-weird` as a start point while `-weird` is rc 2; the partial failure (records kept, `RESULT` = the real count, rc 1, one line of ours, find's own matched by prefix) against the **fatal** `-newer MISSING`; the empty start-point list from a `cd` in this file's own shell; `-exec` as the record stream, `\;` leaving rc 0 and `+` propagating rc 1; and `TFind.byName` in three positions, with two start points, refused without one, propagating rc 2, nested inside an outer `each`, through both TPipe forms | yes (GNU banner gate first) |
 | `006_Contract.sh` | 57 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.` call, the sentinel gone, `parent.constructor` in the constructor and `inherited` in the destructor, the `type` regex in a variable, the depths from `$__KK_INT`, no `--` append, the non-negated `[-!\(]*` class, no shadowed member name, exactly one `source` line, `__tfd_` registered); every shape from a child under `set -eu` — an instance, both TPipe forms, `byName` as a producer, records, a tool error, a partial failure, four refused builds, a refused `byName`, the cwd form, `run` streaming, `delete` — with every sink call guarded; the debug switch (exactly one line on each of the 11 rc 2 paths and the 3 tool-error paths, **none** on any rc 0 path); the **D6-final** `subshellOk` case; `F12`, that an unguarded rc 1 aborts a `set -eu` caller; and a Windows-spelled start point whose records carry that prefix and `/` after it | yes (gated) |
+| `007_Bench.sh` | 10 | the §10 gate as assertions with a **10×** ceiling behind the same banner gate: `TFind.byName` against a bare `find … -name` over a 20-file tree **and** over a one-file tree (interleaved, medians, both sides asserted to deliver the same records), `new` + `name` + `argv` + `delete` under 50 ms, `f.count` against the `tr -dc '\0' \| wc -c` equivalent; that 200 `buildArgv`/`argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; that a **refused** build is the cheap path too (100 rc 2 calls, no fork, no command, an empty `${inst}_argv`); and zero forks for every member — the callback and `.Add` run in this process, and twelve builder members plus `run`, `byName` and both rc 2 paths leave `$BASHPID` untouched | yes (gated) |
 
 The behavioural files open with a **GNU banner gate**: if `find --version` does
 not begin with `find (GNU findutils) `, every case below it is a loud `SKIP`
@@ -432,3 +440,80 @@ rather than a failure — D4 pins the dialect, not a binary, and the case **coun
 is unchanged**. The symlink cases add a second gate (`kt_symlinks_supported`
 from `tdirectory/tests/symlink_helper.sh`): plain `ln -s` runs in **copy** mode
 on MSYS and would silently make a directory copy.
+
+---
+
+## 10. Performance
+
+`bash kcl/tfind/bench.sh [NDIR] [NR] [ND]` — a generated corpus of NDIR = 20
+directories holding 20 `.txt` (and one `.dat`, so `-name '*.txt'` really filters)
+= **400 matches**, plus a **one-file** tree, both in a `mktemp -d` directory;
+NR = 21 **interleaved** runs per gated shape, ND = 300 per-call measurements,
+timed with `TStopwatch.getTimeStamp`. Measured **2026-09-16** on Windows 11 /
+MSYS2 with the machine idle, against **GNU findutils 4.10.0**:
+
+| Measurement | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `buildArgv` — the override | 1071.9 µs/call | 1125.8 µs/call |
+| `argv NAME` (build + validate + copy, 8 words) | 1998.6 µs/call | 1981.7 µs/call |
+| `buildArgv` **refused** (rc 2, a `-weird` start point) | 868.8 µs/call | 890.1 µs/call |
+| **`new` + `name` + `argv` + `delete`** — *the whole `byName` delta* | **4528.7 µs/call** | **4738.4 µs/call** |
+| **baseline** — bare `find tree/ -name '*.txt'`, 400 matches (median of 21) | 41.89 ms | 39.35 ms |
+| `TFind.byName '*.txt' tree/` (median of 21) | 47.01 ms — **1.12×** | 45.70 ms — **1.16×** |
+| **baseline** — bare `find one/ -name '*.txt'`, 1 match (median of 21) | 35.89 ms | 37.75 ms |
+| `TFind.byName '*.txt' one/` (median of 21) | 42.75 ms — **1.19×** | 44.05 ms — **1.16×** |
+| **baseline** — `find … -print0 \| tr -dc '\0' \| wc -c` (median of 21) | 68.19 ms | 69.21 ms |
+| `f.print0 = 1; f.count` — 400 records into bash | 92.89 ms — **1.36×** | 89.72 ms — **1.29×** |
+| the same sink over **one** record (its fixed half) | 39.11 ms | 39.27 ms |
+| per record read into bash | ~134 µs | ~126 µs |
+| forks per call | **1** (find itself), **0** on a refused call | **1** / **0** |
+
+Reading the table:
+
+- **The gate is the four `TFind.byName` / baseline rows** ([PLAN.md](PLAN.md) §5
+  P1): at most **1.5×** a bare `find … -name` on the same corpus. Both shapes
+  pass on both bashes. The delta *is* the `new` + `name` + `argv` + `delete` row
+  — one throw-away instance, measured on its own line — and it is a **per-call**
+  cost, never a per-record one. The constructor assigns **nine** properties where
+  [thead](../thead/README.md)'s assigns six, which is why this unit's fixed delta
+  is ~4.7 ms against thead's ~3.2 ms.
+- **Corpus size is not the knob.** A whole `find` run costs ~32–42 ms here (one
+  msys process start plus the walk); the wrapper's fixed delta is ~4.7 ms. The
+  ratio is therefore ~(38 + 4.7)/38 and can only *fall* as the walk grows —
+  which is why the 400-match tree and the **one-file** tree land within a few
+  points of each other, and why the one-file row (where the fork *is* the whole
+  measurement) is the pessimistic one.
+- **Medians, and why they are not negotiable.** Every timed number is one process
+  start, and on this box a process start occasionally takes several hundred
+  milliseconds for reasons outside this repo: the *means* printed beside these
+  medians run 1.3–2× them, and the **worst single pairing** inside these very
+  samples read **7.8×** on 5.2.37 and **10.6×** on 5.3.9. The planning pass saw
+  the same effect at 1.64× on code whose interleaved medians were 1.13–1.16×
+  ([PLAN.md](PLAN.md) §8, finding 17). A one-shot comparison, or a
+  non-interleaved loop, can therefore fail a 1.5× gate on code that is fine —
+  so the two sides are timed one-of-each per iteration and the ratio is taken
+  between medians. `bench.sh` prints the worst single pairing of each sample
+  next to the median for exactly this reason.
+- **The clock is `TStopwatch.getTimeStamp`, never `date +%s%N`.** On msys the
+  latter is its own process at ~20 ms a call — more than half of the `find` run
+  being measured, and paid twice per sample.
+- **`argv` runs nothing** and forks nothing: section (a) of the bench points
+  `cmd` at a function that counts its own invocations and builds 900 times — the
+  counter stays at 0 and `$BASHPID` never changes. The **rc 2** path is measured
+  too (868–890 µs): a refused call does not even pay for the fork.
+- **`count` is not the `wc` equivalent, and the 1.3× row is why — but read it
+  twice.** The sink reads every record into bash at ~130 µs a record; the shell
+  equivalent counts NUL terminators in two *more* processes. Unlike thead's
+  14× `wc -l` row this comparison is **not one-sided**: `tr` and `wc` are two
+  extra msys process starts (~30 ms each), so below roughly 450 records the sink
+  is the *faster* of the two and above it the pipeline wins. That is why the row
+  is **published, not gated** — and why, when all you want is the number over a
+  big tree, `find … -print0 | tr -dc '\0' | wc -c` is the right answer.
+- **Reproduced.** A first run of the same file on 5.2.37 read **0.99×** and
+  **1.06×** — with the *baseline's* mean at 165 ms against a 47 ms median,
+  because the corpus had just been created and the first walks paid for it. The
+  medians moved by a tenth while the means moved by a factor of three: the
+  protocol did its job, and the second run (the table above) is the one to quote.
+- `tests/007_Bench.sh` asserts the same shapes with a ceiling of **10×**: under
+  the threaded runner the two sides do not inflate together (find is its own
+  process; the wrapper's share is bash work in the contended shell).

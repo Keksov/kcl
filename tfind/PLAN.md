@@ -1,6 +1,11 @@
 # TFind — GNU `find` wrapper over TUtil (kcl/tfind)
 
-**Status: PLANNED, critic-hardened (2026-09-16). No code yet.** Owner: "приступай к
+**Status: COMPLETE (P0–P1), 2026-09-16.** P0 (`c281d40`) built the unit, the
+tests and the `TUTIL_OUT_PREFIXES` registry; P1 closed it out (bench, `007`,
+README final, `TEST_COVERAGE_NOTES.md`, the kcl README row). **226/226 green on
+bash 5.2.37 and on bash 5.3.9**, threaded and (5.2.37) under `--mode single`;
+the §5 P1 bench gate passes on both bashes. See §5 for the measured numbers and
+[`tfind_ledger.json`](tfind_ledger.json) for the phase record. Owner: "приступай к
 tfind" (2026-09-16). A critic pass (§8) found 2 blockers and 5 majors in the first
 draft; every one is folded in below. Third wrapper after tgrep, thead, ttail;
 everything those units settled applies (the tgrep constructor rule, `kk.call_silent`,
@@ -218,6 +223,41 @@ destroyed by a line-based sort, so both sides go through `mapfile -d '' -t X < <
   `TStopwatch.getTimeStamp`, never `date +%s%N` (~20 ms per call on msys)),
   `tests/007_Bench.sh` (10× ceiling), README final, `TEST_COVERAGE_NOTES.md`, kcl
   README §2 row (22 → 23), ledger COMPLETE.
+
+**P1 DONE 2026-09-16.** `bench.sh` (439 lines), `tests/007_Bench.sh` (388 lines, 10 cases),
+`TEST_COVERAGE_NOTES.md` (226 rows), README final (§9 Tests, §10 Performance),
+the kcl README row + Twenty-two → Twenty-three, ledger COMPLETE. Suite
+**226/226** on both bashes (threaded) and under `--mode single` on 5.2.37.
+
+Measured on an idle box, medians of NR = 21 **interleaved** runs, both bashes:
+
+| | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `buildArgv` / `argv NAME` (8 words) | 1071.9 / 1998.6 µs | 1125.8 / 1981.7 µs |
+| `buildArgv` **refused** (rc 2) | 868.8 µs | 890.1 µs |
+| **`new` + `name` + `argv` + `delete`** (the `byName` delta) | **4528.7 µs** | **4738.4 µs** |
+| bare `find tree/ -name '*.txt'` (400 matches) → `TFind.byName` | 41.89 → 47.01 ms = **1.12×** | 39.35 → 45.70 ms = **1.16×** |
+| bare `find one/ -name '*.txt'` (1 match) → `TFind.byName` | 35.89 → 42.75 ms = **1.19×** | 37.75 → 44.05 ms = **1.16×** |
+| `f.count` (400 recs) vs `find … -print0 \| tr -dc '\0' \| wc -c` | 92.89 / 68.19 ms = 1.36× | 89.72 / 69.21 ms = 1.29× |
+| marginal cost of one record read into bash | ~134 µs | ~126 µs |
+
+Gate **1.5×: 2/2 PASS on both bashes**, and the fixed delta landed on the
+predicted ~4.7 ms. The §8 finding 17 caveat reproduced itself inside these very
+samples: the **worst single pairing** was 7.83× / 7.88× on 5.2.37 and 8.79× /
+10.61× on 5.3.9, and a *first* 5.2.37 run over a freshly created corpus read
+0.99× / 1.06× because the baseline — which runs first in each iteration — carried
+every outlier (mean 165 ms against a 47 ms median). The interleaved-median
+protocol is what makes the number meaningful, and `bench.sh` now prints the worst
+single pairing of each sample beside the median so a reader can see it.
+
+Two P1 notes against the plan's letter, both reported: (1) section (d)'s baseline
+needs `tr -dc '\0' | wc -c`, not `wc -l` — `wc -l` cannot count NUL-framed
+records without destroying the newline-name case — and that baseline costs **two
+extra process starts**, so below ~450 records the sink is the *faster* of the
+two; the bench therefore measures the sink's fixed half over ONE record as well
+and derives the per-record cost from the difference rather than from the ratio.
+(2) `f.count` over 400 records is 1.36× / 1.29× of that pipeline: published,
+never gated.
 
 ## 6. Traps (in addition to tutil PLAN §6 and thead §6)
 

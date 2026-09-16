@@ -3,7 +3,7 @@
   "project": "kcl/tfind — TFind : TUtil, GNU findutils 4.10.0 `find` wrapper (typed tests -> pinned expression order, start points positional, print0 -> derived -0, static one-liner TFind.byName).",
   "created": "2026-09-16",
   "updated": "2026-09-16",
-  "status": "P0 DONE 2026-09-16 (tfind.sh + 004/005/006 + tests.sh + README first cut + the TUTIL_OUT_PREFIXES registry in tutil with its two guards). 216/216 green on bash 5.2.37 and 5.3.9 (threaded; 5.2.37 also --mode single); tutil 197/197, tgrep 185/185, thead 182/182, ttail 200/200 re-proved on 5.2.37 (tutil also 197/197 on 5.3.9). P1 (bench, 007, TEST_COVERAGE_NOTES, kcl README row) not started.",
+  "status": "COMPLETE (P0–P1). P0 DONE 2026-09-16 (c281d40): tfind.sh (TFind : TUtil), tests 004_Argv / 005_Run / 006_Contract + tests.sh, README first cut, and the TUTIL_OUT_PREFIXES registry in tutil with its two guards (+ tutil 001 cases, README note, PLAN §7 row); 216/216 on bash 5.2.37 and 5.3.9 (threaded; 5.2.37 also --mode single). P1 DONE 2026-09-16 (<SHA-TF1>): bench.sh (interleaved medians of 21 runs, gate 1.5x, measured 1.12x/1.19x on 5.2.37 and 1.16x/1.16x on 5.3.9), tests/007_Bench.sh (10 cases, 10x ceiling), README final (§9 Tests, §10 Performance), TEST_COVERAGE_NOTES.md (226 rows), the kcl README §2 row with the unit count Twenty-two -> Twenty-three, this ledger. Suite now 226/226 on both bashes (threaded) and 226/226 under --mode single on 5.2.37. Master sweep: run by reviewer: 26/26 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suite reproduced 226/226 on both bashes, bench 2/2 gates PASS (1.11x tree, 1.17x one-file).",
   "phases": [
     {
       "id": "P0",
@@ -69,28 +69,56 @@
       "id": "P1",
       "name": "Closeout",
       "goal": "bench.sh + 007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (22 -> 23), ledger COMPLETE.",
-      "status": "planned",
+      "status": "done",
+      "date": "2026-09-16",
+      "commit": "<SHA-TF1>",
+      "files": [
+        "kcl/tfind/bench.sh (NEW, 439 lines)",
+        "kcl/tfind/tests/007_Bench.sh (NEW, 388 lines, 10 cases)",
+        "kcl/tfind/TEST_COVERAGE_NOTES.md (NEW, 495 lines — one row per case of 004–007)",
+        "kcl/tfind/README.md (EDIT: COMPLETE header + the P0 over-refusal note, §9 Tests 216 -> 226 with the 007 row and the TEST_COVERAGE_NOTES link, NEW §10 Performance with both bench tables)",
+        "kcl/tfind/PLAN.md (EDIT: the status header -> COMPLETE, a P1 DONE block under §5)",
+        "kcl/README.md (EDIT: the §2 tfind row, alphabetically between tfile and tgrep; Twenty-two -> Twenty-three)",
+        "kcl/tfind/tfind_ledger.json (this file)"
+      ],
+      "gate": {
+        "tfind_5_2_37_threaded": "226/226, 0 FAIL",
+        "tfind_5_3_9_threaded": "226/226, 0 FAIL",
+        "tfind_5_2_37_single": "226/226, 0 FAIL",
+        "bench_5_2_37": "rc 0 under `bash -eu`, gates 2/2 PASS (byName vs bare find: 1.12x on the 400-match tree, 1.19x on the one-file tree; medians of NR=21 interleaved runs)",
+        "bench_5_3_9": "rc 0 under `bash -eu`, gates 2/2 PASS (1.16x and 1.16x)",
+        "bash_n": "clean on bench.sh and tests/007_Bench.sh",
+        "unchanged": "git diff --stat empty on tfind.sh and tests/004–006; tutil and every other unit untouched",
+        "master_sweep": "run by reviewer: 26/26 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suite reproduced 226/226 on both bashes, bench 2/2 gates PASS (1.11x tree, 1.17x one-file)",
+        "find_version": "find (GNU findutils) 4.10.0 at /usr/bin/find under bash 5.2.37 and under bash 5.3.9 (C:/bin/msys64)"
+      },
       "tasks": [
         {
           "id": "P1.1",
           "title": "bench (byName vs bare find -name, interleaved medians >= 15, gate 1.5x; argv fork-free; count vs `find | wc -l` published) + 007 with 10x ceilings",
           "category": "perf",
           "severity": "medium",
-          "status": "planned",
-          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner."
+          "status": "done",
+          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner. MET: bench.sh rc 0 under `bash -eu` on 5.2.37 and 5.3.9, gates 2/2 PASS on both (400-match tree 1.12x / 1.16x; one-file tree 1.19x / 1.16x, medians of NR=21 INTERLEAVED runs with the means printed beside them and the WORST SINGLE PAIRING of each sample printed under them — 7.83x/7.88x on 5.2.37 and 8.79x/10.61x on 5.3.9, which is the §8 finding 17 caveat reproduced in situ). Per-call rows: buildArgv 1071.9/1125.8 us, argv NAME (8 words) 1998.6/1981.7 us, buildArgv REFUSED (rc 2) 868.8/890.1 us, new+name+argv+delete 4528.7/4738.4 us (the ~4.7 ms the plan predicted; nine properties against thead's six). Section (d) published, not gated: f.count over 400 records 1.36x / 1.29x of `find … -print0 | tr -dc '\\0' | wc -c`, with the sink's fixed half measured separately over ONE record (39.11/39.27 ms) so the marginal per-record cost is a measurement, not an assumption — ~134 us / ~126 us, matching thead's ~134 us. Clock = TStopwatch.getTimeStamp throughout; `date +%s%N` is named in the bench header as forbidden (~20 ms per call on msys, paid twice per sample). Corpus in `mktemp -d` + EXIT trap, 20 dirs x 20 .txt (+1 .dat) = 400 matches plus a one-file tree; N overridable (NDIR/NR/ND). Section (e) zero-fork over 20 members, byName, BOTH rc 2 paths and the callback/.Add. tests/007_Bench.sh: 10 cases, 10x ceilings, the same two shapes interleaved with both sides asserted to deliver the same records, the fixed delta under 50 ms, the argv-runs-nothing and refused-build-runs-nothing pair, and the two zero-fork cases; green threaded on both bashes and under --mode single."
         },
         {
           "id": "P1.2",
           "title": "README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (start points positional, print0, partial output, tool stderr), ledger COMPLETE with SHAs",
           "category": "docs",
           "severity": "medium",
-          "status": "planned",
-          "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes."
+          "status": "done",
+          "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes. MET for the docs: README.md final (COMPLETE header with 226/226 per bash and the one P0 over-refusal correction; the surface table; the pinned argv shape; the rc 2 list incl. the action-word exclusion and the caller-side quoting rule §2; start points positional with `--` unable to rescue them and `./-weird` §1; the print0 rule and its three states §5; the three named deviations §3; -name case-sensitivity on NTFS §2; -L + type = l §6; the order-incompatible -quit/-prune/-delete with the `nul = 1` hand-built hatch §4; the Windows-path PREFIX rule §6; byName semantics §7; subshellOk/D6 §1; §9 Tests with the per-file table incl. 007 and the TEST_COVERAGE_NOTES link; NEW §10 Performance with a bench table for BOTH bashes and the reading list). TEST_COVERAGE_NOTES.md: 226 rows, one per case, each with class and basis (F1–F12, F5b, F8a/b, F10a/b, C1–C20, P3-F1, D4/D6, §n), the deliberate gaps incl. C13 and C20, and an explicit pointer to tutil/tests/001_Core.sh §C for the registry's own cases. kcl README §2: the tfind row alphabetically between tfile and tgrep with the four named deviations and the positional/print0 rules, and the unit-count sentence Twenty-two -> Twenty-three. Final master sweep: run by reviewer: 26/26 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suite reproduced 226/226 on both bashes, bench 2/2 gates PASS (1.11x tree, 1.17x one-file)."
         }
       ]
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-16",
+      "batch": "P1",
+      "sha": "<SHA-TF1>",
+      "summary": "Worker implemented P1 (closeout) in the order the brief pins. bench.sh: the thead/ttail shape with this unit's differences — a generated corpus of 20 dirs x 20 .txt (+1 .dat, so the pattern really filters) plus a ONE-file tree, both in `mktemp -d` under an EXIT trap; (a) buildArgv / argv NAME cost with the runs-nothing proof (cmd pointed at a counting function, 900 builds, counter 0, BASHPID unchanged) AND the rc 2 path timed as well, because a refusal is the path a caller reaches by accident; (b) new+name+argv+delete on its own line as the whole byName delta; (c) the GATE, TFind.byName vs bare find -name, INTERLEAVED, medians of NR=21, gate 1.5x, in two shapes (400 matches and ONE match) to show corpus size does not move the ratio, with the mean printed beside each median and the WORST SINGLE PAIRING of the sample printed under it; (d) f.count vs `find … -print0 | tr -dc '\\0' | wc -c`, published not gated; (e) zero forks over 20 members, byName, both rc 2 paths and the callback/.Add. Clock TStopwatch.getTimeStamp; the header states why `date +%s%N` is forbidden (~20 ms/call on msys) and why interleaved medians are non-negotiable (§8 finding 17's 1.64x worst pairing). Measured on an idle box: gates 2/2 PASS on BOTH bashes — 1.12x (400 matches) and 1.19x (one file) on 5.2.37, 1.16x and 1.16x on 5.3.9; fixed delta 4528.7 / 4738.4 us, i.e. the ~4.7 ms the plan predicted. Two deviations from the letter of the brief, both reported: (1) section (d)'s baseline needed a THIRD process (`tr` + `wc`, since `wc -l` cannot count NUL-framed records without destroying the newline-name case), and at 400 records the SINK IS FASTER than the pipeline in the small-corpus direction — so the bench measures the sink's fixed half over ONE record as well and derives the marginal per-record cost (~134 us / ~126 us) from the difference instead of from the ratio, and the README says which side of the crossover a reader is on; (2) the FIRST 5.2.37 run read 0.99x/1.06x because the freshly created corpus made the baseline (which runs first in each iteration) carry every outlier — mean 165 ms against a 47 ms median — so the published table is the SECOND run and the first is quoted in the README as the reproduction, which is itself the protocol's point. tests/007_Bench.sh: 10 cases, 10x ceilings, banner gate first, corpus via kt_fixture_tmpdir_create and NO trap of its own. TEST_COVERAGE_NOTES.md: 226 rows, one per case, sums 110+49+57+10; the registry's own cases are referenced in tutil/tests/001_Core.sh §C rather than duplicated. README final (COMPLETE header, §9 Tests updated, NEW §10 Performance with both tables). kcl README §2: the tfind row between tfile and tgrep, Twenty-two -> Twenty-three. Gate: tfind 226/226 threaded on 5.2.37 and on 5.3.9, 226/226 under --mode single on 5.2.37; bench rc 0 under `bash -eu` on both with the 1.5x gate passing; `bash -n` clean on both new .sh; `git diff --stat` empty on tfind.sh and tests/004–006; tests/.tmp removed. Master sweep: run by reviewer: 26/26 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suite reproduced 226/226 on both bashes, bench 2/2 gates PASS (1.11x tree, 1.17x one-file). NOT committed, NOT pushed."
+    },
     {
       "date": "2026-09-16",
       "batch": "P0",
