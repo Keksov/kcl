@@ -3,29 +3,65 @@
   "project": "kcl/tfind — TFind : TUtil, GNU findutils 4.10.0 `find` wrapper (typed tests -> pinned expression order, start points positional, print0 -> derived -0, static one-liner TFind.byName).",
   "created": "2026-09-16",
   "updated": "2026-09-16",
-  "status": "PLANNED, critic-hardened 2026-09-16 (20 findings: 2 BLOCKER, 5 MAJOR, 10 MINOR, 3 NIT — all folded into PLAN.md, record in §8). No code.",
+  "status": "P0 DONE 2026-09-16 (tfind.sh + 004/005/006 + tests.sh + README first cut + the TUTIL_OUT_PREFIXES registry in tutil with its two guards). 216/216 green on bash 5.2.37 and 5.3.9 (threaded; 5.2.37 also --mode single); tutil 197/197, tgrep 185/185, thead 182/182, ttail 200/200 re-proved on 5.2.37 (tutil also 197/197 on 5.3.9). P1 (bench, 007, TEST_COVERAGE_NOTES, kcl README row) not started.",
   "phases": [
     {
       "id": "P0",
       "name": "The unit",
       "goal": "tfind.sh (TFind : TUtil per PLAN §1.2), tests 004_Argv / 005_Run / 006_Contract, README first cut, the TUTIL_OUT_PREFIXES registry in tutil.",
-      "status": "planned",
+      "status": "done",
+      "date": "2026-09-16",
+      "commit": "<SHA-TF0>",
+      "files": [
+        "kcl/tfind/tfind.sh (NEW, 446 lines)",
+        "kcl/tfind/README.md (NEW, 434 lines)",
+        "kcl/tfind/tests/004_Argv.sh (NEW, 916 lines, 110 cases)",
+        "kcl/tfind/tests/005_Run.sh (NEW, 981 lines, 49 cases)",
+        "kcl/tfind/tests/006_Contract.sh (NEW, 689 lines, 57 cases)",
+        "kcl/tfind/tests/tests.sh (NEW, 5 lines)",
+        "kcl/tfind/tfind_ledger.json (this file)",
+        "kcl/tutil/tutil.sh (EDIT: TUTIL_OUT_PREFIXES declared at load + tutil._badOut rewritten around it)",
+        "kcl/tutil/tests/001_Core.sh (EDIT: 10 registry cases in §C, 64 -> 74)",
+        "kcl/tutil/README.md (EDIT: §5 'Writing a descendant' — the registry and its two guards)",
+        "kcl/tutil/PLAN.md (EDIT: the §7 tfind row)"
+      ],
+      "gate": {
+        "tfind_5_2_37_threaded": "216/216, 0 FAIL",
+        "tfind_5_3_9_threaded": "216/216, 0 FAIL",
+        "tfind_5_2_37_single": "216/216, 0 FAIL",
+        "tutil_5_2_37": "197/197, 0 FAIL",
+        "tutil_5_3_9": "197/197, 0 FAIL",
+        "tgrep_5_2_37": "185/185, 0 FAIL",
+        "thead_5_2_37": "182/182, 0 FAIL",
+        "ttail_5_2_37": "200/200, 0 FAIL",
+        "master_sweep": "run by reviewer",
+        "find_version": "find (GNU findutils) 4.10.0 at /usr/bin/find under bash 5.2.37 and under bash 5.3.9 (C:/bin/msys64)"
+      },
+      "red_before": {
+        "tfind/tests/004_Argv.sh": "89 FAIL of 109 cases against the stubbed skeleton",
+        "tfind/tests/005_Run.sh": "44 FAIL of 49",
+        "tfind/tests/006_Contract.sh": "37 FAIL of 57",
+        "tfind suite total": "170 FAIL of 215 (threaded runner, bash 5.2.37)",
+        "tutil/tests/001_Core.sh": "9 FAIL of 74 against the pre-registry tutil._badOut — incl. the critic's blocker reproduced verbatim: `uV.argv TUTIL_OUT_PREFIXES` answered rc 0 and left the registry holding `(printf hello)`, after which every family prefix was fillable"
+      },
       "tasks": [
         {
           "id": "P0.1",
           "title": "TFind class: Create (parent.constructor find, every var assigned, ${inst}_paths = start points), Destroy, paths, buildArgv (find [-L] [START...] [-maxdepth N] [-mindepth N] [-name P] [-iname P] [-type T] [-newer F] [extras] [-print0]; rc 2 for a start point that is empty or matches ^[-!(], a bad type, a non-int/negative depth (emitted as $__KK_INT), print0 = 1 together with an action word in the extras, empty cmd; print0 -> nul with the P3-F1 guard), mapRc (0->0, else 1 + debug), static byName (>=1 start point, unique throw-away instance); tutil._badOut -> TUTIL_OUT_PREFIXES registry with the two guards (the registry name refused as an out-name; empty/non-array registry refuses every name) + tutil 001 cases + README note + PLAN §7 tfind row",
           "category": "feature",
           "severity": "critical",
-          "status": "planned",
-          "acceptance": "F1–F5 by array comparison without running find; F6–F11 on the fixture tree with the banner gate (sorted comparisons); partial failure keeps the records with RESULT = count and rc 1; newline name = 2 records under -print, 1 under print0; byName byte-identical to bare find in three positions; nested byName keeps the outer instance; tutil/tgrep/thead/ttail suites unchanged."
+          "status": "done",
+          "acceptance": "F1–F5 by array comparison without running find; F6–F11 on the fixture tree with the banner gate (sorted comparisons); partial failure keeps the records with RESULT = count and rc 1; newline name = 2 records under -print, 1 under print0; byName byte-identical to bare find in three positions; nested byName keeps the outer instance; tutil/tgrep/thead/ttail suites unchanged.",
+          "result": "Met. F1 argv per option singly and combined in the pinned order with -L before the start points, no `--` in any of three shapes, extras between the tests and the action, ${f}_args empty after `new f START`. F2: 36 refusals, each rc 2 + RESULT '' + caller array untouched + ${inst}_argv empty + exactly one kk.debug line, incl. every word of the §2.3 action set. F3: 08 -> 8, +1 -> 1, 0 -> 0, -0 -> 0, 007 -> 7 with no write-back; type f,f builds and is the tool's rc 1 (005). F4: 14 vars in _data, delete frees _paths/_args/_argv, argv runs nothing, __tfd_*/__tu_*/__tg_*/__th_*/__tt_*/${inst}_paths/TUTIL_OUT_PREFIXES all rc 2 with the registry intact. F5: the four-state print0 -> nul sequence incl. P3-F1. F5b: `f.name = *.txt` unquoted keeps one word ('one.txt'); quoted keeps the pattern. F6: nine typed options plus three combinations byte-identical to bare find (sort -z), -name case-sensitive vs -iname on NTFS, -P vs -L on a real directory symlink, -L + type=l = only the broken link. F7: the newline name is 2 records under -print and 1 under print0; a space name intact; ./-weird works while -weird is rc 2. F8a: records kept, RESULT = count, rc 1, lastRc 1, one line of ours, first still rc 0; F8b: -newer MISSING is fatal (0 records). F9: the empty start-point list from a cd in the test file's own shell. F10a: -exec output IS the record stream, `\\;` rc 0 with 0 records, `+` rc 1; F10b: print0 + -size +0 keeps NUL framing. F11: byName in three positions, two start points, no start point rc 2, a refused start point rc 2 through run, a missing one rc 1, nested inside `each`, both TPipe forms, __TFD_SEQ bumped with no instance left. F12: set -eu children, the debug switch (one line on 11 rc 2 paths and 3 tool-error paths, none on rc 0), D6/subshellOk, a cygpath -w start point whose records carry that prefix and `/` after it. Registry: guard 1 (the name refused, registry intact) and guard 2 (empty / unset / scalar all refuse every name, restored registry works again) in tutil 001."
         },
         {
           "id": "P0.2",
           "title": "tests 004/005/006 (red-first against a stubbed skeleton) + tests.sh + README first cut",
           "category": "test",
           "severity": "high",
-          "status": "planned",
-          "acceptance": "Red counts recorded; green on bash 5.2.37 and 5.3.9 (threaded and --mode single); F12; sweep 0 [FAIL] on both."
+          "status": "done",
+          "acceptance": "Red counts recorded; green on bash 5.2.37 and 5.3.9 (threaded and --mode single); F12; sweep 0 [FAIL] on both.",
+          "result": "Met, except the master sweep, which the reviewer runs. Red counts are in `red_before` above (170 of 215 against the skeleton; 9 of 74 in tutil 001 against the pre-registry _badOut). Green: 216/216 threaded on both bashes, 216/216 under --mode single on 5.2.37. `bash -n` clean on every touched .sh; tests/.tmp removed everywhere a suite ran."
         }
       ]
     },
@@ -55,6 +91,11 @@
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-16",
+      "batch": "P0",
+      "summary": "Worker implemented P0 in the order the brief pins: a stubbed TFind skeleton (Create/Destroy real, paths/buildArgv/mapRc/byName answering `__TFIND_PENDING__` with rc 2), then 004/005/006 + tests.sh written against PLAN §3, then the tutil 001 registry cases, then the red run (tfind 170 FAIL of 215; tutil 001 9 FAIL of 74 — the critic's blocker 1 reproduced: `uV.argv TUTIL_OUT_PREFIXES` was rc 0 and the registry came back as `(printf hello)`), then the implementation. tutil.sh: `declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )` below the re-source guard, and `tutil._badOut` rewritten as reserved-name -> fail-closed -> `kk._outName NAME \"${TUTIL_OUT_PREFIXES[@]}\"` -> the ${inst}_args/_argv/_paths case. The fail-closed test needs `${TUTIL_OUT_PREFIXES@a}`, which is itself a nounset FAULT on an unset name or a plain scalar, so the frame does `local -; set +u` (options restored on return) — a fault is not a refusal. tfind.sh appends `__tfd_` only if absent and releases its two scratch globals. Two test corrections against the live tool, both reported: (1) the word scan means `addArg -name '-exec'` is refused with print0 = 1 (an action word used as a VALUE) — implemented per the plan's letter and now pinned as a documented over-refusal, with a separate case proving `-execute`/`-printx` are NOT refused; (2) 006's `[!-(]` guard tripped on the unit's own comment naming the wrong spelling, so the check now strips comment lines first. No deviation from the plan's letter anywhere else. Gate: tfind 216/216 on 5.2.37 and 5.3.9 (threaded) and 216/216 under --mode single on 5.2.37; tutil 197/197 on both bashes; tgrep 185/185, thead 182/182, ttail 200/200 on 5.2.37. Master sweep: run by reviewer. NOT committed, NOT pushed; P1 not started. REVIEW (supervisor, 2026-09-16): tfind 216/216 and tutil 197/197 reproduced on both bashes; probes on both bashes — argv shape with -print0 last, toArray 4 records incl. the newline name vs count 5 under -print, maxDepth 08 -> 8, type f,f = tool rc 1, print0 + -exec rc 2, a -bad start point rc 2, the registry refused as an out-name with 5 entries intact, byName in place and rc 2 without a path, partial failure keeps the record with rc 1. The registry refactor verified in tutil.sh: name refused, `local -; set +u` around the attribute probe, fail-closed on a non-array or empty registry. Master sweep 26/26 suites 0 [FAIL] on both bashes. Committed as kcl <SHA-TF0>."
+    },
     {
       "date": "2026-09-16",
       "batch": "critic pass",

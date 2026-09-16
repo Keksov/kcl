@@ -389,6 +389,141 @@ if [[ "$n" == "2" ]] && arr_is OKARR "printf" "hello"; then
 else
     kt_test_fail "RESULT='$n' OKARR=$(arr_show OKARR)"
 fi
+
+# --- the TUTIL_OUT_PREFIXES registry (tfind PLAN §2.6) ---------------------
+# Three wrappers had edited `tutil._badOut`'s hard-coded prefix list before the
+# fourth turned it into a registry: `tutil.sh` declares
+# `TUTIL_OUT_PREFIXES=(__tu_ __tg_ __th_ __tt_)` at load, `_badOut` passes
+# `"${TUTIL_OUT_PREFIXES[@]}"` to `kk._outName`, and a descendant appends its own
+# prefix at load. Two guards the tfind critic pass showed are necessary:
+#
+#   (1) the registry's own NAME is refused as an out-name — otherwise one
+#       `u.argv TUTIL_OUT_PREFIXES` replaces the registry with the argv and every
+#       `__tu_`/`__tg_`/… name becomes fillable process-wide (measured);
+#   (2) FAIL CLOSED — bash >= 4.4 does not fault `"${arr[@]}"` on an unset array
+#       under `set -u`, so an empty or non-array registry would refuse NOTHING.
+#       It must refuse EVERYTHING instead.
+
+TFIND_UNIT="$(cd "$SCRIPT_DIR/../../tfind" && pwd)/tfind.sh"
+
+kt_test_start "the registry holds the four family prefixes before any descendant is loaded"
+declare -a REG0=( "${TUTIL_OUT_PREFIXES[@]}" )
+if arr_is REG0 __tu_ __tg_ __th_ __tt_; then
+    kt_test_pass "TUTIL_OUT_PREFIXES = (${TUTIL_OUT_PREFIXES[*]})"
+else
+    kt_test_fail "registry = (${TUTIL_OUT_PREFIXES[*]:-unset})"
+fi
+
+kt_test_start "argv '__tfd_x' is ACCEPTED before tfind is sourced (the prefix is not tutil's to know)"
+declare -a PRE_TFD=()
+pre_rc=0
+uV.argv PRE_TFD || pre_rc=$?
+uV.argv __tfd_x >/dev/null 2>&1
+pre_tfd_rc=$?
+if [[ $pre_rc -eq 0 && $pre_tfd_rc -eq 0 ]]; then
+    kt_test_pass "rc 0 — the registry is what a descendant extends, not a hard-coded list"
+else
+    kt_test_fail "control rc=$pre_rc; __tfd_x rc=$pre_tfd_rc"
+fi
+unset -v __tfd_x
+
+kt_test_start "sourcing tfind APPENDS \`__tfd_\` — the registry now has five entries"
+source "$TFIND_UNIT"
+declare -a REG1=( "${TUTIL_OUT_PREFIXES[@]}" )
+n_tfd=0
+for p in "${REG1[@]}"; do
+    [[ "$p" == "__tfd_" ]] && n_tfd=$(( n_tfd + 1 ))
+done
+if [[ ${#REG1[@]} -eq 5 && "$n_tfd" == "1" ]] && arr_is REG1 __tu_ __tg_ __th_ __tt_ __tfd_; then
+    kt_test_pass "TUTIL_OUT_PREFIXES = (${TUTIL_OUT_PREFIXES[*]})"
+else
+    kt_test_fail "registry = (${TUTIL_OUT_PREFIXES[*]})"
+fi
+
+bad_name "argv '__tfd_x' is rc 2 once tfind has registered its prefix" "__tfd_x"
+
+kt_test_start "guard 1: \`argv TUTIL_OUT_PREFIXES\` is rc 2 and the registry is INTACT afterwards"
+RESULT="sentinel"
+uV.argv TUTIL_OUT_PREFIXES >/dev/null 2>&1
+reg_rc=$?
+declare -a REG2=( "${TUTIL_OUT_PREFIXES[@]}" )
+if [[ $reg_rc -eq 2 && -z "$RESULT" ]] && arr_is REG2 __tu_ __tg_ __th_ __tt_ __tfd_; then
+    kt_test_pass "rc 2, RESULT '', the five prefixes untouched"
+else
+    kt_test_fail "rc=$reg_rc RESULT='$RESULT' registry=(${TUTIL_OUT_PREFIXES[*]})"
+fi
+
+kt_test_start "guard 1: every family prefix is STILL refused after that attempt"
+still=1
+for n in __tu_x __tg_x __th_x __tt_x __tfd_x; do
+    uV.argv "$n" >/dev/null 2>&1
+    [[ $? -eq 2 ]] || still=0
+done
+if [[ "$still" == "1" ]]; then
+    kt_test_pass "the family guard was not disarmed"
+else
+    kt_test_fail "a family prefix became fillable"
+fi
+
+kt_test_start "guard 2 (fail closed): an EMPTIED registry refuses \`plain\` and every family prefix"
+declare -a REG_SAVE=( "${TUTIL_OUT_PREFIXES[@]}" )
+TUTIL_OUT_PREFIXES=()
+declare -a PLAIN1=( keep )
+RESULT="sentinel"
+uV.argv PLAIN1 >/dev/null 2>&1
+empty_rc=$?
+empty_all=1
+for n in __tu_x __tg_x plainname another_ok; do
+    uV.argv "$n" >/dev/null 2>&1
+    [[ $? -eq 2 ]] || empty_all=0
+done
+TUTIL_OUT_PREFIXES=( "${REG_SAVE[@]}" )
+if [[ $empty_rc -eq 2 && "$empty_all" == "1" ]] && arr_is PLAIN1 keep; then
+    kt_test_pass "rc 2 for EVERY name while the registry is empty; the caller's array untouched"
+else
+    kt_test_fail "plain rc=$empty_rc allRefused=$empty_all PLAIN1=$(arr_show PLAIN1)"
+fi
+
+kt_test_start "guard 2 (fail closed): an UNSET registry refuses \`plain\` too"
+unset -v TUTIL_OUT_PREFIXES
+uV.argv PLAIN2 >/dev/null 2>&1
+unset_rc=$?
+TUTIL_OUT_PREFIXES=( "${REG_SAVE[@]}" )
+if [[ $unset_rc -eq 2 ]]; then
+    kt_test_pass "rc 2 — \`\"\${arr[@]}\"\` on an unset array is silent, so the check is explicit"
+else
+    kt_test_fail "rc=$unset_rc"
+fi
+
+kt_test_start "guard 2 (fail closed): a SCALAR in the registry's place refuses \`plain\` too"
+unset -v TUTIL_OUT_PREFIXES
+declare -g TUTIL_OUT_PREFIXES="__tu_"
+uV.argv PLAIN3 >/dev/null 2>&1
+scalar_rc=$?
+unset -v TUTIL_OUT_PREFIXES
+declare -ga TUTIL_OUT_PREFIXES=( "${REG_SAVE[@]}" )
+if [[ $scalar_rc -eq 2 ]]; then
+    kt_test_pass "rc 2 — only a non-empty INDEXED array arms the check"
+else
+    kt_test_fail "rc=$scalar_rc"
+fi
+
+kt_test_start "the registry RESTORED: \`plain\` fills again and the family prefixes are refused again"
+declare -a PLAIN4=()
+back_rc=0
+uV.argv PLAIN4 || back_rc=$?
+back_all=1
+for n in __tu_x __tg_x __th_x __tt_x __tfd_x; do
+    uV.argv "$n" >/dev/null 2>&1
+    [[ $? -eq 2 ]] || back_all=0
+done
+if [[ $back_rc -eq 0 && "$back_all" == "1" ]] && arr_is PLAIN4 "printf" "hello" \
+   && arr_is REG_SAVE __tu_ __tg_ __th_ __tt_ __tfd_; then
+    kt_test_pass "argv=(printf hello) again; all five prefixes refused again"
+else
+    kt_test_fail "rc=$back_rc allRefused=$back_all PLAIN4=$(arr_show PLAIN4) registry=(${TUTIL_OUT_PREFIXES[*]})"
+fi
+
 uV.delete
 
 # ===========================================================================

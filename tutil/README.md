@@ -411,20 +411,41 @@ override is what runs and what decides the rc. There is nothing to re-implement.
 [docs/TUtil.md §4](docs/TUtil.md#4-the-template-for-the-next-wrappers) is the
 template for the next five wrappers.
 
-**A new wrapper adds its own local prefix to `tutil._badOut`.** The helper that
-refuses an output-array name passes this family's prefixes to `kk._outName`, and
-the line is shared by every descendant because the sinks are inherited:
+**A new wrapper appends its own local prefix to the `TUTIL_OUT_PREFIXES`
+registry.** The helper that refuses an output-array name passes this family's
+prefixes to `kk._outName`, and the list is shared by every descendant because
+the sinks are inherited. `tutil.sh` declares it at load and `tutil._badOut`
+reads it:
 
 ```bash
-if ! kk._outName "$__tu_n" __tu_ __tg_ __th_ __tt_; then
+declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )   # tutil.sh, at load
+...
+if ! kk._outName "$__tu_n" "${TUTIL_OUT_PREFIXES[@]}"; then  # tutil._badOut
+```
+
+A descendant appends its prefix at load, **only if absent**, so a re-source adds
+nothing (`tfind.sh` is the worked example):
+
+```bash
+TUTIL_OUT_PREFIXES+=( __tfd_ )
 ```
 
 Bash scopes locals **dynamically**, so a caller array named like the scratch
 nameref a member body holds (`__tg_p`, `__th_v`, …) would be bound to the
 instance's own storage and the caller's array would stay empty while `RESULT`
 reported a healthy count. Pick a prefix of the shape `__t<two letters>_`, use it
-for every local in the unit, and put it on that line in the same commit; the
-four are pinned in `tests/001_Core.sh` §C.
+for every local in the unit, and append it to the registry in the same commit;
+the five are pinned in `tests/001_Core.sh` §C.
+
+Two guards live in `tutil._badOut` and are not negotiable (tfind PLAN §2.6, the
+critic's blocker 1):
+
+* **the registry's own name, `TUTIL_OUT_PREFIXES`, is refused as an out-name** —
+  without that one `u.argv TUTIL_OUT_PREFIXES` replaces the registry with the
+  argv and every `__tu_`/`__tg_`/… name becomes fillable process-wide;
+* **it fails closed** — bash ≥ 4.4 does not even fault `"${arr[@]}"` on an unset
+  array under `set -u`, so a registry that is empty, unset or not an indexed
+  array refuses **every** name rather than none.
 
 ### Every trap this base is built around
 

@@ -158,6 +158,18 @@ end
 # touch them, and they can be shared by a descendant in another file).
 # ===========================================================================
 
+# TUTIL_OUT_PREFIXES — the local-prefix REGISTRY every descendant extends
+# (tfind PLAN §2.6). Three wrappers in a row had edited a hard-coded list inside
+# `tutil._badOut`; this is that list, declared once at load and appended to by
+# each descendant at ITS load time:
+#
+#     TUTIL_OUT_PREFIXES+=( __tfd_ )     # tfind.sh, only if absent
+#
+# The declaration sits BELOW the re-source guard, so a second `source` of this
+# file cannot reset it and drop a descendant's entry. `tutil/README.md` §5 is
+# the instruction for a new wrapper.
+declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
+
 # tutil._badOut NAME — rc 0 when NAME must NOT be used as an output array,
 # rc 1 when it is usable. The shape is `TQueueStack._outName`
 # (tqueuestack.sh:189) with the polarity the name states and with one
@@ -165,23 +177,46 @@ end
 # reserves rc 2 for a malformed call; that helper answers rc 1 and its caller
 # does the same conversion).
 #
-# Two checks, in this order:
-#   1. `kk._outName NAME __tu_ __tg_ __th_ __tt_` — the §1.7 core: identifier
+# Four checks, in this order:
+#   0a. the REGISTRY'S OWN NAME is refused outright. Measured (tfind PLAN §8,
+#       blocker 1): one `u.argv TUTIL_OUT_PREFIXES` replaced the registry with
+#       that call's argv, and from then on every `__tu_`/`__tg_`/… name was
+#       fillable process-wide. It is the one name whose refusal cannot be
+#       expressed by the registry itself.
+#   0b. FAIL CLOSED. bash >= 4.4 does not even fault `"${arr[@]}"` on an unset
+#       array under `set -u`, and `kk._outName NAME` with no prefixes accepts
+#       everything — so an empty, unset or non-indexed-array registry would
+#       silently refuse NOTHING. It refuses EVERYTHING instead. `${x@a}` on a
+#       name with no attributes is itself a `nounset` fault, and a fault is not
+#       a refusal, so the attribute is read with `nounset` off for this frame
+#       only (`local -` restores every option on return).
+#   1. `kk._outName NAME "${TUTIL_OUT_PREFIXES[@]}"` — the §1.7 core: identifier
 #      shape, the kklass reserved set (`this __inst__ __class__ RESULT REPLY IFS
 #      state`), the `__kk_`/`__KK_` space, the receiving instance's own
 #      `_data`/`_class`/`_items`, and EVERY local prefix in this family. They
 #      are all passed here, in the base, because bash scopes locals DYNAMICALLY:
-#      a caller array named `__tu_v`, `__tg_p`, `__th_v` or `__tt_p` would bind
-#      the scratch nameref of whichever wrapper is running, and the wrappers
-#      share these member bodies by inheritance. A NEW descendant adds its own
-#      prefix to this line (`tutil/README.md` §5, thead PLAN §2.8).
+#      a caller array named `__tu_v`, `__tg_p`, `__th_v`, `__tt_p` or `__tfd_v`
+#      would bind the scratch nameref of whichever wrapper is running, and the
+#      wrappers share these member bodies by inheritance.
 #   2. the extra per-instance arrays this family keeps beyond the kklass three:
-#      `${inst}_args`, `${inst}_argv` and TGrep's `${inst}_paths`. Filling one
-#      of those would hand the caller the instance's own storage and then let
-#      the next `buildArgv` overwrite it.
+#      `${inst}_args`, `${inst}_argv` and the descendants' `${inst}_paths`.
+#      Filling one of those would hand the caller the instance's own storage and
+#      then let the next `buildArgv` overwrite it.
 tutil._badOut() {
     local __tu_n="${1:-}" __tu_i="${__inst__:-}"
-    if ! kk._outName "$__tu_n" __tu_ __tg_ __th_ __tt_; then
+    if [[ "$__tu_n" == "TUTIL_OUT_PREFIXES" ]]; then
+        return 0
+    fi
+    local -                         # shell options are restored on return
+    set +u
+    if [[ "${TUTIL_OUT_PREFIXES@a}" != *a* ]]; then
+        return 0
+    fi
+    local -a __tu_pf=( "${TUTIL_OUT_PREFIXES[@]}" )
+    if (( ${#__tu_pf[@]} == 0 )); then
+        return 0
+    fi
+    if ! kk._outName "$__tu_n" "${__tu_pf[@]}"; then
         return 0
     fi
     if [[ -n "$__tu_i" ]]; then
