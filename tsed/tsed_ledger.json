@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tsed — TSed : TUtil, GNU sed 4.9 wrapper (typed options before the expressions, expr + addExpr + scriptFile, sandbox on by default, in-place with run only, static one-liner TSed.edit).",
+  "created": "2026-09-22",
+  "updated": "2026-09-22",
+  "status": "PLANNED, critic-hardened 2026-09-22 (18 findings: 0 BLOCKER, 5 MAJOR, 8 MINOR, 5 NIT — all folded into PLAN.md, record in §8). Six owner decisions (Q1–Q4 before the plan, Q5–Q6 after the critic). No code.",
+  "decisions": {
+    "Q1": "sandbox = 1 by default (e, s///e, r, R, w, W refused by sed); sandbox = 0 opts out",
+    "Q2": "both var expr and proc addExpr/clearExprs over ${inst}_exprs; plus var scriptFile (-f)",
+    "Q3": "0->0; 1,2,4 -> 1 + debug; 127 base; any other (q/Q status) -> 1 silent, raw in lastRc",
+    "Q4": "inPlace + backupSuffix; run only; the five sinks overridden and rc 2 with inPlace = 1",
+    "Q5": "inPlace = 1 and nullData = 1 derive -b in buildArgv (text mode rewrites CRLF to LF on disk, even the identity, and strips a CR inside a NUL record); the binary property is never written",
+    "Q6": "deny-list in buildArgv for extras that duplicate a typed property or break the stream: -i/--in-place, -z/--null-data, -e/--expression, -f/--file, -n/--quiet/--silent, -s/--separate, -E/-r/--regexp-extended, -b/--binary, --sandbox, and bundled short words containing i z e f n s E r b; --posix, -u, -l N, --follow-symlinks, --debug pass"
+  },
+  "phases": [
+    {
+      "id": "P0",
+      "name": "The unit",
+      "goal": "tsed.sh (TSed : TUtil per PLAN §1.2), tests 004_Argv / 005_Run / 006_Contract, README first cut, tutil PLAN §7 tsed row.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "TSed class per PLAN §1.2: Create (parent.constructor sed, every var assigned, sandbox=1, expr=$1, ${inst}_paths, ${inst}_exprs), Destroy, paths, addExpr, clearExprs, buildArgv (pinned shape, options before the first -e, rc 2 list §2.2, nullData -> nul with the P3-F1 guard), mapRc (§2.0 Q3), five overridden sinks (inPlace -> rc 2, else the rc-preserving spelling), static edit (sandbox forced, >=1 path), __tsd_ in TUTIL_OUT_PREFIXES",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "S1–S5 by array comparison without running sed; S6–S12 on the fixture tree with the banner gate; partial failure keeps the records with RESULT = count and rc 1; sandbox refuses s///e and w (marker file proves nothing ran); inPlace sinks rc 2 with the file untouched; edit byte-identical to bare sed in three positions; nested edit keeps the outer instance; the other wrapper suites unchanged."
+        },
+        {
+          "id": "P0.2",
+          "title": "tests 004/005/006 (red-first against a stubbed skeleton) + tests.sh + README first cut",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red counts recorded; green on bash 5.2.37 and 5.3.9 (threaded and --mode single); S13; sweep 0 [FAIL] on both."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Closeout",
+      "goal": "bench.sh + 007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (23 -> 24), ledger COMPLETE.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "bench (edit vs bare sed -e, interleaved medians >= 15, gate 1.5x; argv fork-free) + 007 with 10x ceilings",
+          "category": "perf",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner."
+        },
+        {
+          "id": "P1.2",
+          "title": "README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (sandbox default, q/Q status, partial output, tool stderr, in-place), ledger COMPLETE with SHAs",
+          "category": "docs",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-09-22",
+      "batch": "critic pass",
+      "summary": "Opus critic, 9 probe scripts and a prototype on the real tutil, both bashes byte-identical (5.2.37 resolves Git for Windows' sed, 5.3.9 msys64's; both 4.9). No blockers. MAJORS: (1) in-place in text mode rewrites CRLF to LF on disk, even the identity -> owner Q5: inPlace and nullData derive -b; (2) addArg -i / -ni / -z / --expression / -f bypass the typed properties (a sink edits or truncates the file with rc 0, loses records, reorders the script) -> owner Q6: deny-list; (3) ${inst}_exprs is fillable as an out-name, so records become the next run's script -> TUTIL_OUT_SUFFIXES registry with the two guards, tsed appends _exprs; (4) TSed.edit '' could not be the identity -> edit uses addExpr; (5) the missing-file pin was wrong for each (a proc, rc 1, RESULT untouched) and first (rc 0 + record + lastRc 2, the consumer-stop contract) -> restated. MINOR/NIT: rc 4 stops processing at the operand (not partial like rc 2), a missing -f script is rc 4; the backupSuffix rule targeted harmless characters — `*` alone (no backup, silently) is now rc 2, `*` and `/` documented; a script's q1/q2/q4 looks like a sed error (debug wording says so) and -i + q/Q/-n truncates silently (README trap); sandbox also refuses s///w incl. /dev/stdout and does not guard -i; --debug prints to stdout (sinks refused); a callback's bare assignment writes the instance's properties (bare sandbox=0 disarms the default — README trap); tutil/docs/TUtil.md §4 stale tsed row; #n and a\\ across chunks; -i on -; two sed binaries; S5/S9 fixture details; -i implies -s. Verified: the proc each override keeps rc, frame, __TPIPE_QUIET, D6, this, no per-record cost; the refusal leaves _lastRc -1 and the file intact; the sandbox is compile-time and total."
+    },
+    {
+      "date": "2026-09-22",
+      "batch": "planning",
+      "summary": "Owner: start tsed. GNU sed 4.9 measured under both bashes (byte-identical): each -e is compiled when read, so every option must precede the first -e (`-e 's/(/X/' -E` silently runs as BRE); `sed FILE` takes FILE as the script; rc 1 bad script, 2 missing input (partial output kept), 4 I/O, q/Q N any status; text mode strips CR, -b keeps it; -z NUL records; one stream across files unless -s; -i writes nothing to stdout, suffix attached; e/s///e/r/w/W execute or touch files, --sandbox refuses them. Owner decided four questions before the plan: sandbox on by default; both expr and addExpr; rc 1/2/4 with debug, q/Q status silent; inPlace + backupSuffix with run only. PLAN.md + this ledger written. No code."
+    }
+  ]
+}
