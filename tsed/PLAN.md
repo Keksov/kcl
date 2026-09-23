@@ -40,7 +40,7 @@ appended to `TUTIL_OUT_PREFIXES` at load. No `static var`. Sources
 | last line without `\n` | kept without `\n` |
 | several files | ONE stream by default (`$` = last line of the last file); `-s` makes them separate; **`-i` implies `-s`** |
 | `-n` | no auto-print; with no `p` there are zero records |
-| `-i[SUFFIX]` | in-place: writes nothing to stdout; suffix ATTACHED (`-i.bak` ≡ `--in-place=.bak`); a space or a leading `-` in the suffix is harmless (one argv word); **`*` in the suffix is the base name** (`bak_*` → `bak_f.txt`; `*` alone = no backup at all, silently); **`/` is a directory** (`bk/*` writes into `bk/`, a missing directory is rc 4 with the file untouched); `-i` with no file is "no input files"; `-i` on `-` is "can't read -" (rc 2); `-i` + `q N` / `Q` / `-n` without `p` **truncates the file** silently |
+| `-i[SUFFIX]` | in-place: writes nothing to stdout; suffix ATTACHED (`-i.bak` ≡ `--in-place=.bak`); a space or a leading `-` in the suffix is harmless (one argv word); **`*` in the suffix is replaced by the OPERAND AS GIVEN**, not its base name (`bak_*` on `f.txt` → `bak_f.txt`, but on `p/k.txt` → `bak_p/k.txt`, i.e. a directory `bak_p/` that must exist, else rc 4 with the file untouched — measured at P0; `*` alone = no backup at all, silently); **`/` is a directory** (`bk/*` writes into `bk/`, a missing directory is rc 4 with the file untouched); `-i` with no file is "no input files"; `-i` on `-` is "can't read -" (rc 2); `-i` + `q N` / `Q` / `-n` without `p` **truncates the file** silently |
 | `e`, `s///e`, `r`, `R`, `w`, `W`, `s///w FILE` | execute a shell command / read / write arbitrary files; `--sandbox` refuses all of them at compile time (rc 1, no output, no partial processing — even in a later `-e` or inside a `-f` script, even with `-i`); the common idiom `s/a/A/w /dev/stdout` is refused too (use `p`). `--sandbox` does NOT refuse `-i` — it limits the script, not in-place writes. `F`, `=`, `l` are allowed and print to stdout (they arrive as records; `F` prints `-` for stdin) |
 | `--debug` | prints `SED PROGRAM:` / `INPUT:` / `PATTERN:` lines to STDOUT, interleaved with the data |
 | stdin | no file operand → stdin; `-- -` = stdin explicitly |
@@ -97,12 +97,12 @@ argv shape, pinned: `sed` `[--sandbox]` `[-E]` `[-n]` `[-s]` `[-z]` `[-b]`
 
 | Q | decision |
 |---|---|
-| Q1 sandbox | `sandbox = 1` by default: `e`, `s///e`, `r`, `R`, `w`, `W`, `s///w` are refused by sed itself (rc 1, its own message). A caller who needs them sets `s.sandbox = 0` explicitly. Named deviation from tool parity |
+| Q1 sandbox | `sandbox = 1` by default and **fail-closed**: `--sandbox` is omitted only when `sandbox` is exactly `0` (every other value keeps it — a deliberate exception to the family boolean rule, P0 review): `e`, `s///e`, `r`, `R`, `w`, `W`, `s///w` are refused by sed itself (rc 1, its own message). A caller who needs them sets `s.sandbox = 0` explicitly. Named deviation from tool parity |
 | Q2 expressions | BOTH `var expr` (the common case, the constructor's first argument) and `proc addExpr` / `proc clearExprs` over `${inst}_exprs`; `expr` is emitted first, then the list in order; plus `var scriptFile` for `-f` |
 | Q3 rc | `0→0`; `1`, `2`, `4` → rc 1 + one `kk.debug` line worded "sed exited N (a sed error, or the script's q/Q N)"; `127` keeps the base wording; any other status (a script's `q N`/`Q N`) → rc 1 **silent**, the raw value in `lastRc` |
 | Q4 in-place | `inPlace` + `backupSuffix`; `run` works; the five sinks are overridden and answer rc 2 when `inPlace = 1` |
 | Q5 CRLF (after the critic) | `inPlace = 1` and `nullData = 1` **derive `-b`**: in text mode sed rewrites CRLF to LF on disk (even the identity) and strips a CR inside a NUL record. The derivation lives in buildArgv only (`-b` emitted when `binary == 1` OR `inPlace == 1` OR `nullData == 1`); the `binary` property is never written, so no bookkeeping flag is needed. On LF-only files `-b` changes nothing. Named deviation |
-| Q6 extras (after the critic) | a **deny-list** in `buildArgv`: an extra that duplicates a typed property or breaks the record stream is rc 2 with a message naming the property to use — `-i`/`--in-place[=…]`, `-z`/`--null-data`, `-e`/`--expression[=…]`, `-f`/`--file[=…]`, `-n`/`--quiet`/`--silent`, `-s`/`--separate`, `-E`/`-r`/`--regexp-extended`, `-b`/`--binary`, `--sandbox`, and any bundled short-option word containing one of `i z e f n s E r b` (`-ni`, `-nE`); everything else (`--posix`, `-u`, `-l N`, `--follow-symlinks`, `--debug`) passes |
+| Q6 extras (after the critic) | a **deny-list** in `buildArgv` that follows sed's own option parsing (P0: unambiguous long-option abbreviations such as `--in=`, `--expr=`, `--null`, `--sand` and attached short arguments such as `-i.bak`, `-es/a/b/` are the same options and are refused too; `--` in the extras is refused because it would turn the expressions into operands): an extra that duplicates a typed property or breaks the record stream is rc 2 with a message naming the property to use — `-i`/`--in-place[=…]`, `-z`/`--null-data`, `-e`/`--expression[=…]`, `-f`/`--file[=…]`, `-n`/`--quiet`/`--silent`, `-s`/`--separate`, `-E`/`-r`/`--regexp-extended`, `-b`/`--binary`, `--sandbox`, and any bundled short-option word containing one of `i z e f n s E r b` (`-ni`, `-nE`); everything else (`--posix`, `-u`, `-l N`, `--follow-symlinks`, `--debug`) passes |
 
 ### 2.1 Everything the family decided applies verbatim
 
@@ -127,7 +127,7 @@ descendant" names both registries.
 with no path, or with the path `-`; `backupSuffix` non-empty with `inPlace = 0`;
 `backupSuffix` equal to `*` (the backup name would equal the file name: no backup,
 silently); an extra on the Q6 deny-list. An empty element inside `${inst}_exprs` is
-allowed (sed's identity). A suffix containing `*` (base-name substitution) or `/`
+allowed (sed's identity). A suffix containing `*` (the operand as given — with a directory in the operand it names a backup DIRECTORY) or `/`
 (a directory; missing → the tool's rc 4) is passed and documented. No expression
 text is validated by the wrapper — sed compiles it.
 

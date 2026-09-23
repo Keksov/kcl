@@ -386,9 +386,19 @@ be accepted and quietly discarded. The planned wrappers (`thead`, `ttail`) use
 Output-array names are refused (rc 2, nothing written) when they are not plain
 identifiers, when they are in kklass's reserved set (`this`, `__inst__`,
 `__class__`, `RESULT`, `REPLY`, `IFS`, `state`, the `__kk_`/`__KK_` space, the
-instance's `_data`/`_class`/`_items`), when they start with this family's local
-prefixes `__tu_` / `__tg_`, or when they name the instance's own `_args`,
-`_argv` or `_paths`.
+instance's `_data`/`_class`/`_items`), and through **two registries** every
+descendant extends at load (§5):
+
+* **`TUTIL_OUT_PREFIXES`** — the family's local prefixes: `__tu_ __tg_ __th_
+  __tt_` at load, plus `__tfd_` once tfind is sourced and `__tsd_` once tsed is;
+  a name that starts with any of them is refused;
+* **`TUTIL_OUT_SUFFIXES`** — the per-instance arrays beyond kklass's three:
+  `_args _argv _paths` at load, plus `_exprs` once tsed is sourced;
+  `${inst}${suffix}` is refused for the receiving instance.
+
+Two guards apply to both: each registry's own **name** is refused as an
+out-name, and an empty, unset or non-indexed-array registry **fails closed** —
+it refuses every name.
 
 ---
 
@@ -433,16 +443,32 @@ TUTIL_OUT_PREFIXES+=( __tfd_ )
 Bash scopes locals **dynamically**, so a caller array named like the scratch
 nameref a member body holds (`__tg_p`, `__th_v`, …) would be bound to the
 instance's own storage and the caller's array would stay empty while `RESULT`
-reported a healthy count. Pick a prefix of the shape `__t<two letters>_`, use it
-for every local in the unit, and append it to the registry in the same commit;
-the five are pinned in `tests/001_Core.sh` §C.
+reported a healthy count. Pick a prefix of the shape `__t<two letters>_` (or
+three, as `__tfd_` / `__tsd_`), use it for every local in the unit, and append it
+to the registry in the same commit; the family's prefixes are pinned in
+`tests/001_Core.sh` §C.
 
-Two guards live in `tutil._badOut` and are not negotiable (tfind PLAN §2.6, the
-critic's blocker 1):
+**A new wrapper that keeps its own per-instance array appends that array's
+suffix to the second registry, `TUTIL_OUT_SUFFIXES`.** Next to kklass's
+`_data`/`_class`/`_items`, this family keeps `${inst}_args` and `${inst}_argv`
+(TUtil), `${inst}_paths` (every path-taking descendant) and `${inst}_exprs`
+(tsed). Filling one of those as an output array hands the caller the
+instance's own storage — measured on tsed, `s.toArray s_exprs` turned the
+records into the NEXT run's script. `tutil.sh` declares the list at load and
+`tutil._badOut` refuses `${inst}${suffix}` for every entry:
 
-* **the registry's own name, `TUTIL_OUT_PREFIXES`, is refused as an out-name** —
-  without that one `u.argv TUTIL_OUT_PREFIXES` replaces the registry with the
-  argv and every `__tu_`/`__tg_`/… name becomes fillable process-wide;
+```bash
+declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )        # tutil.sh, at load
+TUTIL_OUT_SUFFIXES+=( _exprs )                               # tsed.sh, only if absent
+```
+
+Two guards live in `tutil._badOut`, apply to **both** registries, and are not
+negotiable (tfind PLAN §2.6, the critic's blocker 1; tsed PLAN §2.1):
+
+* **each registry's own name — `TUTIL_OUT_PREFIXES`, `TUTIL_OUT_SUFFIXES` — is
+  refused as an out-name** — without that one `u.argv TUTIL_OUT_PREFIXES`
+  replaces the registry with the argv and every `__tu_`/`__tg_`/… name becomes
+  fillable process-wide;
 * **it fails closed** — bash ≥ 4.4 does not even fault `"${arr[@]}"` on an unset
   array under `set -u`, so a registry that is empty, unset or not an indexed
   array refuses **every** name rather than none.

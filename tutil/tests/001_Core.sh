@@ -524,6 +524,146 @@ else
     kt_test_fail "rc=$back_rc allRefused=$back_all PLAIN4=$(arr_show PLAIN4) registry=(${TUTIL_OUT_PREFIXES[*]})"
 fi
 
+# --- the TUTIL_OUT_SUFFIXES registry (tsed PLAN §2.1) ----------------------
+# The per-instance arrays a descendant keeps beyond kklass's three used to be a
+# hard-coded `_args|_argv|_paths` case inside `tutil._badOut`. tsed keeps a
+# fourth, `${inst}_exprs`, and measured `s.toArray s_exprs` turned the records
+# into the NEXT run's script — so the list became a second registry,
+# `TUTIL_OUT_SUFFIXES=(_args _argv _paths)`, declared at load, extended by a
+# descendant at ITS load, and guarded exactly like the prefix registry:
+#   (1) its own NAME is refused as an out-name;
+#   (2) fail closed — an empty, unset or non-array registry refuses EVERY name.
+# These cases run AFTER the prefix cases above, which count five prefixes;
+# sourcing tsed below appends `__tsd_` to that registry as well.
+
+TSED_UNIT="$(cd "$SCRIPT_DIR/../../tsed" && pwd)/tsed.sh"
+
+kt_test_start "the suffix registry holds \`_args _argv _paths\` before any descendant adds one"
+declare -a SREG0=( "${TUTIL_OUT_SUFFIXES[@]}" )
+if [[ "${TUTIL_OUT_SUFFIXES@a}" == *a* ]] && arr_is SREG0 _args _argv _paths; then
+    kt_test_pass "TUTIL_OUT_SUFFIXES = (${TUTIL_OUT_SUFFIXES[*]})"
+else
+    kt_test_fail "registry = (${TUTIL_OUT_SUFFIXES[*]:-unset}) attrs='${TUTIL_OUT_SUFFIXES@a}'"
+fi
+
+kt_test_start "argv 'uV_exprs' is ACCEPTED before tsed is sourced (the suffix is not tutil's to know)"
+uV.argv uV_exprs >/dev/null 2>&1
+pre_ex_rc=$?
+if [[ $pre_ex_rc -eq 0 ]] && arr_is uV_exprs "printf" "hello"; then
+    kt_test_pass "rc 0 — the registry is what a descendant extends"
+else
+    kt_test_fail "rc=$pre_ex_rc uV_exprs=$(arr_show uV_exprs)"
+fi
+unset -v uV_exprs
+
+kt_test_start "sourcing tsed APPENDS \`_exprs\` (and \`__tsd_\` to the prefixes), once"
+source "$TSED_UNIT"
+source "$TSED_UNIT"
+declare -a SREG1=( "${TUTIL_OUT_SUFFIXES[@]}" )
+declare -a PREG1=( "${TUTIL_OUT_PREFIXES[@]}" )
+if arr_is SREG1 _args _argv _paths _exprs && arr_is PREG1 __tu_ __tg_ __th_ __tt_ __tfd_ __tsd_; then
+    kt_test_pass "suffixes (${TUTIL_OUT_SUFFIXES[*]}); prefixes (${TUTIL_OUT_PREFIXES[*]})"
+else
+    kt_test_fail "suffixes (${TUTIL_OUT_SUFFIXES[*]}); prefixes (${TUTIL_OUT_PREFIXES[*]})"
+fi
+
+bad_name "argv 'uV_exprs' is rc 2 once tsed has registered \`_exprs\`" "uV_exprs"
+bad_name "argv '__tsd_x' is rc 2 once tsed has registered \`__tsd_\`" "__tsd_x"
+
+kt_test_start "\`toArray uX_exprs\` is rc 2 too — refused before anything runs"
+rm -f "$FLAG"
+TUtil.new uX pmark
+RESULT="sentinel"
+uX.toArray uX_exprs >/dev/null 2>&1
+tx_rc=$?
+if [[ $tx_rc -eq 2 && -z "$RESULT" && ! -e "$FLAG" ]] && ! declare -p uX_exprs >/dev/null 2>&1; then
+    kt_test_pass "rc 2, RESULT '', the producer never ran, nothing created"
+else
+    kt_test_fail "rc=$tx_rc RESULT='$RESULT' flag=$([[ -e $FLAG ]] && echo present || echo absent)"
+fi
+uX.delete
+
+kt_test_start "suffix guard 1: \`argv TUTIL_OUT_SUFFIXES\` is rc 2 and the registry is INTACT afterwards"
+RESULT="sentinel"
+uV.argv TUTIL_OUT_SUFFIXES >/dev/null 2>&1
+sreg_rc=$?
+declare -a SREG2=( "${TUTIL_OUT_SUFFIXES[@]}" )
+if [[ $sreg_rc -eq 2 && -z "$RESULT" ]] && arr_is SREG2 _args _argv _paths _exprs; then
+    kt_test_pass "rc 2, RESULT '', the four suffixes untouched"
+else
+    kt_test_fail "rc=$sreg_rc RESULT='$RESULT' registry=(${TUTIL_OUT_SUFFIXES[*]})"
+fi
+
+kt_test_start "suffix guard 1: every instance array is STILL refused after that attempt"
+sstill=1
+for n in uV_args uV_argv uV_paths uV_exprs; do
+    uV.argv "$n" >/dev/null 2>&1
+    [[ $? -eq 2 ]] || sstill=0
+done
+if [[ "$sstill" == "1" ]]; then
+    kt_test_pass "_args/_argv/_paths/_exprs all rc 2"
+else
+    kt_test_fail "an instance array became fillable"
+fi
+
+kt_test_start "suffix guard 2 (fail closed): an EMPTIED suffix registry refuses \`plain\` and every name"
+declare -a SREG_SAVE=( "${TUTIL_OUT_SUFFIXES[@]}" )
+TUTIL_OUT_SUFFIXES=()
+declare -a SPLAIN1=( keep )
+uV.argv SPLAIN1 >/dev/null 2>&1
+sempty_rc=$?
+sempty_all=1
+for n in uV_args plainname another_ok; do
+    uV.argv "$n" >/dev/null 2>&1
+    [[ $? -eq 2 ]] || sempty_all=0
+done
+TUTIL_OUT_SUFFIXES=( "${SREG_SAVE[@]}" )
+if [[ $sempty_rc -eq 2 && "$sempty_all" == "1" ]] && arr_is SPLAIN1 keep; then
+    kt_test_pass "rc 2 for EVERY name while the registry is empty; the caller's array untouched"
+else
+    kt_test_fail "plain rc=$sempty_rc allRefused=$sempty_all SPLAIN1=$(arr_show SPLAIN1)"
+fi
+
+kt_test_start "suffix guard 2 (fail closed): an UNSET suffix registry refuses \`plain\` too"
+unset -v TUTIL_OUT_SUFFIXES
+uV.argv SPLAIN2 >/dev/null 2>&1
+sunset_rc=$?
+declare -ga TUTIL_OUT_SUFFIXES=( "${SREG_SAVE[@]}" )
+if [[ $sunset_rc -eq 2 ]]; then
+    kt_test_pass "rc 2"
+else
+    kt_test_fail "rc=$sunset_rc"
+fi
+
+kt_test_start "suffix guard 2 (fail closed): a SCALAR in the suffix registry's place refuses \`plain\` too"
+unset -v TUTIL_OUT_SUFFIXES
+declare -g TUTIL_OUT_SUFFIXES="_args"
+uV.argv SPLAIN3 >/dev/null 2>&1
+sscalar_rc=$?
+unset -v TUTIL_OUT_SUFFIXES
+declare -ga TUTIL_OUT_SUFFIXES=( "${SREG_SAVE[@]}" )
+if [[ $sscalar_rc -eq 2 ]]; then
+    kt_test_pass "rc 2 — only a non-empty INDEXED array arms the check"
+else
+    kt_test_fail "rc=$sscalar_rc"
+fi
+
+kt_test_start "the suffix registry RESTORED: \`plain\` fills again and the four instance arrays are refused again"
+declare -a SPLAIN4=()
+sback_rc=0
+uV.argv SPLAIN4 || sback_rc=$?
+sback_all=1
+for n in uV_args uV_argv uV_paths uV_exprs; do
+    uV.argv "$n" >/dev/null 2>&1
+    [[ $? -eq 2 ]] || sback_all=0
+done
+if [[ $sback_rc -eq 0 && "$sback_all" == "1" ]] && arr_is SPLAIN4 "printf" "hello" \
+   && arr_is SREG_SAVE _args _argv _paths _exprs; then
+    kt_test_pass "argv=(printf hello) again; all four suffixes refused again"
+else
+    kt_test_fail "rc=$sback_rc allRefused=$sback_all SPLAIN4=$(arr_show SPLAIN4) registry=(${TUTIL_OUT_SUFFIXES[*]})"
+fi
+
 uV.delete
 
 # ===========================================================================

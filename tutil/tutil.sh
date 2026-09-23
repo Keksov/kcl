@@ -170,6 +170,19 @@ end
 # the instruction for a new wrapper.
 declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
 
+# TUTIL_OUT_SUFFIXES — the second registry (tsed PLAN §2.1): the per-instance
+# arrays this family keeps beyond kklass's `_data`/`_class`/`_items`. It was a
+# hard-coded `_args|_argv|_paths` case inside `tutil._badOut` until tsed added a
+# fourth, `${inst}_exprs`, and measured that `s.toArray s_exprs` turned the
+# records into the NEXT run's script. A descendant appends its own suffix at
+# load, only if absent:
+#
+#     TUTIL_OUT_SUFFIXES+=( _exprs )     # tsed.sh
+#
+# Same placement below the re-source guard, and the same two guards in
+# `tutil._badOut`, as the prefix registry.
+declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )
+
 # tutil._badOut NAME — rc 0 when NAME must NOT be used as an output array,
 # rc 1 when it is usable. The shape is `TQueueStack._outName`
 # (tqueuestack.sh:189) with the polarity the name states and with one
@@ -198,31 +211,40 @@ declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
 #      a caller array named `__tu_v`, `__tg_p`, `__th_v`, `__tt_p` or `__tfd_v`
 #      would bind the scratch nameref of whichever wrapper is running, and the
 #      wrappers share these member bodies by inheritance.
-#   2. the extra per-instance arrays this family keeps beyond the kklass three:
-#      `${inst}_args`, `${inst}_argv` and the descendants' `${inst}_paths`.
-#      Filling one of those would hand the caller the instance's own storage and
-#      then let the next `buildArgv` overwrite it.
+#   2. the extra per-instance arrays this family keeps beyond the kklass three,
+#      read from the SECOND registry, `TUTIL_OUT_SUFFIXES` (`_args`, `_argv`,
+#      the descendants' `_paths`, tsed's `_exprs`): `${inst}${suffix}` is
+#      refused for every suffix. Filling one of those would hand the caller the
+#      instance's own storage and then let the next `buildArgv` overwrite it —
+#      or, for `_exprs`, turn the records into the next run's script.
+#      Guards 0a and 0b apply to this registry exactly as to the prefix one:
+#      its own name is refused, and an empty, unset or non-indexed-array
+#      suffix registry refuses EVERY name.
 tutil._badOut() {
     local __tu_n="${1:-}" __tu_i="${__inst__:-}"
-    if [[ "$__tu_n" == "TUTIL_OUT_PREFIXES" ]]; then
+    if [[ "$__tu_n" == "TUTIL_OUT_PREFIXES" || "$__tu_n" == "TUTIL_OUT_SUFFIXES" ]]; then
         return 0
     fi
     local -                         # shell options are restored on return
     set +u
-    if [[ "${TUTIL_OUT_PREFIXES@a}" != *a* ]]; then
+    if [[ "${TUTIL_OUT_PREFIXES@a}" != *a* || "${TUTIL_OUT_SUFFIXES@a}" != *a* ]]; then
         return 0
     fi
     local -a __tu_pf=( "${TUTIL_OUT_PREFIXES[@]}" )
-    if (( ${#__tu_pf[@]} == 0 )); then
+    local -a __tu_sf=( "${TUTIL_OUT_SUFFIXES[@]}" )
+    if (( ${#__tu_pf[@]} == 0 || ${#__tu_sf[@]} == 0 )); then
         return 0
     fi
     if ! kk._outName "$__tu_n" "${__tu_pf[@]}"; then
         return 0
     fi
     if [[ -n "$__tu_i" ]]; then
-        case "$__tu_n" in
-            "${__tu_i}_args"|"${__tu_i}_argv"|"${__tu_i}_paths") return 0 ;;
-        esac
+        local __tu_s
+        for __tu_s in "${__tu_sf[@]}"; do
+            if [[ -n "$__tu_s" && "$__tu_n" == "${__tu_i}${__tu_s}" ]]; then
+                return 0
+            fi
+        done
     fi
     return 1
 }
