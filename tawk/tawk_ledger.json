@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "project": "kcl/tawk — TAwk : TUtil, GNU Awk wrapper (5.0.0 under bash 5.2.37, 5.4.0 under 5.3.9): program + addProgram + programFile, verbatim setVar through ENVIRON, sandbox on by default and fail-closed, in-place with run only, static one-liner TAwk.apply.",
+  "project": "kcl/tawk — TAwk : TUtil, GNU Awk wrapper (5.0.0 under bash 5.2.37, 5.4.0 under 5.3.9): program + addProgram + programFile, verbatim setVar (-v with an encoding), sandbox on by default and fail-closed, in-place with run only, static one-liner TAwk.apply.",
   "created": "2026-09-23",
   "updated": "2026-09-23",
   "status": "PLANNED, critic-hardened 2026-09-23 (20 findings: 1 BLOCKER, 7 MAJOR, 6 MINOR, 6 NIT — all folded into PLAN.md, record in §8). No code.",
@@ -19,7 +19,7 @@
       "tasks": [
         {
           "id": "P0.1",
-          "title": "TAwk class per PLAN §1.2: Create, Destroy, paths, addProgram/clearPrograms, setVar/clearVars (verbatim via env + BEGIN prologue), buildArgv (pinned shape, rc 2 list §2.2 incl. the deny-list and assignment-looking paths, nullData -> RS/ORS NUL + nul with the P3-F1 guard, derived BINMODE=3), mapRc (Q3), five overridden sinks, static apply; registry appends (__taw_; _progs, _vars)",
+          "title": "TAwk class per PLAN §1.2: Create, Destroy, paths, addProgram/clearPrograms, setVar/clearVars (verbatim: -v NAME=enc(VALUE), indexed _vnames/_vvals in insertion order), buildArgv (pinned shape, rc 2 list §2.2 incl. the deny-list and assignment-looking paths, nullData -> RS/ORS NUL + nul with the P3-F1 guard, derived BINMODE=3), mapRc (Q3), five overridden sinks, static apply; registry appends (__taw_; _progs, _vnames, _vvals); the -W-aware deny-list; empty chunks never emitted; the absolute inplace include path",
           "category": "feature",
           "severity": "critical",
           "status": "planned",
