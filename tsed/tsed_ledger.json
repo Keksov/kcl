@@ -3,7 +3,7 @@
   "project": "kcl/tsed — TSed : TUtil, GNU sed 4.9 wrapper (typed options before the expressions, expr + addExpr + scriptFile, sandbox on by default, in-place with run only, static one-liner TSed.edit).",
   "created": "2026-09-22",
   "updated": "2026-09-23",
-  "status": "P0 DONE 2026-09-23 (eafa7f7): TSed : TUtil, tests 004/005/006 (282 checks green on bash 5.2.37 and 5.3.9, threaded and --mode single on 5.2.37), README first cut, TUTIL_OUT_SUFFIXES registry in tutil. P1 (closeout) planned. Plan: critic-hardened 2026-09-22 (18 findings, all folded into PLAN.md §8); six owner decisions Q1–Q6.",
+  "status": "COMPLETE (P0–P1) 2026-09-23. P0 (eafa7f7): TSed : TUtil, tests 004/005/006, README first cut, TUTIL_OUT_SUFFIXES registry in tutil; review round 1 (sandbox fails closed, `--` on the deny-list). P1 (<SHA-TS1>): bench.sh + tests/007_Bench.sh (11 cases), README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (23 -> 24). Suite 293/293 on bash 5.2.37 and 5.3.9 (threaded) and --mode single on 5.2.37; bench gate 1.5x 2/2 PASS on both bashes. Master sweep: run by reviewer: 27/27 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-23, after killing a leaked worker 'python -' that had spun one core since 2026-09-15 and made unrelated timing assertions flaky: tinifile 011, tstringlist 013); suite reproduced 293/293 on both bashes. Plan: critic-hardened 2026-09-22 (18 findings, all folded into PLAN.md §8); six owner decisions Q1–Q6.",
   "decisions": {
     "Q1": "sandbox = 1 by default (e, s///e, r, R, w, W refused by sed); sandbox = 0 opts out",
     "Q2": "both var expr and proc addExpr/clearExprs over ${inst}_exprs; plus var scriptFile (-f)",
@@ -78,28 +78,56 @@
       "id": "P1",
       "name": "Closeout",
       "goal": "bench.sh + 007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (23 -> 24), ledger COMPLETE.",
-      "status": "planned",
+      "status": "done",
+      "date": "2026-09-23",
+      "commit": "<SHA-TS1>",
+      "files": [
+        "kcl/tsed/bench.sh (NEW, 459 lines)",
+        "kcl/tsed/tests/007_Bench.sh (NEW, 427 lines, 11 cases)",
+        "kcl/tsed/TEST_COVERAGE_NOTES.md (NEW, 591 lines — one row per case of 004–007, 146 + 70 + 66 + 11 = 293)",
+        "kcl/tsed/README.md (EDIT: COMPLETE header, NEW §0 the six owner decisions, §1 subshellOk/D6 and the fail-closed sandbox values, §2 the abbreviation-aware deny-list and the five named deviations, §4 the sandbox table incl. s///w /dev/stdout and the callback-`local` trap, §7 edit semantics, §9 Tests 282 -> 293 with the 007 row and the TEST_COVERAGE_NOTES link, NEW §10 Performance with both bench tables)",
+        "kcl/tsed/PLAN.md (EDIT: the status header -> COMPLETE, a P1 DONE block under §5)",
+        "kcl/README.md (EDIT: the §2 tsed row, alphabetically between tregex and tstopwatch; Twenty-three -> Twenty-four)",
+        "kcl/tsed/tsed_ledger.json (this file)"
+      ],
+      "gate": {
+        "tsed_5_2_37_threaded": "293/293, 0 FAIL (004 146, 005 70, 006 66, 007 11)",
+        "tsed_5_3_9_threaded": "293/293, 0 FAIL",
+        "tsed_5_2_37_single": "293/293, 0 FAIL",
+        "bench_5_2_37": "rc 0 under `bash -eu`, gates 2/2 PASS (TSed.edit vs bare sed --sandbox -e: 1.16x on the 10 000-line file, 1.20x on the one-line file; medians of NR=21 interleaved runs); a second run 1.14x / 1.18x",
+        "bench_5_3_9": "rc 0 under `bash -eu`, gates 2/2 PASS (1.18x and 1.24x)",
+        "bash_n": "clean on bench.sh and tests/007_Bench.sh",
+        "unchanged": "git diff --stat empty on tsed.sh and tests/004–006; tutil and every other unit untouched",
+        "master_sweep": "run by reviewer: 27/27 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-23, after killing a leaked worker 'python -' that had spun one core since 2026-09-15 and made unrelated timing assertions flaky: tinifile 011, tstringlist 013); suite reproduced 293/293 on both bashes",
+        "sed_version": "sed (GNU sed) 4.9 at /usr/bin/sed under bash 5.2.37 (Git for Windows) and under bash 5.3.9 (C:/bin/msys64)"
+      },
       "tasks": [
         {
           "id": "P1.1",
           "title": "bench (edit vs bare sed -e, interleaved medians >= 15, gate 1.5x; argv fork-free) + 007 with 10x ceilings",
           "category": "perf",
           "severity": "medium",
-          "status": "planned",
-          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner."
+          "status": "done",
+          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner. MET: bench.sh rc 0 under `bash -eu` on 5.2.37 and 5.3.9, gates 2/2 PASS on both (10 000-line file 1.16x / 1.18x; one-line file 1.20x / 1.24x, medians of NR=21 INTERLEAVED runs with the mean beside each median and the WORST SINGLE PAIRING under each gate — 8.49x/12.31x on 5.2.37, 9.12x/9.34x on 5.3.9). Per-call rows: buildArgv (10 words, one extra scanned) 1105.8/1170.7 us, argv NAME 1979.8/2062.1 us, buildArgv REFUSED (deny-list, `-ni` after `-u --posix`) 1149.3/1210.5 us, new+addExpr+sandbox+argv+delete (the edit delta, fresh instance names as edit uses) 5414.4/5112.1 us. Runs-nothing proof: cmd pointed at a counting function, 600 builds, counter 0, BASHPID unchanged across 1200 builds. Section (d) published, not gated: s.count over 10 000 records 9.45x / 10.24x of `sed … | wc -l`, the sink's fixed half measured over ONE record (38.70/38.21 ms) so the per-record cost (~44 us on both) is derived by difference. Section (e): BASHPID unchanged across 31 calls (12 property writes, every builder member, the five sinks, run, edit, a deny-list hit, an in-place sink, a path-less edit) and inside the callback and .Add. Clock = TStopwatch.getTimeStamp throughout; the header names `date +%s%N` as forbidden and states why interleaved medians are non-negotiable. Corpus in `mktemp -d` + EXIT trap; NL/NR/ND overridable. tests/007_Bench.sh: 11 cases, 10x ceilings, banner gate first, corpus via kt_fixture_tmpdir_create and NO trap of its own; green threaded on both bashes and under --mode single on 5.2.37."
         },
         {
           "id": "P1.2",
           "title": "README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (sandbox default, q/Q status, partial output, tool stderr, in-place), ledger COMPLETE with SHAs",
           "category": "docs",
           "severity": "medium",
-          "status": "planned",
-          "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes."
+          "status": "done",
+          "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes. MET (sweep pending, run by reviewer): README final — COMPLETE header with 293 per bash, the six owner decisions (§0), surface table, argv shape, the rc 2 list incl. the abbreviation-aware deny-list and `--`, the fail-closed sandbox as the one exception to the family boolean rule, the five named deviations, the in-place traps, the sandbox list incl. s///w /dev/stdout, the callback-`local` trap, edit semantics, subshellOk/D6, bench tables for both bashes, per-file test table with counts. TEST_COVERAGE_NOTES.md: 293 rows, every case, basis S1–S13 / Q1–Q6 / C1–C18 (each cited or named under deliberate gaps) / RR1 / P0-dev / P0-fact; the suffix-registry cases referenced in tutil/tests/001_Core.sh §C. kcl README §2: the tsed row between tregex and tstopwatch (streams; sandbox on by default and fail-closed; missing file keeps records with RESULT = count and rc 1, I/O error stops at the operand; tool stderr passes through; q N status rc 1 silent, raw in lastRc; inPlace/nullData derive -b; in-place is run only; the addArg deny-list), Twenty-three -> Twenty-four. PLAN.md status header -> COMPLETE plus a P1 DONE block under §5."
         }
       ]
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-23",
+      "batch": "P1 — closeout",
+      "sha": "<SHA-TS1>",
+      "summary": "Worker implemented P1 (closeout) in the tfind shape. bench.sh: a generated corpus of a 10 000-line file and a ONE-line file (every line `aNNNNN xyz`, written by one printf from an array — no fork per line) in `mktemp -d` under an EXIT trap, GNU banner gate first; (a) buildArgv / argv NAME cost for a 10-word argv with one extra scanned, the runs-nothing proof (cmd pointed at a counting function, 600 builds, counter 0, BASHPID unchanged across 1200) and the rc 2 path timed as a deny-list hit at the END of three extras (`-u --posix -ni`) so the whole getopt-style scan is inside the number; (b) new + addExpr + sandbox + argv + delete on fresh instance names, i.e. exactly what TSed.edit does around the fork; (c) the GATE, TSed.edit 's/a/A/' FILE vs bare `sed --sandbox -e 's/a/A/' -- FILE`, INTERLEAVED, medians of NR=21, gate 1.5x, in two shapes (10 000 lines and ONE line) with the mean beside each median and the worst single pairing under each gate; (d) s.count vs `sed … | wc -l`, published not gated, with the sink's fixed half measured over one record so the per-record cost is derived by difference; (e) zero forks over 31 calls incl. three rc 2 paths plus the callback/.Add. Measured on an idle box: gates 2/2 PASS on BOTH bashes — 1.16x / 1.20x on 5.2.37 (a second run 1.14x / 1.18x), 1.18x / 1.24x on 5.3.9; edit delta 5414.4 / 5112.1 us; count 9.45x / 10.24x of the pipeline at 10 000 records (~44 us per record). tests/007_Bench.sh: 11 cases, 10x ceilings, banner gate first, kt_fixture_tmpdir_create corpus, no trap of its own; the gate in both shapes with byte-identical outputs asserted, the edit delta under 50 ms, argv runs nothing / no accumulation / a refused deny-list build is cheap, count vs wc -l, and three zero-fork cases (the sinks' callback and .Add; ten property writes, nine builder members, run and edit; four rc 2 paths — a deny-list hit, an in-place sink, a --debug sink, a path-less edit). TEST_COVERAGE_NOTES.md: 293 rows (146 + 70 + 66 + 11), every case, with the review-round-1 cases, the approved getopt deviation and the `*`-suffix correction cited; the suffix-registry cases referenced in tutil/tests/001_Core.sh §C. README final; PLAN status header + P1 DONE block; kcl README §2 row between tregex and tstopwatch, Twenty-three -> Twenty-four. Notes for the reviewer: (1) 004's case title `backupSuffix = 'bak_*' passes (base-name substitution, documented)` predates the P0 measurement — the assertion (the argv word `-ibak_*`) is right, the wording is stale; 004 is frozen, so it is recorded in TEST_COVERAGE_NOTES.md, not edited; (2) tutil/TEST_COVERAGE_NOTES.md still reads 184 cases and lists neither tfind's prefix-registry nor tsed's suffix-registry cases of tutil 001 (tutil is 209) — out of this phase's scope, not touched. Gate: tsed 293/293 threaded on 5.2.37 and on 5.3.9, 293/293 under --mode single on 5.2.37; bench rc 0 under `bash -eu` on both with the 1.5x gate passing; `bash -n` clean on both new .sh; `git diff --stat` empty on tsed.sh and tests/004–006; tests/.tmp removed. Master sweep: run by reviewer: 27/27 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-23, after killing a leaked worker 'python -' that had spun one core since 2026-09-15 and made unrelated timing assertions flaky: tinifile 011, tstringlist 013); suite reproduced 293/293 on both bashes. NOT committed, NOT pushed."
+    },
     {
       "date": "2026-09-23",
       "batch": "P0 — the unit (eafa7f7)",

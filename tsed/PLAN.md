@@ -1,6 +1,13 @@
 # TSed — GNU `sed` wrapper over TUtil (kcl/tsed)
 
-**Status: PLANNED, critic-hardened (2026-09-22). No code yet.** Owner: "приступай к
+**Status: COMPLETE (P0–P1), 2026-09-23.** P0 (`eafa7f7`) built the unit, the
+tests and the `TUTIL_OUT_SUFFIXES` registry (review round 1: `sandbox` fails
+closed, `--` on the deny-list); P1 (`<SHA-TS1>`) closed it out (bench, `007`,
+README final, `TEST_COVERAGE_NOTES.md`, the kcl README row). **293/293 green on
+bash 5.2.37 and on bash 5.3.9**, threaded and (5.2.37) under `--mode single`;
+the §5 P1 bench gate passes on both bashes. See §5 for the measured numbers and
+[`tsed_ledger.json`](tsed_ledger.json) for the phase record. Planned and
+critic-hardened 2026-09-22. Owner: "приступай к
 tsed" (2026-09-22). Six design questions answered by the owner (§2.0): four before
 the plan, two after the critic pass (§8: 0 blockers, 5 majors, 8 minors, 5 nits —
 all folded in below). Fourth wrapper after tgrep, thead, ttail, tfind; everything
@@ -221,6 +228,34 @@ inside `_KT_TMPDIR` and assert the bytes (`od -c`) afterwards. Files: `004_Argv.
   medians ≥ 15, gate 1.5×, clock `TStopwatch.getTimeStamp`), `tests/007_Bench.sh`
   (10× ceiling), README final, `TEST_COVERAGE_NOTES.md`, kcl README §2 row (23 →
   24), ledger COMPLETE.
+
+**P1 DONE 2026-09-23.** `bench.sh` (459 lines), `tests/007_Bench.sh` (427 lines,
+11 cases), `TEST_COVERAGE_NOTES.md` (293 rows), README final (§0 the owner
+decisions, §9 Tests, §10 Performance), the kcl README row + Twenty-three →
+Twenty-four, ledger COMPLETE. Suite **293/293** on both bashes (threaded) and
+under `--mode single` on 5.2.37.
+
+Measured on an idle box, medians of NR = 21 **interleaved** runs, both bashes:
+
+| | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `buildArgv` / `argv NAME` (10 words, one extra scanned) | 1105.8 / 1979.8 µs | 1170.7 / 2062.1 µs |
+| `buildArgv` **refused** (rc 2, deny-list `-ni` after `-u --posix`) | 1149.3 µs | 1210.5 µs |
+| **`new` + `addExpr` + `sandbox` + `argv` + `delete`** (the `edit` delta) | **5414.4 µs** | **5112.1 µs** |
+| bare `sed --sandbox -e 's/a/A/' --` (10 000 lines) → `TSed.edit` | 37.20 → 43.25 ms = **1.16×** | 36.44 → 43.23 ms = **1.18×** |
+| bare `sed --sandbox -e 's/a/A/' --` (1 line) → `TSed.edit` | 33.67 → 40.56 ms = **1.20×** | 31.08 → 38.78 ms = **1.24×** |
+| `s.count` (10 000 recs) vs `sed … \| wc -l` | 480.39 / 50.83 ms = 9.45× | 482.30 / 47.05 ms = 10.24× |
+| marginal cost of one record read into bash | ~44 µs | ~44 µs |
+
+Gate **1.5×: 2/2 PASS on both bashes**; a second 5.2.37 run read 1.14× / 1.18×.
+The fixed delta is ~5.1–5.4 ms (eleven properties and two arrays, against
+tfind's nine and one at ~4.7 ms); the gate rows' own delta is 6.1–7.7 ms, the
+rest being `run`'s `command -v` probe and `mapRc` dispatch. The interleaved-median
+protocol was needed again: the **worst single pairing** inside these samples read
+8.49× / 12.31× on 5.2.37 and 9.12× / 9.34× on 5.3.9, and the means ran up to 2.2×
+the medians. The `count` row is published, never gated: at 10 000 records the
+`wc -l` pipeline wins by ~10×, while at 200 (`tests/007_Bench.sh`) the sink's
+cheaper fixed half puts it slightly ahead.
 
 ## 6. Traps (in addition to tutil PLAN §6, thead §6, tfind §6)
 
