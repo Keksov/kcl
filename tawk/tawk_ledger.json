@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tawk — TAwk : TUtil, GNU Awk wrapper (5.0.0 under bash 5.2.37, 5.4.0 under 5.3.9): program + addProgram + programFile, verbatim setVar through ENVIRON, sandbox on by default and fail-closed, in-place with run only, static one-liner TAwk.apply.",
+  "created": "2026-09-23",
+  "updated": "2026-09-23",
+  "status": "PLANNED, critic-hardened 2026-09-23 (20 findings: 1 BLOCKER, 7 MAJOR, 6 MINOR, 6 NIT — all folded into PLAN.md, record in §8). No code.",
+  "decisions": {
+    "Q1": "sandbox = 1 by default, fail-closed (only the exact string 0 drops --sandbox), as TSed",
+    "Q2": "setVar NAME VALUE is verbatim, implemented as -v NAME=enc(VALUE) (every backslash doubled, newline as \\n, a leading @ as \\100) — measured byte-exact on both gawk versions; the first draft's env + ENVIRON prologue was dropped (its premise came from a probe corrupted by the Bash tool collapsing backslashes; it also cost +13-25 ms per run)",
+    "Q3": "as TSed: program + addProgram/clearPrograms + programFile; rc 1/2 -> 1 + debug, any other (exit N) -> 1 silent; a deny-list for addArg",
+    "Q4": "as TSed: inPlace + backupSuffix (inplace::suffix), run only, the five sinks overridden, inPlace derives BINMODE=3; inPlace requires sandbox = 0 (the sandbox refuses the inplace extension); the include is loaded by absolute path /usr/share/awk/inplace.awk (AWKPATH starts with . — a planted ./inplace.awk would run)"
+  },
+  "phases": [
+    {
+      "id": "P0",
+      "name": "The unit",
+      "goal": "tawk.sh (TAwk : TUtil per PLAN §1.2), tests 004_Argv / 005_Run / 006_Contract, README first cut, the tutil PLAN §7 and docs §4 tawk rows.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "TAwk class per PLAN §1.2: Create, Destroy, paths, addProgram/clearPrograms, setVar/clearVars (verbatim via env + BEGIN prologue), buildArgv (pinned shape, rc 2 list §2.2 incl. the deny-list and assignment-looking paths, nullData -> RS/ORS NUL + nul with the P3-F1 guard, derived BINMODE=3), mapRc (Q3), five overridden sinks, static apply; registry appends (__taw_; _progs, _vars)",
+          "category": "feature",
+          "severity": "critical",
+          "status": "planned",
+          "acceptance": "A1–A4 by array comparison without running gawk; A5–A12 on the fixture tree with the banner gate on both gawk versions; setVar byte-exact over the §2.3 matrix; sandbox refuses system/redirection/pipes (marker files); inPlace requires sandbox = 0 and keeps CRs; backupSuffix works on 5.0 and 5.4; the other wrapper suites unchanged."
+        },
+        {
+          "id": "P0.2",
+          "title": "tests 004/005/006 (red-first against a stubbed skeleton) + tests.sh + README first cut",
+          "category": "test",
+          "severity": "high",
+          "status": "planned",
+          "acceptance": "Red counts recorded; green on bash 5.2.37 and 5.3.9 (threaded and --mode single); A13; sweep 0 [FAIL] on both."
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Closeout",
+      "goal": "bench.sh + 007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (24 -> 25), ledger COMPLETE; tutil TEST_COVERAGE_NOTES refreshed.",
+      "status": "planned",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "bench (apply vs bare gawk --sandbox -e, interleaved medians >= 15, gate 1.5x; argv fork-free) + 007 with 10x ceilings",
+          "category": "perf",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner."
+        },
+        {
+          "id": "P1.2",
+          "title": "README final, TEST_COVERAGE_NOTES.md, kcl README §2 row, tutil TEST_COVERAGE_NOTES refresh (registry cases), ledger COMPLETE with SHAs",
+          "category": "docs",
+          "severity": "medium",
+          "status": "planned",
+          "acceptance": "kcl README row present, unit count bumped; tutil notes list all 209 cases; final sweep 0 [FAIL] on both bashes."
+        }
+      ]
+    }
+  ],
+  "execution_log": [
+    {
+      "date": "2026-09-23",
+      "batch": "critic pass",
+      "summary": "Opus critic, prototype on the real tutil, both gawk versions (5.0.0 / 5.4.0), every probe with stdin closed. BLOCKER: -e '' is dropped by gawk and the first path becomes the program (a path named 1 hung reading stdin) -> empty chunks never emitted, no-program rc 2, apply '' rc 2. MAJORS: -W long-option spelling bypassed the deny-list and a dangling -W swallowed the generated prologue; a non-option extra becomes THE program; -o -g -h -V -C -d -p -D skip the program, write files under the sandbox, print to stdout or hang; 5.4 + sandbox + -M loses the input; -i inplace resolves through AWKPATH (. first) so a planted ./inplace.awk ran with the sandbox off -> absolute include path; a missing input file is FATAL (later files never read or edited); and -v with doubled backslashes DOES round-trip — the supervisor re-checked through a file and confirmed it (the planning probe had been corrupted by the Bash tool collapsing backslashes in an inline command), with one extra rule found in the re-check: newline as \\n. The env + prologue design was dropped. MINOR/NIT: indexed var storage (hash order), keyword/builtin names refused, namespaced assignment operands, a fuller sandbox list, in-place traps (exit truncates, END to stdout, ENDFILE into the file), BINMODE disabled by --posix/-c, programFile via AWKPATH and -f -, version-dependent abbreviations (refuse any prefix), chunks cannot span -e words, callback trap, the directory warning identical on both."
+    },
+    {
+      "date": "2026-09-23",
+      "batch": "planning",
+      "summary": "Owner: push, then tawk. Two gawk versions measured (5.0.0 under bash 5.2.37 via Git for Windows, 5.4.0 under 5.3.9 via msys64), behaviour identical except messages and INPLACE_SUFFIX. Facts: -e/-f concatenate in argument order; no program -> the first operand is the program and stdin may be read (the planning probe HUNG on `gawk '{print FILENAME}' k=v` — an assignment operand, not a file); rc 1 syntax/fatal, 2 missing input (partial) / missing -f / sandbox fatal, exit N mod 256, a directory is skipped with a warning (rc 0); -v processes escapes and backslash doubling does not round-trip, ENVIRON is verbatim; text mode strips CR, BINMODE=3 keeps it; RS NUL needs ORS NUL for NUL output; print terminates an unterminated last line; --sandbox refuses system/redirection/pipes AND extensions, so -i inplace needs sandbox off; inplace::suffix works on both versions. Owner decided: sandbox as sed (on, fail-closed); setVar verbatim; model and rc as sed; in-place as sed. PLAN.md + this ledger written. No code."
+    }
+  ]
+}
