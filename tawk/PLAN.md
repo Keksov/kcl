@@ -35,7 +35,7 @@ binary, banner gate in the behavioural tests (`GNU Awk `).
 | `--` | ends the options; `gawk -e P -- -weird` reads the file `-weird` |
 | `-W long-option` | every long option also has a `-W` spelling, attached or separate, abbreviable, bundle-able (`-W so=…`, `-bW source=…`); a dangling `-W` takes the next word as its argument |
 | operand `NAME=VALUE` | an **assignment**, not a file — also namespaced (`a::b=v`, `awk::x=v`); a file literally named so must be passed as `./NAME=…`; `1x=v`, `é=v`, `x.y=v`, `C:/x=y`, `C:\x=y` are files |
-| rc | `0` ok; **`1`** syntax error / fatal runtime; **`2`** a missing input file — **FATAL**: the files BEFORE it are processed, the files after it are never read (like sed's rc 4, not its rc 2) — a missing `-f` file, a sandbox violation; **`exit N`** from the program, N mod 256 (`exit 300` → 44, `exit -1` → 255); a directory operand is skipped with `gawk: warning: command line argument 'DIR' is a directory: skipped` (identical on both), rc 0 (fatal rc 2 under `--posix`/`-c`) |
+| rc | `0` ok; **`1`** syntax error / fatal runtime; **`2`** a missing input file — **FATAL**: the files BEFORE it are processed, the files after it are never read (like sed's rc 4, not its rc 2) — a missing `-f` file, a sandbox violation; **`exit N`** from the program, N mod 256 (`exit 300` → 44, `exit -1` → 255); a directory operand is skipped with ``gawk: cmd. line:1: warning: command line argument `DIR' is a directory: skipped`` (identical on both; corrected at P0 — backtick and the `cmd. line:1:` prefix), rc 0 (fatal rc 2 under `--posix`/`-c`) |
 | `-v NAME=VALUE` | processes escape sequences; **round-trips every byte** when the value is encoded: every `\` doubled, every newline written `\n`, a leading `@` written `\100` (else `@/…/` is a typed regexp) — measured byte-exact on both versions over a matrix incl. `\t`, `\\`, a trailing `\`, `\`+newline, `$'"`, UTF-8, `@/foo/`, `@`, CR, `\xff`, `\u0041`, `/c/foo`, ` 010 ` (`typeof` preserved); an illegal name or a builtin/keyword is fatal rc 2 |
 | `-F FS` | FS is a regex / escape-processed (`-F'\t'` = tab) |
 | CR | text mode strips the CR on file and stdin input; **`-v BINMODE=3`** keeps it; gawk never writes CRLF; `--posix`, `-P`, `-c`, `--traditional` silently disable BINMODE |
@@ -60,7 +60,7 @@ class TAwk : TUtil
         var binary          # -v BINMODE=3 (also derived)
         var sandbox         # --sandbox, DEFAULT 1, fail-closed: dropped only for the exact string 0 (owner Q1)
         var inPlace         # -i /usr/share/awk/inplace.awk (derives BINMODE=3; requires sandbox = 0; sinks refused)
-        var backupSuffix    # -v inplace::suffix=SFX (only with inPlace = 1)
+        var backupSuffix    # -v inplace::suffix=enc(SFX) (only with inPlace = 1; encoded like setVar — P0 review)
         var _nulDerived
         constructor Create  # [PROGRAM [PATH...]] — PROGRAM → program; assigns EVERY var; parent.constructor gawk
         destructor  Destroy # frees ${inst}_paths, _progs, _vnames, _vvals, then inherited

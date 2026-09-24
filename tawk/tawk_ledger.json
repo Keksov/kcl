@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/tawk — TAwk : TUtil, GNU Awk wrapper (5.0.0 under bash 5.2.37, 5.4.0 under 5.3.9): program + addProgram + programFile, verbatim setVar (-v with an encoding), sandbox on by default and fail-closed, in-place with run only, static one-liner TAwk.apply.",
   "created": "2026-09-23",
-  "updated": "2026-09-23",
-  "status": "PLANNED, critic-hardened 2026-09-23 (20 findings: 1 BLOCKER, 7 MAJOR, 6 MINOR, 6 NIT — all folded into PLAN.md, record in §8). No code.",
+  "updated": "2026-09-24",
+  "status": "P0 DONE 2026-09-23 (commit <SHA-TA0>): tawk.sh + tests 004/005/006 (580 checks) green on bash 5.2.37 / gawk 5.0.0 and bash 5.3.9 / gawk 5.4.0; README first cut; tutil PLAN §7 + docs §4 tawk rows. P1 (closeout) planned. Planned and critic-hardened 2026-09-23 (20 findings, record in PLAN §8).",
   "decisions": {
     "Q1": "sandbox = 1 by default, fail-closed (only the exact string 0 drops --sandbox), as TSed",
     "Q2": "setVar NAME VALUE is verbatim, implemented as -v NAME=enc(VALUE) (every backslash doubled, newline as \\n, a leading @ as \\100) — measured byte-exact on both gawk versions; the first draft's env + ENVIRON prologue was dropped (its premise came from a probe corrupted by the Bash tool collapsing backslashes; it also cost +13-25 ms per run)",
@@ -15,14 +15,39 @@
       "id": "P0",
       "name": "The unit",
       "goal": "tawk.sh (TAwk : TUtil per PLAN §1.2), tests 004_Argv / 005_Run / 006_Contract, README first cut, the tutil PLAN §7 and docs §4 tawk rows.",
-      "status": "planned",
+      "status": "done",
+      "commit": "<SHA-TA0>",
+      "done": "2026-09-23",
+      "red_before": {
+        "note": "tests written first and run against a stubbed skeleton (every member body `: __TAWK_PENDING__`, no registry appends), bash 5.2.37",
+        "004_Argv.sh": "384 FAIL of 390",
+        "005_Run.sh": "101 FAIL of 103",
+        "006_Contract.sh": "64 FAIL of 79",
+        "total": "549 FAIL of 572",
+        "review_remark_Q6": "8 cases added after review (004: 5 backupSuffix argv cases + stored-verbatim; 005: backslash suffix with and without the FILE.b directory), run against the pre-fix tawk.sh on bash 5.2.37: 6 FAIL (004 4 — backslash, \\t, leading @, newline; 005 2 — the escape warning and .bk name / the silent .bk success); the plain-suffix and stored-verbatim guards passed as intended"
+      },
+      "gate": {
+        "tawk_bash_5.2.37_gawk_5.0.0_threaded": "580/580 (004 396, 005 105, 006 79)",
+        "tawk_bash_5.2.37_single": "580/580",
+        "tawk_bash_5.3.9_gawk_5.4.0_threaded": "580/580 (004 396, 005 105, 006 79)",
+        "siblings_bash_5.2.37": "tutil 209, tgrep 185, thead 182, ttail 200, tfind 226, tsed 293 — all 0 FAIL",
+        "master_sweep": "run by reviewer"
+      },
+      "notes": [
+        "setVar keyword list extended by the three switch keywords (switch, case, default): gawk answers `-v switch=1` with the same fatal rc 2 as the §2.2 keywords (measured on 5.0 and 5.4); mkbool is a 5.4-only builtin and is refused on both",
+        "the directory warning is `gawk: cmd. line:1: warning: command line argument `DIR' is a directory: skipped` on both versions (PLAN §1.1 quoted it without the `cmd. line:1:` part and with a straight quote); 005 pins the measured text",
+        "setVar with other than two arguments is rc 2 (usage) — not in the §2.2 list, chosen so a missing or extra VALUE is never silently dropped",
+        "buildArgv re-validates the names in ${inst}_vnames (a global anyone can write), in addition to setVar's own check",
+        "review Q6 (2026-09-24): backupSuffix is encoded with the same tawk._enc as setVar (no fork) — -v inplace::suffix=enc(SFX). Measured on 5.0 and 5.4: `.b\\k` names the backup exactly FILE.b\\k, which msys resolves as FILE.b/k (a backslash is a path separator) — it needs the directory FILE.b, else gawk's link() is fatal (rc 2, file untouched); unencoded it became FILE.bk with an escape warning",
+        "an empty path operand '' is passed through (tool parity: gawk skips it, rc 0) — documented in the README"
+      ],
       "tasks": [
         {
           "id": "P0.1",
           "title": "TAwk class per PLAN §1.2: Create, Destroy, paths, addProgram/clearPrograms, setVar/clearVars (verbatim: -v NAME=enc(VALUE), indexed _vnames/_vvals in insertion order), buildArgv (pinned shape, rc 2 list §2.2 incl. the deny-list and assignment-looking paths, nullData -> RS/ORS NUL + nul with the P3-F1 guard, derived BINMODE=3), mapRc (Q3), five overridden sinks, static apply; registry appends (__taw_; _progs, _vnames, _vvals); the -W-aware deny-list; empty chunks never emitted; the absolute inplace include path",
           "category": "feature",
           "severity": "critical",
-          "status": "planned",
+          "status": "done",
           "acceptance": "A1–A4 by array comparison without running gawk; A5–A12 on the fixture tree with the banner gate on both gawk versions; setVar byte-exact over the §2.3 matrix; sandbox refuses system/redirection/pipes (marker files); inPlace requires sandbox = 0 and keeps CRs; backupSuffix works on 5.0 and 5.4; the other wrapper suites unchanged."
         },
         {
@@ -30,7 +55,7 @@
           "title": "tests 004/005/006 (red-first against a stubbed skeleton) + tests.sh + README first cut",
           "category": "test",
           "severity": "high",
-          "status": "planned",
+          "status": "done",
           "acceptance": "Red counts recorded; green on bash 5.2.37 and 5.3.9 (threaded and --mode single); A13; sweep 0 [FAIL] on both."
         }
       ]
@@ -61,6 +86,11 @@
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-23",
+      "batch": "P0 — the unit (commit <SHA-TA0>)",
+      "summary": "Worker (Opus). Red first: 004/005/006 written against a stubbed skeleton, 549 FAIL of 572 on bash 5.2.37 (004 384/390, 005 101/103, 006 64/79). Then tawk.sh per PLAN §1.2: Create (parent.constructor gawk, nine vars, sandbox=1, indexed _paths/_progs/_vnames/_vvals), Destroy, paths, addProgram/clearPrograms, setVar (identifier + keyword/builtin/array check, in-place replacement)/clearVars, buildArgv (pinned argv; empty chunks never emitted; the §2.2 rc 2 list incl. assignment-looking paths, inPlace needing sandbox 0, and the getopt-following deny-list: any prefix of a denied long name, -W attached/separate/abbreviated/bundled, bundles, --, non-option words, dangling -v/--assign/-W, -P/-c while BINMODE is derived; -v NAME=enc(VALUE) after the extras; the absolute inplace include), mapRc (Q3), the five sinks (inPlace -> rc 2, else the rc-preserving spelling), static apply ('' and no path rc 2, sandbox forced). Green: 572/572 on 5.2.37 (threaded and --mode single) and 5.3.9; tutil/tgrep/thead/ttail/tfind/tsed unchanged on 5.2.37. README first cut; tutil PLAN §7 and docs §4 tawk rows. Probes run with stdin closed under timeout; gawk 5.4 probed only under msys64's own bash (launching it from Git's bash crosses msys runtimes and mangles `{...}` and '' arguments). Tool trap found: the Write tool decodes a literal backslash-u escape, so the backslash-u0041 value is built at run time in 005. REVIEW (supervisor, 2026-09-24): suite reproduced 580/580 on bash 5.2.37 (gawk 5.0.0) and 5.3.9 (gawk 5.4.0), no gawk process left; review question 6 answered YES — backupSuffix now goes through the same enc as setVar (6 red of 8 new cases before the fix). Master sweep: 5.2.37 28/28 0 [FAIL]; 5.3.9 first run failed two load-sensitive timing assertions in untouched units (tinifile 011_T6 position ratio, tstringlist 013 Assign vs Adds) with no runaway process on the machine (sampled per-process CPU), the rerun 28/28 0 [FAIL] — open item: loosen those two ceilings. Committed as kcl <SHA-TA0>."
+    },
     {
       "date": "2026-09-23",
       "batch": "critic pass",
