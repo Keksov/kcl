@@ -1,20 +1,34 @@
 # tawk — `TAwk`, the GNU Awk wrapper
 
-> **Status: P0 (the unit) — first cut of this README; P1 (bench, coverage
-> notes, final README) is pending.** `TAwk : TUtil` — the class, the pinned
-> argv, the rc 2 list with the getopt-aware deny-list, the verbatim `setVar`,
-> the `mapRc` override, the five overridden sinks, `paths` / `addProgram` /
-> `clearPrograms` / `setVar` / `clearVars`, the destructor and the static
-> `TAwk.apply`. Suite: `tests/004_Argv.sh` (396), `tests/005_Run.sh` (105),
-> `tests/006_Contract.sh` (79) — **580 checks green on bash 5.2.37 and on bash
-> 5.3.9**, threaded and (5.2.37) under `--mode single`. **Two gawk versions:**
-> bash 5.2.37 resolves Git for Windows' `/usr/bin/gawk` = **GNU Awk 5.0.0**,
-> bash 5.3.9 msys64's = **GNU Awk 5.4.0**; the behavioural tests pin behaviour
-> on both and match gawk's own messages by prefix. Design record:
+> **Status: COMPLETE (P0 + P1).** `TAwk : TUtil` is the whole unit — the
+> class, the pinned argv, the rc 2 list with the getopt-aware deny-list (`-W`
+> spellings included), the verbatim `setVar`, the `mapRc` override, the five
+> overridden sinks, `paths` / `addProgram` / `clearPrograms` / `setVar` /
+> `clearVars`, the destructor, the static `TAwk.apply`, the bench and the docs.
+> Suite: `tests/004_Argv.sh` (396), `tests/005_Run.sh` (105),
+> `tests/006_Contract.sh` (79), `tests/007_Bench.sh` (12) — **592 checks green
+> on bash 5.2.37 and 592 on bash 5.3.9** (580 from P0 + 12 from P1), threaded
+> and (5.2.37) under `--mode single`. **Two gawk versions:** bash 5.2.37
+> resolves Git for Windows' `/usr/bin/gawk` = **GNU Awk 5.0.0**, bash 5.3.9
+> msys64's = **GNU Awk 5.4.0** (§0); the behavioural tests pin behaviour on both
+> and match gawk's own messages by prefix. What the tests pin, case by case:
+> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
 > [PLAN.md](PLAN.md) (§2.0 holds the four owner decisions, §8 the critic pass)
 > and [tawk_ledger.json](tawk_ledger.json). The base:
 > [`../tutil/README.md`](../tutil/README.md); the closest sibling:
-> [`../tsed`](../tsed/README.md).
+> [`../tsed`](../tsed/README.md); the others:
+> [`../tgrep`](../tgrep/README.md), [`../thead`](../thead/README.md),
+> [`../ttail`](../ttail/README.md), [`../tfind`](../tfind/README.md).
+>
+> **What the critic pass and the P0 review changed**, and what the tests pin:
+> the first draft's `env` + `ENVIRON` route for `setVar` was dropped — **`-v`
+> round-trips every byte once the value is encoded** (§3; the probe that said
+> otherwise had been corrupted by a tool collapsing `\\`); an **empty chunk is
+> never emitted** (gawk drops `-e ''` and compiles the first path as the
+> program); the deny-list follows gawk's getopt, **`-W long-option` spellings
+> and any long-option prefix included**; the inplace extension is loaded by its
+> **absolute path** (a planted `./inplace.awk` ran with the sandbox off); and,
+> at the P0 review, **`backupSuffix` is encoded like `setVar`** (§6).
 
 `TAwk` is a [`TUtil`](../tutil/README.md) descendant: typed properties instead
 of a hand-built command string, one rc convention, and the five `TPipe` sinks.
@@ -49,6 +63,24 @@ a.delete
 | **Q2** variables | `setVar NAME VALUE` is **verbatim**: emitted as `-v NAME=enc(VALUE)` (every `\` doubled, every newline `\n`, a leading `@` `\100`), byte-exact on both gawk versions. Awk-escape semantics stay available through `addArg -v NAME=VALUE` | §3 |
 | **Q3** model and rc | as TSed: `var program` + `addProgram`/`clearPrograms` + `programFile`; rc 1/2 → 1 + one debug line worded *gawk exited N (a gawk error, or the program's exit N)*, any other status → 1 silent, raw in `lastRc`; a deny-list for `addArg` | §2 |
 | **Q4** in-place | as TSed: `inPlace` + `backupSuffix`, `run` only, the five sinks overridden (rc 2), `inPlace` derives `BINMODE=3`; it additionally **requires `sandbox = 0`** — the sandbox refuses the inplace extension | §6 |
+
+### The two gawk versions (D4: the dialect, not a binary)
+
+| | bash 5.2.37 | bash 5.3.9 |
+|---|---|---|
+| `gawk` resolved | Git for Windows' `/usr/bin/gawk` — **GNU Awk 5.0.0** | msys64's `/usr/bin/gawk` — **GNU Awk 5.4.0** |
+| message texts | differ between the two — the tests match `gawk: ` by prefix | |
+| the directory warning | identical on both (pinned exactly, 005 §C) | |
+| `INPLACE_SUFFIX` | does not exist — hence `inplace::suffix` | exists; `inplace::suffix` works too |
+| long-option abbreviations | `--t`, `--tr` are `--traditional` | `--t` ambiguous — the deny-list refuses **any** prefix, never per version |
+| `-I`/`--trace`, `-k`/`--csv` | unknown (gawk's own error) | exist; pass the deny-list |
+| `mkbool` | not a builtin | a builtin — `setVar mkbool` is refused on both |
+| sandbox | refuses `system()`, redirections, pipes, extensions | also refuses `ARGV[ARGC++]=…`; with `-M` blanks `ARGV[1]` and reads stdin (so `-M` is denied) |
+| `-v 'x=\u0041'` (bare) | a warning, the backslash dropped | decoded to `A` — `setVar` gives the six bytes on both (§3) |
+
+Behaviour the wrapper relies on is identical on both and pinned on both. Run
+5.3.9 with msys64's `/usr/bin` first on `PATH` (§9); launching msys64's gawk
+from Git's bash crosses two msys runtimes and mangles `{…}` and `''` arguments.
 
 ---
 
@@ -271,9 +303,17 @@ caller (pinned in `tests/006_Contract.sh`).
 
 ## 3. Variables — `setVar` is verbatim (owner Q2)
 
-`-v NAME=VALUE` processes awk escape sequences (`\t`, `\\`, on 5.4 even
-`\u0041`), and a value beginning `@/…/` becomes a typed regexp. `setVar` stores
-the caller's bytes and `buildArgv` emits `-v NAME=enc(VALUE)`:
+**Why `-v` alone is not verbatim.** `-v NAME=VALUE` processes awk escape
+sequences in VALUE: `\t` becomes a TAB, `\\` one backslash, `\n` a newline, an
+unknown `\k` becomes `k` with a warning, and `\u0041` is decoded to `A` on
+5.4 while 5.0 warns and drops the backslash — the two versions do not even agree
+(pinned against the bare tool in 005 §B). A value beginning `@/…/` becomes a
+typed regexp, not a string. So a Windows path, a regex or any caller data passed
+through plain `-v` arrives changed. The first draft routed values through
+`ENVIRON` for that reason; the critic pass measured that `-v` DOES round-trip
+every byte once the value is **encoded** (and the env route cost +13–25 ms per
+run), so `setVar` stores the caller's bytes and `buildArgv` emits
+`-v NAME=enc(VALUE)`:
 
 | byte in VALUE | written as |
 |---|---|
@@ -446,11 +486,112 @@ bash kcl/tawk/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tawk/tests/tests.sh
 ```
 
+**592 checks, green on bash 5.2.37 (gawk 5.0.0) and on bash 5.3.9 (gawk
+5.4.0)**, in the default threaded mode and (5.2.37) under `--mode single`. Case
+by case: [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+
 | file | checks | what | runs gawk? |
 |---|---|---|---|
 | `004_Argv.sh` | 396 | A1–A4 by array comparison: lifecycle and both registries; every option singly and combined; chunks (empty never emitted); setVar order, in-place replacement and the encoding; the boolean rule and the fail-closed sandbox; the rc 2 list incl. every deny-list spelling (short, attached, bundled, long, any prefix, `-W` in four shapes), the BINMODE-disabling options while derived, `--`, non-option words, dangling options, the extras that pass; every illegal `setVar` name; the `-0` four-state sequence and the derived BINMODE | **no** |
 | `005_Run.sh` | 105 | A5–A12 against bare gawk on a fixture tree behind the banner gate, stdin closed: every sink, chunks in order, `-f` after `-e`, `-F` (escape, regex), the terminated last line, stdin, `./k=v` / `a::b=v` files; the setVar byte matrix (`od -c`, `run` and a sink); the fatal missing file per sink, syntax error, `exit N`, the directory warning; the sandbox with marker files; CR and NUL bytes; in-place on copies (the planted `./inplace.awk`, `.bak`, a backslash suffix (encoded, both versions), a missing middle file, `exit` truncation, END to stdout, every sink refused); `TAwk.apply` in three positions, nested, composed | yes (GNU banner gate first) |
 | `006_Contract.sh` | 79 | A13: source integrity (rc-preserving overrides, the absolute include, no env route), `set -eu` children through `a.each` and both TPipe forms with every sink call guarded, one debug line per rc 2 / gawk-error path and silence on rc 0 and on an `exit N` status, D6 + `subshellOk`, the unguarded-sink rule | yes (gated) |
+| `007_Bench.sh` | 12 | the §10 gate as assertions with a **10×** ceiling behind the same banner gate: `TAwk.apply` vs bare `gawk --sandbox -e … --` over a 200-line and a one-line file (interleaved, medians, byte-identical outputs asserted), the `apply` delta under 50 ms, `a.count` vs `gawk … \| wc -l`; 200 builds invoke the `cmd` zero times, fork nothing and do not accumulate; a refused (`-W` deny-list) build is the cheap path too; the 1 KiB `setVar` encoding is fork-free; zero forks for every property, every builder member, `run`, `apply`, the five sinks' callback and `.Add`, and five rc 2 paths | yes (gated) |
 
-If `gawk --version` does not begin with `GNU Awk `, every behavioural case is a
-loud `SKIP` and the case count is unchanged.
+The behavioural files open with a **GNU banner gate**: if `gawk --version` does
+not begin with `GNU Awk `, every behavioural case is a loud `SKIP` and the case
+count is unchanged.
+
+---
+
+## 10. Performance
+
+`bash kcl/tawk/bench.sh [NL] [NR] [ND]` — a generated corpus of a **10 000-line**
+file and a **one-line** file (every line `aNNNNN xyz`, so `{print $2}` really
+splits every record), both in a `mktemp -d` directory; NR = 21 **interleaved**
+runs per gated shape, ND = 300 per-call measurements, timed with
+`TStopwatch.getTimeStamp`, stdin closed for the whole run. Measured
+**2026-09-24** on Windows 11 / MSYS2 with the machine idle (per-process CPU
+sampled), under `bash -eu` (rc 0 on both):
+
+| Measurement | bash 5.2.37 / gawk 5.0.0 | bash 5.3.9 / gawk 5.4.0 |
+|---|---|---|
+| `buildArgv` — the override (11 words, one extra, one variable) | 2167.6 µs/call | 2164.4 µs/call |
+| `argv NAME` (build + validate + copy) | 3228.0 µs/call | 3280.6 µs/call |
+| `buildArgv` **refused** (rc 2, `-Wsandbox` after `-n --lint`) | 2398.7 µs/call | 2355.6 µs/call |
+| `new PROGRAM` + `sandbox` + `argv` + `delete` — the family's delta row | 5872.9 µs/call | 5732.3 µs/call |
+| **`new PROGRAM` + `sandbox` + `buildArgv` + `delete`** — *the `apply` delta* | **4782.2 µs/call** | **4684.1 µs/call** |
+| `tawk._enc` on a 1 KiB value (backslashes, newlines, a leading `@`) | 422.0 µs/call | 369.9 µs/call |
+| `buildArgv` without / with one 1 KiB `setVar` value | 1300.3 / 1875.8 µs/call | 1311.9 / 1869.6 µs/call |
+| the 1 KiB variable's share of a build | ~576 µs | ~558 µs |
+| **baseline** — bare `gawk --sandbox -e '{print $2}' -- big.txt`, 10 000 lines (median of 21) | 41.72 ms | 35.85 ms |
+| `TAwk.apply '{print $2}' big.txt` (median of 21) | 49.30 ms — **1.18×** | 43.50 ms — **1.21×** |
+| **baseline** — bare `gawk --sandbox -e '{print $2}' -- one.txt`, 1 line (median of 21) | 40.51 ms | 35.77 ms |
+| `TAwk.apply '{print $2}' one.txt` (median of 21) | 47.46 ms — **1.17×** | 41.66 ms — **1.16×** |
+| worst **single** pairing inside those samples (big / one) | 8.71× / 6.20× | 7.11× / 7.68× |
+| **baseline** — `gawk --sandbox -e … -- big.txt \| wc -l` (median of 21) | 66.44 ms | 49.11 ms |
+| `a.count` — 10 000 records into bash | 323.28 ms — **4.86×** | 313.46 ms — **6.38×** |
+| the same sink over **one** record (its fixed half) | 44.74 ms | 39.47 ms |
+| per record read into bash | ~27 µs | ~27 µs |
+| forks per call | **1** (gawk itself), **0** on a refused call | **1** / **0** |
+
+Reading the table:
+
+- **The gate is the four `TAwk.apply` / baseline rows** ([PLAN.md](PLAN.md) §5
+  P1): at most **1.5×** a bare `gawk --sandbox -e … --` on the same file. Both
+  shapes pass on both bashes. A second run read **1.15×** / **1.11×** on 5.2.37
+  and **1.08×** / **1.19×** on 5.3.9 — the medians move by a few points while
+  the means beside them moved by up to 70 ms.
+- **The delta is one throw-away instance.** `apply` passes the program to the
+  constructor (there is no `addProgram` in it), sets `sandbox = 1`, and `run`
+  calls `buildArgv` — the bold row. The constructor assigns **nine** properties
+  and declares **four** arrays (tsed: eleven and two); the build walks the whole
+  rc 2 list and the extras scan. The family's row (with `argv`, as the tsed and
+  tfind benches time it) is ~1.1 ms more, the out-name check and the copy `run`
+  never makes. The gate rows' measured delta (6–8 ms) is a little more than the
+  bold row, the rest being `run`'s own bookkeeping — the `command -v` probe and
+  the `mapRc` dispatch — and the static call. It is a **per-call** cost, never a
+  per-record one.
+- **The build is heavier than tsed's** (≈2.2 ms against ≈1.1 ms for a
+  comparable argv): the §2.2 rc 2 list is longer — the assignment-looking path
+  check, the name re-validation of `_vnames`, and a getopt-following scan with a
+  long-name table — and the `setVar` words are encoded on every build. A 1 KiB
+  value adds ≈0.6 ms, all of it bash parameter expansion; nothing forks.
+- **Corpus size is not the knob.** A whole `gawk` run costs ~36–42 ms here (one
+  msys process start plus the work); the wrapper's fixed delta is ~5–8 ms. The
+  ratio is therefore ~(40 + 6)/40 and can only *fall* as the file grows; the
+  one-line row (where the fork *is* the whole measurement) is the pessimistic
+  one.
+- **Medians, and why they are not negotiable.** Every timed number is one
+  process start, and on this box a process start occasionally takes several
+  hundred milliseconds for reasons outside this repo: the *means* beside these
+  medians ran up to 2× them, and the **worst single pairing** inside these very
+  samples read **6.2–8.7×**. A one-shot comparison, or a non-interleaved loop,
+  can therefore fail a 1.5× gate on code that is fine — so the two sides are
+  timed one-of-each per iteration and the ratio is taken between medians.
+  `bench.sh` prints the mean beside every median and the worst single pairing
+  under every gate for exactly this reason
+  ([`../tfind/PLAN.md`](../tfind/PLAN.md) §8, finding 17).
+- **The clock is `TStopwatch.getTimeStamp`, never `date +%s%N`.** On msys the
+  latter is its own process at ~20 ms a call — about half of the `gawk` run
+  being measured, and paid twice per sample.
+- **`argv` runs nothing** and forks nothing: section (a) of the bench points
+  `cmd` at a function that counts its own invocations and builds 600 times —
+  the counter stays at 0 and `$BASHPID` never changes across 1 200 builds. The
+  **rc 2** path is measured too (≈2.4 ms, the whole three-word scan and the `-W`
+  table inside it): a refused call does not even pay for the fork.
+- **`count` is not the `wc -l` equivalent, and the ~5–6× row is why.** The sink
+  reads every record into bash at ~27 µs a record; `wc -l` counts at memory
+  speed in one more process. Over 10 000 records the pipeline wins; the sink's
+  fixed half (one gawk, ~40–45 ms) is *cheaper* than the pipeline's (~50–66 ms),
+  so the crossover is at a few hundred records (≈800 on 5.2.37, ≈360 on 5.3.9,
+  by these medians; `tests/007_Bench.sh` sees the two level at 200). That is why the row is **published, not gated** — and why,
+  when all you want is the number over a big file, `gawk … | wc -l` is the right
+  answer.
+- **Zero forks** (section (e)): `$BASHPID` is unchanged across 33 calls — ten
+  property writes, every builder member, the five sinks, `run`, `apply`, and
+  five rc 2 paths (a `-W` deny-list hit, an in-place sink, a path-less and an
+  empty-program `apply`, an illegal `setVar` name) — and inside the `each`
+  callback and a `.Add`.
+- `tests/007_Bench.sh` asserts the same shapes with a ceiling of **10×**: under
+  the threaded runner the two sides do not inflate together (gawk is its own
+  process; the wrapper's share is bash work in the contended shell).

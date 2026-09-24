@@ -3,7 +3,7 @@
   "project": "kcl/tawk — TAwk : TUtil, GNU Awk wrapper (5.0.0 under bash 5.2.37, 5.4.0 under 5.3.9): program + addProgram + programFile, verbatim setVar (-v with an encoding), sandbox on by default and fail-closed, in-place with run only, static one-liner TAwk.apply.",
   "created": "2026-09-23",
   "updated": "2026-09-24",
-  "status": "P0 DONE 2026-09-23 (commit 2472b04): tawk.sh + tests 004/005/006 (580 checks) green on bash 5.2.37 / gawk 5.0.0 and bash 5.3.9 / gawk 5.4.0; README first cut; tutil PLAN §7 + docs §4 tawk rows. P1 (closeout) planned. Planned and critic-hardened 2026-09-23 (20 findings, record in PLAN §8).",
+  "status": "COMPLETE (P0–P1). P0 DONE 2026-09-23 (commit 2472b04): tawk.sh + tests 004/005/006 (580 checks) green on bash 5.2.37 / gawk 5.0.0 and bash 5.3.9 / gawk 5.4.0; README first cut; tutil PLAN §7 + docs §4 tawk rows. P1 DONE 2026-09-24 (<SHA-TA1>): bench.sh (interleaved medians of 21 runs, gate 1.5x, measured 1.18x/1.17x on 5.2.37 and 1.21x/1.16x on 5.3.9), tests/007_Bench.sh (12 cases, 10x ceiling), README final (§0 the two gawk versions, §3 why -v alone is not verbatim, §9 Tests, §10 Performance), TEST_COVERAGE_NOTES.md (592 cases), the kcl README §2 row (Twenty-four -> Twenty-five), the refreshed tutil TEST_COVERAGE_NOTES.md (209 cases incl. the registry cases). Suite 592/592 on both bashes (threaded) and 592/592 under --mode single on 5.2.37. Master sweep: run by reviewer 2026-09-24: bash 5.2.37 28/28 suites 0 [FAIL]; bash 5.3.9 two runs, tawk 592/592 in both, every other suite green in at least one run — the only FAILs were load-sensitive timing assertions in untouched units (run 1: tinifile 011_T6, tstringlist 013; run 2: dateutils 001 now()/nowUTC drift 2 s), no runaway process on the machine; loosening those three is an open owner decision. Planned and critic-hardened 2026-09-23 (20 findings, record in PLAN §8).",
   "decisions": {
     "Q1": "sandbox = 1 by default, fail-closed (only the exact string 0 drops --sandbox), as TSed",
     "Q2": "setVar NAME VALUE is verbatim, implemented as -v NAME=enc(VALUE) (every backslash doubled, newline as \\n, a leading @ as \\100) — measured byte-exact on both gawk versions; the first draft's env + ENVIRON prologue was dropped (its premise came from a probe corrupted by the Bash tool collapsing backslashes; it also cost +13-25 ms per run)",
@@ -64,28 +64,50 @@
       "id": "P1",
       "name": "Closeout",
       "goal": "bench.sh + 007_Bench.sh, README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (24 -> 25), ledger COMPLETE; tutil TEST_COVERAGE_NOTES refreshed.",
-      "status": "planned",
+      "status": "done",
+      "commit": "<SHA-TA1>",
+      "done": "2026-09-24",
+      "gate": {
+        "tawk_bash_5.2.37_gawk_5.0.0_threaded": "592/592 (004 396, 005 105, 006 79, 007 12)",
+        "tawk_bash_5.2.37_single": "592/592",
+        "tawk_bash_5.3.9_gawk_5.4.0_threaded": "592/592 (004 396, 005 105, 006 79, 007 12)",
+        "tutil_bash_5.2.37_single": "209/209 (001 86, 002 64, 003 51, 004 8) — notes only touched",
+        "bench_bash_5.2.37_eu": "rc 0, gates 2/2 PASS (1.18x big / 1.17x one; second run 1.15x / 1.11x)",
+        "bench_bash_5.3.9_eu": "rc 0, gates 2/2 PASS (1.21x big / 1.16x one; second run 1.08x / 1.19x)",
+        "master_sweep": "run by reviewer 2026-09-24: bash 5.2.37 28/28 suites 0 [FAIL]; bash 5.3.9 two runs, tawk 592/592 in both, every other suite green in at least one run — the only FAILs were load-sensitive timing assertions in untouched units (run 1: tinifile 011_T6, tstringlist 013; run 2: dateutils 001 now()/nowUTC drift 2 s), no runaway process on the machine; loosening those three is an open owner decision"
+      },
+      "notes": [
+        "section (b) of bench.sh publishes TWO delta rows: the family's (new + sandbox + argv + delete, as the tsed/tfind benches time it) and the one apply really pays (new + sandbox + buildArgv + delete — TUtil.run calls buildArgv, never argv); the gate lines quote the second. apply passes PROGRAM to the constructor, so the delta has no addProgram (the brief's 'new+addProgram+argv+delete' was read as the family row)",
+        "the setVar encoding cost is measured three ways: tawk._enc on a 1 KiB value (~0.4 ms), and buildArgv with vs without that variable (~0.6 ms difference); the 1 KiB value round-trips byte-exact through gawk once, outside the timing",
+        "bench.sh and 007 close stdin for the whole run (exec </dev/null), as 005/006 do; the timed bare gawk is NOT wrapped in timeout (a second process would skew the baseline) — the whole bench is run under timeout by hand",
+        "tool trap met again: the Edit/Write tools decode a literal backslash-u escape and the Bash tool collapses a double backslash in an inline heredoc; the README §0/§3 text holding both was written through a placeholder and a script file, the result checked with od -c / diff"
+      ],
       "tasks": [
         {
           "id": "P1.1",
           "title": "bench (apply vs bare gawk --sandbox -e, interleaved medians >= 15, gate 1.5x; argv fork-free) + 007 with 10x ceilings",
           "category": "perf",
           "severity": "medium",
-          "status": "planned",
-          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner."
+          "status": "done",
+          "acceptance": "Numbers on both bashes in the README; rc 0 under bash -eu; 007 green under the threaded runner. MET: bench.sh rc 0 under `bash -eu` on 5.2.37 (gawk 5.0.0) and 5.3.9 (gawk 5.4.0), gates 2/2 PASS on both (10 000-line file 1.18x / 1.21x, one-line file 1.17x / 1.16x; medians of NR=21 INTERLEAVED runs with the mean beside each median and the WORST SINGLE PAIRING under each gate — 8.71x/6.20x on 5.2.37, 7.11x/7.68x on 5.3.9). Per-call rows (5.2.37 / 5.3.9): buildArgv (11 words, one extra, one var) 2167.6/2164.4 us, argv NAME 3228.0/3280.6 us, buildArgv REFUSED (-Wsandbox after -n --lint) 2398.7/2355.6 us, new+sandbox+argv+delete 5872.9/5732.3 us, new+sandbox+buildArgv+delete (the apply delta) 4782.2/4684.1 us, tawk._enc on 1 KiB 422.0/369.9 us, buildArgv without/with a 1 KiB setVar value 1300.3/1875.8 and 1311.9/1869.6 us. Runs-nothing proof: cmd pointed at a counting function, 600 builds, counter 0, BASHPID unchanged across 1200 builds. Section (d) published, not gated: a.count over 10 000 records 4.86x / 6.38x of `gawk … | wc -l`, the fixed half measured over ONE record (44.74/39.47 ms), ~27 us per record on both. Section (e): BASHPID unchanged across 33 calls (10 property writes, 11 builder members, the five sinks, run, apply, five rc 2 paths: a -W deny-list hit, an in-place sink, a path-less apply, an empty-program apply, setVar ENVIRON) and inside the callback and .Add. Clock = TStopwatch.getTimeStamp; corpus in mktemp -d + EXIT trap; NL/NR/ND overridable. tests/007_Bench.sh: 12 cases, 10x ceilings, banner gate first, stdin closed, corpus via kt_fixture_tmpdir_create and NO trap of its own; the gate in both shapes with byte-identical outputs, the apply delta under 50 ms, argv runs nothing / no accumulation / a refused -W deny-list build is cheap, the 1 KiB setVar encoding fork-free under 20 ms per build with the exact -v word length, count vs wc -l, three zero-fork cases; green threaded on both bashes and under --mode single on 5.2.37."
         },
         {
           "id": "P1.2",
           "title": "README final, TEST_COVERAGE_NOTES.md, kcl README §2 row, tutil TEST_COVERAGE_NOTES refresh (registry cases), ledger COMPLETE with SHAs",
           "category": "docs",
           "severity": "medium",
-          "status": "planned",
-          "acceptance": "kcl README row present, unit count bumped; tutil notes list all 209 cases; final sweep 0 [FAIL] on both bashes."
+          "status": "done",
+          "acceptance": "kcl README row present, unit count bumped; tutil notes list all 209 cases; final sweep 0 [FAIL] on both bashes. MET (sweep pending, run by reviewer): README final — COMPLETE header with 592 per bash (580 + 12), the four owner decisions and a table of the two gawk versions (§0), surface, the pinned argv, the rc 2 list incl. the -W-aware deny-list, mapRc, the named deviations (a)–(h) of PLAN §2.6, setVar encoding and why plain -v is not verbatim (§3), the sandbox list and the callback-local trap (§4), CR/BINMODE (§5), the in-place traps (§6), apply (§7), the registries (§8), subshellOk/D6 (§1), the per-file test table with 007 (§9), bench tables for both bashes (§10). TEST_COVERAGE_NOTES.md: every one of the 592 cases in a row (loop families as one row with a ×N count and every word listed; counts verified to sum 396/105/79/12), classes, basis A1–A13 / Q1–Q4 / C1–C20 (each cited or named under deliberate gaps) / Q6r (the review cases) / P0-n / P3-F1 / D4 / D6. kcl README §2: the tawk row between tarray and tcustomapplication (instance + static apply; streams; sandbox on and fail-closed; missing file stops there with earlier records kept, rc 1; a directory skipped rc 0; tool stderr passes through; exit N rc 1 silent; inPlace/nullData derive BINMODE; setVar verbatim unlike -v; print terminates the last line; in-place run only and needs sandbox 0; the addArg deny-list), Twenty-four -> Twenty-five. tutil/TEST_COVERAGE_NOTES.md rewritten to 209 rows (001 86 incl. the 3 thead/ttail prefix cases, the 10 prefix-registry and 12 suffix-registry cases; 002 64, 003 51, 004 8 unchanged since P4), with a table of which descendant added what. PLAN.md status header -> COMPLETE plus a P1 DONE note under §5."
         }
       ]
     }
   ],
   "execution_log": [
+    {
+      "date": "2026-09-24",
+      "batch": "P1 — closeout (commit <SHA-TA1>)",
+      "summary": "Worker (Opus) implemented P1 in the tsed shape. bench.sh: a 10 000-line and a ONE-line corpus (`aNNNNN xyz`, one printf from an array) in mktemp -d under an EXIT trap, GNU banner gate first, stdin closed; (a) buildArgv / argv NAME for an 11-word argv (one extra, one variable), the runs-nothing proof (600 builds of a counting cmd, counter 0, BASHPID unchanged across 1200) and a refused build timed as a -W deny-list hit at the END of three extras; (b) the apply delta in two rows (the family's with argv, and new + sandbox + buildArgv + delete, which is what run really does) plus the setVar encoding of a 1 KiB value (tawk._enc alone, and a build with vs without it; round trip checked once through gawk); (c) the GATE, TAwk.apply '{print $2}' FILE vs bare `gawk --sandbox -e '{print $2}' -- FILE`, INTERLEAVED, medians of NR=21, gate 1.5x, both shapes, mean beside each median and the worst single pairing under each gate; (d) a.count vs `gawk … | wc -l`, published not gated, per-record cost by difference; (e) zero forks over 33 calls incl. five rc 2 paths, plus callback/.Add. Measured idle (per-process CPU sampled; the four ghost tail.exe rows only): gates 2/2 PASS on BOTH bashes — 1.18x / 1.17x on 5.2.37 (second run 1.15x / 1.11x), 1.21x / 1.16x on 5.3.9 (second run 1.08x / 1.19x); apply delta 4782.2 / 4684.1 us; count 4.86x / 6.38x of the pipeline, ~27 us per record. tests/007_Bench.sh: 12 cases, 10x ceilings, banner gate first, stdin closed, no trap. TEST_COVERAGE_NOTES.md: 592 cases (396 + 105 + 79 + 12), loop families as ×N rows with every word listed, sums verified by script. README final; kcl README §2 row between tarray and tcustomapplication, Twenty-four -> Twenty-five; tutil/TEST_COVERAGE_NOTES.md refreshed to 209 (001 86: +3 thead/ttail a4c01a8, +10 prefix registry c281d40, +12 suffix registry eafa7f7). PLAN status header + P1 DONE note. Gate: tawk 592/592 threaded on 5.2.37 and 5.3.9, 592/592 --mode single on 5.2.37; tutil 209/209 single on 5.2.37; bench rc 0 under bash -eu on both; `bash -n` clean on both new .sh (both bashes); `git diff --stat` empty on tawk.sh, tests 004–006 and tutil code/tests; tests/.tmp removed. Master sweep: run by reviewer 2026-09-24: bash 5.2.37 28/28 suites 0 [FAIL]; bash 5.3.9 two runs, tawk 592/592 in both, every other suite green in at least one run — the only FAILs were load-sensitive timing assertions in untouched units (run 1: tinifile 011_T6, tstringlist 013; run 2: dateutils 001 now()/nowUTC drift 2 s), no runaway process on the machine; loosening those three is an open owner decision. NOT committed, NOT pushed."
+    },
     {
       "date": "2026-09-23",
       "batch": "P0 — the unit (commit 2472b04)",

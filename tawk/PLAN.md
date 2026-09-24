@@ -1,6 +1,8 @@
 # TAwk — GNU `gawk` wrapper over TUtil (kcl/tawk)
 
-**Status: PLANNED, critic-hardened (2026-09-23). No code yet.** Owner: "push потом
+**Status: COMPLETE (P0–P1).** P0 DONE 2026-09-23 (kcl `2472b04`), P1 DONE
+2026-09-24 (`<SHA-TA1>`) — see §5 and [`tawk_ledger.json`](tawk_ledger.json).
+Originally **PLANNED, critic-hardened (2026-09-23)**. Owner: "push потом
 tawk" (2026-09-23); four design questions answered by the owner before the plan
 (§2.0). A critic pass (§8: 1 blocker, 7 majors, 6 minors, 6 nits — all folded in)
 overturned the first draft's `setVar` mechanism: `-v` DOES round-trip every byte
@@ -223,6 +225,17 @@ planted-`inplace.awk` case runs from a `cd` in the test file's own shell.
   interleaved medians ≥ 15, gate 1.5× — the critic measured 1.13–1.26× on a
   prototype), `007_Bench.sh` (10×), README final, `TEST_COVERAGE_NOTES.md`, kcl README
   §2 row (24 → 25), ledger COMPLETE; tutil's stale `TEST_COVERAGE_NOTES.md` refreshed.
+
+  **P1 DONE 2026-09-24** (`<SHA-TA1>`): `bench.sh` rc 0 under `bash -eu` on both
+  bashes, gate 2/2 PASS — `apply` 1.18× / 1.17× (10 000-line / one-line file)
+  on 5.2.37 + gawk 5.0.0, 1.21× / 1.16× on 5.3.9 + gawk 5.4.0 (medians of 21
+  interleaved runs; second runs 1.15×/1.11× and 1.08×/1.19×); the `apply` delta
+  ≈4.7 ms (`new` + `sandbox` + `buildArgv` + `delete`), a 1 KiB `setVar`
+  encoding ≈0.6 ms per build, zero forks over 33 calls. `tests/007_Bench.sh`
+  (12 cases, 10× ceilings); suite **592/592** on both bashes. README final
+  (§0 the two gawk versions, §10 Performance), `TEST_COVERAGE_NOTES.md` (592),
+  kcl README §2 row (Twenty-five), tutil `TEST_COVERAGE_NOTES.md` refreshed to
+  209. Master sweep: run by reviewer.
 
 ## 6. Traps (in addition to the tsed and tfind traps)
 

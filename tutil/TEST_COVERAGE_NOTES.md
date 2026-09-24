@@ -1,10 +1,25 @@
 # tutil — test coverage notes
 
-**Status: updated at P4 (D6 final, `subshellOk`, 2026-09-15); previously
-FINALIZED at P3 (2026-09-11).** Suite `001`–`004` = **184 cases**,
-green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
-threaded mode and under `--mode single`. The per-file row counts below sum to
-184 — 61 + 64 + 51 + 8 — and **every case in the suite has a row**.
+**Status: refreshed 2026-09-24 (tawk P1) to the live suite; last updated before
+that at P4 (D6 final, `subshellOk`, 2026-09-15); FINALIZED at P3
+(2026-09-11).** Suite `001`–`004` = **209 cases**, green on bash 5.2.37
+(primary) and on bash 5.3.9 (secondary), in the default threaded mode and under
+`--mode single`. The per-file row counts below sum to 209 — 86 + 64 + 51 + 8 —
+and **every case in the suite has a row**.
+
+**What changed since the P4 edition (184 cases).** Three descendants each
+changed `tutil._badOut` and added their cases to `001_Core.sh` §C; 002, 003 and
+004 are unchanged since P4:
+
+| when | commit | cases | what |
+|---|---|---|---|
+| thead / ttail P0 (2026-09-15) | `a4c01a8` | +3 (184 → 187) | `__th_` and `__tt_` refused, and the four-prefix sweep — the hard-coded prefix list had refused only `__tu_ __tg_` (thead PLAN §2.8, critic major 8) |
+| tfind P0 (2026-09-16) | `c281d40` | +10 (187 → 197) | the **`TUTIL_OUT_PREFIXES` registry** and its two guards — the registry's own name reserved, fail closed when emptied / unset / scalar (tfind PLAN §2.6, critic blocker 1); 9 of the 10 were red against the pre-registry `_badOut` |
+| tsed P0 (2026-09-23) | `eafa7f7` | +12 (197 → 209) | the **`TUTIL_OUT_SUFFIXES` registry** (`_args _argv _paths`, `_exprs` appended by tsed) with the same two guards (tsed PLAN §2.1, critic major 3); 10 of the 12 were red against the unchanged tutil |
+
+tawk P0 (2026-09-23) appended `__taw_` and `_progs _vnames _vvals` to the two
+registries without touching tutil's code or tests; its registry cases live in
+`../tawk/tests/004_Argv.sh` §A and `006_Contract.sh` §0/§2.
 
 **Protocol.** `TUtil` has **no upstream to port**: it is a kcl addition in the
 spirit of FPC `fcl-process` `TProcess` (decision D3), so there is no Pascal seed
@@ -26,6 +41,13 @@ The Basis column therefore cites one of:
 * **P0-Fn / P1-Fn / P3-Fn** — a finding made by the implementing worker in that
   phase (`tutil_ledger.json` `execution_log`).
 * **D2 / D6** — a `TPipe` decision this unit inherits (tpipe `PLAN.md` §2.0).
+* **TH-C8 / TF-C1 / TS-C3** — the descendant critic finding that changed
+  `tutil._badOut`: [thead `PLAN.md`](../thead/PLAN.md) §8 major 8 (the
+  hard-coded prefix list), [tfind `PLAN.md`](../tfind/PLAN.md) §8 blocker 1 (the
+  prefix registry fillable and failing open), [tsed `PLAN.md`](../tsed/PLAN.md)
+  §8 major 3 (`${inst}_exprs` fillable — the suffix registry).
+* **REG-P / REG-S** — the section of the descendant plan that specifies the
+  registry: tfind §2.6 (`TUTIL_OUT_PREFIXES`), tsed §2.1 (`TUTIL_OUT_SUFFIXES`).
 * **§n** — a plain section of `PLAN.md` or of `README.md` where the rule is
   stated and nothing else needed proving.
 
@@ -59,7 +81,12 @@ behaviour of this unit):
 
 ---
 
-## 001_Core.sh — the core: argv model, `run`, `mapRc`, lifecycle (P0) — 61 cases
+## 001_Core.sh — the core: argv model, `run`, `mapRc`, lifecycle (P0; §C extended by thead/ttail, tfind and tsed P0) — 86 cases
+
+Sections: 0 source integrity (2), A lifecycle (6), B the argv model (11),
+C out-name validation (38: the plain refusals 16, the prefix registry 10, the
+suffix registry 12), D `run` (15), E `mapRc` (5), F `set -eu` (6), G the P0
+stubs gone (3). Rows are in file order.
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
@@ -86,6 +113,9 @@ behaviour of this unit):
 | 001.out-result | argv | out-name `RESULT` → rc 2 | contract | §1.7 |
 | 001.out-tu | argv | out-name `__tu_x` → rc 2 (this unit's own local prefix) | contract | §1.7 — bash scopes locals dynamically |
 | 001.out-tg | argv | out-name `__tg_x` → rc 2 (the tgrep prefix, reserved from P0) | contract | §2.1 |
+| 001.out-th | argv | out-name `__th_x` → rc 2 (the thead prefix) — the list had held `__tu_ __tg_` only, so a `__th_*` array was accepted while the same shape was refused for tgrep | contract | **TH-C8**, thead PLAN §2.8 |
+| 001.out-tt | argv | out-name `__tt_x` → rc 2 (the ttail prefix) | contract | **TH-C8**, thead PLAN §2.8 |
+| 001.out-four-sweep | argv | all FOUR family prefixes (`__tu_ __tg_ __th_ __tt_`) are rc 2 in one loop, and an ordinary name still fills `(printf hello)` — the near-miss control | contract | **TH-C8** |
 | 001.out-args | argv | out-name `${inst}_args` → rc 2 | contract | **C22**, §2.1 |
 | 001.out-argv | argv | out-name `${inst}_argv` → rc 2 | contract | **C22** |
 | 001.out-paths | argv | out-name `${inst}_paths` → rc 2 (reserved for TGrep from P0) | contract | §2.1 |
@@ -94,7 +124,29 @@ behaviour of this unit):
 | 001.out-digit | argv | out-name `1bad` → rc 2 | contract | §1.7 |
 | 001.out-empty | argv | out-name `''` → rc 2 (missing operand) | contract | §1.7 |
 | 001.out-noside | argv | a refused out-name does NOT create the variable as a side effect | contract | §1.7 — the name is validated BEFORE any nameref is bound |
-| 001.out-good | argv | a GOOD out-name still works after all eleven refusals | contract | §1.7 |
+| 001.out-good | argv | a GOOD out-name still works after all the refusals above (`argv=(printf hello)`) | contract | §1.7 |
+| 001.reg-p-initial | *(load)* | the prefix registry holds exactly `__tu_ __tg_ __th_ __tt_` before any descendant is loaded | contract | **REG-P** |
+| 001.reg-p-before | argv | `__tfd_x` is ACCEPTED (rc 0) before tfind is sourced — the prefix is the descendant's to add, not tutil's to know | boundary | **REG-P** |
+| 001.reg-p-append | *(load)* | sourcing tfind APPENDS `__tfd_` exactly once — five entries | contract | **REG-P** |
+| 001.reg-p-after | argv | `__tfd_x` is rc 2 once tfind has registered it (storage intact) | contract | **REG-P** |
+| 001.reg-p-name | argv | guard 1: `argv TUTIL_OUT_PREFIXES` is rc 2, RESULT `''`, and the registry still holds its five prefixes — before the guard one such call replaced it with the argv (the critic's blocker, reproduced red) | contract | **TF-C1** (blocker), **REG-P** |
+| 001.reg-p-still | argv | guard 1: every family prefix, `__tfd_` included, is STILL refused after that attempt | contract | **TF-C1** |
+| 001.reg-p-empty | argv | guard 2 (fail closed): an EMPTIED registry refuses `plain`, `plainname`, `another_ok` and the family prefixes; the caller's array untouched | contract | **TF-C1**, **REG-P** |
+| 001.reg-p-unset | argv | guard 2: an UNSET registry refuses `plain` — bash ≥ 4.4 does not fault `"${arr[@]}"` on an unset array under `set -u`, so the check is explicit | bash-convention | **TF-C1** |
+| 001.reg-p-scalar | argv | guard 2: a SCALAR in the registry's place refuses `plain` — only a non-empty INDEXED array arms the check | bash-convention | **TF-C1** |
+| 001.reg-p-restored | argv | the registry RESTORED: `plain` fills again, all five prefixes are refused again | boundary | **REG-P** |
+| 001.reg-s-initial | *(load)* | the suffix registry is an indexed array holding exactly `_args _argv _paths` before any descendant adds one | contract | **REG-S** |
+| 001.reg-s-before | argv | `uV_exprs` is ACCEPTED (and filled) before tsed is sourced — the suffix is the descendant's to add | boundary | **REG-S** |
+| 001.reg-s-append | *(load)* | sourcing tsed TWICE appends `_exprs` to the suffixes and `__tsd_` to the prefixes exactly once each | contract | **REG-S**, **REG-P** |
+| 001.reg-s-after | argv | `uV_exprs` is rc 2 once tsed has registered `_exprs` | contract | **TS-C3**, **REG-S** |
+| 001.reg-s-tsd | argv | `__tsd_x` is rc 2 once tsed has registered `__tsd_` (through the PREFIX registry — one of the two cases that were green before the suffix registry existed) | contract | **REG-P** |
+| 001.reg-s-toarray | toArray | `toArray uX_exprs` is rc 2 too, RESULT `''`, refused BEFORE the producer runs (flag file absent) and nothing created — the path by which the records became tsed's next script | contract | **TS-C3** (major) |
+| 001.reg-s-name | argv | suffix guard 1: `argv TUTIL_OUT_SUFFIXES` is rc 2, RESULT `''`, the four suffixes untouched | contract | **TS-C3**, **REG-S** |
+| 001.reg-s-still | argv | suffix guard 1: `_args _argv _paths _exprs` of the instance are all STILL refused after that attempt | contract | **REG-S** |
+| 001.reg-s-empty | argv | suffix guard 2 (fail closed): an EMPTIED suffix registry refuses `plain`, `uV_args`, `plainname`, `another_ok`; the caller's array untouched | contract | **REG-S** |
+| 001.reg-s-unset | argv | suffix guard 2: an UNSET suffix registry refuses `plain` | bash-convention | **REG-S** |
+| 001.reg-s-scalar | argv | suffix guard 2: a SCALAR in the suffix registry's place refuses `plain` | bash-convention | **REG-S** |
+| 001.reg-s-restored | argv | the suffix registry RESTORED: `plain` fills again, the four instance arrays are refused again | boundary | **REG-S** |
 | 001.run-cmd-empty | run | `cmd=''` → rc 2, NOTHING runs, and a here-string on stdin is left unread | contract | **U4** |
 | 001.argv-cmd-empty | argv | `cmd=''` → `argv` is rc 2 as well and nothing runs | contract | **U4** |
 | 001.run-missing | run, lastRc | a missing command → rc 1, `lastRc` 127, and NOTHING runs | contract | **U5**, **C15** |
