@@ -228,16 +228,29 @@ done
 # 8-worker runner at 203-232 ms while the code was fine). Assign of 50 items
 # must not cost more than 3x adding those 50 items one by one (+50 ms slack);
 # the pre-P2 Assign forked per item and was ~20x.
-start_time=$(date +%s%N)
-TStringList.new perf_ref
-for i in {1..50}; do perf_ref.Add "performance_test_item_$i"; done
-end_time=$(date +%s%N)
-add_ms=$(( (end_time - start_time) / 1000000 ))
-start_time=$(date +%s%N)
-TStringList.new perf_dest
-perf_dest.Assign "perf_source"
-end_time=$(date +%s%N)
-elapsed_ms=$(( (end_time - start_time) / 1000000 ))
+# No fork inside either window (kcl/README.md 1.8, 2026-09-24): the clock used
+# to be `$(date +%s%N)`, an external process per reading, and under the
+# threaded runner such a fork stalls ~280 ms at random — the gate failed at
+# 292-386 ms against a ~250 ms limit while Assign itself took ~33 ms. The clock
+# is now read into a variable, and each side is the BEST of 5 interleaved
+# samples (contention only ever makes a sample slower).
+now_us() { local t="${EPOCHREALTIME}"; US="${t/[.,]/}"; }
+add_best=0; asg_best=0
+for rep in 1 2 3 4 5; do
+    now_us; t0=$US
+    TStringList.new perf_ref
+    for i in {1..50}; do perf_ref.Add "performance_test_item_$i"; done
+    now_us; v=$(( US - t0 ))
+    if (( add_best == 0 || v < add_best )); then add_best=$v; fi
+    now_us; t0=$US
+    TStringList.new perf_dest
+    perf_dest.Assign "perf_source"
+    now_us; v=$(( US - t0 ))
+    if (( asg_best == 0 || v < asg_best )); then asg_best=$v; fi
+    if (( rep < 5 )); then perf_ref.delete; perf_dest.delete; fi
+done
+add_ms=$(( add_best / 1000 ))
+elapsed_ms=$(( asg_best / 1000 ))
 if (( elapsed_ms <= add_ms * 3 + 50 )); then
     kt_test_pass "Assign ${elapsed_ms}ms vs 50 Adds ${add_ms}ms (limit $(( add_ms * 3 + 50 ))ms)"
 else

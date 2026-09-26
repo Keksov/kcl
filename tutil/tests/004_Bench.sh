@@ -81,46 +81,67 @@ TPipe.toArray WARMARR -- warm5   >/dev/null 2>&1 || :
 BWARM.toArray WARMARR            >/dev/null 2>&1 || :
 BWARM.delete
 
-kt_test_start "u.each costs at most 5x TPipe.each on the same argv (PLAN gate 1.1x)"
-TStopwatch.getTimeStamp; t0=$RESULT
-TPipe.each bench_noop -- "${BARGV[@]}"; drc=$?
-n_direct="$RESULT"
-TStopwatch.getTimeStamp; t1=$RESULT
-d_each=$(( t1 - t0 )); (( d_each > 0 )) || d_each=1
+# FIVE INTERLEAVED SAMPLES, BEST OF EACH SIDE (2026-09-24). Each side's window
+# holds one fork by design — the producer's process substitution — and under
+# the threaded runner (8 files forking side by side) ~2-9 % of forks stall
+# ~280 ms, seconds on 5.3.9. With ONE sample per side a single stall on the
+# wrapper's side broke the ceiling on code that is fine; contention only ever
+# makes a sample slower, so the minimum is the cost of the code itself. Every
+# sample's answer is still checked (the FIRST wrong one is kept for the report).
+NS=5
 
-TStopwatch.getTimeStamp; t0=$RESULT
-BU.each bench_noop; wrc=$?
-TStopwatch.getTimeStamp; t1=$RESULT
-w_each=$(( t1 - t0 ))
+kt_test_start "u.each costs at most 5x TPipe.each on the same argv (PLAN gate 1.1x)"
+d_each=0; w_each=0; drc=0; wrc=0; n_direct=''
+for (( s = 0; s < NS; s++ )); do
+    TStopwatch.getTimeStamp; t0=$RESULT
+    TPipe.each bench_noop -- "${BARGV[@]}" || drc=$?
+    n="$RESULT"
+    TStopwatch.getTimeStamp; t1=$RESULT
+    if (( d_each == 0 || t1 - t0 < d_each )); then d_each=$(( t1 - t0 )); fi
+    if [[ -z "$n_direct" || "$n_direct" == "$N" ]]; then n_direct="$n"; fi
+
+    TStopwatch.getTimeStamp; t0=$RESULT
+    BU.each bench_noop || wrc=$?
+    TStopwatch.getTimeStamp; t1=$RESULT
+    if (( w_each == 0 || t1 - t0 < w_each )); then w_each=$(( t1 - t0 )); fi
+done
+(( d_each > 0 )) || d_each=1
 lim=$(( d_each * 5 ))
 r100=$(( w_each * 100 / d_each ))
 if [[ "$n_direct" == "$N" && $drc -eq 0 && $wrc -eq 0 ]] && (( w_each <= lim )); then
-    kt_test_pass "TPipe direct ${d_each}us, u.each ${w_each}us — ${r100}% of it (ceiling ${lim}us), $N records"
+    kt_test_pass "best of $NS: TPipe direct ${d_each}us, u.each ${w_each}us — ${r100}% of it (ceiling ${lim}us), $N records"
 else
-    kt_test_fail "direct RESULT='$n_direct' rc=$drc; u.each rc=$wrc; direct=${d_each}us each=${w_each}us (${r100}%) ceiling=${lim}us"
+    kt_test_fail "best of $NS: direct RESULT='$n_direct' rc=$drc; u.each rc=$wrc; direct=${d_each}us each=${w_each}us (${r100}%) ceiling=${lim}us"
 fi
 
 kt_test_start "u.toArray costs at most 5x TPipe.toArray on the same argv (measured 1.05x)"
 declare -a DARR=() WARR=()
-TStopwatch.getTimeStamp; t0=$RESULT
-TPipe.toArray DARR -- "${BARGV[@]}"; drc=$?
-n_dtoarr="$RESULT"
-TStopwatch.getTimeStamp; t1=$RESULT
-d_toarr=$(( t1 - t0 )); (( d_toarr > 0 )) || d_toarr=1
+d_toarr=0; w_toarr=0; drc=0; wrc=0; n_dtoarr=''; n_wtoarr=''; arr_ok=1
+for (( s = 0; s < NS; s++ )); do
+    TStopwatch.getTimeStamp; t0=$RESULT
+    TPipe.toArray DARR -- "${BARGV[@]}" || drc=$?
+    n="$RESULT"
+    TStopwatch.getTimeStamp; t1=$RESULT
+    if (( d_toarr == 0 || t1 - t0 < d_toarr )); then d_toarr=$(( t1 - t0 )); fi
+    if [[ -z "$n_dtoarr" || "$n_dtoarr" == "$N" ]]; then n_dtoarr="$n"; fi
 
-TStopwatch.getTimeStamp; t0=$RESULT
-BU.toArray WARR; wrc=$?
-n_wtoarr="$RESULT"
-TStopwatch.getTimeStamp; t1=$RESULT
-w_toarr=$(( t1 - t0 ))
+    TStopwatch.getTimeStamp; t0=$RESULT
+    BU.toArray WARR || wrc=$?
+    n="$RESULT"
+    TStopwatch.getTimeStamp; t1=$RESULT
+    if (( w_toarr == 0 || t1 - t0 < w_toarr )); then w_toarr=$(( t1 - t0 )); fi
+    if [[ -z "$n_wtoarr" || "$n_wtoarr" == "$N" ]]; then n_wtoarr="$n"; fi
+    if [[ "${#WARR[@]}" != "$N" || "${WARR[0]}" != "${DARR[0]}" \
+          || "${WARR[$(( N - 1 ))]}" != "${DARR[$(( N - 1 ))]}" ]]; then arr_ok=0; fi
+done
+(( d_toarr > 0 )) || d_toarr=1
 lim=$(( d_toarr * 5 ))
 r100=$(( w_toarr * 100 / d_toarr ))
-if [[ "$n_dtoarr" == "$N" && "$n_wtoarr" == "$N" && $drc -eq 0 && $wrc -eq 0 \
-      && "${#WARR[@]}" == "$N" && "${WARR[0]}" == "${DARR[0]}" \
-      && "${WARR[$(( N - 1 ))]}" == "${DARR[$(( N - 1 ))]}" ]] && (( w_toarr <= lim )); then
-    kt_test_pass "TPipe direct ${d_toarr}us, u.toArray ${w_toarr}us — ${r100}% of it (ceiling ${lim}us), $N records"
+if [[ "$n_dtoarr" == "$N" && "$n_wtoarr" == "$N" && $drc -eq 0 && $wrc -eq 0 && "$arr_ok" == 1 ]] \
+      && (( w_toarr <= lim )); then
+    kt_test_pass "best of $NS: TPipe direct ${d_toarr}us, u.toArray ${w_toarr}us — ${r100}% of it (ceiling ${lim}us), $N records"
 else
-    kt_test_fail "direct='$n_dtoarr' rc=$drc; wrapper='$n_wtoarr' rc=$wrc n=${#WARR[@]}; direct=${d_toarr}us wrapper=${w_toarr}us (${r100}%) ceiling=${lim}us"
+    kt_test_fail "best of $NS: direct='$n_dtoarr' rc=$drc; wrapper='$n_wtoarr' rc=$wrc n=${#WARR[@]} arrays-equal=$arr_ok; direct=${d_toarr}us wrapper=${w_toarr}us (${r100}%) ceiling=${lim}us"
 fi
 
 BU.delete

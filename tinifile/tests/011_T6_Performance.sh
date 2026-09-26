@@ -29,35 +29,41 @@ kt_test_section "011: lookup and append cost (T6)"
 
 D="$(cd "$(kt_fixture_tmpdir)" && pwd)"
 
-# Microseconds since the epoch, decimal separator agnostic (D6: a bare
-# environment can leave EPOCHREALTIME with a comma).
-now_us() { local t="${EPOCHREALTIME}"; printf '%s' "${t/[.,]/}"; }
+# NO FORK INSIDE A TIMED WINDOW (kcl/README.md 1.8, 2026-09-24). The clock is
+# read into a variable and the helpers are called DIRECTLY, leaving their answer
+# in US / US_ELAPSED. They used to be `t0=$(now_us)` and `v=$(append_ms 200)`:
+# every clock reading was a fork of this large shell, i.e. inside the window,
+# and under the threaded runner (8 files forking side by side) ~2-9 % of such
+# forks stall ~280 ms (seconds on 5.3.9). The "sec20 slower than sec1" failures
+# seen in sweeps were such stalls landing on one side at random, not a cost of
+# the code. Decimal separator agnostic (D6: a bare environment can leave
+# EPOCHREALTIME with a comma).
+now_us() { local t="${EPOCHREALTIME}"; US="${t/[.,]/}"; }
 
-append_ms() {   # N -> elapsed microseconds for N cached appends
-    local n="$1" i t0 t1
+append_us() {   # N -> US_ELAPSED = microseconds for N cached appends
+    local n="$1" i t0
     TMemIniFile.new PERF "$D/perf$n.ini"
-    t0=$(now_us)
+    now_us; t0=$US
     for (( i = 0; i < n; i++ )); do PERF.WriteString s "key$i" "v$i"; done
-    t1=$(now_us)
+    now_us; US_ELAPSED=$(( US - t0 ))
     PERF.dirty = "false"; PERF.delete
-    printf '%s' $(( t1 - t0 ))
 }
 
 # The suite runner starts eight files in parallel, so a single measurement can
-# be inflated by a neighbour. Both sizes are measured three times, alternating,
+# be inflated by a neighbour. Both sizes are measured five times, alternating,
 # and the BEST of each is compared: contention can only make a run slower, so
 # the minimum is the closest thing to the cost of the code itself.
 kt_test_start "T6: 800 cached appends cost less than 10x 200 cached appends"
 small=0; big=0
-for rep in 1 2 3; do
-    v=$(append_ms 200); if (( small == 0 || v < small )); then small=$v; fi
-    v=$(append_ms 800); if (( big   == 0 || v < big   )); then big=$v;   fi
+for rep in 1 2 3 4 5; do
+    append_us 200; v=$US_ELAPSED; if (( small == 0 || v < small )); then small=$v; fi
+    append_us 800; v=$US_ELAPSED; if (( big   == 0 || v < big   )); then big=$v;   fi
 done
 # integer ratio in tenths, guarding against a zero baseline on a fast box
 (( small < 1 )) && small=1
 ratio10=$(( big * 10 / small ))
 if (( ratio10 < 100 )); then
-    kt_test_pass "best-of-3: 200 appends ${small} us, 800 appends ${big} us -> ${ratio10}/10x (< 10x)"
+    kt_test_pass "best-of-5: 200 appends ${small} us, 800 appends ${big} us -> ${ratio10}/10x (< 10x)"
 else
     kt_test_fail "quadratic: 200 appends ${small} us, 800 appends ${big} us -> ${ratio10}/10x"
 fi
@@ -81,23 +87,23 @@ kt_test_start "T6: a read in section 20 costs less than 3x a read in section 1"
     done
 } > "$D/big.ini"
 TMemIniFile.new B "$D/big.ini"
-read_us() {   # SECTION -> microseconds for 50 lookups of its last key
-    local sec="$1" i t0 t1
-    t0=$(now_us)
-    for (( i = 0; i < 50; i++ )); do B.ReadString "$sec" k50 X >/dev/null; done
-    t1=$(now_us)
-    printf '%s' $(( t1 - t0 ))
+read_us() {   # SECTION -> US_ELAPSED = microseconds for 50 lookups of its last key
+    local sec="$1" i t0
+    now_us; t0=$US
+    # a direct call sets RESULT and prints nothing — no redirection needed
+    for (( i = 0; i < 50; i++ )); do B.ReadString "$sec" k50 X; done
+    now_us; US_ELAPSED=$(( US - t0 ))
 }
 B.ReadString sec1 k50 X          # warm-up, and a correctness anchor below
 first=0; last=0
-for rep in 1 2 3; do
-    v=$(read_us sec1);  if (( first == 0 || v < first )); then first=$v; fi
-    v=$(read_us sec20); if (( last  == 0 || v < last  )); then last=$v;  fi
+for rep in 1 2 3 4 5; do
+    read_us sec1;  v=$US_ELAPSED; if (( first == 0 || v < first )); then first=$v; fi
+    read_us sec20; v=$US_ELAPSED; if (( last  == 0 || v < last  )); then last=$v;  fi
 done
 (( first < 1 )) && first=1
 pos10=$(( last * 10 / first ))
 if (( pos10 < 30 )); then
-    kt_test_pass "best-of-3: sec1 ${first} us / 50 reads, sec20 ${last} us -> ${pos10}/10x (< 3x)"
+    kt_test_pass "best-of-5: sec1 ${first} us / 50 reads, sec20 ${last} us -> ${pos10}/10x (< 3x)"
 else
     kt_test_fail "position-dependent: sec1 ${first} us, sec20 ${last} us -> ${pos10}/10x"
 fi

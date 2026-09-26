@@ -27,7 +27,11 @@ kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 kt_test_section "018: review 2026-09-06 P2 — duplicates, sorted setter, Assign, perf"
 
 items_of() { local -n __a="${1}_items"; local IFS='|'; printf '%s' "${__a[*]}"; }
-ms() { printf '%s' $(( ${EPOCHREALTIME/./} / 1000 )); }
+# Milliseconds since the epoch into MS — read FORK-FREE (kcl/README.md 1.8).
+# It used to be `ms() { printf ...; }` read as `t0=$(ms)`: a fork of this shell
+# INSIDE every timed window, and under the threaded runner such a fork stalls
+# ~280 ms at random (2026-09-24). Decimal separator agnostic (D6).
+now_ms() { local t="${EPOCHREALTIME}"; t="${t/[.,]/}"; MS=$(( t / 1000 )); }
 
 # --- G1-01 -----------------------------------------------------------------
 kt_test_start "delete frees \${inst}_items [G1-01]"
@@ -206,21 +210,27 @@ K.delete; S.delete; D.delete; PLAIN.delete
 # --- G1-03 perf gate: 300 Adds < 10x TList ---------------------------------
 kt_test_start "300 Adds on a TStringList cost < 10x the same Adds on a TList [G1-03]"
 N=300
-TList.new PL
-t0=$(ms); for (( i = 0; i < N; i++ )); do PL.Add "item$i"; done; t1=$(ms)
-base=$(( t1 - t0 )); (( base < 1 )) && base=1
-PL.delete
-TStringList.new SL
-t0=$(ms); for (( i = 0; i < N; i++ )); do SL.Add "item$i"; done; t1=$(ms)
-plain=$(( t1 - t0 ))
-SL.delete
-TStringList.new SS
-SS.sorted = true
-t0=$(ms); for (( i = 0; i < N; i++ )); do SS.Add "item$i"; done; t1=$(ms)
-sortd=$(( t1 - t0 ))
-SS.delete
+# best of 5 interleaved samples on each side: contention only ever makes a
+# sample slower, so the minimum is the closest thing to the cost of the code
+base=0; plain=0; sortd=0
+for rep in 1 2 3 4 5; do
+    TList.new PL
+    now_ms; t0=$MS; for (( i = 0; i < N; i++ )); do PL.Add "item$i"; done; now_ms; v=$(( MS - t0 ))
+    if (( base == 0 || v < base )); then base=$v; fi
+    PL.delete
+    TStringList.new SL
+    now_ms; t0=$MS; for (( i = 0; i < N; i++ )); do SL.Add "item$i"; done; now_ms; v=$(( MS - t0 ))
+    if (( plain == 0 || v < plain )); then plain=$v; fi
+    SL.delete
+    TStringList.new SS
+    SS.sorted = true
+    now_ms; t0=$MS; for (( i = 0; i < N; i++ )); do SS.Add "item$i"; done; now_ms; v=$(( MS - t0 ))
+    if (( sortd == 0 || v < sortd )); then sortd=$v; fi
+    SS.delete
+done
+(( base < 1 )) && base=1
 if (( plain < base * 10 && sortd < base * 10 )); then
-    kt_test_pass "TList ${base}ms; TStringList unsorted ${plain}ms sorted ${sortd}ms (limit $(( base * 10 ))ms)"
+    kt_test_pass "best of 5: TList ${base}ms; TStringList unsorted ${plain}ms sorted ${sortd}ms (limit $(( base * 10 ))ms)"
 else
     kt_test_fail "TList ${base}ms; TStringList unsorted ${plain}ms sorted ${sortd}ms (limit $(( base * 10 ))ms)"
 fi
@@ -231,13 +241,14 @@ SS.sorted = true
 for (( i = 0; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.Add "$tag"; done
 # look the LAST 20 items up: a linear scan is then worst-case, a binary search
 # is not (searching the first 20 would hide the difference).
-# best of 3 on each side and a 6x ceiling: the linear scan was 24x (824 vs
-# 34 ms) and this gate flaked once at 3x under the parallel runner.
+# best of 5 on each side and a 6x ceiling: the linear scan was 24x (824 vs
+# 34 ms) and this gate flaked once at 3x under the parallel runner (then with
+# the clock read through a fork inside each window — see now_ms).
 io=0; fnd=0
-for rep in 1 2 3; do
-    t0=$(ms); for (( i = 280; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.IndexOf "$tag" >/dev/null; done; t1=$(ms)
+for rep in 1 2 3 4 5; do
+    now_ms; t0=$MS; for (( i = 280; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.IndexOf "$tag" >/dev/null; done; now_ms; t1=$MS
     (( io == 0 || t1 - t0 < io )) && io=$(( t1 - t0 ))
-    t0=$(ms); for (( i = 280; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.Find "$tag" >/dev/null; done; t1=$(ms)
+    now_ms; t0=$MS; for (( i = 280; i < 300; i++ )); do printf -v tag 'item%03d' "$i"; SS.Find "$tag" >/dev/null; done; now_ms; t1=$MS
     (( fnd == 0 || t1 - t0 < fnd )) && fnd=$(( t1 - t0 ))
 done
 (( fnd < 1 )) && fnd=1

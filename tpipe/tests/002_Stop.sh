@@ -11,7 +11,7 @@
 #   C  F5  a producer that IGNORES SIGPIPE and then stops writing
 #          (`trap '' PIPE; echo a; sleep 8; echo b`) is TERMINATED — without the
 #          `kill -TERM` of PLAN §2.3 `wait` blocks for its whole remaining life
-#          (8.1 s measured). The whole case runs in a child under `timeout 20` —
+#          (8.1 s measured). The whole case runs in a child under `timeout 180` —
 #          a cold `source tpipe.sh` alone is ~1 s idle and ~4 s under the
 #          threaded runner (measured; a 5 s budget timed out in a master sweep),
 #          also through both `each` + `stop` and `first`.
@@ -97,24 +97,55 @@ stopper() { TPipe.stop; return 0; }
 # `wait` for the whole `sleep`.
 sigpipe_producer() { trap '' PIPE; printf 'a\n'; sleep 8; printf 'b\n'; }
 
-t0="${EPOCHREALTIME/[.,]/}"
-rc=0
-case "$2" in
-    yes)   TPipe.each stopper -- yes 2>/dev/null              || rc=$? ;;
-    sigp)  TPipe.each stopper -- sigpipe_producer 2>/dev/null || rc=$? ;;
-    fyes)  TPipe.first -- yes 2>/dev/null                     || rc=$? ;;
-    fsigp) TPipe.first -- sigpipe_producer 2>/dev/null        || rc=$? ;;
-    *)     printf 'bad mode\n' >&2; exit 9 ;;
-esac
-res="$RESULT"
-t1="${EPOCHREALTIME/[.,]/}"
-TPipe.lastRc
-printf 'rc=%s res=%s lastrc=%s us=%s\n' "$rc" "$res" "$RESULT" "$(( t1 - t0 ))"
+# $3 = how many calls (default 1). Each window holds the producer's fork by
+# design, and under the threaded runner a lone fork can stall ~280 ms and more
+# (2026-09-24), so the child reports the FASTEST call. The answer it reports is
+# the first call's; a later call that disagrees is appended as "(call K
+# disagrees: ...)", which no expected pattern matches — every call is checked.
+best=0; line=''; odd=''
+for (( k = 0; k < ${3:-1}; k++ )); do
+    t0="${EPOCHREALTIME/[.,]/}"
+    rc=0
+    case "$2" in
+        yes)   TPipe.each stopper -- yes 2>/dev/null              || rc=$? ;;
+        sigp)  TPipe.each stopper -- sigpipe_producer 2>/dev/null || rc=$? ;;
+        fyes)  TPipe.first -- yes 2>/dev/null                     || rc=$? ;;
+        fsigp) TPipe.first -- sigpipe_producer 2>/dev/null        || rc=$? ;;
+        *)     printf 'bad mode\n' >&2; exit 9 ;;
+    esac
+    res="$RESULT"
+    t1="${EPOCHREALTIME/[.,]/}"
+    TPipe.lastRc
+    cur="rc=$rc res=$res lastrc=$RESULT"
+    # lastRc 141 and 143 are BOTH correct for `yes` (see the F4 case): compare
+    # with the signal digit masked so the race does not read as a disagreement
+    if [[ -z "$line" ]]; then
+        line="$cur"
+    elif [[ -z "$odd" && "${cur/lastrc=14[13]/lastrc=14x}" != "${line/lastrc=14[13]/lastrc=14x}" ]]; then
+        odd=" (call $k disagrees: $cur)"
+    fi
+    if (( best == 0 || t1 - t0 < best )); then best=$(( t1 - t0 )); fi
+done
+printf '%s%s us=%s\n' "$line" "$odd" "$best"
 CHILD_EOF
 
-# run_child MODE -> sets CH_RC (timeout's rc) and CH_OUT (the child's line)
+# run_child MODE -> sets CH_RC (timeout's rc) and CH_OUT (the child's line).
+# The child makes 5 calls and reports the fastest (see its header). `timeout`
+# is the HANG guard, not the gate: a lost kill -TERM costs 8 s per call, i.e.
+# 40 s here, and the 4 s gate on the fastest call fails first in any case. It is
+# 180 s because the child's cold `source tpipe.sh` alone took 19-68 s under a
+# 16-sibling fork storm (measured 2026-09-25, both bashes) — see 005_Bench.sh.
+#
+# THE 4 s CEILING (2026-09-25, raised from 1 s on the reviewer's decision). What
+# these cases discriminate against is a LOST kill -TERM, which costs the
+# producer's whole remaining life: 8 s. Every call holds the producer's fork by
+# design, and under a fork storm on bash 5.3.9 a fork can take ~0.8 s at p50 and
+# seconds at the tail — a best-of-5 of 1.34 s was measured on correct code
+# (storm 8). 4 s is still half of the failure mode; the tighter latency gate
+# (250 ms) lives in bench.sh and 005_Bench.sh.
+TP_CEIL_US=4000000
 run_child() {
-    CH_OUT="$(timeout 20 "$BASH" "$CHILD" "$TP_DIR" "$1" 2>/dev/null)"
+    CH_OUT="$(timeout 180 "$BASH" "$CHILD" "$TP_DIR" "$1" 5 2>/dev/null)"
     CH_RC=$?
     return 0
 }
@@ -138,8 +169,8 @@ kt_test_start "F5: a SIGPIPE-ignoring producer that stops writing is TERMINATED 
 run_child sigp
 us="${CH_OUT##*us=}"
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=1 lastrc=143 us="* \
-      && "$us" =~ ^[0-9]+$ && $us -lt 1000000 ]]; then
-    kt_test_pass "F5: $CH_OUT (under 1 s, not the producer's 8 s)"
+      && "$us" =~ ^[0-9]+$ && $us -lt $TP_CEIL_US ]]; then
+    kt_test_pass "F5: $CH_OUT (under 4 s, not the producer's 8 s)"
 else
     kt_test_fail "F5 (SIGPIPE-ignoring): timeout rc=$CH_RC out='$CH_OUT'"
 fi
@@ -147,11 +178,11 @@ fi
 # P1 re-points F4/F5 at `TPipe.first`, which takes the same close-kill-wait path
 # for free after its single record (PLAN §3). The each+stop cases above stay:
 # they pin the same engine path reached through an explicit TPipe.stop.
-kt_test_start "F4 (first): \`TPipe.first -- yes\` returns 'y' in < 1 s (the 250 ms gate lives in bench.sh/005; this ceiling is loose for the threaded runner), lastRc 141 or 143"
+kt_test_start "F4 (first): \`TPipe.first -- yes\` returns 'y' in < 4 s (the 250 ms gate lives in bench.sh/005; this ceiling is loose for the threaded runner), lastRc 141 or 143"
 run_child fyes
 us="${CH_OUT##*us=}"
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=y lastrc=14"[13]" us="* \
-      && "$us" =~ ^[0-9]+$ && $us -lt 1000000 ]]; then
+      && "$us" =~ ^[0-9]+$ && $us -lt $TP_CEIL_US ]]; then
     kt_test_pass "F4 (first): $CH_OUT"
 else
     kt_test_fail "F4 (first -- yes): timeout rc=$CH_RC out='$CH_OUT'"
@@ -161,8 +192,8 @@ kt_test_start "F5 (first): a SIGPIPE-ignoring producer that stops writing is TER
 run_child fsigp
 us="${CH_OUT##*us=}"
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=a lastrc=143 us="* \
-      && "$us" =~ ^[0-9]+$ && $us -lt 1000000 ]]; then
-    kt_test_pass "F5 (first): $CH_OUT (under 1 s, not the producer's 8 s)"
+      && "$us" =~ ^[0-9]+$ && $us -lt $TP_CEIL_US ]]; then
+    kt_test_pass "F5 (first): $CH_OUT (under 4 s, not the producer's 8 s)"
 else
     kt_test_fail "F5 (first, SIGPIPE-ignoring): timeout rc=$CH_RC out='$CH_OUT'"
 fi

@@ -169,29 +169,53 @@ fi
 # ---------------------------------------------------------------------------
 # 4. Wall clock (zero forks)
 # ---------------------------------------------------------------------------
-kt_test_start "now() within 2s of an independent EPOCHREALTIME+offset computation"
-ref_secs="${EPOCHREALTIME%[.,]*}"
-printf -v z '%(%z)T' -1
-off_s=$(( 10#${z:1:2}*3600 + 10#${z:3:2}*60 )); [[ "${z:0:1}" == "-" ]] && off_s=$(( -off_s ))
-ref_ms=$(( (ref_secs + off_s) * 1000 ))
-now_ms=$(dateutils.now)
-delta=$(( now_ms - ref_ms )); (( delta < 0 )) && delta=$(( -delta ))
-if (( delta <= 2000 )); then
-    kt_test_pass "now() within 2s of an independent EPOCHREALTIME+offset computation"
+# NO SLACK AND NO FORK (2026-09-24). These two cases used to take a reference
+# stamp and then read the clock through `$(dateutils.now)` — a fork of this
+# shell BETWEEN the reference and the value. Under the threaded runner such a
+# fork stalls ~280 ms at random and sometimes seconds; drifts of 2-3.7 s were
+# seen against the 2 s / 1 s slacks. Now the members are called DIRECTLY (they
+# leave the value in RESULT and print nothing) and are BRACKETED by two
+# EPOCHREALTIME stamps read into variables: now() floors to the millisecond
+# exactly as the stamps below do, so the value must lie inside
+# [before, after] + offset — an exact bound, however slow the machine is.
+# ms_now -> MS: the independent builtin computation (decimal separator agnostic)
+ms_now() { local er="$EPOCHREALTIME"; MS=$(( ${er%[.,]*} * 1000 + 10#${er##*[.,]} / 1000 )); }
+# off_now -> OFF: the local offset east of UTC in ms, from the builtin `%z`
+off_now() {
+    local z; printf -v z '%(%z)T' -1
+    OFF=$(( (10#${z:1:2}*3600 + 10#${z:3:2}*60) * 1000 ))
+    [[ "${z:0:1}" == "-" ]] && OFF=$(( -OFF ))
+    return 0
+}
+
+kt_test_start "now() lies inside an EPOCHREALTIME+offset bracket taken around a direct call"
+off_now; off1=$OFF
+ms_now; lo=$MS
+dateutils.now; now_ms=$RESULT
+ms_now; hi=$MS
+off_now; off2=$OFF            # equal to off1 unless a DST switch fell in between
+if [[ "$now_ms" =~ ^[0-9]+$ ]] && { (( now_ms >= lo + off1 && now_ms <= hi + off1 )) \
+                                    || (( now_ms >= lo + off2 && now_ms <= hi + off2 )); }; then
+    kt_test_pass "now()=$now_ms in [$(( lo + off1 )), $(( hi + off1 ))] (bracket $(( hi - lo )) ms)"
 else
-    kt_test_fail "now()=$now_ms vs ref=$ref_ms, delta=${delta}ms"
+    kt_test_fail "now()='$now_ms' outside [$(( lo + off1 )), $(( hi + off1 ))] (offset $off1/$off2 ms)"
 fi
 
-kt_test_start "now() - nowUTC() == local offset"
-u=$(dateutils.nowUTC); n=$(dateutils.now)
-printf -v z '%(%z)T' -1
-off_ms=$(( (10#${z:1:2}*3600 + 10#${z:3:2}*60) * 1000 )); [[ "${z:0:1}" == "-" ]] && off_ms=$(( -off_ms ))
-diff=$(( n - u )); d2=$(( diff - off_ms )); (( d2 < 0 )) && d2=$(( -d2 ))
-# allow 1s slack for the two separate samplings
-if (( d2 <= 1000 )); then
-    kt_test_pass "now() - nowUTC() == local offset"
+kt_test_start "now() - nowUTC() == local offset, within the bracket of the two direct calls"
+off_now; off1=$OFF
+ms_now; lo=$MS
+dateutils.nowUTC; u=$RESULT
+dateutils.now;    n=$RESULT
+ms_now; hi=$MS
+off_now; off2=$OFF
+# u and n - offset both lie in [lo, hi], so their difference is at most hi - lo
+win=$(( hi - lo ))
+d1=$(( n - u - off1 )); (( d1 < 0 )) && d1=$(( -d1 ))
+d2=$(( n - u - off2 )); (( d2 < 0 )) && d2=$(( -d2 ))
+if [[ "$u" =~ ^[0-9]+$ && "$n" =~ ^[0-9]+$ ]] && (( d1 <= win || d2 <= win )); then
+    kt_test_pass "now-nowUTC=$(( n - u )) == offset $off1 (+-${win} ms bracket)"
 else
-    kt_test_fail "now-nowUTC=$diff, offset=$off_ms"
+    kt_test_fail "now-nowUTC=$(( n - u )), offset=$off1/$off2, bracket=${win} ms"
 fi
 
 kt_test_start "today() == dateOf(now()); yesterday/tomorrow are ±1 day"

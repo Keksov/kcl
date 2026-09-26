@@ -43,9 +43,12 @@ tdirectory.createDirectory "$test_dir"
 # directory is itself an access — so two reads are not required to be byte
 # identical (the old assertion passed only by luck). What must hold is that
 # both answers are well-formed and describe the same moment, give or take the
-# clock tick between them.
-result1=$(tdirectory.getLastAccessTime "$test_dir")
-result2=$(tdirectory.getLastAccessTime "$test_dir")
+# clock tick between them. The reads are DIRECT calls (RESULT): a `$( )`
+# around the first one put a fork of this shell into the gap the 2 s slack has
+# to cover, and under the threaded runner such a fork can stall ~280 ms and
+# more (2026-09-24). The member's own `stat` is the only process left.
+tdirectory.getLastAccessTime "$test_dir"; result1="$RESULT"
+tdirectory.getLastAccessTime "$test_dir"; result2="$RESULT"
 e1=$(date -d "$result1" +%s 2>/dev/null || printf 0)
 e2=$(date -d "$result2" +%s 2>/dev/null || printf 0)
 delta=$(( e2 > e1 ? e2 - e1 : e1 - e2 ))

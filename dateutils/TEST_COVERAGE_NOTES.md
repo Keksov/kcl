@@ -63,8 +63,8 @@ all are candidates for upstreaming clarity to the PLAN, not FPC bugs.
 | 001 · _parse_iso accepts T-separator, date-only, seconds-only forms | `_parse_iso` | `T`/space separators, omitted seconds/ms default to 0 | bash-convention | ISO-8601 |
 | 001 · _parse_iso captures the trailing zone (Z / +hh:mm) | `_parse_iso` | `Z`→0, `+03:00`→180, `-0530`→-330 minutes; no zone→has_tz=0 | bash-convention | ISO-8601 zone designators |
 | 001 · _parse_iso rejects malformed input | `_parse_iso` | month 13, hour 25, minute 60, `/`-separators, non-dates, empty → status 1 | bash-convention | design (light P0 range check; full validity is P1) |
-| 001 · now() within 2s of independent EPOCHREALTIME+offset | `now` | wall clock matches an independent builtin computation | cross-check | `EPOCHREALTIME` + `printf '%(%z)T'` |
-| 001 · now() - nowUTC() == local offset | `now`, `nowUTC` | naive-local minus naive-UTC equals the system offset | representation | naive-KDT definition |
+| 001 · now() inside an EPOCHREALTIME+offset bracket around a direct call | `now` | wall clock lies exactly within [before, after] + offset of two builtin stamps (no slack, no fork) | cross-check | `EPOCHREALTIME` + `printf '%(%z)T'` |
+| 001 · now() - nowUTC() == local offset | `now`, `nowUTC` | naive-local minus naive-UTC equals the system offset, within the bracket of the two direct calls | representation | naive-KDT definition |
 | 001 · today() == dateOf(now()); yesterday/tomorrow ±1 day | `today`, `dateOf`, `now`, `yesterday`, `tomorrow` | day-flooring and ±86400000 ms neighbours | bash-convention | definition |
 | 001 · dateOf(kdt) + timeOf(kdt) == kdt, timeOf in [0, MS_PER_DAY) | `dateOf`, `timeOf` | date/time split is exact and complementary incl. negatives | representation | identity |
 | 001 · constant getters return the __KDT_* values | `msPerSecond`..`approxDaysPerYear` | the 9 public constant getters | bash-convention | FPC constants (`MSecsPerDay`=86400000, `ApproxDaysPerYear`=365.25, `ApproxDaysPerMonth`=30.4375) |

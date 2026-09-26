@@ -76,24 +76,34 @@ fi
 # gate can: 100 direct calls must beat 100 $( ) captures of the same member,
 # because $( ) forks a whole shell each time (0.65 ms vs 23 ms per 200 in the
 # review's measurement).
-ms() { printf '%s' $(( ${EPOCHREALTIME/./} / 1000 )); }
+# The clock is read FORK-FREE into a variable (2026-09-24): it used to be
+# `t1=$(ms)`, a fork of this shell at the END of the DIRECT window — the one
+# side that must stay fork-free — and under the threaded runner such a fork
+# stalls ~280 ms at random. Every fork left in this case is now on the side the
+# gate expects to be slower, and the 100 calls per side are taken as 5
+# interleaved samples of 20, the BEST of each side compared (contention only
+# ever makes a sample slower).
+us() { local t="${EPOCHREALTIME}"; US="${t/[.,]/}"; }
 
 kt_test_start "100 direct combines are faster than 100 \$( ) combines [G6-16, D3]"
-t0=$(ms)
-for i in {1..100}; do
-    tpath.combine "path$i" "file$i.txt"
+direct=0; forked=0
+for rep in 1 2 3 4 5; do
+    us; t0=$US
+    for (( i = rep * 20 - 19; i <= rep * 20; i++ )); do
+        tpath.combine "path$i" "file$i.txt"
+    done
+    us; t1=$US
+    for (( i = rep * 20 - 19; i <= rep * 20; i++ )); do
+        result=$(tpath.combine "path$i" "file$i.txt")
+    done
+    us; t2=$US
+    if (( direct == 0 || t1 - t0 < direct )); then direct=$(( t1 - t0 )); fi
+    if (( forked == 0 || t2 - t1 < forked )); then forked=$(( t2 - t1 )); fi
 done
-t1=$(ms)
-for i in {1..100}; do
-    result=$(tpath.combine "path$i" "file$i.txt")
-done
-t2=$(ms)
-direct=$(( t1 - t0 ))
-forked=$(( t2 - t1 ))
 if (( direct < forked )); then
-    kt_test_pass "direct ${direct}ms < \$( ) ${forked}ms"
+    kt_test_pass "best of 5 x 20 calls: direct ${direct}us < \$( ) ${forked}us"
 else
-    kt_test_fail "direct ${direct}ms is not faster than \$( ) ${forked}ms"
+    kt_test_fail "best of 5 x 20 calls: direct ${direct}us is not faster than \$( ) ${forked}us"
 fi
 
 kt_test_start "the last direct combine left its value in RESULT [D3]"
