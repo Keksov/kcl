@@ -14,8 +14,10 @@
 #
 # ---- `tail -f` hygiene (the reason §4 of the plan exists) ------------------
 # Leaked followers from earlier sessions were found on this box. Every case that
-# starts a follower runs it in a CHILD under `timeout 20`, and every such child
-# ends its `tail` itself:
+# starts a follower runs it in a CHILD under `timeout 180` — a HANG guard, not a
+# gate: a cold `source` of the unit alone is ~3.5 s idle and ~12 s under an
+# 8-sibling fork storm (a 20 s guard failed every storm run) — and every such
+# child ends its `tail` itself:
 #   * `each` + a stopping callback and `first` take TPipe's stop path (close ->
 #     `kill -TERM` -> wait), which ends `tail -f` in ~45 ms with raw rc 143;
 #   * the `run` case, which has no consumer to stop it, uses `addArg --pid=HP`
@@ -774,7 +776,7 @@ if tcase "T4: \`take\` composes with both TPipe forms"; then
     cb1() { N1=$(( N1 + 1 )); return 0; }
     rc=0
     TPipe.each cb1 -- TTail.take 3 "$FX/f11.txt" 2>/dev/null || rc=$?
-    out="$(FX="$FX" UNIT="$UNIT" timeout 20 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c '
 set -u
 shopt -s lastpipe
 source "$UNIT"
@@ -923,12 +925,12 @@ if tcase "T2: RESULT is '' on the refusal and the caller's array is left alone";
 fi
 
 # --- T2: `each` + a stopping callback, and `first` --------------------------
-# Both run in a CHILD under `timeout 20`. `tail -f -n 1` prints the last line at
+# Both run in a CHILD under `timeout 180` (hang guard). `tail -f -n 1` prints the last line at
 # once, the callback stops, and TPipe's stop path (close -> kill -TERM -> wait)
 # ends tail with raw rc 143 in ~45 ms. No follower survives the case.
 
 if tcase "T2: \`each\` + a stopping callback — rc 0, lastRc 143, exactly one record"; then
-    out="$(FX="$FX" UNIT="$UNIT" timeout 20 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c '
 set -u
 source "$UNIT"
 N=0
@@ -949,7 +951,7 @@ t.delete' 2>/dev/null </dev/null)"; crc=$?
 fi
 
 if tcase "T2: \`first\` on a follow stream returns the last line and stops"; then
-    out="$(FX="$FX" UNIT="$UNIT" timeout 20 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c '
 set -u
 source "$UNIT"
 TTail.new t 1 "$FX/follow.txt"
@@ -975,31 +977,42 @@ fi
 
 if tcase "T2: \`run\` with \`follow = 1\` streams a line appended while it waits"; then
     OUTF="$TMP/follow_run.out"
-    READY="$TMP/follow_run.ready"
     : > "$OUTF"
-    rm -f "$READY"
-    # The appender waits for the child's READY flag instead of a fixed delay: a
-    # cold `source` of the unit costs seconds under the threaded runner, and a
-    # bare `sleep 2` fired BEFORE tail had started — `tail -n 1` then printed the
-    # appended line as the file's last line and nothing followed. The wait is
-    # bounded (12 s) so the appender cannot outlive a child that never starts,
-    # and it still leaves >= 3 s of slack for the ~1 s msys poll before the
-    # child's `--pid` helper ends the follow at ~5 s.
-    { i=0
-      while [[ ! -e "$READY" && $i -lt 60 ]]; do sleep 0.2; i=$(( i + 1 )); done
-      sleep 1
+    # EVENT-DRIVEN, NO TIMERS (2026-09-26). Both waits used to be clocks — the
+    # appender fired 1 s after a READY flag set BEFORE `t.run` forked tail, and
+    # the `--pid` helper lived 5 s from before `TTail.new`. Under a fork storm a
+    # tail fork slower than 1 s made the appended line the file's LAST line
+    # before tail started (then `-n 1` printed only it), and a slow `new` ate the
+    # 5 s. Now each side waits for what it actually needs, read from the
+    # follower's own output (fork-free `read`):
+    #   * the appender appends only once `grw1` is in OUTF — tail is running and
+    #     has read the file;
+    #   * the child's `--pid` helper exits only once `appended` is in OUTF —
+    #     the follow has streamed it; tail then ends on its next ~1 s poll.
+    # Both waits are bounded (120 s) so neither can outlive a child that never
+    # starts; the child's `timeout 180` is the hang guard, not a gate.
+    { i=0; c=''
+      while (( i < 600 )); do
+          IFS= read -r c < "$OUTF" 2>/dev/null || :
+          [[ "$c" == grw1 ]] && break
+          sleep 0.2; i=$(( i + 1 ))
+      done
       printf 'appended\n' >> "$FX/grow.txt"; } &
     APPENDER_PID=$!
-    out="$(FX="$FX" UNIT="$UNIT" OUTF="$OUTF" READY="$READY" timeout 20 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" OUTF="$OUTF" timeout 180 "$BASH" -c '
 set -u
 source "$UNIT"
-( sleep 5 ) &
+( i=0; c=""
+  while (( i < 600 )); do
+      IFS= read -r -d "" c < "$OUTF" 2>/dev/null || :
+      [[ "$c" == *appended* ]] && break
+      sleep 0.2; i=$(( i + 1 ))
+  done ) &
 HP=$!
 TTail.new t 1 "$FX/grow.txt"
 t.follow = 1
 t.addArg --pid=$HP
 rc=0
-: > "$READY"
 t.run > "$OUTF" || rc=$?
 t.lastRc
 printf "rc=%s lastRc=%s" "$rc" "$RESULT"

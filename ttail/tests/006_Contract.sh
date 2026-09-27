@@ -425,12 +425,12 @@ esac
 t2.delete'
 
 if tcase "H12: an UNGUARDED sink call with rc 1 aborts a \`set -eu\` caller (the documented rule)"; then
-    out="$(FX="$FX" UNIT="$UNIT" timeout 20 "$BASH" -c 'set -eu
+    out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c 'set -eu
 source "$UNIT"
 TTail.new t 1 "$FX/no_such.txt"
 t.count
 printf NOTREACHED' 2>/dev/null </dev/null)"; urc=$?
-    guarded="$(FX="$FX" UNIT="$UNIT" timeout 20 "$BASH" -c 'set -eu
+    guarded="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c 'set -eu
 source "$UNIT"
 TTail.new t 1 "$FX/no_such.txt"
 rc=0
