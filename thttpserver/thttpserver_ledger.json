@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "project": "kcl/thttpserver — a minimal HTTP server on kklass with GNU netcat as the network backend; kcl addition with own names (THttpRequest, THttpResponse, THttpRouter, THttpRouteObject, THttpServer, THttpApplication) plus a transport seam (THttpTransport, TNetcatTransport with two pre-spawned listener slots, TReplayTransport). FPC fcl-web is a design reference only. Goal: demonstrate kklass, not a full web server.",
+  "created": "2026-09-27",
+  "updated": "2026-09-28",
+  "status": "PLANNED, critic-hardened — PLAN.md written 2026-09-27, D6–D9 added and a critic pass folded in 2026-09-28 (3 blockers, 11 majors, 12 minors, nits; PLAN §8); no code.",
+  "decisions": {
+    "D1": "own kcl names: kcl/thttpserver, THttp* classes; FPC fcl-web is a design reference only (recommendation was FPC-anchored kcl/fphttpserver — overruled)",
+    "D2": "GNU netcat only + TReplayTransport test double",
+    "D3": "static files out of scope",
+    "D4": "AcceptIdleTimeout default 0 (off, as FPC); tests always set 1000 ms",
+    "D5": "pre-spawn the next listener right after the current request line arrives, in P2; two FIFO-backed slots (bash allows one coproc); fallback to a single coproc listener if the FIFO mechanics prove unreliable on msys — owner to be told — critic 2026-09-28: feasible only with an O_WRONLY writer, the child closing the other slot's fds, a cat stdin relay and a drained close (PLAN §2.5); re-verified by the supervisor 3/3 on both bashes",
+    "D6": "request fields are read-only properties over private fields (property X read _x); generalised by critic C7 to every field another object reads. Measured: a plain var of another object read directly prints and leaves RESULT unchanged (stale); a property read is silent + RESULT; a write to a read-only property is rc 1 with kklass's own stderr line",
+    "D7": "RegisterRoute PATTERN METHOD HANDLER [ISDEFAULT [DATA]] (with >=3 args the 2nd is always METHOD); route object gets DATA in RouteData, function / inst.method handler as $3; stored in ${inst}_rdat (never _data)",
+    "D8": "an abstract route class is refused at registration with rc 2, by reading ${CLASS}_class_abstract (the flag .new checks) — no probe instance (critic C17); roadmap note: a public kk.isAbstract in kklass",
+    "D9": "THttpApplication.ServerClass (default THttpServer) so a descendant server plugs in; non-server class -> Initialize rc 2"
+  },
+  "planning_measurements": {
+    "nc": "GNU netcat 0.7.1 in msys64 (bash 5.3.9 PATH); none on the bash 5.2.37 PATH — msys64 nc.exe by absolute path works from 5.2.37",
+    "coproc_cycle": "coproc nc -l -c -s 127.0.0.1 -p PORT; handler in the parent shell, state persists across requests (3/3), both bashes",
+    "one_nc_many_clients": "impossible with GNU 0.7.1: no -k; client 2 refused while the process lives on",
+    "port_released_on_accept": "nc #2 binds the same port while nc #1's accepted connection is still open, and receives client 2",
+    "nc_rc": "1 on every normal close",
+    "accept_idle": "-w 2 → rc 1 after 2084 ms, empty stderr",
+    "busy_port": "rc 1 after ~74 ms, stderr 'Error: Couldn't setup listening socket (err=-3)'",
+    "throughput": "~100 ms per request end-to-end (20 sequential curl requests, 5.3.9)",
+    "concurrency_single_listener": "8 parallel no-retry clients: 6x200, 2x curl rc 56",
+    "object_cost": "~2.7 ms per request for object + TDictionary lifecycle, both bashes",
+    "bytes": "under C.UTF-8 ${#s} and read -N count characters; local LC_ALL=C counts bytes",
+    "proxy": "HTTP_PROXY/HTTPS_PROXY=127.0.0.1:2080 on this machine — curl --noproxy '*' required",
+    "fifo_rdwr_writer": "5.3.9: O_RDWR writer → nc never sees EOF after close, -c never fires (forbidden)",
+    "fifo_wronly_writer": "O_WRONLY → nc exits ~100 ms after close, client EOF ~32 ms, no open deadlock",
+    "fifo_on_5_2": "a Git-runtime FIFO as msys64 nc's stdin → 'select(core_readwrite): Bad file descriptor' on accept; < <(exec cat FIFO) relay fixes it",
+    "immediate_kill_truncates": "close+close+kill -TERM at once: 5/5 truncated responses",
+    "fd_inheritance": "pre-spawned listener inherits the live writer unless its child closes the other slot's fds",
+    "working_variant": "O_WRONLY + child closes other slot + cat relay + drained close: 3/3 on each bash (supervisor re-run 2026-09-28), 6/6 runs in critic probes incl. overlap; spawn 34-46 ms with relay, close 14-57 ms",
+    "nc_w": "-w limits accept only (not an accepted connection)",
+    "nc_vv": "'Listening on IP PORT', 'Connection from IP:PORT', 'Listen mode failed: Connection timed out', 'Couldn't setup listening socket (err=-3)', 'Total received bytes: N'",
+    "empty_assoc_key": "a[$k]=1 with k='' aborts the whole top-level command (supervisor re-verified)",
+    "printf_T_tz": "local TZ ignored by %(...)T; TZ=UTC0 printf prefix works; names localized unless LC_ALL=C",
+    "read_quirks": "read -N does not count a dropped NUL; read -t 0 = rc 1 at once; -t -1 = error",
+    "inherited_in_methods": "bare inherited in a method passes no args; inherited in a destructor without a parent destructor = rc 127",
+    "curl_expect": "curl sends Expect: 100-continue only for bodies > 1 MiB"
+  },
+  "phases": [
+    {
+      "id": "P0",
+      "name": "messages + replay transport",
+      "goal": "THttpRequest (ReadFrom parser, limits, decoding), THttpResponse (SendContent), THttpTransport (abstract), TReplayTransport",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P0.1",
+          "title": "thttpmessage.sh per PLAN §1.3, §2.2, §2.3",
+          "status": "pending"
+        },
+        {
+          "id": "P0.2",
+          "title": "transport base + TReplayTransport per PLAN §2.5",
+          "status": "pending"
+        },
+        {
+          "id": "P0.3",
+          "title": "tests 001_Request, 002_Response, 008_Contract, red-first against a stub",
+          "status": "pending"
+        }
+      ],
+      "gate": "001/002/008 green on bash 5.2.37 and 5.3.9; sweep 0 [FAIL] on both; fork-free proof under replay"
+    },
+    {
+      "id": "P1",
+      "name": "router",
+      "goal": "THttpRouteObject (abstract), THttpRouter: three handler kinds, :param and trailing *rest, 404/405 + Allow, default routes, Before/After hooks",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P1.1",
+          "title": "thttprouter.sh per PLAN §2.4",
+          "status": "pending"
+        },
+        {
+          "id": "P1.2",
+          "title": "test 003_Router with the pattern table",
+          "status": "pending"
+        }
+      ],
+      "gate": "001–003/008 green on both bashes; sweep"
+    },
+    {
+      "id": "P2",
+      "name": "netcat transport + server",
+      "goal": "opening spike reproducing PLAN §2.5 (O_WRONLY FIFO writer, child closes the other slot's fds, cat relay, -vv state machine, drained close) inside a kklass class on both bashes (fallback rule); TNetcatTransport with two slots (D5); THttpServer (BeginServe/ServeOne/EndServe/Serve/Active/Terminate/MaxRequests/events/500/HEAD/408, SIGPIPE, trap save/restore)",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P2.0",
+          "title": "opening spike per PLAN §2.5 on both bashes; record measurements; fallback rule if it cannot be reproduced",
+          "status": "pending"
+        },
+        {
+          "id": "P2.1",
+          "title": "TNetcatTransport per PLAN §2.5",
+          "status": "pending"
+        },
+        {
+          "id": "P2.2",
+          "title": "THttpServer per PLAN §2.6",
+          "status": "pending"
+        },
+        {
+          "id": "P2.3",
+          "title": "tests 004_Server, 005_Lifecycle, 007_Hostile (socket files must RUN on both bashes)",
+          "status": "pending"
+        }
+      ],
+      "gate": "all suites green on both bashes with the socket tests run, not skipped; sweep"
+    },
+    {
+      "id": "P3",
+      "name": "application, demo, docs",
+      "goal": "THttpApplication : TCustomApplication, examples/demo.sh, bench.sh, README (incl. the kklass feature map), TEST_COVERAGE_NOTES, kcl README §2 row",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "P3.1",
+          "title": "thttpapplication.sh per PLAN §2.7",
+          "status": "pending"
+        },
+        {
+          "id": "P3.2",
+          "title": "examples/demo.sh per PLAN §2.10 + 009_Demo",
+          "status": "pending"
+        },
+        {
+          "id": "P3.3",
+          "title": "bench.sh + 010_Bench (loose ceiling), docs, kcl README row, ledger closeout",
+          "status": "pending"
+        }
+      ],
+      "gate": "all green on both bashes; sweep; bench numbers recorded"
+    }
+  ],
+  "side_observations": [
+    "kklass/kklass_serializable.sh _addSerializable_json embeds property values without JSON escaping (read in the code, not probed)"
+  ],
+  "critic": {
+    "date": "2026-09-28",
+    "findings": "C1-C26 + nits, all folded (PLAN §8)",
+    "blockers": [
+      "C1 O_RDWR writer never EOFs",
+      "C2 kill-first close truncates responses",
+      "C3 5.2 FIFO as msys64 nc stdin fails; cat relay"
+    ],
+    "supervisor_verified": [
+      "C1/C3 re-run of working and failing variants",
+      "C8 kklass_pascal.sh:153-163",
+      "C12 empty-key abort",
+      "C15 local TZ ignored"
+    ]
+  }
+}
