@@ -729,6 +729,14 @@ variable. Red-first against a stubbed skeleton, red counts in the ledger.
 | **P2** | **opening spike**: reproduce §2.5 from `scratchpad/critic/p7.sh` inside a kklass class on both bashes (fallback rule §2.5); then `TNetcatTransport`, `THttpServer`, tests 004/005/007 | all green both (socket files **run**), sweep |
 | **P3** | `thttpapplication.sh`, both demos, 006/009/010, `bench.sh`, README (API, §2.9, §2.11, deviations, numbers), TEST_COVERAGE_NOTES, kcl README §2 row (26 units), ledger closeout | all green both, sweep, bench numbers recorded |
 
+**P0 DONE 2026-09-29** — `thttpmessage.sh` (THttpRequest, THttpResponse), `thttpserver.sh`
+with THttpTransport + TReplayTransport only, tests 001/002/008: 137/137 on 5.2.37 (threaded
+and single) and 5.3.9; red against the stub 47/42/34 FAIL; sweep 7434/7434, 0 [FAIL] on both
+bashes (run in three parts: one `tests/tests.sh` now exceeds the 600 s tool limit). Deviations,
+the measured facts found on the way (5.2.37 `${#var}` = 0 on a kklass var; EPOCHREALTIME's
+separator follows the locale; a NUL inside a header line is dropped by `read`; a 64 KiB body
+over a pipe ≈ 1.2 s) and the gate numbers are in the ledger's P0 entry.
+
 Mode: the kcl orchestration mode — one Opus worker per phase, review against the live
 tree, remarks, commit kcl then the kbool bump; no push unless asked. The critic's probe
 scripts live in the session scratchpad and may be gone; §1.1 and §2.5 carry everything

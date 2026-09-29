@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/thttpserver — a minimal HTTP server on kklass with GNU netcat as the network backend; kcl addition with own names (THttpRequest, THttpResponse, THttpRouter, THttpRouteObject, THttpServer, THttpApplication) plus a transport seam (THttpTransport, TNetcatTransport with two pre-spawned listener slots, TReplayTransport). FPC fcl-web is a design reference only. Goal: demonstrate kklass, not a full web server.",
   "created": "2026-09-27",
-  "updated": "2026-09-28",
-  "status": "PLANNED, critic-hardened — PLAN.md written 2026-09-27, D6–D9 added and a critic pass folded in 2026-09-28 (3 blockers, 11 majors, 12 minors, nits; PLAN §8); no code.",
+  "updated": "2026-09-29",
+  "status": "IN PROGRESS — P0 done 2026-09-29 (messages + replay transport, 137 unit tests); P1–P3 pending. PLAN.md written 2026-09-27, D6–D9 added and a critic pass folded in 2026-09-28 (3 blockers, 11 majors, 12 minors, nits; PLAN §8).",
   "decisions": {
     "D1": "own kcl names: kcl/thttpserver, THttp* classes; FPC fcl-web is a design reference only (recommendation was FPC-anchored kcl/fphttpserver — overruled)",
     "D2": "GNU netcat only + TReplayTransport test double",
@@ -47,25 +47,77 @@
       "id": "P0",
       "name": "messages + replay transport",
       "goal": "THttpRequest (ReadFrom parser, limits, decoding), THttpResponse (SendContent), THttpTransport (abstract), TReplayTransport",
-      "status": "pending",
+      "status": "done",
+      "date": "2026-09-29",
+      "commit": "",
       "tasks": [
         {
           "id": "P0.1",
           "title": "thttpmessage.sh per PLAN §1.3, §2.2, §2.3",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P0.2",
           "title": "transport base + TReplayTransport per PLAN §2.5",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P0.3",
           "title": "tests 001_Request, 002_Response, 008_Contract, red-first against a stub",
-          "status": "pending"
+          "status": "done"
         }
       ],
-      "gate": "001/002/008 green on bash 5.2.37 and 5.3.9; sweep 0 [FAIL] on both; fork-free proof under replay"
+      "gate": "001/002/008 green on bash 5.2.37 and 5.3.9; sweep 0 [FAIL] on both; fork-free proof under replay",
+      "red_before": {
+        "stub": "every member body `: __THS_PENDING__; return 1` (constructors/destructors no-op), the real class declarations",
+        "001_Request.sh": "47 FAIL of 53",
+        "002_Response.sh": "42 FAIL of 42",
+        "008_Contract.sh": "34 FAIL of 42",
+        "passing_on_stub": "001: NUL fixture present, no pwn, kklass's own read-only line, abstract base .new rc 1, derivation, bodies grep (trivially clean stubs); 008: bash -n x2, dangling quote, no inline CR, no \\$this., P0 scope, set -eu load, HasHeader-false silent. The two delete tests were strengthened after the first red run to require the arrays to EXIST before delete (they had passed on the stub)"
+      },
+      "gate_result": {
+        "unit_5.2.37_threaded": "137/137, 0 [FAIL] (001: 53, 002: 42, 008: 42)",
+        "unit_5.2.37_single": "137/137, 0 [FAIL]",
+        "unit_5.3.9_threaded": "137/137, 0 [FAIL]",
+        "sweep_5.2.37": "29 suites, 7434/7434, 0 [FAIL] — run in three sequential parts (suites 1-9 / 10-19 / 20-29: 446 + 255 + 271 s) because one `bash tests/tests.sh` exceeded the 600 s tool limit (stopped at suite 14/29 after 590 s, 0 FAIL until then)",
+        "sweep_5.3.9": "29 suites, 7434/7434, 0 [FAIL] — same three parts (436 + 214 + 264 s)"
+      },
+      "notes": [
+        "thttpmessage.sh: THttpRequest (7 read-only properties over private _x vars + ContentLength read GetContentLength; ReadFrom, GetHeader, HasHeader, HeaderNames, QueryField, RouteParam, SetRouteParam, private _reset) and THttpResponse (Code/CodeText/ContentType/Content read/write, ContentSent read-only; Attach, SetCustomHeader, GetCustomHeader, Write, SendContent, SendRedirect); file-scope __THS_CR, __THS_REASON plus __THS_LF, __THS_BS, __THS_BS2, __THS_NOTTOKEN, __THS_METHODS, __THS_OWNED, __THS_BANNER, __THS_CTYPE; fork-free file-scope helpers ths._left, ths._readLine, ths._decode",
+        "thttpserver.sh (P0 part): THttpTransport (abstract Accept/CloseConnection/Shutdown, empty destructor, protected fields, read-only properties) and TReplayTransport : THttpTransport; sources only kklass_pascal.sh and thttpmessage.sh",
+        "fact 2: byte lengths under local LC_ALL=C from LOCAL copies (5.2.37 nameref quirk, measured_p0.nameref_length); fact 3: SIGPIPE child with trap '' PIPE -> rc 1, silent, alive; without the trap rc 141 (pinned as the reason BeginServe ignores PIPE); fact 12: 53 raw request files through TReplayTransport + 413-not-read, 408-without-read and four open-pipe cases (408 x4, NUL 400 at once); fact 13: empty and hostile query keys, hostile header names/values, route params, marker assignment proves no abort, pwn never created; fact 14/15/19: 002 + 001 §5; fact 23: BASHPID, PATH='', stored-body grep over the four classes, plus a DEBUG-trap canary (set -T) with a positive control",
+        "per-request cost measured: ReadFrom of a 4-header GET from a file 3.1-3.3 ms; a 64 KiB body from a file ~80 ms, over a PIPE ~1.19 s (both bashes) — see measured_p0.pipe_body"
+      ],
+      "deviations": [
+        "Attach FD [ISHEAD [BANNER]]: a third optional argument + private var _banner (default 'kcl-thttpserver', '' = no Server line). §1.3 lists `Attach FD ISHEAD` only, but §2.3 requires the server's ServerBanner to be validated at send, so the response must receive it",
+        "validation failure -> 500 with the DEFAULT head: default banner and Content-Type, no custom header, empty body (Content-Length: 0); Code/CodeText/ContentType are updated to what was sent (so a later access log is truthful)",
+        "ContentSent becomes 1 on ANY write attempt, a failed one included (the server must never try a second write); SendContent before Attach is rc 1 (not 2)",
+        "SendRedirect only SETS (Code, CodeText '', Location) — FPC TResponse.SendRedirect semantics (httpdefs.pp:3047); CODE default 302, must be 300-399; URL non-empty without CR/LF; else rc 2 with nothing changed",
+        "Write joins its arguments with one space and appends verbatim, no newline",
+        "Content-Length must be plain digits within int64 (kk.isInt alone would accept '+3' and '007'); a repeated IDENTICAL Content-Length is kept once (not joined), a different one is 400",
+        "parser check order: request-line length 414 -> structure (exactly two SP, three non-empty parts) or any control character 400 -> version not HTTP/D.D 400 -> method 501 -> target not '/…' 400 -> version not 1.0/1.1 505 -> headers (431/400) -> HTTP/1.1 without Host 400 -> Transfer-Encoding 501 -> Content-Length 400/413 -> body; an empty request line is 400 (no RFC leading-CRLF skip)",
+        "header value: any control character other than HTAB is 400 (§2.2 names obs-fold only; RFC 9110 field-value), OWS trimmed on both sides",
+        "an error status leaves Method..Content empty; RemoteAddress and the headers read so far are kept",
+        "a code with no reason in the table is sent as `HTTP/1.1 299 ` (empty reason, SP kept); Content-Type is omitted when ContentType is '' and for 1xx/204; Server is omitted when the banner is ''",
+        "query: names are percent-decoded too; a NAME with %00 is skipped; a VALUE with %00 marks the name rejected (QueryField rc 1) and, being the first occurrence, a later valid one does not replace it; `?g` gives g = '' rc 0",
+        "TReplayTransport: capture path `<request file>.N.out` (N = accept ordinal, ResponseFile N); per-instance arrays `_rqf`/`_rsf`, private `_next`; Accept's RESULT = the ordinal; an Accept with a connection still open closes it first; Shutdown only closes the current connection; IDLE_MS/REQ_TIMEOUT_S ignored; AddRequestFile rc 1 for a non-regular / unreadable file; ResponseFile rc 1 for a non-integer index too",
+        "HasHeader '' is rc 2 (+ one kk.debug line), consistent with GetHeader ''",
+        "HeaderNames also refuses the `__THS_` prefix (an OUTARR named __THS_REASON would clobber the reason table)",
+        "SendContent does not (cannot, fork-free on 5.2) ignore SIGPIPE itself: the caller must — THttpServer.BeginServe does (§2.6)",
+        "fork-free proof: a 4th part (DEBUG-trap canary under set -T, positive control included) beyond PLAN §4's three; the body grep ignores `$((` (arithmetic) and `||` (not a pipe)"
+      ],
+      "measured_p0": {
+        "nameref_length": "bash 5.2.37: `${#v}` of a kklass var (declare -n v=\"inst_data[v]\") is 0; 5.3.9 gives the real length. Repro: class with `var _m`, body `_m=GET; kk._return \"${#_m}\"` -> 0 on 5.2.37, 3 on 5.3.9; `${_m:1}` and `${_m%T}` work on both. Take lengths from a local copy",
+        "epochrealtime_locale": "EPOCHREALTIME uses the locale's decimal separator: `1790634659,903380` under LC_ALL=ru_RU.UTF-8 — the unit uses `${EPOCHREALTIME//[!0-9]/}`",
+        "nul_in_line": "`IFS= read -r -n 8194` over `ab\\0cd\\n` gives `abcd` rc 0, silently (both bashes): a NUL in the request line or a header is dropped, not detectable; only a body NUL is 400",
+        "pipe_body": "`read -d '' -n N` reads a PIPE one byte per syscall: a 65536-byte body takes ~1.19 s over a pipe vs ~80 ms from a file (both bashes) — relevant to P2's per-request model (§2.8) with MaxContentLength 65536",
+        "exec_group_idiom": "`{ exec {fd}<missing; } 2>/dev/null` fails with rc 1, prints nothing and leaves the shell's stderr intact; no fd leak on success (fd count +2 per Accept, back to the start after CloseConnection)",
+        "sigpipe_exit": "a write to a pipe whose reader is gone kills a bash without `trap '' PIPE` with rc 141 (preserved through `timeout`)",
+        "sweep_duration": "one `bash tests/tests.sh` on 5.2.37 exceeded 590 s on 2026-09-29 (suite 14/29 reached); split runs total ~970 s (5.2.37) / ~915 s (5.3.9)"
+      },
+      "found_in_P0": [
+        "the 5.2.37 `${#nameref-to-assoc-element}` = 0 quirk (measured_p0.nameref_length) can hit any kklass member body that takes `${#var}` of a stored var directly; a grep over the other kcl units found no such use; worth one line in kklass_book (not changed here)"
+      ]
     },
     {
       "id": "P1",
