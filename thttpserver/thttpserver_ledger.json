@@ -49,7 +49,7 @@
       "goal": "THttpRequest (ReadFrom parser, limits, decoding), THttpResponse (SendContent), THttpTransport (abstract), TReplayTransport",
       "status": "done",
       "date": "2026-09-29",
-      "commit": "",
+      "commit": "4f185c8",
       "tasks": [
         {
           "id": "P0.1",
@@ -117,7 +117,8 @@
       },
       "found_in_P0": [
         "the 5.2.37 `${#nameref-to-assoc-element}` = 0 quirk (measured_p0.nameref_length) can hit any kklass member body that takes `${#var}` of a stored var directly; a grep over the other kcl units found no such use; worth one line in kklass_book (not changed here)"
-      ]
+      ],
+      "review": "supervisor 2026-09-29: suite re-run 137/137 on both bashes; full master sweep (one run per bash, background) 29/29 suites, 0 [FAIL]; 5.2.37 ${#var}=0 and EPOCHREALTIME locale separator re-verified"
     },
     {
       "id": "P1",
