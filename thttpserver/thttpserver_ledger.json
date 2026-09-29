@@ -126,7 +126,7 @@
       "goal": "THttpRouteObject (abstract), THttpRouter: three handler kinds, :param and trailing *rest, 404/405 + Allow, default routes, Before/After hooks",
       "status": "done",
       "date": "2026-09-29",
-      "commit": "",
+      "commit": "658a02d",
       "tasks": [
         {
           "id": "P1.1",
@@ -186,7 +186,8 @@
       "found_in_P1": [],
       "review_remarks": [
         "R1 (reviewer, 2026-09-29): route params must be percent-decoded before they reach the handler. Done: matching stays on the RAW PathInfo (an encoded %2F never splits a segment; PathInfo stays undecoded); each captured value is decoded before SetRouteParam by the new file-scope ths._decodeParams, which calls the P0 ths._decode with a new optional mode `path` (`+` stays `+`; otherwise the same loop: %XX → byte, invalid %G1 / truncated %4 literal, backslashes doubled before %b) under a local LC_ALL=C — no duplicated loop, fork-free (003 §8 canary now routes a decoded param); a *rest value is decoded as a whole (%2F → /); %00 in any captured value → Code 400, rc 0, handler (and route object) not run, Before/After still run, no param set. 003: 4 pattern-table rows changed/added (x=$(id), x=a/b, x=a+b+A%G1%4, path=a/b/c/) + the table comment, canary case, new §9 with 22 tests (%20, %C3%B6, %2F in :param, literal +, %2B, %G1, trailing %4 and %, literal backslash, %5C, %5Cn%5Cx41, \\x41%41, hostile %24%28touch%20pwn%29 and %60…%60 verbatim and never executed, *rest decoding, raw /p/a/b → 404, %00 in :param and *rest → 400 with the handler not run and hooks run, 400 on the wire, route object gets the decoded value and none is created on %00). Red against the pre-R1 code: 19 FAIL of 131 in 003 (the new cases that already held — literal +, %G1, %4, %, backslash, empty rest, 404, no pwn — passed as they should). After: unit suite 290/290 (001: 53, 002: 42, 003: 131, 008: 64) on 5.2.37 threaded and single and on 5.3.9 threaded; master sweep left to the reviewer"
-      ]
+      ],
+      "review": "supervisor 2026-09-29: suite re-run 290/290 on both bashes after R1; full master sweep 29/29 suites, 0 [FAIL] on both; no leftover python/nc processes after the worker's accidental python run"
     },
     {
       "id": "P2",
