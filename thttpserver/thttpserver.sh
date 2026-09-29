@@ -811,7 +811,11 @@ build TNetcatTransport
 #               TNetcatTransport ${inst}_tr with the server's Address/Port.
 #   ServeOne    accept + handle ONE connection: rc 0 handled (RESULT = the
 #               code answered, or `gone`) · 1 idle tick / a client that left /
-#               a signal · 2 fatal (LastError).
+#               a signal · 2 fatal (LastError). On rc 1 without a signal it
+#               fires OnAcceptIdle SERVER (P3: the event moved here from
+#               Serve's loop, so THttpApplication.DoRun gets it too).
+#   Stopping    1 once Terminate / Active = false / a signal asked the server
+#               to stop (read-only; THttpApplication.DoRun reads it, P3).
 #   EndServe    transport Shutdown, the owned transport freed, the saved traps
 #               restored exactly (`trap - INT TERM PIPE; eval "$saved"`).
 #
@@ -826,10 +830,10 @@ build TNetcatTransport
 # characters → '?', BYTES = body bytes sent, MS by the owned TStopwatch
 # ${inst}_sw) → CloseConnection → both deleted → RequestCount + 1.
 #
-# THE PROPERTY RULE (§1.3). RequestCount, LastError, Active and MaxRequests
-# (the application reads it, P3) are properties. The other fields are plain
-# vars: written from outside (`S.Port = 8080` does not print), read only by
-# the server's own bodies. Handlers run inside the server's frames, where
+# THE PROPERTY RULE (§1.3). RequestCount, LastError, Active, MaxRequests and
+# Stopping (the application reads the last two, P3) are properties. The other
+# fields are plain vars: written from outside (`S.Port = 8080` does not
+# print), read only by the server's own bodies. Handlers run inside the server's frames, where
 # every field is a nameref: a handler declares its variables `local` (C25).
 # ===========================================================================
 class THttpServer
@@ -849,6 +853,7 @@ class THttpServer
         var ServerBanner
         property RequestCount read _requestCount
         property LastError    read _lastError
+        property Stopping     read _stop
         property Active       read GetActive write SetActive
         constructor Create
         destructor  Destroy
@@ -968,13 +973,6 @@ THttpServer.Serve() {
             __ths_rc=1
             break
         fi
-        if (( __ths_r == 1 )) && [[ -z "$__THS_SIGNAL" && "$_stop" != 1 && -n "$OnAcceptIdle" ]]; then
-            if ths._hookOk "$OnAcceptIdle"; then
-                "$OnAcceptIdle" "$__inst__" || :
-            else
-                kk.debug "Error: THttpServer.Serve: OnAcceptIdle '$OnAcceptIdle' is not a defined handler"
-            fi
-        fi
     done
     "$__inst__.EndServe"
     return "$__ths_rc"
@@ -1046,6 +1044,15 @@ THttpServer.ServeOne() {
     if (( __ths_r == 1 )); then
         if [[ -n "$__THS_SIGNAL" ]]; then
             "$__inst__._onSignal"
+        elif [[ "$_stop" != 1 && -n "$OnAcceptIdle" ]]; then
+            # The idle event lives here, not in Serve's loop (P3), so every
+            # driver of ServeOne — Serve, THttpApplication.DoRun, a caller's
+            # own loop — gets it.
+            if ths._hookOk "$OnAcceptIdle"; then
+                "$OnAcceptIdle" "$__inst__" || :
+            else
+                kk.debug "Error: THttpServer.ServeOne: OnAcceptIdle '$OnAcceptIdle' is not a defined handler"
+            fi
         fi
         kk._return ""
         return 1

@@ -1,6 +1,7 @@
 #!/bin/bash
-# _ths_socket.sh — shared helpers of the socket tests (004, 005, 007). Not a
-# test file (no NNN_ prefix): sourced by them after ktest.sh.
+# _ths_socket.sh — shared helpers of the socket tests (004, 005, 007; P3: 006,
+# 009 through ths_launch / ths_reap). Not a test file (no NNN_ prefix):
+# sourced by them after ktest.sh.
 #
 # The socket-test rules (PLAN §4, timing lessons, C22):
 #   * the server is a CHILD bash under `timeout` with a guard of 180 s, its
@@ -172,6 +173,78 @@ ths_start() {
     return 1
 }
 ths_started() { ths_listening "$THS_DIR" || [[ -e "$THS_DIR/ended" ]] || ! kill -0 "$THS_PID" 2>/dev/null; }
+
+# ths_launch NAME SCRIPT [ARG…] — the P3 form of ths_start for a WHOLE script
+# (an application script written by 006, or an examples/ demo): start SCRIPT
+# as the child under $TMP/NAME with the ARGs as its argv — every `{PORT}` in
+# an ARG becomes the random port — and wait until its first listener is bound
+# (or the child ended). The child gets UNIT_DIR, SRV_DIR, PORT, TMPDIR
+# (+ KCL_NC) from the environment — with THS_OWN_NC=1, KCL_NC is REMOVED from
+# its environment instead, so the script must find nc itself (the demos' own
+# resolution); stdout/stderr go to SRV_DIR/out and /err. A
+# bind failure — the line in SRV_DIR/result or in the child's stderr — retries
+# with a new port, up to 5 times. Sets THS_DIR, THS_PORT, THS_PID; rc 1 if it
+# never listened.
+ths_launch() {
+    local name="$1" script="$2" try a
+    local -a args envs
+    shift 2
+    THS_DIR="$TMP/$name"
+    for (( try = 0; try < 5; try++ )); do
+        rm -rf "$THS_DIR"
+        mkdir -p "$THS_DIR/tmp"
+        ths_nport
+        args=()
+        for a in "$@"; do args+=("${a//\{PORT\}/$THS_PORT}"); done
+        envs=(UNIT_DIR="$UNIT_DIR" SRV_DIR="$THS_DIR" PORT="$THS_PORT" TMPDIR="$THS_DIR/tmp")
+        if [[ "${THS_OWN_NC:-0}" == 1 ]]; then
+            envs=(-u KCL_NC "${envs[@]}")
+        elif (( THS_NC_ENV )); then
+            envs+=(KCL_NC="$THS_NC")
+        fi
+        env "${envs[@]}" timeout 180 "$BASH" "$script" "${args[@]}" >"$THS_DIR/out" 2>"$THS_DIR/err" </dev/null &
+        THS_PID=$!
+        if ths_poll 170 ths_started; then
+            if ths_listening "$THS_DIR"; then return 0; fi
+            if grep -q "Couldn't setup listening socket" "$THS_DIR/result" "$THS_DIR/err" 2>/dev/null; then
+                wait "$THS_PID" 2>/dev/null
+                continue
+            fi
+        fi
+        return 1
+    done
+    return 1
+}
+
+# ths_child_of PID — the pid of PID's child process (the bash that `timeout`
+# runs) into THS_CPID, fork-free through /proc/*/ppid; '' if none.
+ths_child_of() {
+    local p pp
+    THS_CPID=""
+    for p in /proc/[0-9]*; do
+        pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue
+        if [[ "$pp" == "$1" ]]; then THS_CPID="${p#/proc/}"; return 0; fi
+    done
+    return 1
+}
+
+# ths_reap SECONDS — wait up to SECONDS for the child to end by itself; if it
+# is still alive then, TERM the bash under `timeout` (the server stops at its
+# next ≤ 1 s tick) and reap it. THS_RC = the exit status; THS_TERMED = 1 when
+# the TERM was needed.
+ths_reap() {
+    THS_TERMED=0
+    if ! ths_poll "$1" eval '! kill -0 "$THS_PID" 2>/dev/null'; then
+        THS_TERMED=1
+        if ths_child_of "$THS_PID"; then
+            kill -TERM "$THS_CPID" 2>/dev/null
+        else
+            kill -TERM "$THS_PID" 2>/dev/null
+        fi
+    fi
+    THS_RC=0
+    wait "$THS_PID" 2>/dev/null || THS_RC=$?
+}
 
 # ths_finish — let the server end (the `done` marker → Terminate at the next
 # idle tick) and reap it. THS_RC = the child's exit status.

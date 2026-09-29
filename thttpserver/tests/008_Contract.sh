@@ -1,7 +1,7 @@
 #!/bin/bash
-# 008_Contract.sh — thttpserver P0+P1+P2: the kcl contract (kcl/README.md §1,
+# 008_Contract.sh — thttpserver P0–P3: the kcl contract (kcl/README.md §1,
 # PLAN §2.1) for the message classes, the replay transport, the router, the
-# netcat transport and the server.
+# netcat transport, the server and (P3) the application and the examples.
 #
 # What it pins:
 #
@@ -14,16 +14,24 @@
 #                     file-scope constants; destructors freeing every extra
 #                     per-instance array (router: _pat _met _hnd _kind _def
 #                     _rdat, never _data); ONE write in SendContent, errors
-#                     silenced; P2 scope — thttpserver.sh sources the message,
+#                     silenced; the scope — thttpserver.sh sources the message,
 #                     router and tstopwatch files and declares the transports
-#                     and THttpServer, no application yet; the transport's
-#                     FIFO writer is O_WRONLY (never `<>`), the close path
-#                     never kills before the drain.
+#                     and THttpServer, thttpapplication.sh (P3) sources
+#                     thttpserver.sh and tcustomapplication and declares
+#                     THttpApplication only; the transport's FIFO writer is
+#                     O_WRONLY (never `<>`), the close path never kills before
+#                     the drain; (P3) the application's overrides pass "$@" on
+#                     (C8), its destructor has no `inherited` (C9), Run wraps
+#                     the inherited loop in BeginServe / EndServe (C11), the
+#                     idle event lives in ServeOne, `Stopping` is read-only;
+#                     the examples parse and never register a "$this.X"
+#                     handler (kklass rewrites that text into a call form).
 #   set -eu           a child under `set -eu` loads the unit (twice) and runs
 #                     the replay pipeline end to end, every parser status path,
 #                     every guarded miss and refusal, the server over a replay
 #                     transport (BeginServe / ServeOne / EndServe / Serve), the
-#                     netcat transport's refusals, and exits clean.
+#                     netcat transport's refusals, (P3) the application over a
+#                     replay transport and its refusals, and exits clean.
 #   §1.2 diagnostics  every rc 1 / rc 2 path: silent with the switch off,
 #                     exactly ONE `kk.debug` line under VERBOSE_KKLASS=debug;
 #                     the successful paths silent either way.
@@ -38,7 +46,10 @@ UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/thttpserver.sh"
 MSG="$UNIT_DIR/thttpmessage.sh"
 ROUTER="$UNIT_DIR/thttprouter.sh"
+APP="$UNIT_DIR/thttpapplication.sh"
+EXAMPLES=("$UNIT_DIR/examples/demo.sh" "$UNIT_DIR/examples/demo_oop.sh")
 source "$UNIT"
+source "$APP"
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -48,15 +59,15 @@ exec </dev/null
 TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
 ERRF="$TMP/contract.err"
 OUTF="$TMP/contract.out"
-FILES=("$MSG" "$ROUTER" "$UNIT")
+FILES=("$MSG" "$ROUTER" "$UNIT" "$APP")
 
-kt_test_section "008: the kcl contract for thttpserver (P0 + P1 + P2)"
+kt_test_section "008: the kcl contract for thttpserver (P0 – P3)"
 
 # ===========================================================================
 kt_test_section "0. source integrity"
 # ===========================================================================
 
-for f in "${FILES[@]}"; do
+for f in "${FILES[@]}" "${EXAMPLES[@]}"; do
     kt_test_start "$(basename "$f") parses (bash -n)"
     if err="$("$BASH" -n "$f" 2>&1)"; then kt_test_pass "clean"; else kt_test_fail "bash -n: $err"; fi
 done
@@ -128,18 +139,66 @@ b="$(sed -n '/^THttpResponse.SendContent()/,/^}/p' "$MSG")"
 nw=0; while IFS= read -r l; do [[ "$l" == *'>&"$__ths_fd"'* ]] && nw=$(( nw + 1 )); done <<< "$b"
 if [[ $nw -eq 1 && "$b" == *"printf '%s' \"\$__ths_out\" 2>/dev/null >&\"\$__ths_fd\""* ]]; then kt_test_pass "one write"; else kt_test_fail "writes=$nw"; fi
 
-kt_test_start "P2 scope: thttpserver.sh sources kklass_pascal.sh, thttpmessage.sh, thttprouter.sh, tstopwatch.sh; declares exactly the two transports + TNetcatTransport + THttpServer; no application yet"
+kt_test_start "scope: thttpserver.sh sources kklass_pascal.sh, thttpmessage.sh, thttprouter.sh, tstopwatch.sh; declares exactly the two transports + TNetcatTransport + THttpServer; the application is in its own file"
 srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$UNIT" || :)"
 n=0; while IFS= read -r l; do [[ -n "$l" ]] && n=$(( n + 1 )); done <<< "$srcs"
 cls="$(grep -E '^class ' "$UNIT" || :)"
 if [[ $n -eq 4 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *thttpmessage.sh* && "$srcs" == *thttprouter.sh* && "$srcs" == *tstopwatch/tstopwatch.sh* \
       && "$cls" == $'class THttpTransport\nclass TReplayTransport : THttpTransport\nclass TNetcatTransport : THttpTransport\nclass THttpServer' ]] \
-   && ! grep -nE '^class THttpApplication' "$UNIT" "$ROUTER" "$MSG" >/dev/null \
-   && [[ ! -e "$UNIT_DIR/thttpapplication.sh" ]]; then
-    kt_test_pass "four sources; four classes; P3 absent"
+   && ! grep -nE '^class THttpApplication' "$UNIT" "$ROUTER" "$MSG" >/dev/null; then
+    kt_test_pass "four sources; four classes; no application here"
 else
     kt_test_fail "sources: ${srcs//$'\n'/ | } classes: ${cls//$'\n'/ | }"
 fi
+
+kt_test_start "P3 scope: thttpapplication.sh sources kklass_pascal.sh, thttpserver.sh, tcustomapplication.sh; declares exactly 'class THttpApplication : TCustomApplication'"
+srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$APP" || :)"
+n=0; while IFS= read -r l; do [[ -n "$l" ]] && n=$(( n + 1 )); done <<< "$srcs"
+cls="$(grep -E '^class ' "$APP" || :)"
+if [[ $n -eq 3 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *'/thttpserver.sh'* && "$srcs" == *tcustomapplication/tcustomapplication.sh* \
+      && "$cls" == 'class THttpApplication : TCustomApplication' ]]; then
+    kt_test_pass "three sources; one class"
+else
+    kt_test_fail "sources: ${srcs//$'\n'/ | } classes: ${cls//$'\n'/ | }"
+fi
+
+kt_test_start "P3 C8/C9/C11: every override passes \"\$@\" to inherited; no bare inherited outside the constructor; Destroy has NO inherited (TCustomApplication has no destructor) and frees _server and _router; Run = BeginServe → inherited Run → EndServe"
+bad=""
+for m in Initialize Run Terminate; do
+    b="$(sed -n "/^THttpApplication.$m()/,/^}/p" "$APP")"
+    [[ "$b" == *"inherited $m \"\$@\""* ]] || bad+=" $m-no-args"
+done
+b="$(sed -n '/^THttpApplication.Create()/,/^}/p' "$APP")"
+[[ "$b" == *$'\n    inherited\n'* ]] || bad+=" ctor-no-inherited"
+for m in Destroy Initialize RegisterRoute Run DoRun Terminate; do
+    b="$(sed -n "/^THttpApplication.$m()/,/^}/p" "$APP")"
+    if grep -qE '(^|[[:space:];])inherited[[:space:]]*($|;)' <<< "$b"; then bad+=" bare-inherited-in-$m"; fi
+done
+b="$(sed -n '/^THttpApplication.Destroy()/,/^}/p' "$APP")"
+[[ "$b" != *inherited* && "$b" == *'"$_server.delete"'* && "$b" == *'"$_router.delete"'* ]] || bad+=" destroy"
+[[ -z "${TCustomApplication_destructor_name:-}" && "${THttpApplication_destructor_name:-}" == Destroy ]] || bad+=" destructor-names(${TCustomApplication_destructor_name:-}/${THttpApplication_destructor_name:-})"
+b="$(sed -n '/^THttpApplication.Run()/,/^}/p' "$APP")"
+ib="${b%%'.BeginServe"'*}"; ii="${b%%'inherited Run'*}"; ie="${b%%'.EndServe"'*}"
+(( ${#ib} < ${#ii} && ${#ii} < ${#ie} && ${#ie} < ${#b} )) || bad+=" run-order"
+if [[ -z "$bad" ]]; then kt_test_pass "as specified"; else kt_test_fail "$bad"; fi
+
+kt_test_start "P3 server surface: 'property Stopping read _stop' (read-only view of the private flag); OnAcceptIdle fired by ServeOne, no longer by Serve's loop"
+b="$(sed -n '/^THttpServer.Serve()/,/^}/p' "$UNIT")"
+b1="$(sed -n '/^THttpServer.ServeOne()/,/^}/p' "$UNIT")"
+if grep -qE '^[[:space:]]+property Stopping[[:space:]]+read _stop$' "$UNIT" && [[ "$b" != *OnAcceptIdle* && "$b1" == *'"$OnAcceptIdle" "$__inst__"'* ]]; then
+    kt_test_pass "as specified"
+else
+    kt_test_fail "Stopping/OnAcceptIdle placement differs"
+fi
+
+kt_test_start "the examples register no \"\$this.X\" handler (kklass rewrites the text \$this.NAME of a member body into 'INST.call NAME'); each resolves nc and prints its URL"
+bad=""
+for f in "${EXAMPLES[@]}"; do
+    if grep -nE 'RegisterRoute[^#]*"\$this\.' "$f" >/dev/null; then bad+=" $(basename "$f"):this-handler"; fi
+    grep -q 'KCL_NC=/c/bin/msys64/usr/bin/nc.exe' "$f" || bad+=" $(basename "$f"):no-nc-fallback"
+    grep -q "printf 'kcl demo.*http://%s:%s/" "$f" || bad+=" $(basename "$f"):no-url"
+done
+if [[ -z "$bad" ]]; then kt_test_pass "both"; else kt_test_fail "$bad"; fi
 
 kt_test_start "the transport's mechanism (PLAN §2.5, C1–C4): the FIFO writer is opened O_WRONLY (never '<>'), nc's stdin through 'exec cat', the child closes the other slot's fds, nc -vv"
 b="$(sed -n '/^TNetcatTransport._spawn()/,/^}/p' "$UNIT")"
@@ -200,7 +259,7 @@ expect_clean() {
     local title="$1" snippet="$2" out rc err
     kt_test_start "$title"
     : > "$ERRF"
-    out="$(TMP="$TMP" UNIT="$UNIT" timeout 180 "$BASH" -c "set -eu
+    out="$(TMP="$TMP" UNIT="$UNIT" UNIT_DIR="$UNIT_DIR" timeout 180 "$BASH" -c "set -eu
 source \"\$UNIT\"
 $snippet
 printf OK" 2>"$ERRF" </dev/null)"; rc=$?
@@ -423,6 +482,41 @@ N.CloseConnection
 N.Shutdown
 N.delete'
 
+printf 'POST /q HTTP/1.0\r\n\r\n' > "$TMP/q.req"
+
+expect_clean "THttpApplication under set -eu (P3): options, routes before Initialize, Run over replay (MaxRequests and the fatal path), every refusal guarded, free" '
+source "$UNIT_DIR/thttpapplication.sh"
+source "$UNIT_DIR/thttpapplication.sh"
+fa() { $2.Write "a"; }
+q()  { App.Terminate; $2.Write q; }
+THttpApplication.new App -p 9100 --address=127.0.0.3
+App.RegisterRoute /a GET fa
+App.RegisterRoute /q POST q
+rc=0
+App.RegisterRoute /x GET "no such" || rc=$?;  [[ $rc -eq 2 ]] || exit 9; rc=0
+App.Run || rc=$?;                             [[ $rc -eq 2 ]] || exit 8; rc=0
+App.ServerClass = THttpRouter
+App.Initialize || rc=$?;                      [[ $rc -eq 2 ]] || exit 7; rc=0
+App.ServerClass = THttpServer
+App.Initialize
+App.Port; [[ "$RESULT" == 9100 ]] || exit 6
+App.Address; [[ "$RESULT" == 127.0.0.3 ]] || exit 5
+App.Server; s="$RESULT"
+TReplayTransport.new T
+T.AddRequestFile "$TMP/s1.req"; T.AddRequestFile "$TMP/q.req"; T.AddRequestFile "$TMP/s1.req"
+"$s.Transport" = T
+App.Run
+"$s.RequestCount"; [[ "$RESULT" == 2 ]] || exit 4
+App.Initialize
+App.Server; s="$RESULT"
+TReplayTransport.new T2
+T2.AddRequestFile "$TMP/s1.req"
+"$s.Transport" = T2
+App.Run || rc=$?;                             [[ $rc -eq 1 ]] || exit 3; rc=0
+App.Terminate
+App.Terminate x || rc=$?;                     [[ $rc -eq 1 ]] || exit 2; rc=0
+App.delete; T.delete; T2.delete'
+
 # ===========================================================================
 kt_test_section "2. §1.2: one kk.debug line on every rc 1 / rc 2 path, none otherwise"
 # ===========================================================================
@@ -523,6 +617,21 @@ dcase "SetActive false when idle — silent"       0 0 DV.SetActive false
 dcase "Shutdown with nothing open — silent"      0 0 DN.Shutdown
 dcase "CloseConnection with nothing open — silent" 0 0 DN.CloseConnection
 DV.delete; DN.delete; DZ.delete
+
+THttpApplication.new DA --port=abc
+dcase "Application: Run before Initialize"        1 2 DA.Run
+dcase "Application: DoRun before Initialize"      1 2 DA.DoRun
+dcase "Application: Initialize with a bad port"   1 2 DA.Initialize
+DA.SetArgs --port=9101
+DA.ServerClass = THttpRouter
+dcase "Application: Initialize with a non-server ServerClass" 1 2 DA.Initialize
+DA.ServerClass = THttpServer
+dcase "Application: RegisterRoute malformed (the router's line)" 1 2 DA.RegisterRoute /x GET 'a b'
+dcase "Application: Initialize — silent"          0 0 DA.Initialize
+dcase "Application: RegisterRoute — silent"       0 0 DA.RegisterRoute /ok GET dfn
+dcase "Application: Port / Server read — silent"  0 0 DA.Port
+dcase "Application: Terminate — silent"           0 0 DA.Terminate
+DA.delete
 
 # ===========================================================================
 kt_test_section "3. THttpServer.ServeOne over TReplayTransport is fork-free (PLAN §2.1, §4)"

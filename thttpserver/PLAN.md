@@ -1,7 +1,8 @@
 # thttpserver — a minimal HTTP server on kklass + netcat (kcl/thttpserver)
 
-**Status: PLANNED, critic-hardened (2026-09-27 → 2026-09-28), no code. Owner decisions
-D1–D9 DECIDED (§2.0).** A critic pass (§8: 3 blockers, 11 majors, 12 minors, nits — all
+**Status: COMPLETE (P0–P3, 2026-09-29)** — nine classes in four files, both examples,
+the bench and the docs; 472 unit tests green on both bashes (§5). Planned and
+critic-hardened 2026-09-27 → 2026-09-28; owner decisions D1–D9 DECIDED (§2.0). A critic pass (§8: 3 blockers, 11 majors, 12 minors, nits — all
 folded in) rewrote the network transport (§2.5): the first draft's FIFO writer never
 delivered EOF, its close path truncated every response, and on bash 5.2.37 a FIFO cannot
 be msys64 nc's stdin at all. The corrected mechanism is measured working on both bashes.
@@ -96,6 +97,8 @@ stay file-scope globals).
 | clients | curl 8.14.1 (5.2) / 8.20.0 (5.3) send `Expect: 100-continue` only for bodies > 1 MiB; bash `/dev/tcp/127.0.0.1/PORT` is a raw client on both |
 | **proxy** | this machine exports `HTTP_PROXY=HTTPS_PROXY=http://127.0.0.1:2080`: plain curl to localhost goes through it (503, rc 0). Tests use `curl --noproxy '*'` and unset all proxy variables |
 | firewall | loopback-only listeners (`-s 127.0.0.1`) raised no prompt; all-interface binding may — tests never do it |
+| P3: `$this.NAME` inside quotes | kklass rewrites the **text** `$this.NAME` of a member body into `$__inst__.call NAME` for every method NAME of the class (`kklass.sh:141-146`), quoted data included: `RegisterRoute / GET "$this.Home"` registered `App.call Home` (refused, rc 2). A method of the running instance is registered as `"$__inst__.Home"` |
+| P3 costs (`bench.sh`, 5.2.37 / 5.3.9) | fork-free replay ServeOne 28.1 / 26.5 ms, DoRun 31.0 / 29.6 ms; over sockets 107 / 95 ms per request with a `/dev/tcp` client (9 / 10 req/s), 139 / 107 ms with curl; the spawn's synchronous part 36 ms; the drained close 14.5 / 8.1 ms; 8-client bursts without retry 28 / 31 of 40 answered, the rest resets (and 2 refusals on 5.2.37), the access log = the 200s |
 
 ### 1.2 Classes and files
 
@@ -790,6 +793,22 @@ Review R1 (same day): Shutdown drains a CONNECTED slot instead of killing it (§
 grew a listening-only Shutdown bound (17 tests); unit suite 397/397 threaded on both
 bashes and single on 5.2.37; the 005 fork-storm check 10/10 on each bash before and after
 (the storm did not reproduce the sweep failure; `probe_held` did: 27/30 → 60/60).
+
+**P3 DONE 2026-09-29** — `thttpapplication.sh` (THttpApplication : TCustomApplication per
+§1.3/§2.7: Run wraps `inherited Run "$@"` in BeginServe/EndServe, one DoRun = one
+ServeOne, Destroy without `inherited`), `examples/demo.sh` (§2.10) and
+`examples/demo_oop.sh` (§2.11), tests 006 (40), 009 (14), 010 (4), 008 extended (105),
+`bench.sh`, `README.md`, `TEST_COVERAGE_NOTES.md`, the kcl README §2 row (twenty-six
+units): unit suite 472/472 on 5.2.37 (threaded ×2, single ×1) and 5.3.9 (threaded ×2);
+red against the stub 40/40, 12/105, 12/14, 4/4; kklass 344/344 and tcustomapplication
+377/377 on both bashes; both demos run by hand on both bashes. On THttpServer: a
+read-only `Stopping` property, and the `OnAcceptIdle` event moved from Serve's loop into
+ServeOne so it fires under `App.Run` too; the application's `Port`/`Address` are
+read/write properties (§1.3 rule). Found: kklass rewrites the text `$this.NAME` of a body
+into its call form even inside quotes — register a method of the running instance as
+`"$__inst__.M"`. Deviations, the measured costs (≈ 28 ms per request on the fork-free
+replay path, ≈ 95–107 ms per request over sockets, 9–10 req/s) and the gate numbers are in
+the ledger's P3 entry.
 
 Mode: the kcl orchestration mode — one Opus worker per phase, review against the live
 tree, remarks, commit kcl then the kbool bump; no push unless asked. The critic's probe
