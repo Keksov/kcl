@@ -195,7 +195,7 @@
       "goal": "opening spike reproducing PLAN §2.5 (O_WRONLY FIFO writer, child closes the other slot's fds, cat relay, -vv state machine, drained close) inside a kklass class on both bashes (fallback rule); TNetcatTransport with two slots (D5); THttpServer (BeginServe/ServeOne/EndServe/Serve/Active/Terminate/MaxRequests/events/500/HEAD/408, SIGPIPE, trap save/restore)",
       "status": "done",
       "date": "2026-09-29",
-      "commit": "",
+      "commit": "91a1541",
       "tasks": [
         {
           "id": "P2.0",
@@ -276,7 +276,8 @@
       "found_in_P2": [],
       "review_remarks": [
         "R1 (reviewer, 2026-09-29): 005 fact 11 failed once in the reviewer's master sweep on 5.2.37 — client 2, held by the pre-spawned listener, got 0 bytes but its cat ended rc 1 (reset), not rc 0. Cause: Shutdown closed wr/rd and killed at once, the C2 kill-first race for a slot that has ACCEPTED a client. Done: Shutdown asks _state for each slot with a pid; every CONNECTED slot has its writer closed first, then `_closeSlot SLOT drain DEADLINE` with ONE absolute deadline (now + CloseTimeout) shared by the connected slots (so a Shutdown drains for at most one CloseTimeout in total); a slot that is only listening / failed / empty is still closed and killed at once. _closeSlot takes an optional third argument DEADLINE_US. 005 fact 11 unchanged (0 bytes AND rc 0, '124 = no EOF' path kept); new 005 §4: Shutdown of a transport whose only slot is listening takes < 1.5 s against CloseTimeout 5 s (EPOCHREALTIME in variables, in the child), listener reaped, dir removed — 005 is now 17 tests. PLAN §2.5 Shutdown paragraph updated. Evidence: measured_p2.shutdown_held_connection / shutdown_latency / storm_005. Gate after R1: unit suite 397/397 threaded on 5.2.37 (57 s) and 5.3.9 (55 s), single on 5.2.37 397/397 (189 s); no nc.exe / cat.exe / temp dir left"
-      ]
+      ],
+      "review": "supervisor 2026-09-29: suite re-run 396/396 x2 per bash; first full sweep FAILED 005 fact 11 once on 5.2.37 (held client got RST: kill-first Shutdown) -> review R1 (drain a connected slot); after R1 full sweep 29/29 suites, 0 [FAIL] on both; no nc/cat left. Accepted: fact 7 burst resets (nc drops its backlog on accept), signal flag checked at 1 s ticks (TERM does not interrupt read -t)"
     },
     {
       "id": "P3",
