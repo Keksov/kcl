@@ -152,13 +152,18 @@ ths._readLine() {
     return 0
 }
 
-# ths._decode RAW — application/x-www-form-urlencoded decoding into the
-# caller's __ths_dec: `+` → space, `%XX` → the byte, an invalid `%G1` or a
-# truncated `%4` stays literal. Every `\` is doubled FIRST, so the only escapes
-# `%b` ever sees are the `\xHH` built here — a received backslash is data.
-# rc 1 on `%00` (a bash string cannot hold NUL: the field is rejected).
+# ths._decode RAW [path] — percent-decoding into the caller's __ths_dec.
+# Default: application/x-www-form-urlencoded (query fields), `+` → space.
+# With `path` (the router's route parameters, review R1): `+` stays a literal
+# `+`. Both: `%XX` → the byte, an invalid `%G1` or a truncated `%4` stays
+# literal. Every `\` is doubled FIRST, so the only escapes `%b` ever sees are
+# the `\xHH` built here — a received backslash is data. rc 1 on `%00` (a bash
+# string cannot hold NUL: the value is rejected). Run it under LC_ALL=C.
 ths._decode() {
-    local __ths_s="${1//+/ }" __ths_o="" __ths_hx
+    local __ths_s="$1" __ths_o="" __ths_hx
+    if [[ "${2:-}" != path ]]; then
+        __ths_s="${__ths_s//+/ }"
+    fi
     __ths_s="${__ths_s//"$__THS_BS"/"$__THS_BS2"}"
     while [[ "$__ths_s" == *%* ]]; do
         __ths_o+="${__ths_s%%\%*}"

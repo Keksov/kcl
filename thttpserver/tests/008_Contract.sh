@@ -1,6 +1,6 @@
 #!/bin/bash
-# 008_Contract.sh — thttpserver P0: the kcl contract (kcl/README.md §1, PLAN
-# §2.1) for the message classes and the replay transport.
+# 008_Contract.sh — thttpserver P0+P1: the kcl contract (kcl/README.md §1,
+# PLAN §2.1) for the message classes, the replay transport and the router.
 #
 # What it pins:
 #
@@ -11,8 +11,10 @@
 #                     red-first sentinel gone; never `local TZ` and the Date in
 #                     the `LC_ALL=C TZ=UTC0 printf -v` prefix form (C15); the
 #                     file-scope constants; destructors freeing every extra
-#                     per-instance array; ONE write in SendContent, errors
-#                     silenced; P0 files only sourced.
+#                     per-instance array (router: _pat _met _hnd _kind _def
+#                     _rdat, never _data); ONE write in SendContent, errors
+#                     silenced; P1 scope — thttpserver.sh sources the message
+#                     and router files, no netcat/server class yet.
 #   set -eu           a child under `set -eu` loads the unit (twice) and runs
 #                     the replay pipeline end to end, every parser status path,
 #                     every guarded miss and refusal, and exits clean.
@@ -27,6 +29,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/thttpserver.sh"
 MSG="$UNIT_DIR/thttpmessage.sh"
+ROUTER="$UNIT_DIR/thttprouter.sh"
 source "$UNIT"
 
 TEST_NAME="$(basename "$0" .sh)"
@@ -37,9 +40,9 @@ exec </dev/null
 TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
 ERRF="$TMP/contract.err"
 OUTF="$TMP/contract.out"
-FILES=("$MSG" "$UNIT")
+FILES=("$MSG" "$ROUTER" "$UNIT")
 
-kt_test_section "008: the kcl contract for thttpserver (P0)"
+kt_test_section "008: the kcl contract for thttpserver (P0 + P1)"
 
 # ===========================================================================
 kt_test_section "0. source integrity"
@@ -99,23 +102,44 @@ for s in _hdr _hdrn; do [[ "$d" == *"\"\${__inst__}$s\""* ]] || bad+=" resp$s"; 
 d="$(sed -n '/^TReplayTransport.Destroy()/,/^}/p' "$UNIT")"
 for s in _rqf _rsf; do [[ "$d" == *"\"\${__inst__}$s\""* ]] || bad+=" replay$s"; done
 [[ "$d" == *inherited* ]] || bad+=" replay-no-inherited"
-if [[ -z "$bad" ]]; then kt_test_pass "all eight arrays, replay chains with inherited"; else kt_test_fail "$bad"; fi
+d="$(sed -n '/^THttpRouter.Destroy()/,/^}/p' "$ROUTER")"
+for s in _pat _met _hnd _kind _def _rdat; do [[ "$d" == *"\"\${__inst__}$s\""* ]] || bad+=" router$s"; done
+[[ "$d" == *'unset -v'* ]] || bad+=" router-no-unset"
+if grep -n '_data' "$ROUTER" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then bad+=" router-touches-_data"; fi
+d="$(sed -n '/^THttpRouteObject.Destroy()/,/^}/p' "$ROUTER")"
+[[ -n "$d" && "${THttpRouteObject_destructor_name:-}" == Destroy ]] || bad+=" routeobject-no-destructor"
+if [[ -z "$bad" ]]; then kt_test_pass "all fourteen arrays, replay chains with inherited, THttpRouteObject has a destructor, router never names _data"; else kt_test_fail "$bad"; fi
 
 kt_test_start "SendContent writes with ONE printf to the fd, stderr silenced before the fd redirection"
 b="$(sed -n '/^THttpResponse.SendContent()/,/^}/p' "$MSG")"
 nw=0; while IFS= read -r l; do [[ "$l" == *'>&"$__ths_fd"'* ]] && nw=$(( nw + 1 )); done <<< "$b"
 if [[ $nw -eq 1 && "$b" == *"printf '%s' \"\$__ths_out\" 2>/dev/null >&\"\$__ths_fd\""* ]]; then kt_test_pass "one write"; else kt_test_fail "writes=$nw"; fi
 
-kt_test_start "P0 scope: thttpserver.sh sources only kklass_pascal.sh and thttpmessage.sh; no router/netcat/server class yet"
+kt_test_start "P1 scope: thttpserver.sh sources kklass_pascal.sh, thttpmessage.sh, thttprouter.sh; no netcat/server class yet"
 srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$UNIT" || :)"
 n=0; while IFS= read -r l; do [[ -n "$l" ]] && n=$(( n + 1 )); done <<< "$srcs"
-if [[ $n -eq 2 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *thttpmessage.sh* ]] \
-   && ! grep -nE '^class (TNetcatTransport|THttpServer|THttpRouter)' "$UNIT" >/dev/null \
-   && [[ ! -e "$UNIT_DIR/thttprouter.sh" ]]; then
-    kt_test_pass "two sources; P2 classes absent"
+if [[ $n -eq 3 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *thttpmessage.sh* && "$srcs" == *thttprouter.sh* ]] \
+   && ! grep -nE '^class (TNetcatTransport|THttpServer|THttpApplication)' "$UNIT" "$ROUTER" "$MSG" >/dev/null \
+   && [[ ! -e "$UNIT_DIR/thttpapplication.sh" ]]; then
+    kt_test_pass "three sources; P2/P3 classes absent"
 else
     kt_test_fail "sources: ${srcs//$'\n'/ | }"
 fi
+
+kt_test_start "thttprouter.sh: sources kklass_pascal.sh and thttpmessage.sh only (never the entry point), declares exactly THttpRouteObject and THttpRouter"
+srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$ROUTER" || :)"
+n=0; while IFS= read -r l; do [[ -n "$l" ]] && n=$(( n + 1 )); done <<< "$srcs"
+cls="$(grep -E '^class ' "$ROUTER" || :)"
+if [[ $n -eq 2 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *thttpmessage.sh* && "$srcs" != *thttpserver.sh* \
+      && "$cls" == $'class THttpRouteObject\nclass THttpRouter' ]]; then
+    kt_test_pass "two sources; two classes"
+else
+    kt_test_fail "sources: ${srcs//$'\n'/ | } classes: ${cls//$'\n'/ | }"
+fi
+
+kt_test_start "the router sourced ALONE (fresh child) loads its classes and the message classes it needs"
+out="$(ROUTER="$ROUTER" timeout 180 "$BASH" -c 'source "$ROUTER"; THttpRouter.new X; THttpRequest.new Y; X.RouteCount; printf "%s" "$RESULT"; X.delete; Y.delete' 2>&1 </dev/null)"
+if [[ "$out" == "0" ]]; then kt_test_pass "standalone"; else kt_test_fail "out='${out:0:200}'"; fi
 
 # ===========================================================================
 kt_test_section "1. set -eu"
@@ -223,6 +247,78 @@ T.ResponseFile 0 || rc=$?;           [[ $rc -eq 1 ]] || exit 10; rc=0
 T.CloseConnection
 T.delete'
 
+printf 'GET /u/7/a/b HTTP/1.0\r\n\r\n' > "$TMP/route.req"
+printf 'PUT /u/7/a/b HTTP/1.0\r\n\r\n' > "$TMP/route405.req"
+printf 'GET /none HTTP/1.0\r\n\r\n' > "$TMP/route404.req"
+
+expect_clean "the router end to end: register the three kinds, route 200/405/404, a failing handler, free" '
+class TEuRoute : THttpRouteObject
+    public
+        override proc HandleRequest
+end
+TEuRoute.HandleRequest() { $2.Write "obj:$RouteData"; }
+build TEuRoute
+class TEuCtl
+    public
+        constructor Create
+        proc Hit
+end
+TEuCtl.Create() { :; }
+TEuCtl.Hit() { $2.Write "ctl:$3"; }
+build TEuCtl
+TEuCtl.new C
+fn() { local id; $1.RouteParam id; id="$RESULT"; $2.Write "fn:$id:$3"; }
+bad() { return 3; }
+THttpRouter.new RT
+RT.RegisterRoute /u/:id/*rest GET fn 0 d1
+RT.RegisterRoute /c GET C.Hit 0 d2
+RT.RegisterRoute /o GET TEuRoute 0 d3
+RT.RegisterRoute /bad POST bad
+RT.RegisterRoute /any ALL fn 1
+RT.RouteCount; [[ "$RESULT" == 5 ]] || exit 9
+RT.FindRoute /c GET; [[ "$RESULT" == 1 ]] || exit 8
+RT.FindRoute /c HEAD
+RT.BeforeRequest = fn
+RT.BeforeRequest = ""
+for f in route route405 route404; do
+    TReplayTransport.new T
+    T.AddRequestFile "$TMP/$f.req"
+    T.Accept 0 10
+    T.InFd; in="$RESULT"; T.OutFd; out="$RESULT"
+    THttpRequest.new R; THttpResponse.new S
+    S.Attach "$out" 0
+    R.ReadFrom "$in" $(( ${EPOCHREALTIME//[!0-9]/} + 10000000 )) 65536
+    RT.RouteRequest R S
+    S.SendContent
+    T.CloseConnection
+    T.ResponseFile 0; cap="$(<"$RESULT")"
+    case $f in
+        route)    [[ "$cap" == *"fn:7:d1" ]] || exit 7 ;;
+        route405) [[ "$cap" == "HTTP/1.1 405 "* && "$cap" == *"Allow: GET, HEAD"* ]] || exit 6 ;;
+        route404) [[ "$cap" == *"fn::"* ]] || exit 5 ;;
+    esac
+    R.delete; S.delete; T.delete
+done
+C.delete
+RT.delete'
+
+expect_clean "router misses and refusals under set -eu, each guarded" '
+THttpRouter.new RT
+fn() { :; }
+rc=0
+RT.RegisterRoute || rc=$?;                     [[ $rc -eq 2 ]] || exit 9; rc=0
+RT.RegisterRoute /x fn 0 || rc=$?;             [[ $rc -eq 2 ]] || exit 8; rc=0
+RT.RegisterRoute /x GET "a b" || rc=$?;        [[ $rc -eq 2 ]] || exit 7; rc=0
+RT.RegisterRoute "/*a/b" GET fn || rc=$?;      [[ $rc -eq 2 ]] || exit 6; rc=0
+RT.RegisterRoute /x GET THttpRouteObject || rc=$?; [[ $rc -eq 2 ]] || exit 5; rc=0
+RT.RegisterRoute /d GET fn 1
+RT.RegisterRoute /e GET fn 1 || rc=$?;         [[ $rc -eq 1 ]] || exit 4; rc=0
+RT.FindRoute /none PUT || rc=$?;               [[ $rc -eq 1 && "$REPLY" == 404 ]] || exit 3; rc=0
+RT.FindRoute /d || rc=$?;                      [[ $rc -eq 2 ]] || exit 2; rc=0
+RT.RouteRequest || rc=$?;                      [[ $rc -eq 2 ]] || exit 1; rc=0
+THttpRouteObject.new X 2>/dev/null || rc=$?;   [[ $rc -eq 1 ]] || exit 10; rc=0
+RT.delete'
+
 # ===========================================================================
 kt_test_section "2. §1.2: one kk.debug line on every rc 1 / rc 2 path, none otherwise"
 # ===========================================================================
@@ -274,4 +370,29 @@ dcase "GetHeader hit — silent"                            0 0 DR.GetHeader x-a
 dcase "SetCustomHeader ok — silent"                       0 0 DS.SetCustomHeader X-Ok 1
 dcase "Write — silent"                                    0 0 DS.Write text
 dcase "CloseConnection with nothing open — silent"        0 0 DT.CloseConnection
+
+THttpRouter.new DX
+dfn() { :; }
+dfail() { return 4; }
+DX.RegisterRoute /d GET dfn 1
+DX.RegisterRoute /f GET dfail
+dcase "RegisterRoute bad argument count"   1 2 DX.RegisterRoute /x
+dcase "RegisterRoute bad METHOD"           1 2 DX.RegisterRoute /x get dfn
+dcase "RegisterRoute bad ISDEFAULT"        1 2 DX.RegisterRoute /x GET dfn yes
+dcase "RegisterRoute bad handler name"     1 2 DX.RegisterRoute /x GET 'a b'
+dcase "RegisterRoute unknown handler"      1 2 DX.RegisterRoute /x GET no_such_fn008
+dcase "RegisterRoute abstract route class" 1 2 DX.RegisterRoute /x GET THttpRouteObject
+dcase "RegisterRoute property wrapper"     1 2 DX.RegisterRoute /x GET DX.BeforeRequest
+dcase "RegisterRoute '*' not last"         1 2 DX.RegisterRoute '/*a/b' GET dfn
+dcase "RegisterRoute second default"       1 1 DX.RegisterRoute /y GET dfn 1
+dcase "FindRoute miss"                     1 1 DX.FindRoute /none POST
+dcase "FindRoute malformed"                1 2 DX.FindRoute /x
+dcase "RouteRequest malformed"             1 2 DX.RouteRequest Nope Nope
+dcase "RegisterRoute ok — silent"          0 0 DX.RegisterRoute /ok GET dfn
+dcase "FindRoute hit — silent"             0 0 DX.FindRoute /ok GET
+dcase "RouteCount — silent"                0 0 DX.RouteCount
+dcase "RouteRequest to the default route — silent"      0 0 DX.RouteRequest DR DS
+THttpRouter.new DY
+dcase "RouteRequest 404 — an answer, silent"            0 0 DY.RouteRequest DR DS
+DX.delete; DY.delete
 DR.delete; DS.delete; DT.delete

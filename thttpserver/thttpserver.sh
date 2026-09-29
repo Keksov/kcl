@@ -1,9 +1,10 @@
 #!/bin/bash
 # thttpserver.sh — the entry point of kcl/thttpserver (PLAN.md §1.2).
 #
-# P0 content: the transport seam — THttpTransport (abstract) and
-# TReplayTransport (the fork-free test double). TNetcatTransport and
-# THttpServer arrive in P2; thttprouter.sh in P1.
+# Sources thttpmessage.sh (THttpRequest, THttpResponse) and thttprouter.sh
+# (THttpRouteObject, THttpRouter). Own content so far: the transport seam —
+# THttpTransport (abstract) and TReplayTransport (the fork-free test double).
+# TNetcatTransport and THttpServer arrive in P2.
 #
 #   TReplayTransport.new T
 #   T.AddRequestFile req1.txt; T.AddRequestFile req2.txt
@@ -27,6 +28,7 @@ fi
 THTTPSERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$THTTPSERVER_DIR/../../kklass/kklass_pascal.sh"
 source "$THTTPSERVER_DIR/thttpmessage.sh"
+source "$THTTPSERVER_DIR/thttprouter.sh"
 
 # ===========================================================================
 # THttpTransport — the network seam (PLAN §2.5). The server only knows

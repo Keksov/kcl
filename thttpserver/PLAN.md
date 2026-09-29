@@ -737,6 +737,18 @@ the measured facts found on the way (5.2.37 `${#var}` = 0 on a kklass var; EPOCH
 separator follows the locale; a NUL inside a header line is dropped by `read`; a 64 KiB body
 over a pipe ≈ 1.2 s) and the gate numbers are in the ledger's P0 entry.
 
+**P1 DONE 2026-09-29** — `thttprouter.sh` (THttpRouteObject, THttpRouter), sourced by
+`thttpserver.sh`; test 003 (106, incl. the 37-row pattern table parsed from its own comment
+block) and 008 extended to the router (64): unit suite 265/265 on 5.2.37 (threaded and
+single) and 5.3.9; red against the stub 102/106 (003) and 22/64 (008); sweep 7562/7562,
+0 [FAIL] on both bashes (three parts each). Interpretations (a default route also matches its
+own pattern; 405 wins over the defaults; HEAD → GET default; Before/After semantics and rc
+rules), the kklass facts found (a redeclared `proc HandleRequest` without `override` is an
+implementation, so D8 catches only a MISSING one) and the gate numbers are in the ledger's P1
+entry. Review R1 (same day): captured route params are percent-decoded with path rules
+(`+` literal, `%00` → 400, matching still on the raw PathInfo) — 003 grew to 131, the unit
+suite to 290/290 on both bashes; details in the ledger's `review_remarks`.
+
 Mode: the kcl orchestration mode — one Opus worker per phase, review against the live
 tree, remarks, commit kcl then the kbool bump; no push unless asked. The critic's probe
 scripts live in the session scratchpad and may be gone; §1.1 and §2.5 carry everything

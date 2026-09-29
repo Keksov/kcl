@@ -3,7 +3,7 @@
   "project": "kcl/thttpserver — a minimal HTTP server on kklass with GNU netcat as the network backend; kcl addition with own names (THttpRequest, THttpResponse, THttpRouter, THttpRouteObject, THttpServer, THttpApplication) plus a transport seam (THttpTransport, TNetcatTransport with two pre-spawned listener slots, TReplayTransport). FPC fcl-web is a design reference only. Goal: demonstrate kklass, not a full web server.",
   "created": "2026-09-27",
   "updated": "2026-09-29",
-  "status": "IN PROGRESS — P0 done 2026-09-29 (messages + replay transport, 137 unit tests); P1–P3 pending. PLAN.md written 2026-09-27, D6–D9 added and a critic pass folded in 2026-09-28 (3 blockers, 11 majors, 12 minors, nits; PLAN §8).",
+  "status": "IN PROGRESS — P0 done 2026-09-29 (messages + replay transport, 137 unit tests); P1 done 2026-09-29 (router, 265 unit tests); P2–P3 pending. PLAN.md written 2026-09-27, D6–D9 added and a critic pass folded in 2026-09-28 (3 blockers, 11 majors, 12 minors, nits; PLAN §8).",
   "decisions": {
     "D1": "own kcl names: kcl/thttpserver, THttp* classes; FPC fcl-web is a design reference only (recommendation was FPC-anchored kcl/fphttpserver — overruled)",
     "D2": "GNU netcat only + TReplayTransport test double",
@@ -124,20 +124,69 @@
       "id": "P1",
       "name": "router",
       "goal": "THttpRouteObject (abstract), THttpRouter: three handler kinds, :param and trailing *rest, 404/405 + Allow, default routes, Before/After hooks",
-      "status": "pending",
+      "status": "done",
+      "date": "2026-09-29",
+      "commit": "",
       "tasks": [
         {
           "id": "P1.1",
           "title": "thttprouter.sh per PLAN §2.4",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P1.2",
           "title": "test 003_Router with the pattern table",
-          "status": "pending"
+          "status": "done"
+        },
+        {
+          "id": "P1.3",
+          "title": "thttpserver.sh sources thttprouter.sh; 008_Contract extended to the router",
+          "status": "done"
         }
       ],
-      "gate": "001–003/008 green on both bashes; sweep"
+      "gate": "001–003/008 green on both bashes; sweep",
+      "red_before": {
+        "stub": "thttprouter.sh with the real class declarations; RegisterRoute/GetRouteCount/RouteRequest/FindRoute `: __THS_PENDING__; return 1`, constructors/destructors no-op (kept in the worker scratchpad as stub_router.sh; the final counts were re-measured by swapping it in after the last test was added)",
+        "003_Router.sh": "102 FAIL of 106",
+        "008_Contract.sh": "22 FAIL of 64 (the 42 passing: the P0 contract tests + the two P1 scope/structure checks the stub legitimately satisfies)",
+        "passing_on_stub": "003: the table block parses (37 rows); THttpRouteObject.new rc 1 (declaration-level abstract); no pwn; the stored-body grep (trivially clean stubs). One weak assert found on the first red run and strengthened: 'a second default → rc 1' passed on the stub (rc 1 from everything, empty count == empty count) — it now also requires RouteCount 4 before and after"
+      },
+      "gate_result": {
+        "unit_5.2.37_threaded": "265/265, 0 [FAIL] (001: 53, 002: 42, 003: 106, 008: 64)",
+        "unit_5.2.37_single": "265/265, 0 [FAIL]",
+        "unit_5.3.9_threaded": "265/265, 0 [FAIL]",
+        "sweep_5.2.37": "29 suites, 7562/7562, 0 [FAIL] — three sequential parts via the P0 helper (suites 1-9 / 10-19 / 20-29: 450 + 246 + 272 s)",
+        "sweep_5.3.9": "29 suites, 7562/7562, 0 [FAIL] — same three parts (441 + 231 + 267 s)"
+      },
+      "notes": [
+        "thttprouter.sh: THttpRouteObject (var RouteData, Create sets it '', empty Destroy for C9 chaining, abstract proc HandleRequest) and THttpRouter (var BeforeRequest/AfterRequest, property RouteCount read GetRouteCount, RegisterRoute, RouteRequest, FindRoute); file-scope __THS_ROUTE_METHODS, __THS_HANDLER_RE, __THS_NAME_RE, __THS_ROUTE_OBJ and fork-free helpers ths._routeMatch, ths._routeFind, ths._hookOk; sources kklass_pascal.sh + thttpmessage.sh (standalone-loadable, pinned by 008)",
+        "storage: indexed per-instance arrays _pat (normalized '/'+pattern) _met _hnd _kind (class|method|function) _def _rdat, freed in Destroy; kklass's _data holds only BeforeRequest/AfterRequest (003 §2, 008 greps the file for `_data`)",
+        "handler resolution once at registration: INST.METHOD = ${INST}_class set + wrapper function defined + METHOD in ${CLASS}_class_methods and NOT in ${CLASS}_class_properties (so INST.Var, INST.ComputedProp, INST.delete/.call/.property are refused); a bare name deriving from THttpRouteObject (kk._class_derives_from) with ${CLASS}_class_abstract != 1 and CLASS.new defined = class; else a defined function; else rc 2",
+        "fact 16 (router half): HEAD → HEAD/ALL route first, else the GET route of a matching pattern; on the wire (replay capture) 200 + the GET Content-Length, no body. fact 17: 37-row pattern table parsed from 003's comment block, 404/405 + Allow, registration order, defaults, the ≥3-arg METHOD rule, three kinds, property wrappers refused, route object freed after every request (3/3 ctor/dtor, no __ths_route_obj vars/functions left). fact 20: 13 DATA values (spaces, *, $(…), backticks, '', -n, =, newline, ${IFS}, backslashes, lead/trail blanks, %41&x=1) verbatim as $3 and RouteData across all three kinds. fact 21: a route class with no HandleRequest → rc 2, stdout+stderr empty, constructor counter 0",
+        "handler contract (§2.11): exactly three args REQ RESP DATA for functions / INST.METHOD, two for HandleRequest; a handler reading $req.Method/.RouteParam/.PathInfo and $resp.Code prints nothing; a handler with `local BeforeRequest AfterRequest RouteCount state …` leaves the router intact; a BARE `AfterRequest=…` in a handler writes the router's property (pinned as the documented hazard)",
+        "fork-free routing: BASHPID, PATH='' and the DEBUG-trap canary (set -T, positive control) over RouteRequest with a route object / INST.METHOD / function / 404 / 405; stored bodies of both classes contain no $( ` |",
+        "measured cost (worker probe, 50 iterations, 10 routes, match at the 10th, request already parsed): RouteRequest with a function handler ≈4.3-4.4 ms, with a route object ≈5.1-5.6 ms, both bashes"
+      ],
+      "deviations": [
+        "a default route ALSO matches its own pattern as an ordinary route, in registration order (FPC's FindHTTPRoute semantics); 'pattern ignored' applies to its use as the fallback, which captures no params. PLAN §2.4 can be read either way",
+        "405 wins over the defaults: when some route's pattern matches the path but not the method, the answer is 405 even if a default route exists for the method (PLAN §2.4's literal order: 'no route matches the path → default'). FPC would serve the default instead",
+        "default fallback order: the method's own default, for HEAD then the GET default, then the ALL default (C13's HEAD → GET carried over to defaults)",
+        "bare `:` (one non-empty segment, no capture) and bare `*` (the rest, no capture) are accepted; a `*` anywhere but at the start of the last segment is rc 2 (so `/a*`, `/**`, `/a/*b*` are refused, not only `*` in a middle segment). Duplicate param names: the later one wins (not refused). The PATH given to FindRoute also has its leading `/` optional",
+        "RouteRequest flow beyond PLAN §2.4's one line: BeforeRequest non-zero → the handler is skipped, AfterRequest still runs, Before's rc is returned; BeforeRequest that SENT the response → the handler is skipped (FPC RouteRequest's ContentSent safety), rc 0; AfterRequest always runs (also after 404/405 and a failing handler); rc = the first non-zero of Before/handler/After; 404/405 are rc 0 (answers — a non-zero would become 500 in the server)",
+        "rc 2 cases of RouteRequest: argument count ≠ 2, REQ/RESP not identifier-shaped or not instances of (a descendant of) THttpRequest / THttpResponse, a request whose Method is '' (not parsed), a non-empty hook that is not a handler-shaped name of a defined function (checked before anything runs; AfterRequest is re-read and re-checked after the handler), a registered function / INST.METHOD that no longer exists at dispatch (silent, kk.debug)",
+        "route objects: a live __ths_route_obj left by an aborted pass is deleted before the new one is created; a constructor failure's rc is returned and HandleRequest is not run; the object is deleted whatever HandleRequest returned",
+        "FindRoute: METHOD must be one of the 8 HTTP methods (ALL, lower case, '' → rc 2); a miss sets the global REPLY and emits one kk.debug line (kcl §1.2)",
+        "'a class that forgot override HandleRequest' (assignment wording) is read as a class that does not implement HandleRequest at all: kklass treats a redeclared `proc HandleRequest` WITHOUT `override` as an implementation (class_abstract 0) — pinned in 003 as accepted and served"
+      ],
+      "measured_p1": {
+        "override_not_required": "class TX : TBase (TBase has `abstract proc HandleRequest`) declaring `proc HandleRequest` without `override` + a body → TX_class_abstract=0, TX_abstract_methods=(), .new rc 0 (both bashes, probe1.sh). D8 therefore only catches a MISSING HandleRequest",
+        "class_methods_content": "${CLASS}_class_methods lists methods incl. the destructor and kklass's synthesized `_get_X`/`_set_X` for `property X read G`, but not the constructor; plain vars and property names are in ${CLASS}_class_properties only — the INST.METHOD check relies on that split",
+        "local_shadows_nameref": "a handler's `local P=…` shadows a caller frame's `local -n P=D[p]` without writing D; a bare `P=…` writes D[p] (both bashes, probe2.sh)"
+      },
+      "found_in_P1": [],
+      "review_remarks": [
+        "R1 (reviewer, 2026-09-29): route params must be percent-decoded before they reach the handler. Done: matching stays on the RAW PathInfo (an encoded %2F never splits a segment; PathInfo stays undecoded); each captured value is decoded before SetRouteParam by the new file-scope ths._decodeParams, which calls the P0 ths._decode with a new optional mode `path` (`+` stays `+`; otherwise the same loop: %XX → byte, invalid %G1 / truncated %4 literal, backslashes doubled before %b) under a local LC_ALL=C — no duplicated loop, fork-free (003 §8 canary now routes a decoded param); a *rest value is decoded as a whole (%2F → /); %00 in any captured value → Code 400, rc 0, handler (and route object) not run, Before/After still run, no param set. 003: 4 pattern-table rows changed/added (x=$(id), x=a/b, x=a+b+A%G1%4, path=a/b/c/) + the table comment, canary case, new §9 with 22 tests (%20, %C3%B6, %2F in :param, literal +, %2B, %G1, trailing %4 and %, literal backslash, %5C, %5Cn%5Cx41, \\x41%41, hostile %24%28touch%20pwn%29 and %60…%60 verbatim and never executed, *rest decoding, raw /p/a/b → 404, %00 in :param and *rest → 400 with the handler not run and hooks run, 400 on the wire, route object gets the decoded value and none is created on %00). Red against the pre-R1 code: 19 FAIL of 131 in 003 (the new cases that already held — literal +, %G1, %4, %, backslash, empty rest, 404, no pwn — passed as they should). After: unit suite 290/290 (001: 53, 002: 42, 003: 131, 008: 64) on 5.2.37 threaded and single and on 5.3.9 threaded; master sweep left to the reviewer"
+      ]
     },
     {
       "id": "P2",
