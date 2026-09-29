@@ -1,6 +1,7 @@
 #!/bin/bash
-# 008_Contract.sh — thttpserver P0+P1: the kcl contract (kcl/README.md §1,
-# PLAN §2.1) for the message classes, the replay transport and the router.
+# 008_Contract.sh — thttpserver P0+P1+P2: the kcl contract (kcl/README.md §1,
+# PLAN §2.1) for the message classes, the replay transport, the router, the
+# netcat transport and the server.
 #
 # What it pins:
 #
@@ -13,14 +14,21 @@
 #                     file-scope constants; destructors freeing every extra
 #                     per-instance array (router: _pat _met _hnd _kind _def
 #                     _rdat, never _data); ONE write in SendContent, errors
-#                     silenced; P1 scope — thttpserver.sh sources the message
-#                     and router files, no netcat/server class yet.
+#                     silenced; P2 scope — thttpserver.sh sources the message,
+#                     router and tstopwatch files and declares the transports
+#                     and THttpServer, no application yet; the transport's
+#                     FIFO writer is O_WRONLY (never `<>`), the close path
+#                     never kills before the drain.
 #   set -eu           a child under `set -eu` loads the unit (twice) and runs
 #                     the replay pipeline end to end, every parser status path,
-#                     every guarded miss and refusal, and exits clean.
+#                     every guarded miss and refusal, the server over a replay
+#                     transport (BeginServe / ServeOne / EndServe / Serve), the
+#                     netcat transport's refusals, and exits clean.
 #   §1.2 diagnostics  every rc 1 / rc 2 path: silent with the switch off,
 #                     exactly ONE `kk.debug` line under VERBOSE_KKLASS=debug;
 #                     the successful paths silent either way.
+#   fork-free         THttpServer.ServeOne over TReplayTransport: BASHPID,
+#                     PATH='', the stored request-path bodies, a DEBUG canary.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -42,7 +50,7 @@ ERRF="$TMP/contract.err"
 OUTF="$TMP/contract.out"
 FILES=("$MSG" "$ROUTER" "$UNIT")
 
-kt_test_section "008: the kcl contract for thttpserver (P0 + P1)"
+kt_test_section "008: the kcl contract for thttpserver (P0 + P1 + P2)"
 
 # ===========================================================================
 kt_test_section "0. source integrity"
@@ -108,22 +116,63 @@ for s in _pat _met _hnd _kind _def _rdat; do [[ "$d" == *"\"\${__inst__}$s\""* ]
 if grep -n '_data' "$ROUTER" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then bad+=" router-touches-_data"; fi
 d="$(sed -n '/^THttpRouteObject.Destroy()/,/^}/p' "$ROUTER")"
 [[ -n "$d" && "${THttpRouteObject_destructor_name:-}" == Destroy ]] || bad+=" routeobject-no-destructor"
-if [[ -z "$bad" ]]; then kt_test_pass "all fourteen arrays, replay chains with inherited, THttpRouteObject has a destructor, router never names _data"; else kt_test_fail "$bad"; fi
+d="$(sed -n '/^TNetcatTransport.Destroy()/,/^}/p' "$UNIT")"
+[[ "$d" == *Shutdown* && "$d" == *inherited* ]] || bad+=" netcat-destroy"
+d="$(sed -n '/^THttpServer.Destroy()/,/^}/p' "$UNIT")"
+[[ "$d" == *EndServe* && "$d" == *'_sw.delete'* ]] || bad+=" server-destroy"
+if grep -nE '_data\b' "$UNIT" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then bad+=" server-file-touches-_data"; fi
+if [[ -z "$bad" ]]; then kt_test_pass "all fourteen arrays, replay/netcat chain with inherited, THttpRouteObject has a destructor, the server frees its own objects, nobody names _data"; else kt_test_fail "$bad"; fi
 
 kt_test_start "SendContent writes with ONE printf to the fd, stderr silenced before the fd redirection"
 b="$(sed -n '/^THttpResponse.SendContent()/,/^}/p' "$MSG")"
 nw=0; while IFS= read -r l; do [[ "$l" == *'>&"$__ths_fd"'* ]] && nw=$(( nw + 1 )); done <<< "$b"
 if [[ $nw -eq 1 && "$b" == *"printf '%s' \"\$__ths_out\" 2>/dev/null >&\"\$__ths_fd\""* ]]; then kt_test_pass "one write"; else kt_test_fail "writes=$nw"; fi
 
-kt_test_start "P1 scope: thttpserver.sh sources kklass_pascal.sh, thttpmessage.sh, thttprouter.sh; no netcat/server class yet"
+kt_test_start "P2 scope: thttpserver.sh sources kklass_pascal.sh, thttpmessage.sh, thttprouter.sh, tstopwatch.sh; declares exactly the two transports + TNetcatTransport + THttpServer; no application yet"
 srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$UNIT" || :)"
 n=0; while IFS= read -r l; do [[ -n "$l" ]] && n=$(( n + 1 )); done <<< "$srcs"
-if [[ $n -eq 3 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *thttpmessage.sh* && "$srcs" == *thttprouter.sh* ]] \
-   && ! grep -nE '^class (TNetcatTransport|THttpServer|THttpApplication)' "$UNIT" "$ROUTER" "$MSG" >/dev/null \
+cls="$(grep -E '^class ' "$UNIT" || :)"
+if [[ $n -eq 4 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *thttpmessage.sh* && "$srcs" == *thttprouter.sh* && "$srcs" == *tstopwatch/tstopwatch.sh* \
+      && "$cls" == $'class THttpTransport\nclass TReplayTransport : THttpTransport\nclass TNetcatTransport : THttpTransport\nclass THttpServer' ]] \
+   && ! grep -nE '^class THttpApplication' "$UNIT" "$ROUTER" "$MSG" >/dev/null \
    && [[ ! -e "$UNIT_DIR/thttpapplication.sh" ]]; then
-    kt_test_pass "three sources; P2/P3 classes absent"
+    kt_test_pass "four sources; four classes; P3 absent"
 else
-    kt_test_fail "sources: ${srcs//$'\n'/ | }"
+    kt_test_fail "sources: ${srcs//$'\n'/ | } classes: ${cls//$'\n'/ | }"
+fi
+
+kt_test_start "the transport's mechanism (PLAN §2.5, C1–C4): the FIFO writer is opened O_WRONLY (never '<>'), nc's stdin through 'exec cat', the child closes the other slot's fds, nc -vv"
+b="$(sed -n '/^TNetcatTransport._spawn()/,/^}/p' "$UNIT")"
+a="$(sed -n '/^TNetcatTransport.BuildArgv()/,/^}/p' "$UNIT")"
+bad=""
+[[ "$b" == *'exec {__ths_wr}>"'* ]] || bad+=" no-O_WRONLY-writer"
+[[ "$b" == *'<>'* ]] && bad+=" O_RDWR"
+[[ "$b" == *'< <(exec cat '* ]] || bad+=" no-cat-relay"
+[[ "$b" == *'if [[ -n "$__ths_wo" ]]; then exec {__ths_wo}>&-; fi'*'if [[ -n "$__ths_ro" ]]; then exec {__ths_ro}<&-; fi'*'exec "${ths_argv[@]}"'* ]] || bad+=" child-keeps-other-slot"
+[[ "$a" == *'-l -c -vv -n -w'* ]] || bad+=" argv"
+if grep -n '<>' "$UNIT" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then bad+=" <>-somewhere"; fi
+if [[ -z "$bad" ]]; then kt_test_pass "as measured"; else kt_test_fail "$bad"; fi
+
+kt_test_start "the drained close (C2): wr closed, rd drained to EOF under CloseTimeout, rd closed, kill ONLY past the deadline, every kill/wait silenced"
+b="$(sed -n '/^TNetcatTransport._closeSlot()/,/^}/p' "$UNIT")"
+s="$(sed -n '/^TNetcatTransport.Shutdown()/,/^}/p' "$UNIT")"
+bad=""
+iw="${b%%'exec {__ths_wr}>&-'*}"; ir="${b%%'exec {__ths_rd}<&-'*}"; ik="${b%%kill -TERM*}"; iwt="${b%%'wait "$__ths_pid"'*}"
+(( ${#iw} < ${#ir} && ${#ir} < ${#ik} && ${#ik} < ${#iwt} )) || bad+=" order"
+[[ "$b" == *'read -r -d '"''"' -n 8192 -t'* ]] || bad+=" no-drain"
+[[ "$b" == *'if (( ! __ths_eof )); then'*'kill -TERM "$__ths_pid" 2>/dev/null || :'* ]] || bad+=" kill-not-deadline-only"
+[[ "$b" == *'wait "$__ths_pid" 2>/dev/null ||'* ]] || bad+=" wait-not-silenced"
+[[ "$s" == *'kill -TERM "$__ths_pid" 2>/dev/null || :'* && "$s" == *'wait "$__ths_pid" 2>/dev/null || :'* ]] || bad+=" shutdown-not-silenced"
+if [[ -z "$bad" ]]; then kt_test_pass "close wr → drain → close rd → kill past deadline → wait"; else kt_test_fail "$bad"; fi
+
+kt_test_start "the server never touches EXIT; traps restored as 'trap - INT TERM PIPE; eval \"\$_savedTraps\"'; the ONE fork of Serve is the trap -p capture"
+b="$(sed -n '/^THttpServer.EndServe()/,/^}/p' "$UNIT")"
+bs="$(sed -n '/^THttpServer.BeginServe()/,/^}/p' "$UNIT")"
+if ! grep -nE "^[^#]*trap[^#]*EXIT" "$UNIT" >/dev/null && [[ "$b" == *'trap - INT TERM PIPE'*'eval "$_savedTraps"'* \
+      && "$bs" == *'_savedTraps="$(trap -p INT TERM PIPE)"'* && "$bs" == *"trap '' PIPE"* ]]; then
+    kt_test_pass "as specified"
+else
+    kt_test_fail "EndServe/BeginServe trap handling differs"
 fi
 
 kt_test_start "thttprouter.sh: sources kklass_pascal.sh and thttpmessage.sh only (never the entry point), declares exactly THttpRouteObject and THttpRouter"
@@ -319,6 +368,61 @@ RT.RouteRequest || rc=$?;                      [[ $rc -eq 2 ]] || exit 1; rc=0
 THttpRouteObject.new X 2>/dev/null || rc=$?;   [[ $rc -eq 1 ]] || exit 10; rc=0
 RT.delete'
 
+printf 'GET /a HTTP/1.0\r\n\r\n' > "$TMP/s1.req"
+
+expect_clean "the server over a replay transport: BeginServe, ServeOne x5 (200, 400, gone, 200, fatal), EndServe, Serve, Active, Terminate, free" '
+fa() { $2.Write "a"; }
+bad() { return 5; }
+lg() { :; }
+THttpRouter.new RT
+RT.RegisterRoute /a GET fa
+RT.RegisterRoute /p POST fa
+TReplayTransport.new T
+for f in s1 400 gone ok; do T.AddRequestFile "$TMP/$f.req"; done
+THttpServer.new S
+S.Transport = T
+S.Router = RT
+S.OnLog = lg
+S.BeginServe
+S.Active; [[ "$RESULT" == 1 ]] || exit 11
+S.ServeOne; [[ "$RESULT" == 200 ]] || exit 9
+S.ServeOne; [[ "$RESULT" == 400 ]] || exit 8
+S.ServeOne; [[ "$RESULT" == gone ]] || exit 7
+S.ServeOne; [[ "$RESULT" == 200 ]] || exit 6
+rc=0; S.ServeOne || rc=$?; [[ $rc -eq 2 ]] || exit 5; rc=0
+S.EndServe
+S.RequestCount; [[ "$RESULT" == 4 ]] || exit 4
+S.Active; [[ "$RESULT" == 0 ]] || exit 3
+TReplayTransport.new T2
+T2.AddRequestFile "$TMP/s1.req"
+S.Transport = T2
+S.OnRequest = bad
+S.Serve || rc=$?; [[ $rc -eq 1 ]] || exit 2; rc=0
+S.LastError; [[ -n "$RESULT" ]] || exit 1
+S.Terminate
+S.Active = false
+S.delete; T.delete; T2.delete; RT.delete'
+
+expect_clean "TNetcatTransport under set -eu: BuildArgv, every refusal guarded, Close/Shutdown with nothing open, free" '
+TNetcatTransport.new N
+N.NcBinary = /no/such/nc
+rc=0
+N.BuildArgv 1bad || rc=$?;          [[ $rc -eq 2 ]] || exit 9; rc=0
+N.BuildArgv A || rc=$?;             [[ $rc -eq 1 ]] || exit 8; rc=0
+N.Accept x 1 || rc=$?;              [[ $rc -eq 2 ]] || exit 7; rc=0
+N.Accept 0 10 || rc=$?;             [[ $rc -eq 2 ]] || exit 6; rc=0
+N.LastError; [[ "$RESULT" == "nc not found"* ]] || exit 5
+N.NcBinary = "$BASH"
+N.Port = 0
+N.BuildArgv A || rc=$?;             [[ $rc -eq 2 ]] || exit 4; rc=0
+N.Port = 8080
+declare -a A=()
+N.BuildArgv A
+[[ "$RESULT" == 11 && "${A[0]}" == "$BASH" && "${A[*]:1}" == "-l -c -vv -n -w 60 -s 127.0.0.1 -p 8080" ]] || exit 3
+N.CloseConnection
+N.Shutdown
+N.delete'
+
 # ===========================================================================
 kt_test_section "2. §1.2: one kk.debug line on every rc 1 / rc 2 path, none otherwise"
 # ===========================================================================
@@ -396,3 +500,92 @@ THttpRouter.new DY
 dcase "RouteRequest 404 — an answer, silent"            0 0 DY.RouteRequest DR DS
 DX.delete; DY.delete
 DR.delete; DS.delete; DT.delete
+
+THttpServer.new DV; TNetcatTransport.new DN; THttpRouter.new DZ
+DN.NcBinary = /no/such/nc
+dcase "ServeOne without a transport"             1 2 DV.ServeOne
+dcase "SetActive with a value that is no boolean" 1 2 DV.SetActive maybe
+DV.Transport = DZ
+dcase "BeginServe with a non-transport"          1 2 DV.BeginServe
+DV.Transport = ""
+DV.MaxRequests = -1
+dcase "BeginServe with a negative MaxRequests"   1 2 DV.BeginServe
+DV.MaxRequests = 0
+dcase "BuildArgv bad OUTARR"                     1 2 DN.BuildArgv 1bad
+dcase "BuildArgv: nc not found"                  1 1 DN.BuildArgv NA
+dcase "Accept malformed"                         1 2 DN.Accept x 1
+dcase "Accept: nc not found"                     1 2 DN.Accept 0 10
+dcase "EndServe when not active — silent"        0 0 DV.EndServe
+dcase "Terminate — silent"                       0 0 DV.Terminate
+dcase "Active (read) — silent"                   0 0 DV.Active
+dcase "RequestCount — silent"                    0 0 DV.RequestCount
+dcase "SetActive false when idle — silent"       0 0 DV.SetActive false
+dcase "Shutdown with nothing open — silent"      0 0 DN.Shutdown
+dcase "CloseConnection with nothing open — silent" 0 0 DN.CloseConnection
+DV.delete; DN.delete; DZ.delete
+
+# ===========================================================================
+kt_test_section "3. THttpServer.ServeOne over TReplayTransport is fork-free (PLAN §2.1, §4)"
+# ===========================================================================
+
+printf 'POST /ff?q=%%41b HTTP/1.1\r\nHost: h\r\nX-A: 1\r\nContent-Length: 3\r\n\r\nxyz' > "$TMP/ff.req"
+ffh() { local m q c; $1.Method; m="$RESULT"; $1.QueryField q; q="$RESULT"; $1.Content; c="$RESULT"; $2.Write "$m:$q:$c"; $2.SetCustomHeader X-Out yes; }
+FFLOG=""
+fflog() { FFLOG="$2"; }
+THttpRouter.new FR
+FR.RegisterRoute /ff POST ffh
+THttpServer.new FS
+FS.Router = FR
+FS.OnLog = fflog
+# ff_serve — one ServeOne over a fresh replay transport; FF_FILE = the capture.
+ff_serve() {
+    TReplayTransport.new FT
+    FT.AddRequestFile "$TMP/ff.req"
+    FS.Transport = FT
+    FS.ServeOne || return 11
+    [[ "$RESULT" == 200 ]] || return 12
+    FT.ResponseFile 0; FF_FILE="$RESULT"
+    FT.delete
+    return 0
+}
+ff_ok() { local b=""; [[ -f "$FF_FILE" ]] && b="$(<"$FF_FILE")"; [[ "$b" == *$'\r\nX-Out: yes\r\n'*$'\r\n\r\n'"POST:Ab:xyz" && "$FFLOG" =~ ^-\ POST\ /ff\?q=%41b\ 200\ 11\ [0-9]+$ ]]; }
+
+kt_test_start "(a) \$BASHPID is unchanged across ServeOne (accept, objects, parse, route, send, log, close, free)"
+p0=$BASHPID; FFLOG=""
+prc=0; ff_serve || prc=$?
+if [[ $prc -eq 0 && $BASHPID == "$p0" ]] && ff_ok; then kt_test_pass "BASHPID $p0, response and log line correct"; else kt_test_fail "rc=$prc log='$FFLOG' file='$(cat "$FF_FILE" 2>/dev/null | head -c 300)'"; fi
+
+kt_test_start "(b) ServeOne works with PATH='' (no external command on the request path)"
+ff_nopath() { local PATH=''; ff_serve; }
+FFLOG=""; rm -f "$FF_FILE"
+prc=0; ff_nopath 2>"$TMP/ffnp.err" || prc=$?
+e="$(<"$TMP/ffnp.err")"
+if [[ $prc -eq 0 && -z "$e" ]] && ff_ok; then kt_test_pass "rc 0, silent, full response"; else kt_test_fail "rc=$prc stderr='${e:0:200}' log='$FFLOG'"; fi
+
+kt_test_start "(c) THttpServer's request-path bodies (ServeOne _handleConnection HandleRequest _log Terminate GetActive SetActive) hold no \$( , backtick or pipe"
+bad=""; nb=0
+for m in ServeOne _handleConnection HandleRequest _log Terminate GetActive SetActive; do
+    v="THttpServer_method_body_${m}"
+    if [[ -z "${!v+x}" ]]; then bad+=" missing:$m"; continue; fi
+    b="${!v}"; nb=$(( nb + 1 ))
+    probe="${b//'$(('/}"; probe="${probe//'||'/}"
+    [[ "$probe" == *'$('* || "$probe" == *'`'* || "$probe" == *'|'* ]] && bad+=" $m"
+done
+if [[ -z "$bad" && $nb -eq 7 ]]; then kt_test_pass "$nb bodies clean"; else kt_test_fail "bodies=$nb:$bad"; fi
+
+kt_test_start "(d) a DEBUG-trap canary (set -T) sees NO subshell during ServeOne — and does see one in a control run"
+CANARY="$TMP/fork.canary"; rm -f "$CANARY"
+set -T
+trap 'if (( BASH_SUBSHELL > 0 )); then : > "$CANARY"; fi' DEBUG
+prc=0; ff_serve || prc=$?
+trap - DEBUG
+set +T
+seen=0; [[ -e "$CANARY" ]] && seen=1
+rm -f "$CANARY"
+set -T; trap 'if (( BASH_SUBSHELL > 0 )); then : > "$CANARY"; fi' DEBUG
+ctl="$(printf x)"
+trap - DEBUG; set +T
+ctlseen=0; [[ -e "$CANARY" ]] && ctlseen=1
+rm -f "$CANARY"
+if [[ $prc -eq 0 && $seen -eq 0 && $ctlseen -eq 1 ]]; then kt_test_pass "ServeOne: no subshell; control: detected"; else kt_test_fail "rc=$prc seen=$seen control=$ctlseen"; fi
+FS.delete; FR.delete

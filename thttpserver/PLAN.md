@@ -70,6 +70,12 @@ stay file-scope globals).
 | nc exit status | rc 1 on every normal close — never used for classification |
 | sequential throughput | ≈100 ms per request end-to-end (20 requests, one curl each, single listener, 5.3.9) |
 | concurrency, single listener | 8 parallel no-retry clients: 6×200, 2× curl rc 56 (reset) |
+| concurrency **with the pre-spawn** (P2) | 8 parallel clients retrying on rc 7 only: **2–3 × rc 56 in each of 5 rounds** (5.2.37); **3 per round** on 5.3.9 (rc 56, once rc 55 — the send side of the same reset). The resets are consistent with GNU nc closing its listening socket after its one accept, which resets the connections already queued in its backlog: they never reached a handler (access-log lines = successes: 27/27 on 5.2.37, 25/25 on 5.3.9). D5 lets ONE further client wait, it cannot absorb a burst — see fact 7 |
+| P2 spike: the §2.5 variant inside a kklass class | 6 scenarios × both bashes, all as designed: 3 requests with client 2 accepted by the pre-spawned listener, 2 × 50 kB, silent client → TimedOut, a partial first line accumulated across ticks, busy port → `Error: Couldn't setup listening socket (err=-3)` in 98–126 ms, exec failure / nc not found → fatal at once, Shutdown with client 2 in the pre-spawned listener → 0 bytes, `-w 2` expiry → respawn with the idle ticks going on; `wait PID` works for a process substitution that is not the last one (rc 1 = nc's) |
+| P2 costs (TNetcatTransport, 12 requests) | Accept with the request line already waiting (read + state + the pre-spawn) 42–52 ms; drained CloseConnection 20–44 ms (5.2.37) / 9–29 ms (5.3.9); Shutdown 67 / 33 ms |
+| P2: trapped signal vs `read -t` | a trapped TERM does **not** cut `read -t 3` short: the trap runs, the read goes on to its timeout (rc 142 after 3.03 s, both bashes). The 1 s Accept tick bounds the delay |
+| P2: kklass member as the trap | a **private** method run by a trap while ANOTHER class's frame is on top prints `[kk] warning: private method 'X._onSignal' accessed from 'Y'` (both bashes) — hence the flag design of §2.6 |
+| P2: `trap -p` capture | `$(trap -p …)` sees the parent's traps (both bashes; 1 fork). Fork-free alternatives: `trap -p > file` + `read` works but the file needs `rm` (a fork) or stays; the 5.3 funsub `${ trap -p; }` runs in the shell but is a parse error for 5.2. The one `$( )` per Serve stays |
 
 **Bash and kklass**
 
@@ -507,7 +513,13 @@ it truncates every response (§1.1).
 **`Shutdown`** closes both slots' fds, kills and reaps both pids (`2>/dev/null || :` —
 an exited-but-unreaped pid makes a bare `kill` print), removes the FIFOs, stderr files
 and dir. A connection already accepted by the pre-spawned listener is closed without a
-response (documented; pinned by 005).
+response (documented; pinned by 005). **Review R1 (P2):** closing and killing at once is
+the C2 kill-first race for a slot that has ACCEPTED a client — measured 3/30 resets on
+5.2.37 (the client's read ends rc 1 instead of a clean EOF). A **connected** slot
+(`Connection from` in its stderr) is therefore closed the drained way — its writer
+closed first, then `_closeSlot drain` with one deadline (now + CloseTimeout) shared by
+the connected slots; a slot that is only **listening** is still killed at once (its
+stdin EOF would not end nc's accept). After the change 60/60 clean on each bash.
 
 **Fd hygiene.** A background process a handler starts inherits the current connection's
 writer and would hold the connection open; `CloseTimeout` bounds it (documented).
@@ -537,7 +549,20 @@ EndServe:   transport Shutdown; trap - INT TERM PIPE; eval "$saved"; _active=0
 ```
 
 (`trap -p` inside `$( )` is the one place the loop forks, once per `Serve`; P2 checks
-whether `trap -p` output can be captured fork-free and prefers that.)
+whether `trap -p` output can be captured fork-free and prefers that — **measured P2: not
+without another fork or a 5.3-only syntax (§1.1); the `$( )` stays**.)
+
+**As implemented (P2 — the measurements contradicted the trap line above).** The trap is
+not `<srv>._onSignal`: a private member run by a trap while another object's frame is
+on top (the transport in `Accept`, the router, a handler) prints a kklass visibility
+warning, and a Shutdown run from inside a trap could land in the middle of `_spawn` /
+`_closeSlot`. BeginServe sets `trap '__THS_SIGNAL=INT' INT` / `trap '__THS_SIGNAL=TERM'
+TERM` — a bare assignment to a file-scope flag. The flag is read at safe points: the
+Serve loop and ServeOne (then the private `_onSignal`: `_stop=1` + transport Shutdown)
+and TNetcatTransport.Accept at every ≤ 1 s tick (rc 1). So a signal lets the current
+response finish, a connection waiting in the pre-spawned listener is closed without a
+response (fact 11), and Serve returns 0. `read -t` is not interrupted by a trapped
+signal anyway (§1.1), so the reaction time is one tick.
 
 * The server never touches `EXIT`. Tests signal the child with **TERM** (INT is ignored
   in a `&` child and cannot be trapped).
@@ -657,7 +682,10 @@ A minimal application needs no subclass at all (functions + `App.RegisterRoute`)
 7. D5, deterministic: the request-1 handler waits until slot 1's stderr shows `Listening
    on` and only then creates the "ready" marker; client 2 then connects **without a
    refusal** and is answered after request 1 (004). 8 parallel clients retrying on rc 7
-   only all get 200 (004).
+   only all get 200 (004). **Measured P2: false as written** — 2–3 of 8 get rc 56, a reset
+   of connections queued in the listener's accept backlog (§1.1). 004 pins instead: all 8
+   get 200 when the (idempotent) GET is also retried on rc 55/56, and the access log shows
+   **exactly 8** handled requests — so no retried request had been handled.
 8. A connected but silent client gets **408** after `RequestTimeout` and the next client
    is served (004, 007).
 9. The drained close delivers a 50 kB body complete, 5/5 (004); an HTTP/1.0 client that
@@ -748,6 +776,20 @@ implementation, so D8 catches only a MISSING one) and the gate numbers are in th
 entry. Review R1 (same day): captured route params are percent-decoded with path rules
 (`+` literal, `%00` → 400, matching still on the raw PathInfo) — 003 grew to 131, the unit
 suite to 290/290 on both bashes; details in the ledger's `review_remarks`.
+
+**P2 DONE 2026-09-29** — opening spike first (§2.5 inside a throw-away kklass class, 6
+scenarios, both bashes: works as designed, no fallback); then `TNetcatTransport` and
+`THttpServer` in `thttpserver.sh` (+ `kcl/tstopwatch` for the access log), tests 004
+(45: a replay-driven server section + real sockets), 005 (16), 007 (21), 008 extended
+(88) and the shared socket helper `tests/_ths_socket.sh`: unit suite 396/396 on 5.2.37
+(threaded ×3, single ×1) and 5.3.9 (threaded ×4); red against the stub 45/45, 16/16,
+21/21, 24/88; kklass 344/344 and tcustomapplication 377/377 on both bashes (the full
+sweep is the reviewer's). Measurements that contradicted the plan — the accept-backlog
+resets (fact 7), the trap design (§2.6) — are in §1.1 and the ledger's `measured_p2`.
+Review R1 (same day): Shutdown drains a CONNECTED slot instead of killing it (§2.5), 005
+grew a listening-only Shutdown bound (17 tests); unit suite 397/397 threaded on both
+bashes and single on 5.2.37; the 005 fork-storm check 10/10 on each bash before and after
+(the storm did not reproduce the sweep failure; `probe_held` did: 27/30 → 60/60).
 
 Mode: the kcl orchestration mode — one Opus worker per phase, review against the live
 tree, remarks, commit kcl then the kbool bump; no push unless asked. The critic's probe

@@ -3,7 +3,7 @@
   "project": "kcl/thttpserver — a minimal HTTP server on kklass with GNU netcat as the network backend; kcl addition with own names (THttpRequest, THttpResponse, THttpRouter, THttpRouteObject, THttpServer, THttpApplication) plus a transport seam (THttpTransport, TNetcatTransport with two pre-spawned listener slots, TReplayTransport). FPC fcl-web is a design reference only. Goal: demonstrate kklass, not a full web server.",
   "created": "2026-09-27",
   "updated": "2026-09-29",
-  "status": "IN PROGRESS — P0 done 2026-09-29 (messages + replay transport, 137 unit tests); P1 done 2026-09-29 (router, 265 unit tests); P2–P3 pending. PLAN.md written 2026-09-27, D6–D9 added and a critic pass folded in 2026-09-28 (3 blockers, 11 majors, 12 minors, nits; PLAN §8).",
+  "status": "IN PROGRESS — P0 done 2026-09-29 (messages + replay transport, 137 unit tests); P1 done 2026-09-29 (router, 265 unit tests); P2 done 2026-09-29 (netcat transport + server, 396 unit tests); P3 pending. PLAN.md written 2026-09-27, D6–D9 added and a critic pass folded in 2026-09-28 (3 blockers, 11 majors, 12 minors, nits; PLAN §8).",
   "decisions": {
     "D1": "own kcl names: kcl/thttpserver, THttp* classes; FPC fcl-web is a design reference only (recommendation was FPC-anchored kcl/fphttpserver — overruled)",
     "D2": "GNU netcat only + TReplayTransport test double",
@@ -193,30 +193,90 @@
       "id": "P2",
       "name": "netcat transport + server",
       "goal": "opening spike reproducing PLAN §2.5 (O_WRONLY FIFO writer, child closes the other slot's fds, cat relay, -vv state machine, drained close) inside a kklass class on both bashes (fallback rule); TNetcatTransport with two slots (D5); THttpServer (BeginServe/ServeOne/EndServe/Serve/Active/Terminate/MaxRequests/events/500/HEAD/408, SIGPIPE, trap save/restore)",
-      "status": "pending",
+      "status": "done",
+      "date": "2026-09-29",
+      "commit": "",
       "tasks": [
         {
           "id": "P2.0",
           "title": "opening spike per PLAN §2.5 on both bashes; record measurements; fallback rule if it cannot be reproduced",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P2.1",
           "title": "TNetcatTransport per PLAN §2.5",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P2.2",
           "title": "THttpServer per PLAN §2.6",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": "P2.3",
           "title": "tests 004_Server, 005_Lifecycle, 007_Hostile (socket files must RUN on both bashes)",
-          "status": "pending"
+          "status": "done"
         }
       ],
-      "gate": "all suites green on both bashes with the socket tests run, not skipped; sweep"
+      "gate": "all suites green on both bashes with the socket tests run, not skipped; sweep",
+      "red_before": {
+        "stub": "thttpserver.sh with the real TNetcatTransport / THttpServer declarations, the tstopwatch source and __THS_SIGNAL; every member body `: __THS_PENDING__; return 1`, constructors setting the defaults, destructors no-op (kept in the worker scratchpad as p2/stub_server.sh; the counts below were re-measured by swapping it in after the last test change)",
+        "004_Server.sh": "45 FAIL of 45",
+        "005_Lifecycle.sh": "16 FAIL of 16",
+        "007_Hostile.sh": "21 FAIL of 21",
+        "008_Contract.sh": "24 FAIL of 88 (the 64 passing: the P0/P1 contract tests + the rewritten scope test, which the stub legitimately satisfies — it has the real declarations and sources)",
+        "weak_asserts_fixed": "004 'SV.delete leaves no SV_*' passed on the first stub run (no stopwatch at all) — it now requires the owned stopwatch to EXIST before the delete; 008's EXIT grep matched a comment line — it now skips comments"
+      },
+      "gate_result": {
+        "unit_5.2.37_threaded": "396/396, 0 [FAIL] — three runs (58, 59, 58 s; the third after the last test edit, the rc 55 retry in 004) (001: 53, 002: 42, 003: 131, 004: 45, 005: 16, 007: 21, 008: 88)",
+        "unit_5.2.37_single": "396/396, 0 [FAIL] (189 s)",
+        "unit_5.3.9_threaded": "396/396, 0 [FAIL] — four runs (57, 58, 57, 57 s; the fourth after the last test edit)",
+        "socket_files": "004/005/007 RUN on both bashes (5.2.37: KCL_NC=/c/bin/msys64/usr/bin/nc.exe exported by the helper; 5.3.9: nc found on PATH by BuildArgv's PATH walk)",
+        "kklass": "344/344 on 5.2.37 and 5.3.9",
+        "tcustomapplication": "377/377 on 5.2.37 and 5.3.9",
+        "sweep": "left to the reviewer (per the assignment)",
+        "leftovers": "tasklist: no nc.exe / cat.exe after every run; tests/.tmp empty; no .ckk; git status: kcl only (thttpserver.sh, 008 modified; 004, 005, 007, _ths_socket.sh new) + the kbool submodule pointer"
+      },
+      "notes": [
+        "spike (scratchpad p2/spike_nc.sh, spike_srv.sh, spike_run.sh): a throw-away TSpikeNc : THttpTransport with the whole §2.5 mechanism, driven by a child bash serve loop; 6 scenarios on both bashes all as designed — measured_p2.spike. The implementation is the spike's code, polished",
+        "TNetcatTransport: NcBinary/Address/Port/ListenerTTL(60)/CloseTimeout(2)/StdinRelay(1); BuildArgv OUTARR (virtual; NcBinary → $KCL_NC → PATH walk, no fork); Accept (1 s ticks, partial-input accumulation, _state classification, D5 pre-spawn, TimedOut, respawn-once for a pre-spawned slot, ttl respawn, fatal on any unknown stderr line); CloseConnection (drained close); Shutdown (both slots, kill+wait silenced, rm -rf the dir); private _spawn/_closeSlot/_state and the per-slot fields; Destroy = Shutdown + inherited",
+        "THttpServer: §1.3 surface; Serve = BeginServe + loop + EndServe; ServeOne rc 0/1/2 with RESULT = the code answered or gone; protected _handleConnection (the per-connection pipeline) and _log; HandleRequest VIRTUAL (OnRequest > Router > 404); a failing handler with nothing sent → OnRequestError REQ RESP RC, then a FRESH 500 response (partial Content and custom headers dropped); owned TNetcatTransport ${inst}_tr created in BeginServe, freed in EndServe; owned TStopwatch ${inst}_sw for the log's MS (composition with kcl/tstopwatch)",
+        "the replay-driven server tests (004 §0) run with no nc at all: ServeOne codes, captures, OnLog format, 500 conversion, HEAD, parser statuses, gone, precedence, Serve/Active/MaxRequests/Terminate, trap save/restore, TERM via a handler signalling its own shell, a descendant server with inherited HandleRequest \"$@\" and the protected _log, the owned transport, BeginServe refusals, delete",
+        "socket tests: server = child bash under timeout 180, stdout/stderr to files, ends via MaxRequests or the OnAcceptIdle budget/`done` marker (Terminate from OnAcceptIdle = fact 6's second half); random ports + bind-failure retry; curl --noproxy '*' -m 30, proxy vars unset; retries only on rc 7 (and 55/56 in the one fact-7 case, see deviations); marker-file ordering; TERM, never INT; in-server checks (traps, fd count via /proc/$BASHPID/fd, children via /proc/*/ppid, leftover instances/dirs) written by the child to its result file",
+        "fact 3 SIGPIPE (socket half): a client sending GET /big and closing at once — the next request is served, the server's stderr stays empty (cat's stderr is silenced in the relay)",
+        "fact 13 (wire) in 004 and 007; fact 12 over /dev/tcp in 007 incl. the NUL body (request from a file: a NUL cannot live in a bash variable)"
+      ],
+      "deviations": [
+        "PLAN §2.6 trap: NOT `trap \"<srv>._onSignal\" INT TERM`. Measured: a private member run by a trap while another class's frame is on top prints a kklass visibility warning; and a Shutdown run from inside a trap could land in the middle of _spawn/_closeSlot. The traps are bare assignments `__THS_SIGNAL=INT|TERM` (file-scope flag); the Serve loop / ServeOne run the private _onSignal (stop + Shutdown) at a safe point, TNetcatTransport.Accept returns rc 1 at its next ≤ 1 s tick. Effect: the current response is finished, the pre-spawned listener's connection is closed without a response, Serve rc 0. PLAN §2.6 updated with an 'As implemented' paragraph",
+        "fact 7 (8 parallel clients, retry on rc 7 only, all 200) is FALSE as measured (measured_p2.backlog_resets). 004 pins: all 8 get 200 when this idempotent GET is also retried on curl rc 55/56, AND the access log shows exactly 8 handled /par requests. PLAN §1.1 row and §3 fact 7 annotated",
+        "MaxRequests is a read/write PROPERTY (`property MaxRequests read MaxRequests write MaxRequests`), not a plain var: the application reads it from another object (§1.3 THttpApplication.DoRun) — the §1.3 property rule",
+        "Attach ISHEAD is decided AFTER ReadFrom (Method == HEAD, or a FirstLine starting 'HEAD '): the order in §2.6 (Attach before ReadFrom) cannot know the method",
+        "ServeOne RESULT = the code answered or 'gone' (rc 0), '' on rc 1/2; RequestCount counts every handled connection incl. gone/408, is reset by BeginServe (not by ServeOne alone); a `gone` connection sends and logs nothing; a transport fatal emits no second kk.debug line (the transport's is the one)",
+        "BeginServe validates AcceptIdleTimeout/MaxContentLength/MaxRequests (integers >= 0) and RequestTimeout (>= 1) through kk.isInt (normalised values written back) and the Transport (a THttpTransport instance) → rc 2 with nothing changed (traps untouched); rc 1 when already active. EndServe is idempotent (rc 0 when not active)",
+        "SetActive accepts 1/true/True/TRUE and 0/false/False/FALSE, else rc 2; false when idle is a silent no-op; Serve returns BeginServe's rc when it refuses",
+        "OnRequestError runs with the ORIGINAL response (it may inspect or even send it); only if nothing was sent after it is the response replaced by a fresh one with Code 500",
+        "the access-log line: ADDR = the transport's RemoteAddress ('-' under replay); METHOD/URI '-' for a request that did not parse; BYTES = body bytes actually sent (0 for HEAD, 1xx, 204, 304); OnLog only (no default output); `_log` takes the six fields (a descendant passes its own)",
+        "TNetcatTransport extras: private proc _closeSlot SLOT drain|eof (shared by CloseConnection, Accept's EOF paths); BuildArgv also rc 2 for Port outside 1-65535, ListenerTTL < 1, Address ''; Accept probes BuildArgv BEFORE creating the temp dir (so 'nc not found' needs no fork and leaves no dir); the listener child exports LC_ALL=C (nc's -vv lines are classified by their English text; GNU nc is gettext-enabled); cat's stderr goes to /dev/null",
+        "Accept with IDLE_MS > 0 returns the idle tick only while the slot is listening AND nothing was read; a connected slot waits for RequestTimeout (then TimedOut) instead"
+      ],
+      "measured_p2": {
+        "spike": "TSpikeNc (p2/spike_nc.sh) on 5.2.37 and 5.3.9: S1 3 requests + client 2 connected while request 1 was held (accepted by the pre-spawned listener, no refusal, answered after) + 2 × 50 kB complete; S2 silent client → TimedOut → 408 after RT 2 s, a first line split 'GET /partial HT' + 1.6 s + rest accumulated across ticks → 200; S3 busy port → fatal 'Error: Couldn't setup listening socket (err=-3)' 98-126 ms after the server started; S4 NcBinary missing → fatal at once, bad-interpreter nc → fatal with bash's exec error line; S5 Shutdown with client 2 inside the pre-spawned listener → client 2 got 0 bytes; S6 -w 2 → 'Listen mode failed: Connection timed out' → respawn, idle ticks continued, a request after it served. No nc.exe / cat.exe left, temp dir removed",
+        "wait_non_last_procsub": "`wait PID` for a process substitution that is not the last one returns nc's status (1) on both bashes",
+        "costs": "12 requests (p2/probe_timing.sh): Accept with the request line waiting (read + state + the pre-spawn) 43.6-51.6 ms (5.2.37) / 42.0-51.8 ms (5.3.9); drained CloseConnection 20-44 ms / 9-29 ms; Shutdown 67 / 33 ms",
+        "backlog_resets": "8 parallel curl clients retrying on rc 7 only, 5 rounds (p2/par.sh): 5.2.37 2-3 × rc 56 per round (27 × 200, access log 27 lines); 5.3.9 3 per round, rc 56 and once rc 55 (25 × 200, access log 25 lines). The reset requests never reached a handler. Consistent with GNU nc closing its listen socket after its one accept, resetting the connections queued in its backlog — the pre-spawn cannot absorb a burst",
+        "read_t_vs_trap": "a trapped TERM during `read -t 3` on a pipe: the trap runs, the read continues to its timeout (rc 142 after 3.03 s) on both bashes",
+        "trap_private_warning": "a private kklass method as the trap action, fired while another class's frame is on top: `[kk] warning: private method 'TA._onSignal' accessed from 'TB'` on both bashes (p2/probe_trap.sh)",
+        "trap_p_capture": "$(trap -p INT TERM PIPE) shows the parent's traps on both bashes (1 fork); `trap -p > file` + read is fork-free but the file then needs rm (a fork) or stays; 5.3.9's funsub ${ trap -p; } runs in the shell (BASHPID unchanged) but is a parse error for 5.2 — the one $( ) per Serve stays",
+        "proc_children": "/proc/[0-9]*/ppid of the shell's own runtime sees the listener as ONE child of the server shell on both bashes (on 5.2 the Git-runtime stub of the msys64 nc) — used by the tests for 'no listener left' and 'same listener across idle ticks'",
+        "curl_codepage": "a native curl receives Cyrillic command-line arguments through the Windows code page ('дом' → '???', 6 bytes) — multibyte request bodies in the tests come from a file (--data-binary @file)",
+        "shutdown_held_connection": "Shutdown while the pre-spawned listener holds a client that sent a request (p2/probe_held.sh, 30 reps each): pre-R1 kill-first code 27/30 clean EOF on 5.2.37 (3 x the client's cat rc 1 = reset), 30/30 on 5.3.9; R1 code 60/60 on 5.2.37 and 60/60 on 5.3.9 (two modes: Shutdown right at 'Connection from', and after the client's write + 0.1 s). A second probe (p2/probe_shutdown.sh, BOTH slots connected — client 1 had closed without reading) gave 24/25 clean on 5.3.9 with R1 (one rc 1, not reproduced in 20 further reps) and 5/5 on 5.2.37",
+        "shutdown_latency": "R1 Shutdown, 5-20 reps: only a listening slot 53-60 ms (5.2.37) / 28-44 ms (5.3.9); with the connected pre-spawned slot drained 46-73 ms / 31-52 ms — the drain adds ~10 ms, far from CloseTimeout. 005 §4 pins the listening-only case: 59 ms vs a 1.5 s ceiling (CloseTimeout 5 s)",
+        "storm_005": "ktests/tools/timing_check.sh --storm 8 --reps 10 kcl/thttpserver 005_Lifecycle: BEFORE R1 10/10 on 5.2.37 and 10/10 on 5.3.9 (the storm did NOT reproduce the sweep failure); AFTER R1 10/10 on 5.2.37 and 10/10 on 5.3.9 (T0 F0 E0 each)"
+      },
+      "found_in_P2": [],
+      "review_remarks": [
+        "R1 (reviewer, 2026-09-29): 005 fact 11 failed once in the reviewer's master sweep on 5.2.37 — client 2, held by the pre-spawned listener, got 0 bytes but its cat ended rc 1 (reset), not rc 0. Cause: Shutdown closed wr/rd and killed at once, the C2 kill-first race for a slot that has ACCEPTED a client. Done: Shutdown asks _state for each slot with a pid; every CONNECTED slot has its writer closed first, then `_closeSlot SLOT drain DEADLINE` with ONE absolute deadline (now + CloseTimeout) shared by the connected slots (so a Shutdown drains for at most one CloseTimeout in total); a slot that is only listening / failed / empty is still closed and killed at once. _closeSlot takes an optional third argument DEADLINE_US. 005 fact 11 unchanged (0 bytes AND rc 0, '124 = no EOF' path kept); new 005 §4: Shutdown of a transport whose only slot is listening takes < 1.5 s against CloseTimeout 5 s (EPOCHREALTIME in variables, in the child), listener reaped, dir removed — 005 is now 17 tests. PLAN §2.5 Shutdown paragraph updated. Evidence: measured_p2.shutdown_held_connection / shutdown_latency / storm_005. Gate after R1: unit suite 397/397 threaded on 5.2.37 (57 s) and 5.3.9 (55 s), single on 5.2.37 397/397 (189 s); no nc.exe / cat.exe / temp dir left"
+      ]
     },
     {
       "id": "P3",
