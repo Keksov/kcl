@@ -285,7 +285,7 @@
       "goal": "THttpApplication : TCustomApplication, examples/demo.sh, bench.sh, README (incl. the kklass feature map), TEST_COVERAGE_NOTES, kcl README §2 row",
       "status": "done",
       "date": "2026-09-29",
-      "commit": "",
+      "commit": "16d6756",
       "tasks": [
         {
           "id": "P3.1",
@@ -350,7 +350,8 @@
       },
       "found_in_P3": [
         "kklass: the `$this.NAME` → `$__inst__.call NAME` body rewrite (kklass.sh:141-146, and 871-876 for constructors) also rewrites quoted DATA — a string that merely names a method of the running instance. Documented (README §3), worked around in demo_oop.sh; a kklass roadmap candidate (rewrite only in command position, or document it in kklass_book 'Reserved Member Names'). Not changed here"
-      ]
+      ],
+      "review": "supervisor 2026-09-29: full master sweep 29/29 suites, 0 [FAIL] on both bashes; demo.sh run by hand on 5.2.37 (counter state, KV, decoded route param, 405, HEAD, /quit exit 0, stderr empty, no nc left); kklass $this.NAME-in-quotes rewrite re-verified (found_in_P3)"
     }
   ],
   "side_observations": [
