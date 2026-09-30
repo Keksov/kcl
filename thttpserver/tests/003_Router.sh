@@ -988,5 +988,130 @@ kt_test_start "the decoded hostile values were never executed: no pwn anywhere"
 if [[ ! -e "$TMP/pwn" && ! -e "$SCRIPT_DIR/pwn" && ! -e "$UNIT_DIR/pwn" ]]; then kt_test_pass "no pwn"; else kt_test_fail "pwn exists"; fi
 PD.delete
 
+# ===========================================================================
+kt_test_section "10. nested dispatch: a route object that routes through another router (review 2026-09-30 F1)"
+# ===========================================================================
+
+# THsNest003 — one class for every level: RouteData names the NEXT router
+# ('' = the innermost level). Tag is per object (a serial from the
+# constructor), so every level can prove it still reads ITS OWN fields after
+# the nested dispatch returned.
+class THsNest003 : THttpRouteObject
+    public
+        var Tag
+        constructor Create
+        destructor  Destroy
+        override proc HandleRequest
+end
+THsNest003.Create() { inherited; NEST_SERIAL=$(( NEST_SERIAL + 1 )); Tag="t$NEST_SERIAL"; }
+THsNest003.Destroy() { NEST_LOG+=("dtor:$Tag"); inherited; }
+THsNest003.HandleRequest() {
+    local req="$1" resp="$2" irc=0 next="$RouteData"
+    NEST_LOG+=("in:$__inst__:$RouteData:$Tag")
+    $resp.Write "[$Tag"
+    if [[ -n "$next" ]]; then
+        "$next.RouteRequest" "$req" "$resp" || irc=$?
+        NEST_LOG+=("back:$__inst__:$RouteData:$Tag:$irc")
+    fi
+    $resp.Write "$Tag]"
+    return 0
+}
+build THsNest003
+
+THttpRouter.new NestA; THttpRouter.new NestB; THttpRouter.new NestC
+reg NestA /n/:x GET THsNest003 0 NestB
+reg NestB /n/:x GET THsNest003 0 ""
+reg NestA /m/:x GET THsNest003 0 NestB
+reg NestB /m/:x GET THsNest003 0 NestC
+reg NestC /m/:x GET THsNest003 0 ""
+nest_fn() { NestB.RouteRequest "$1" "$2"; }
+THttpRouter.new NestF
+reg NestF /n/:x GET nest_fn
+
+# nest_left — every route-object instance that is still alive ('' = none).
+nest_left() {
+    local v; NL=""
+    for v in __ths_route_obj __ths_route_obj1 __ths_route_obj2 __ths_route_obj3; do
+        declare -p "${v}_class" >/dev/null 2>&1 && NL+=" $v"
+        declare -F "$v.HandleRequest" >/dev/null && NL+=" $v()"
+    done
+}
+
+# nest ROUTER PATH — GET PATH through ROUTER in a SUBSHELL, the results
+# through a file: RR, NLOG (the log), BODY, NL (route objects left), HD
+# (HELLO_DTOR). The subshell is there because the pre-F1 router ABORTED the
+# whole top-level command here (the outer object's namerefs pointed into the
+# instance the inner pass had deleted: "expression recursion level
+# exceeded") — under the runner, which sources the test file, that silently
+# truncated the file; now it is a FAIL. (Inside a subshell kklass prints every
+# member read by design, so the subshell's stdout is discarded; the silence of
+# a dispatch is pinned by §3/§6 in this shell.)
+nest() {
+    local f="$TMP/nest.out"
+    rm -f "$f"
+    ( NEST_LOG=(); NEST_SERIAL=0
+      route "$1" GET "$2"; S.Content; body="$RESULT"; nest_left
+      printf '%s\n' "$RR" "${NEST_LOG[*]}" "$body" "$NL" "$HELLO_DTOR" > "$f" ) >/dev/null 2>&1
+    RR=aborted; NLOG=""; BODY=""; NL="?"; HD=""
+    if [[ -f "$f" ]]; then
+        { IFS= read -r RR; IFS= read -r NLOG; IFS= read -r BODY; IFS= read -r NL; IFS= read -r HD; } < "$f"
+    fi
+}
+
+kt_test_start "F1: two levels — the outer object survives the inner dispatch: its RouteData and Tag intact afterwards, the inner is a DIFFERENT instance"
+nest NestA /n/1
+want="in:__ths_route_obj:NestB:t1 in:__ths_route_obj1::t2 dtor:t2 back:__ths_route_obj:NestB:t1:0 dtor:t1"
+if [[ "$RR" == 0 && "$NLOG" == "$want" && "$BODY" == "[t1[t2t2]t1]" && -z "$NL" ]]; then
+    kt_test_pass "$NLOG"
+else
+    kt_test_fail "rr=$RR log='$NLOG' body='$BODY' left='$NL'"
+fi
+
+kt_test_start "F1: three levels — each level has its own instance, each resumes with its own fields, all deleted innermost first"
+nest NestA /m/1
+want="in:__ths_route_obj:NestB:t1 in:__ths_route_obj1:NestC:t2 in:__ths_route_obj2::t3 dtor:t3"
+want+=" back:__ths_route_obj1:NestC:t2:0 dtor:t2 back:__ths_route_obj:NestB:t1:0 dtor:t1"
+if [[ "$RR" == 0 && "$NLOG" == "$want" && "$BODY" == "[t1[t2[t3t3]t2]t1]" && -z "$NL" ]]; then
+    kt_test_pass "3 levels, 3 instances, clean"
+else
+    kt_test_fail "rr=$RR log='$NLOG' body='$BODY' left='$NL'"
+fi
+
+kt_test_start "F1: nesting leaves no level behind — in the SAME shell a nested dispatch, then a plain one: the plain one uses __ths_route_obj again"
+f="$TMP/nest2.out"; rm -f "$f"
+( NEST_LOG=(); NEST_SERIAL=0
+  route NestA GET /n/2; a="$RR"; NEST_LOG=(); NEST_SERIAL=0
+  route NestB GET /n/2; nest_left
+  printf '%s\n' "$a:$RR" "${NEST_LOG[*]}" "$NL" > "$f" ) >/dev/null 2>&1
+r=""; l=""; left="?"; [[ -f "$f" ]] && { IFS= read -r r; IFS= read -r l; IFS= read -r left; } < "$f"
+if [[ "$r" == "0:0" && "$l" == "in:__ths_route_obj::t1 dtor:t1" && -z "$left" ]]; then kt_test_pass "$l"; else kt_test_fail "rr='$r' log='$l' left='$left'"; fi
+
+kt_test_start "F1: a stale object of the NESTED level (an aborted inner pass) is deleted first; the live outer one is untouched"
+THsHello003.new __ths_route_obj1
+HELLO_DTOR=0
+nest NestA /n/3
+drop __ths_route_obj1
+want="in:__ths_route_obj:NestB:t1 in:__ths_route_obj1::t2 dtor:t2 back:__ths_route_obj:NestB:t1:0 dtor:t1"
+if [[ "$RR" == 0 && "$HD" == 1 && "$NLOG" == "$want" && -z "$NL" ]]; then kt_test_pass "stale inner deleted, outer intact"; else kt_test_fail "rr=$RR stale-dtor='$HD' log='$NLOG' left='$NL'"; fi
+
+kt_test_start "F1: a nested dispatch under a FUNCTION route (no outer object) — the inner object is the first level: __ths_route_obj"
+nest NestF /n/4
+if [[ "$RR" == 0 && "$NLOG" == "in:__ths_route_obj::t1 dtor:t1" && -z "$NL" ]]; then kt_test_pass "$NLOG"; else kt_test_fail "rr=$RR log='$NLOG' left='$NL'"; fi
+NestA.delete; NestB.delete; NestC.delete; NestF.delete
+
+kt_test_start "RouteRequest refuses a request whose parse ENDED in a status (Method is kept since F4, but nothing was parsed past the request line): rc 2, no hook, no handler"
+THttpRouter.new NestG
+reg NestG /ok GET hA
+NestG.BeforeRequest = hBefore
+printf 'GET /ok HTTP/1.1\r\nHost: t\r\nBad Name: v\r\n\r\n' > "$TMP/f4route.req"
+drop Q; drop S; drop RT
+TReplayTransport.new RT; RT.AddRequestFile "$TMP/f4route.req"; RT.Accept 0 10
+RT.InFd; in="$RESULT"; RT.OutFd; out="$RESULT"
+THttpRequest.new Q; THttpResponse.new S; S.Attach "$out" 0
+Q.ReadFrom "$in" $(( ${EPOCHREALTIME//[!0-9]/} + 10000000 )) 65536; st="$RESULT"
+LOG=(); rc=0; NestG.RouteRequest Q S 2>/dev/null || rc=$?
+if [[ "$st" == 400 && $rc -eq 2 && ${#LOG[@]} -eq 0 ]]; then kt_test_pass "status 400 → rc 2, nothing ran"; else kt_test_fail "st=$st rc=$rc log=${LOG[*]}"; fi
+NestG.delete
+
 FF.delete; F.delete; D.delete; M.delete; K.delete; R2.delete; Ctr.delete; DCtl.delete
 drop Q; drop S; drop RT

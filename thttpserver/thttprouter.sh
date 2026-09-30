@@ -17,9 +17,10 @@
 # 0/1, DATA an opaque string kept verbatim. The HANDLER is resolved ONCE, here:
 #   1. a CLASS deriving from THttpRouteObject whose abstract flag
 #      (${CLASS}_class_abstract, the one .new checks — D8) is not 1. Per
-#      request: CLASS.new __ths_route_obj, RouteData = DATA, HandleRequest REQ
-#      RESP, delete. A still-abstract class (no HandleRequest) is refused with
-#      nothing printed and no constructor run;
+#      request: CLASS.new __ths_route_obj (__ths_route_obj1, 2, … for a
+#      dispatch nested in a route object — review F1), RouteData = DATA,
+#      HandleRequest REQ RESP, delete. A still-abstract class (no
+#      HandleRequest) is refused with nothing printed and no constructor run;
 #   2. INST.METHOD — INST a live instance, METHOD a METHOD of its class (not a
 #      property wrapper such as INST.SomeVar, not .delete/.call): called
 #      INST.METHOD REQ RESP DATA; the object's state persists;
@@ -59,9 +60,11 @@
 # with nothing sent becomes 500 in the server (P2). An empty hook is skipped; a
 # hook that is not a handler name of a defined function is rc 2 before anything
 # runs; a registered function / INST.METHOD that no longer exists is rc 2 at
-# dispatch. A route object: a live __ths_route_obj left by an aborted pass is
-# deleted first; a failing constructor's rc is returned (HandleRequest not
-# run); the object is deleted whatever HandleRequest returned.
+# dispatch. A route object: a live object of the same level left by an
+# aborted pass is deleted first; a failing constructor's rc is returned
+# (HandleRequest not run); the object is deleted whatever HandleRequest
+# returned. A request that holds no parsed request (Method or PathInfo empty —
+# a parse that ended in a status keeps its Method since review F4) is rc 2.
 #
 # HANDLERS run inside the router's member frame, where each router property
 # (BeforeRequest, AfterRequest, RouteCount) is a nameref — a handler declares
@@ -103,7 +106,9 @@ declare -g __THS_ROUTE_METHODS=' GET POST PUT DELETE OPTIONS HEAD TRACE PATCH AL
 declare -g __THS_HANDLER_RE='^[A-Za-z_][A-Za-z0-9_]*([.][A-Za-z_][A-Za-z0-9_]*)?$'
 declare -g __THS_NAME_RE='^[A-Za-z_][A-Za-z0-9_]*$'
 
-# The instance name every route object is created under, one per request.
+# The instance name every route object is created under, one per request —
+# the base name: a dispatch nested inside a route object's HandleRequest
+# appends its level (__ths_route_obj1, 2, …; review F1).
 declare -g __THS_ROUTE_OBJ='__ths_route_obj'
 
 # ---------------------------------------------------------------------------
@@ -443,7 +448,13 @@ THttpRouter.FindRoute() {
 # THttpResponse, a hook that is not a defined handler).
 THttpRouter.RouteRequest() {
     local __ths_req="${1:-}" __ths_resp="${2:-}" __ths_v __ths_rc=0 __ths_hrc=0
-    local __ths_idx __ths_st __ths_allow __ths_i __ths_m __ths_path __ths_h __ths_dat
+    local __ths_idx __ths_st __ths_allow __ths_i __ths_m __ths_path __ths_h __ths_dat __ths_obj
+    # The route-object level (review F1): the number of route objects already
+    # in flight in the CALLERS' frames. A local initialised from the caller's
+    # own copy (bash scopes locals dynamically), so a RouteRequest nested
+    # inside a route object's HandleRequest sees the outer level + 1, and an
+    # aborted pass leaves nothing behind (the local dies with its frame).
+    local __ths_rolevel="${__ths_rolevel:-0}"
     local -a __ths_pn=() __ths_pv=()
     if (( $# != 2 )) || [[ ! "$__ths_req" =~ $__THS_NAME_RE || ! "$__ths_resp" =~ $__THS_NAME_RE ]]; then
         kk.debug "Error: THttpRouter.RouteRequest: usage: REQ RESP"
@@ -459,9 +470,14 @@ THttpRouter.RouteRequest() {
         kk.debug "Error: THttpRouter.RouteRequest: '$__ths_resp' is not a THttpResponse"
         return 2
     fi
+    # A parsed request has a Method AND a PathInfo (always '/…'): since review
+    # F4 a request whose parse ended in a status keeps its Method, but only a
+    # status-0 parse sets PathInfo.
+    "$__ths_req.PathInfo"
+    __ths_path="$RESULT"
     "$__ths_req.Method"
     __ths_m="$RESULT"
-    if [[ -z "$__ths_m" ]]; then
+    if [[ -z "$__ths_m" || -z "$__ths_path" ]]; then
         kk.debug "Error: THttpRouter.RouteRequest: '$__ths_req' holds no parsed request"
         return 2
     fi
@@ -475,8 +491,6 @@ THttpRouter.RouteRequest() {
     fi
     "$__ths_resp.ContentSent"
     if (( __ths_rc == 0 )) && [[ "$RESULT" != 1 ]]; then
-        "$__ths_req.PathInfo"
-        __ths_path="$RESULT"
         ths._routeFind "$__inst__" "$__ths_path" "$__ths_m"
         if [[ "$__ths_st" == 404 ]]; then
             "$__ths_resp.Code" = 404
@@ -494,18 +508,29 @@ THttpRouter.RouteRequest() {
             __ths_h="${__ths_H[__ths_idx]}"
             __ths_dat="${__ths_R[__ths_idx]}"
             if [[ "${__ths_K[__ths_idx]}" == class ]]; then
-                __ths_v="${__THS_ROUTE_OBJ}_class"
-                if [[ -n "${!__ths_v:-}" ]]; then
-                    "$__THS_ROUTE_OBJ.delete"
+                # One instance name per LEVEL (review F1): __ths_route_obj at
+                # the first, __ths_route_obj1, 2, … for a dispatch nested in a
+                # route object's HandleRequest — an inner pass never touches
+                # an outer, live object. A stale object of THIS level (an
+                # aborted pass) is deleted first.
+                __ths_obj="$__THS_ROUTE_OBJ"
+                if (( __ths_rolevel > 0 )); then
+                    __ths_obj+="$__ths_rolevel"
                 fi
-                "$__ths_h.new" "$__THS_ROUTE_OBJ" || __ths_hrc=$?
+                __ths_v="${__ths_obj}_class"
+                if [[ -n "${!__ths_v:-}" ]]; then
+                    "$__ths_obj.delete"
+                fi
+                __ths_rolevel=$(( __ths_rolevel + 1 ))
+                "$__ths_h.new" "$__ths_obj" || __ths_hrc=$?
                 if (( __ths_hrc == 0 )); then
-                    "$__THS_ROUTE_OBJ.RouteData" = "$__ths_dat"
-                    "$__THS_ROUTE_OBJ.HandleRequest" "$__ths_req" "$__ths_resp" || __ths_hrc=$?
+                    "$__ths_obj.RouteData" = "$__ths_dat"
+                    "$__ths_obj.HandleRequest" "$__ths_req" "$__ths_resp" || __ths_hrc=$?
                 fi
                 if [[ -n "${!__ths_v:-}" ]]; then
-                    "$__THS_ROUTE_OBJ.delete"
+                    "$__ths_obj.delete"
                 fi
+                __ths_rolevel=$(( __ths_rolevel - 1 ))
             elif declare -F "$__ths_h" >/dev/null; then
                 "$__ths_h" "$__ths_req" "$__ths_resp" "$__ths_dat" || __ths_hrc=$?
             else

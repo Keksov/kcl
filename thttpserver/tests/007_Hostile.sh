@@ -149,6 +149,8 @@ W_TITLES=(
     "gone: headers cut off by the client → nothing answered; a client that connects and leaves → nothing either; the server goes on"
     "header injection on the wire: %0D%0A in a value never reaches the head"
     "fact 13 on the wire: hostile query keys/values and header values are data; no pwn anywhere"
+    "F2 on the wire: two Host headers → 400 (identical values; different case and values)"
+    "F5 on the wire: a leading bare LF before the request line → 400, as the direct parse (001); a leading CRLF likewise"
     "the server survives all of it: /ok 200, Serve rc 0, empty LastError, silent stderr"
 )
 SNIP_H="$H_SNIP"'
@@ -233,6 +235,20 @@ else
     fi
 
     kt_test_start "${W_TITLES[11]}"
+    o=""
+    st "GET /ok HTTP/1.1${CRLF}Host: x${CRLF}Host: x${CRLF}${CRLF}"; o+="$ST "
+    st "GET /ok HTTP/1.1${CRLF}Host: a${CRLF}hOST: b${CRLF}${CRLF}"; o+="$ST "
+    st "GET /ok HTTP/1.1${CRLF}Host: a${CRLF}${CRLF}"; o+="$ST"
+    if [[ "$o" == "400 400 200" ]]; then kt_test_pass "$o (one Host: 200)"; else kt_test_fail "'$o'"; fi
+
+    kt_test_start "${W_TITLES[12]}"
+    o=""
+    st $'\n'"GET /ok HTTP/1.1${CRLF}Host: x${CRLF}${CRLF}"; o+="$ST|$THS_BODY "
+    st "${CRLF}GET /ok HTTP/1.1${CRLF}Host: x${CRLF}${CRLF}"; o+="$ST|$THS_BODY "
+    st "GET /ok HTTP/1.1${CRLF}Host: x${CRLF}${CRLF}"; o+="$ST|$THS_BODY"
+    if [[ "$o" == "400| 400| 200|ok" ]]; then kt_test_pass "$o"; else kt_test_fail "'$o'"; fi
+
+    kt_test_start "${W_TITLES[13]}"
     ths_curl "$TMP/ok" "http://127.0.0.1:$THS_PORT/ok"; okc="$CURL_CODE"
     ths_finish
     ths_result rc; rc="$THS_V"; ths_result le; le="$THS_V"

@@ -5,9 +5,12 @@
 > `THttpRouter`), the transport seam (`THttpTransport`, `TReplayTransport`,
 > `TNetcatTransport`), the server (`THttpServer`) and the application
 > (`THttpApplication : TCustomApplication`) — plus two runnable examples, the
-> bench and the docs. Suite `tests/001`–`010` = **472 checks, green on bash
+> bench and the docs. Suite `tests/001`–`010` = **497 checks, green on bash
 > 5.2.37 and on bash 5.3.9**, threaded and (5.2.37) under `--mode single`, the
-> socket tests **run** (not skipped) on both. What the tests pin, member by
+> socket tests **run** (not skipped) on both. A post-completion review
+> (2026-09-30, F1–F6) fixed nested route-object dispatch, a duplicate `Host`,
+> `gone` counting toward `MaxRequests`, the HEAD flag of a failed request, a
+> consumed empty request line, and deduplicated the transport's slot code (§7). What the tests pin, member by
 > member: **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
 > [PLAN.md](PLAN.md) (§1.1 the measured facts, §2 the design and the owner
 > decisions D1–D9, §8 the critic pass) and
@@ -132,24 +135,35 @@ under `VERBOSE_KKLASS=debug` and silence otherwise (kcl README §1.2).
 |---|---|---|
 | `Method`, `URI`, `PathInfo`, `QueryString`, `ProtocolVersion`, `Content`, `RemoteAddress` | read-only properties | `PathInfo` = URI before `?`, **not** percent-decoded; `QueryString` after the first `?`; `RemoteAddress` = `IP:PORT` from nc (`''` under replay). A write is rc 1 (deviation e) |
 | `ContentLength` | read-only property | the **byte** length of `Content` |
-| `GetHeader NAME` | func | case-insensitive; a repeated header joined with `, `; rc 1 absent, rc 2 for `''` |
+| `GetHeader NAME` | func | case-insensitive; a repeated header joined with `, ` (a second `Host` is a 400 instead); rc 1 absent, rc 2 for `''` |
 | `HasHeader NAME` | predicate | rc 0 / 1 (an answer, silent); rc 2 for `''` |
 | `HeaderNames OUTARR` | func | lower-cased names in arrival order, `RESULT` = count; rc 2 for a malformed / reserved array name |
 | `QueryField NAME` | func | percent-decoded value of the **first** occurrence (`+` → space); rc 1 absent or rejected (`%00`); rc 2 for `''` |
 | `RouteParam NAME` | func | a value the router captured (`:name`, `*name`), percent-decoded with path rules (`+` stays `+`); rc 1 absent |
 | `SetRouteParam NAME VALUE` | proc | the router's use; rc 2 for `''` |
-| `ReadFrom FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE]]` | func | the parser (the server's use). **rc 0** with `RESULT` = `0` parsed, or `400 408 413 414 431 501 505` to answer, or `gone` (the client left); rc 2 only for a malformed call (C20) |
+| `ReadFrom FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE [CONSUMED]]]` | func | the parser (the server's use). **rc 0** with `RESULT` = `0` parsed, or `400 408 413 414 431 501 505` to answer, or `gone` (the client left); rc 2 only for a malformed call (C20). `FIRSTLINE` = a request line the transport already consumed; `CONSUMED` 1 = it did, **even when `FIRSTLINE` is empty** (then 400); 0 / omitted = a non-empty `FIRSTLINE` was consumed, an empty one means read the line from `FD` (review F5) |
 
 The parser, in order: request-line length (414) → structure / control
 characters (400) → `HTTP/D.D` (400) → method (`GET POST PUT DELETE OPTIONS
 HEAD TRACE PATCH`, else 501) → target starts with `/` (origin-form, else 400) →
 version `1.0`/`1.1` (505) → headers (> 8192 bytes or > 100 of them 431; a
-non-token name, obs-fold, a control character in a value 400) → HTTP/1.1
-without `Host` (400) → `Transfer-Encoding` (501) → `Content-Length` (non-numeric
+non-token name, obs-fold, a control character in a value, a second `Host` in
+any case and with any value — RFC 9112 §3.2 — 400) → HTTP/1.1 without `Host`
+(400) → `Transfer-Encoding` (501) → `Content-Length` (non-numeric
 or two different values 400, above MAXBODY 413 — the body is not read) → the
 body (a NUL → 400 at once; short at the deadline 408, at EOF `gone`). Every
 `read` gets the time left to the deadline; a spent deadline is 408 without a
-`read`. Bare LF is accepted.
+`read`. Bare LF is accepted as a line end; an empty line BEFORE the request
+line (a bare LF or a CRLF) is a 400 — there is no RFC 9112 §2.2 leading-CRLF
+skip, and over the netcat transport the answer is the same (review F5).
+
+**The fields after a status** (review F4): a status from the request line
+itself (414, 400, 501, 505) leaves every field empty; once the request line is
+accepted, `Method`, `URI` and `ProtocolVersion` are set and stay set whatever
+a later stage returns (400, 408, 413, 431, 501, `gone`) — the server answers a
+failed HEAD without a body, and the access log names the request.
+`PathInfo`, `QueryString`, `Content` and the query fields are set only on
+status 0 (the router refuses a request without a `PathInfo`).
 
 ### THttpResponse — filled by the handler, sent by the server
 
@@ -195,7 +209,10 @@ request (§3).
 1. a **class** deriving from `THttpRouteObject` and not abstract (D8: a class
    that does not implement `HandleRequest` is refused with rc 2, nothing
    printed, no constructor run) → per request `CLASS.new`, `RouteData = DATA`,
-   `HandleRequest REQ RESP`, `.delete`;
+   `HandleRequest REQ RESP`, `.delete` — under `__ths_route_obj`, and under
+   `__ths_route_obj1`, `2`, … for a dispatch nested inside a route object's
+   `HandleRequest` (a route object may route through another router: the
+   inner pass never touches the outer, live object — review F1);
 2. **`INST.METHOD`** — a live instance and a *method* of its class (a property
    wrapper such as `INST.SomeVar` is refused) → `INST.METHOD REQ RESP DATA`;
    the object's state persists;
@@ -206,8 +223,10 @@ Anything else is rc 2. The route patterns are in §5.
 ### THttpTransport (abstract), TReplayTransport, TNetcatTransport — the network seam
 
 `THttpTransport`: read-only properties `InFd`, `OutFd`, `FirstLine`,
-`TimedOut`, `RemoteAddress`, `LastError` over **protected** fields a
-descendant sets; `abstract func Accept IDLE_MS REQUEST_TIMEOUT_S` (rc 0 a
+`LineConsumed`, `TimedOut`, `RemoteAddress`, `LastError` over **protected**
+fields a descendant sets (`LineConsumed` 1 = Accept consumed the request line,
+which is `FirstLine` even when that is empty — review F5; the server passes it
+to `ReadFrom` as CONSUMED); `abstract func Accept IDLE_MS REQUEST_TIMEOUT_S` (rc 0 a
 connection · 1 an idle tick · 2 fatal), `abstract proc CloseConnection`,
 `abstract proc Shutdown`; an empty destructor (C9).
 
@@ -240,7 +259,7 @@ descendant for another nc flavour overrides it.
 | `OnRequest` | var (event) | `handler REQ RESP` — wins over `Router` |
 | `OnRequestError` | var (event) | `handler REQ RESP RC` — a handler returned non-zero with nothing sent (then a fresh 500 is sent) |
 | `OnAcceptIdle` | var (event) | `handler SERVER` — every idle tick (fired by `ServeOne`, so under `Serve` **and** `App.Run`) |
-| `OnLog` | var (event) | `handler SERVER LINE` — `ADDR METHOD URI CODE BYTES MS` per answered request, control characters → `?`, empty fields `-` |
+| `OnLog` | var (event) | `handler SERVER LINE` — `ADDR METHOD URI CODE BYTES MS` per answered request, control characters → `?`, empty fields `-` (METHOD and URI are `-` only when the request line did not parse) |
 | `AcceptIdleTimeout` | var | ms, default **0 = off** (D4); ticks are ~1 s grained |
 | `RequestTimeout` | var | s, default 10 → 408 |
 | `MaxContentLength` | var | default 65536 → 413 |
@@ -250,7 +269,7 @@ descendant for another nc flavour overrides it.
 | `Active` | read/write property | **`= true` blocks in Serve** (as FPC); `= false` from a handler → Terminate; rc 1 if already active, rc 2 for a non-boolean |
 | `Serve` | proc | BeginServe; ServeOne until stopped; EndServe. rc 0, or **rc 1 on a transport fatal** (`LastError`, e.g. `Error: Couldn't setup listening socket (err=-3)` for a busy port) |
 | `BeginServe` / `EndServe` | procs | save the traps (the one fork of a Serve), `trap '' PIPE`, INT/TERM → a stop flag; create/free the owned transport; restore the traps exactly. BeginServe rc 2 for a bad number or a non-transport `Transport` |
-| `ServeOne` | func | accept + handle ONE connection: rc 0 (`RESULT` = the code sent, or `gone`) · 1 idle / a client that left / a signal · 2 fatal |
+| `ServeOne` | func | accept + handle ONE connection: rc 0 (`RESULT` = the code sent, or `gone`) · 1 idle / a client that left / a signal · 2 fatal. `RequestCount` + 1 for every answered connection (408 included), **never for `gone`** (review F3) |
 | `Terminate` | proc | stop after the current request (its response is still sent) |
 | `HandleRequest REQ RESP` | proc, **virtual** | `OnRequest`, else `Router.RouteRequest`, else 404 — the override point (§4) |
 | `_handleConnection`, `_log` | **protected** | for descendant servers |
@@ -433,7 +452,9 @@ exec {wr}>"$dir/fifo$s"      # O_WRONLY: an O_RDWR writer never lets nc see EOF 
 
 * **Accept** reads the request line in ≤ 1 s ticks (partial input kept); the
   moment it arrives, the **other** slot's listener is spawned (D5), so a second
-  client can connect while the first request is handled. An idle tick (rc 1)
+  client can connect while the first request is handled. The consumed line is
+  `FirstLine` with `LineConsumed` 1 — an EMPTY line too, which the parser then
+  answers 400 (review F5). An idle tick (rc 1)
   leaves the listener alive — no port gap. A connected but silent client is
   answered **408** after `RequestTimeout`. `Connection from` → the address;
   `Listen mode failed: Connection timed out` (the TTL) → respawn; **any other
@@ -478,7 +499,8 @@ What a user can observe of the accepted P0–P2 interpretations (all in the
 ledger with their reasons): `ReadFrom` answers a parser status as **rc 0 + a
 value** (C20); `Content-Length` must be plain digits, the same value twice is
 kept once; any control character other than HTAB in a header value is 400; a
-request that failed to parse leaves Method..Content empty; `Attach` takes a
+request whose REQUEST LINE failed leaves every field empty, a later-stage
+status keeps Method/URI/ProtocolVersion (amended by review F4); `Attach` takes a
 third argument (the banner); a failed validation sends a **500 with the default
 head** and updates Code/CodeText/ContentType to what was sent; `ContentSent` is
 1 after any write attempt; `SendRedirect` only *sets*; `Write` joins with one
@@ -490,8 +512,9 @@ default; `RouteRequest` runs `AfterRequest` always, skips the handler after a
 failed or *sending* `BeforeRequest`, and treats 404/405 as rc 0; a
 `HandleRequest` redeclared **without** `override` still counts as implemented
 (a kklass fact — D8 catches only a missing one); `MaxRequests` is a property;
-`RequestCount` counts every handled connection (408 and `gone` included) and is
-reset by BeginServe; a `gone` connection is neither answered nor logged;
+`RequestCount` counts every ANSWERED connection (408 included, `gone` not —
+amended by review F3) and is reset by BeginServe; a `gone` connection is
+neither answered, logged nor counted, so it never uses up `MaxRequests`;
 `OnRequestError` sees the original response before it is replaced by a fresh
 500; BeginServe validates its numbers (rc 2, nothing changed). P3 added the
 read-only `Stopping` property, moved the `OnAcceptIdle` event from Serve's loop
@@ -519,6 +542,28 @@ into `ServeOne` (so it fires under `App.Run` too), and made the application's
   fork, the `cat` relay and nc: ≈ 36–38 ms) and a drained close.
 * A background process a handler starts inherits the current connection's
   writer and holds the connection open until `CloseTimeout`.
+
+**Post-completion review (2026-09-30).** Six findings, fixed red-first (PLAN
+§8, the ledger's `review_2026_09_30`):
+
+* **F1** — a route object whose `HandleRequest` routes through another router
+  (where a route class wins too) no longer deletes the outer, live object: each
+  nesting level has its own instance name (`__ths_route_obj`, `…1`, `…2`).
+  Before, the outer pass aborted the whole top-level command.
+* **F2** — a second `Host` header is a 400 (RFC 9112 §3.2), identical values
+  and any case included.
+* **F3** — a `gone` connection does not count in `RequestCount`, so gone
+  probes cannot use up `MaxRequests` and stop a server that served nothing.
+* **F4** — once the request line parsed, `Method`/`URI`/`ProtocolVersion` stay
+  set after a later-stage status; the server takes the HEAD flag from
+  `REQ.Method` (the transport's `FirstLine` prefix only as a fallback), so a
+  failed HEAD is answered without a body on every transport.
+* **F5** — `ReadFrom … CONSUMED` and `THttpTransport.LineConsumed` tell "the
+  transport consumed an empty line" from "it consumed nothing": a bare LF
+  before the request line is a 400 on the wire, as in the direct parse.
+* **F6** — `TNetcatTransport`'s per-slot selection (`_rd0`/`_rd1`, …) is
+  one `local -n` per field instead of fifteen copied `if` blocks (no
+  behaviour change).
 
 ---
 
@@ -570,20 +615,20 @@ bash kcl/thttpserver/tests/tests.sh --mode single   # sequential
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/thttpserver/tests/tests.sh
 ```
 
-**472 checks, green on bash 5.2.37 and bash 5.3.9**, threaded (twice each) and
+**497 checks, green on bash 5.2.37 and bash 5.3.9**, threaded (twice each) and
 under `--mode single` (5.2.37), the socket files run on both. Case by case:
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | transport |
 |---|---|---|---|
-| `001_Request.sh` | 53 | the parser: every field, headers, byte semantics, 53 raw requests → every status, 408 paths, query decoding, hostile keys, read-only fields, the transport seam, the fork-free proof | replay |
+| `001_Request.sh` | 63 | the parser: every field, headers, byte semantics, 53 raw requests → every status, 408 paths, query decoding, hostile keys, read-only fields, the transport seam, the fork-free proof; review 2026-09-30: a second Host, the fields after a later-stage status, CONSUMED, LineConsumed | replay |
 | `002_Response.sh` | 42 | the head, byte lengths, HEAD/1xx/204/304, custom headers and refusals, validation → 500, SendRedirect, Date in English/UTC, SIGPIPE | replay |
-| `003_Router.sh` | 131 | the 40-row pattern table, the argument rule, the three handler kinds, D7 DATA, D8, 404/405 + Allow, HEAD → GET, defaults, hooks, the handler contract, fork-free routing, param decoding | replay |
-| `004_Server.sh` | 45 | the server over replay (codes, 500, HEAD, precedence, Active, MaxRequests, traps, TERM, a descendant server); real sockets: state in the server shell, bytes, 50 kB bodies, 408, D5, 8 parallel clients, busy port, no nc | replay + netcat |
+| `003_Router.sh` | 137 | the 40-row pattern table, the argument rule, the three handler kinds, D7 DATA, D8, 404/405 + Allow, HEAD → GET, defaults, hooks, the handler contract, fork-free routing, param decoding, nested route-object dispatch (review F1), the router refusing a request whose parse ended in a status | replay |
+| `004_Server.sh` | 50 | the server over replay (codes, 500, HEAD, precedence, Active, MaxRequests, a `gone` connection not counted, a failed HEAD without a body, a consumed empty line, traps, TERM, a descendant server); real sockets: state in the server shell, bytes, 50 kB bodies, 408, D5, 8 parallel clients, busy port, no nc | replay + netcat |
 | `005_Lifecycle.sh` | 17 | what a Serve leaves (fds, traps, children, temp dir, instances), port release, TERM with a held connection, TERM while idle, the listening-only Shutdown | netcat |
 | `006_Application.sh` | 40 | options, ServerClass, routes before Initialize, the DoRun mapping, OnAcceptIdle under Run, Stopping, Terminate, TERM and SIGPIPE on the app path, fact 22, Destroy, fork-free DoRun; sockets: `--port=N`, `/quit`, fact 10, TAuthServer 401/200, TERM | replay + netcat |
-| `007_Hostile.sh` | 21 | response splitting at every field, hostile params/headers/queries, every parser status over `/dev/tcp`, slowloris, oversize | replay + netcat |
-| `008_Contract.sh` | 105 | source integrity, the scope of every file, the transport's mechanism, C8/C9/C11, `set -eu` children, one debug line per rc 1/2 path, fork-free ServeOne | replay |
+| `007_Hostile.sh` | 23 | response splitting at every field, hostile params/headers/queries, every parser status over `/dev/tcp`, slowloris, oversize, two `Host` headers and a leading bare LF on the wire | replay + netcat |
+| `008_Contract.sh` | 107 | source integrity, the scope of every file, the transport's mechanism, C8/C9/C11, `set -eu` children, one debug line per rc 1/2 path, fork-free ServeOne | replay |
 | `009_Demo.sh` | 14 | both examples as a user runs them: every route kind, the store, HEAD/404/405, the token, `/quit`, the refused command line, no nc | netcat |
 | `010_Bench.sh` | 4 | the loose relative gate on the replay path (§11) | replay |
 

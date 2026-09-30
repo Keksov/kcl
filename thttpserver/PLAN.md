@@ -1,7 +1,8 @@
 # thttpserver — a minimal HTTP server on kklass + netcat (kcl/thttpserver)
 
 **Status: COMPLETE (P0–P3, 2026-09-29)** — nine classes in four files, both examples,
-the bench and the docs; 472 unit tests green on both bashes (§5). Planned and
+the bench and the docs; 472 unit tests green on both bashes (§5); a post-completion
+review (2026-09-30, F1–F6, §8) brought the suite to 497. Planned and
 critic-hardened 2026-09-27 → 2026-09-28; owner decisions D1–D9 DECIDED (§2.0). A critic pass (§8: 3 blockers, 11 majors, 12 minors, nits — all
 folded in) rewrote the network transport (§2.5): the first draft's FIFO writer never
 delivered EOF, its close path truncated every response, and on bash 5.2.37 a FIFO cannot
@@ -146,8 +147,11 @@ class THttpRequest
         func QueryField                 # NAME → percent-decoded value, first occurrence; rc 1 if absent; '' → rc 2
         func RouteParam                 # NAME → value captured by the router
         proc SetRouteParam              # NAME VALUE (the router's use)
-        func ReadFrom                   # FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE]] — rc 0 (rc 2 = malformed call);
-                                        #   RESULT = 0 parsed | 400/408/413/414/431/501/505 to answer | 'gone' (C20)
+        func ReadFrom                   # FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE [CONSUMED]]] — rc 0 (rc 2 =
+                                        #   malformed call); RESULT = 0 parsed | 400/408/413/414/431/501/505 to
+                                        #   answer | 'gone' (C20); CONSUMED 1 = FIRSTLINE is the request line even
+                                        #   when empty (review F5); Method/URI/ProtocolVersion kept after a
+                                        #   later-stage status (review F4)
     private
         var _method
         var _uri
@@ -207,6 +211,7 @@ class THttpTransport                    # the network seam
         property InFd          read _inFd
         property OutFd         read _outFd
         property FirstLine     read _firstLine       # request line consumed by Accept ('' if none)
+        property LineConsumed  read _lineConsumed    # 1: FirstLine was consumed, even '' (review F5)
         property TimedOut      read _timedOut        # 1: connected but silent past RequestTimeout → 408
         property RemoteAddress read _remoteAddress
         property LastError     read _lastError
@@ -219,6 +224,7 @@ class THttpTransport                    # the network seam
         var _inFd
         var _outFd
         var _firstLine
+        var _lineConsumed
         var _timedOut
         var _remoteAddress
         var _lastError
@@ -378,7 +384,14 @@ freed in the destructor, no fork on a per-request path **inside the server shell
 the listener spawn — proved three ways under `TReplayTransport` (§4).
 
 `ReadFrom` answers rc 0 with the status in `RESULT` (C20), so the parser's "error" is a
-value, not a miss, and §1.2 holds.
+value, not a miss, and §1.2 holds. **Amended by review F4 (2026-09-30):** a status from
+the request line itself leaves every field empty, but once the request line is accepted
+`Method`/`URI`/`ProtocolVersion` are set and stay set whatever a later stage returns
+(400/408/413/431/501/`gone`) — the server takes the HEAD flag from `REQ.Method` (the
+transport's `FirstLine` prefix only when Method is ''), so a failed HEAD is answered
+without a body on every transport; `PathInfo`/`QueryString`/`Content` stay status-0-only
+(the P0 deviation-9 contract, "an error status leaves Method..Content empty", is
+superseded).
 
 **Named deviations** (README §2 row): (a) `Active = true` / `Serve` / `App.Run` **block**
 until the server stops; (b) handlers' **stdout goes to the server's stdout, not to the
@@ -388,7 +401,7 @@ temp dir and its listener until the listener's `ListenerTTL` (60 s) expires — 
 may not install an EXIT trap (C26); (e) a write to a read-only property prints kklass's
 own `Error: Property 'X' is read-only` line unconditionally.
 
-### 2.2 Request parsing (`THttpRequest.ReadFrom FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE]]`)
+### 2.2 Request parsing (`THttpRequest.ReadFrom FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE [CONSUMED]]]`)
 
 * **Time.** Every `read` gets `-t LEFT`, LEFT = deadline − `EPOCHREALTIME` formatted
   `S.UUUUUU`; **LEFT ≤ 0 → 408 without calling `read`** (`-t 0` would look like EOF,
@@ -398,14 +411,22 @@ own `Error: Property 'X' is read-only` line unconditionally.
   detect overflow): longer → **414** for the request line, **431** for a header. More than
   100 headers → **431**. A trailing CR is stripped with the file-scope `__THS_CR`
   (an inline `$'\r'` in a member body does not survive `build`). Bare LF is accepted.
-  A partial first line followed by EOF → `gone`.
+  A partial first line followed by EOF → `gone`. An EMPTY line before the request line is
+  **400** (no RFC 9112 §2.2 leading-CRLF skip) — also when a transport consumed it: the
+  transport's `LineConsumed` reaches ReadFrom as **CONSUMED 1**, "FIRSTLINE is the request
+  line even when ''"; CONSUMED 0 / omitted keeps the P0 rule (a non-empty FIRSTLINE was
+  consumed, an empty one means read it from FD) (review F5 — before it, a bare LF sent
+  over netcat was dropped and the next line parsed: 200 on the wire, 400 in the direct
+  parse).
 * **Request line** = exactly `METHOD SP TARGET SP HTTP/1.x`: METHOD `^[A-Z]+$` and one of
   `GET POST PUT DELETE OPTIONS HEAD TRACE PATCH`, else **501**; TARGET starting with `/`
   (origin-form only) else **400**; version `1.0`/`1.1` else **505** (garbage **400**);
   HTTP/1.1 without `Host` → **400**.
 * **Headers** `NAME: VALUE`: NAME an RFC 9110 token else **400**; obs-fold → **400**;
   stored lower-cased in `${inst}_hdr` + arrival order in `${inst}_hdrn`; a repeat is
-  joined with `, `, except two **different** `Content-Length` values → **400**.
+  joined with `, `, except two **different** `Content-Length` values → **400** and a
+  **second `Host`** (any case, any value, identical included — RFC 9112 §3.2 MUST) →
+  **400** (review F2).
 * **Body.** `Transfer-Encoding` → **501**. `Content-Length` through `kk.isInt`, negative
   or non-numeric → **400**, above MAXBODY → **413** (the body is not read). Read under
   `LC_ALL=C` in a loop of `read -r -d '' -n $((LEN-got))` (C18): a returned delimiter
@@ -445,7 +466,11 @@ own `Error: Property 'X' is read-only` line unconditionally.
   then resolved **once, at registration**, and stored with its kind:
   1. a **class** deriving from `THttpRouteObject` (`kk._class_derives_from`) and **not
      abstract** (`${CLASS}_class_abstract` ≠ 1, D8) → per request: `CLASS.new
-     __ths_route_obj`, `RouteData` assigned, `.HandleRequest REQ RESP`, `.delete`;
+     __ths_route_obj`, `RouteData` assigned, `.HandleRequest REQ RESP`, `.delete`. A
+     dispatch nested inside a route object's HandleRequest (a sub-router) uses
+     `__ths_route_obj1`, `2`, … — one name per level, the level a `local` inherited
+     through bash's dynamic scope, so an inner pass never deletes the outer, live object
+     and an aborted pass leaves no level behind (review F1);
   2. **`INST.METHOD`**: INST is a live instance (`${INST}_class` set) and METHOD is a
      **method** of its class (not a property wrapper, which `declare -F` would also
      accept) → called `INST.METHOD REQ RESP DATA`; state persists;
@@ -467,9 +492,10 @@ own `Error: Property 'X' is read-only` line unconditionally.
 ### 2.5 Transport seam and the two listener slots (D5)
 
 `THttpTransport` is **abstract**; the server only knows `InFd`/`OutFd`/`FirstLine`/
-`TimedOut`/`RemoteAddress`. **`TReplayTransport`** (`exec {InFd}<REQFILE`,
-`exec {OutFd}>CAPTUREFILE`) runs the whole pipeline with no socket and no fork; P0/P1
-tests are built on it, and it demonstrates substitutability.
+`LineConsumed`/`TimedOut`/`RemoteAddress` (`LineConsumed`: review F5).
+**`TReplayTransport`** (`exec {InFd}<REQFILE`, `exec {OutFd}>CAPTUREFILE`) runs the whole
+pipeline with no socket and no fork; P0/P1 tests are built on it, and it demonstrates
+substitutability.
 
 **`TNetcatTransport`** — two slots; each is a FIFO feeding the listener's stdin, a
 process-substitution fd reading its stdout, a `-vv` stderr file and a pid, under a
@@ -491,7 +517,8 @@ only nc's own startup overlaps.
 1. If the current slot has no listener, `_spawn` it.
 2. Loop `LC_ALL=C read -r -n 8194 -t TICK chunk <&rd`, accumulating partial input,
    TICK = min(1 s, remaining idle budget):
-   * **rc 0** (a line, or 8194 bytes) → `FirstLine`, `RemoteAddress` from `Connection
+   * **rc 0** (a line, or 8194 bytes) → `FirstLine` (+ `LineConsumed` 1, an empty line
+     included — review F5), `RemoteAddress` from `Connection
      from` in the stderr file (fork-free `while read`), then **`_spawn` the other slot**,
      rc 0.
    * **rc > 128** → `_state`: `connected` → remember when first seen; once older than
@@ -542,12 +569,13 @@ Serve:      BeginServe; while ! _stop && (MaxRequests==0 || RequestCount<MaxRequ
             EndServe
 ServeOne:   a live ${srv}_req/${srv}_resp from an aborted pass → .delete first
             Accept → THttpRequest.new/THttpResponse.new → RESP.Attach OutFd ISHEAD
-            → TimedOut ? 408 : ReadFrom (FIRSTLINE, REMOTE)
+            → TimedOut ? 408 : ReadFrom (FIRSTLINE, REMOTE, CONSUMED = LineConsumed — review F5)
             → RESULT gone → nothing sent; status → RESP.Code=status; 0 → $this.HandleRequest REQ RESP (VIRTUAL)
             → handler rc≠0 and not ContentSent → OnRequestError, 500
             → not ContentSent → SendContent → _log (OnLog: 'ADDR METHOD URI CODE BYTES MS', control
               characters replaced by '?', TStopwatch)
-            → CloseConnection → .delete both → RequestCount++
+            → CloseConnection → .delete both → RequestCount++ unless gone (review F3: a gone
+              connection is neither answered, logged nor counted — it cannot use up MaxRequests)
 EndServe:   transport Shutdown; trap - INT TERM PIPE; eval "$saved"; _active=0
 ```
 
@@ -810,6 +838,12 @@ into its call form even inside quotes — register a method of the running insta
 replay path, ≈ 95–107 ms per request over sockets, 9–10 req/s) and the gate numbers are in
 the ledger's P3 entry.
 
+**Post-completion review 2026-09-30 DONE** — F1–F6 (§8): unit suite 497/497 on 5.2.37
+(threaded ×2, single ×1) and 5.3.9 (threaded ×2); red against the unfixed code 20 FAIL
+(001: 6, 003: 4, 004: 5, 007: 2, 008: 3); the 005 fork-storm check 5/5 on each bash;
+kklass 344/344 and tcustomapplication 377/377 on both. Details in the ledger's
+`review_2026_09_30`.
+
 Mode: the kcl orchestration mode — one Opus worker per phase, review against the live
 tree, remarks, commit kcl then the kbool bump; no push unless asked. The critic's probe
 scripts live in the session scratchpad and may be gone; §1.1 and §2.5 carry everything
@@ -892,6 +926,33 @@ and C15 (`local TZ` ignored) before folding. Every finding is folded in:
 | C25 | minor | handler assignments hit object properties (dynamic scope) | §2.11 `local` rule |
 | C26 | minor | temp dir outlives a KILL, no EXIT trap allowed | deviation (d), `mktemp -d` |
 | nits | — | spawn not overlapped; RESULT stale not empty; ≥3-arg METHOD rule; default-route meaning; `demo_oop` in §1.2; method-list check; handler regex; `-n 8194`; OnLog sanitising; `patsub_replacement`; `HeadersSent` dropped; 501 for unknown methods; Host on 1.1; `gone`; stale instances; `0.0.0.0` warning; `DeleteRoute` cut | throughout |
+
+### Post-completion review (2026-09-30)
+
+A deep code review of the finished unit found six issues; all fixed red-first (20 FAIL
+against the unfixed code), details and red counts in the ledger's `review_2026_09_30`:
+
+* **F1** (router) — every route-class dispatch used the one name `__ths_route_obj`: a
+  route object routing through a sub-router where a route class won too had its live
+  instance deleted by the inner pass, and the outer pass then ABORTED the whole top-level
+  command. Fix: one name per nesting level (`__ths_route_obj`, `…1`, `…2`), the level a
+  `local` inherited through dynamic scope (§2.4).
+* **F2** (parser) — a repeated `Host` was joined like any header; now a second `Host` →
+  400 (RFC 9112 §3.2), whatever the case and values (§2.2).
+* **F3** (server) — `gone` counted toward `RequestCount`, so gone probes could use up
+  `MaxRequests`; now only answered connections count (408 included) (§2.6; amends the P2
+  interpretation "RequestCount counts every handled connection incl. gone/408").
+* **F4** (parser + server) — the HEAD flag of an error response came from the transport's
+  `FirstLine` prefix, '' under replay; now ReadFrom keeps Method/URI/ProtocolVersion after
+  a later-stage status and the server reads `REQ.Method` (§2.1; amends the P0
+  deviation-9 contract).
+* **F5** (parser + transport) — `FIRSTLINE=''` meant both "nothing consumed" and "an
+  empty line consumed": a bare LF before the request line was 200 over netcat, 400 in the
+  direct parse. Now `ReadFrom … CONSUMED` + `THttpTransport.LineConsumed` (§1.3, §2.2).
+* **F6** (transport, no behaviour change) — the per-slot `if (( s == 0 ))` selection,
+  copied at ~15 sites, became `local -n` onto the kklass private vars (`_rd$s` …),
+  probed first on both bashes (read, write, rebinding in a loop, no visibility warning,
+  no fork); the 005 fork-storm check 5/5 on each bash.
 
 ## 9. Side observation (outside this unit)
 

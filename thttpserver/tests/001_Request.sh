@@ -661,3 +661,112 @@ ctlseen=0; [[ -e "$CANARY" ]] && ctlseen=1
 rm -f "$CANARY"
 if [[ $prc -eq 0 && $seen -eq 0 && $ctlseen -eq 1 ]]; then kt_test_pass "pipeline: no subshell; control: detected"; else kt_test_fail "rc=$prc pipeline-seen=$seen control-seen=$ctlseen"; fi
 
+
+# ===========================================================================
+kt_test_section "8. post-completion review 2026-09-30: duplicate Host (F2), the fields after a later-stage status (F4), CONSUMED (F5)"
+# ===========================================================================
+
+kt_test_start "F2: two Host headers → 400 whatever their values, case and the version (RFC 9112 §3.2)"
+bad=""
+mk h2same.req "GET / HTTP/1.1${CRLF}Host: x${CRLF}Host: x${CRLF}${CRLF}"
+mk h2diff.req "GET / HTTP/1.1${CRLF}Host: a${CRLF}Host: b${CRLF}${CRLF}"
+mk h2case.req "GET / HTTP/1.1${CRLF}Host: a${CRLF}X-B: 1${CRLF}hOST: a${CRLF}${CRLF}"
+mk h2v10.req  "GET / HTTP/1.0${CRLF}HOST: a${CRLF}host: a${CRLF}${CRLF}"
+mk h2empty.req "GET / HTTP/1.0${CRLF}Host:${CRLF}Host:${CRLF}${CRLF}"
+for f in h2same h2diff h2case h2v10 h2empty; do
+    parse "$TMP/$f.req"
+    [[ $P_RC -eq 0 && "$P_ST" == 400 ]] || bad+=" $f=$P_RC:'$P_ST'"
+done
+if [[ -z "$bad" ]]; then kt_test_pass "5 × 400"; else kt_test_fail "$bad"; fi
+
+kt_test_start "F2: one Host is fine; another repeated header is still joined (the rule is Host-only)"
+mk h1.req "GET / HTTP/1.1${CRLF}Host: x${CRLF}X-M: 1${CRLF}x-m: 2${CRLF}${CRLF}"
+parse "$TMP/h1.req"; get R GetHeader x-m; xm="$G"; get R GetHeader host
+if [[ "$P_ST" == 0 && "$G" == x && "$xm" == "1, 2" ]]; then kt_test_pass "0; host x; x-m '1, 2'"; else kt_test_fail "st='$P_ST' host='$G' x-m='$xm'"; fi
+
+# fields3 — "Method|URI|ProtocolVersion|PathInfo|QueryString|Content" of R.
+fields3() {
+    local m u v p q c
+    get R Method; m="$G"; get R URI; u="$G"; get R ProtocolVersion; v="$G"
+    get R PathInfo; p="$G"; get R QueryString; q="$G"; get R Content; c="$G"
+    F3="$m|$u|$v|$p|$q|$c"
+}
+kt_test_start "F4: a status from a stage AFTER the request line keeps Method / URI / ProtocolVersion (PathInfo, QueryString, Content stay '')"
+bad=""
+mk f4bad.req  "HEAD /x?q=1 HTTP/1.1${CRLF}Host: h${CRLF}Bad Name: v${CRLF}${CRLF}"
+mk f4nohost.req "GET /x?q=1 HTTP/1.1${CRLF}X-A: 1${CRLF}${CRLF}"
+mk f4te.req   "POST /x?q=1 HTTP/1.1${CRLF}Host: h${CRLF}Transfer-Encoding: chunked${CRLF}${CRLF}"
+mk f4413.req  "PUT /x?q=1 HTTP/1.0${CRLF}Content-Length: 70000${CRLF}${CRLF}"
+mk f4cl.req   "POST /x?q=1 HTTP/1.0${CRLF}Content-Length: abc${CRLF}${CRLF}"
+mk f4431.req  "GET /x?q=1 HTTP/1.0${CRLF}${H100}X-101: x${CRLF}${CRLF}"
+mk f4431l.req "GET /x?q=1 HTTP/1.0${CRLF}${H8193}${CRLF}${CRLF}"
+mk f4gone.req "DELETE /x?q=1 HTTP/1.0${CRLF}X: 1"
+printf 'OPTIONS /x?q=1 HTTP/1.0\r\nContent-Length: 3\r\n\r\na\0b' > "$TMP/f4nul.req"
+for c in "f4bad 400 HEAD|/x?q=1|1.1" "f4nohost 400 GET|/x?q=1|1.1" "f4te 501 POST|/x?q=1|1.1" \
+         "f4413 413 PUT|/x?q=1|1.0" "f4cl 400 POST|/x?q=1|1.0" "f4431 431 GET|/x?q=1|1.0" \
+         "f4431l 431 GET|/x?q=1|1.0" "f4gone gone DELETE|/x?q=1|1.0" "f4nul 400 OPTIONS|/x?q=1|1.0" \
+         "h2same 400 GET|/|1.1"; do
+    read -r f want w3 <<< "$c"
+    parse "$TMP/$f.req" 65536; fields3
+    [[ "$P_ST" == "$want" && "$F3" == "$w3|||" ]] || bad+=" $f=$P_ST:'$F3'"
+done
+if [[ -z "$bad" ]]; then kt_test_pass "10 statuses, the three fields kept"; else kt_test_fail "$bad"; fi
+
+kt_test_start "F4: the fields are kept after a 408 at the header stage (open pipe) and with FIRSTLINE given"
+slow "PATCH /s HTTP/1.1${CRLF}Host: h${CRLF}X-B" 300000; fields3; a="$P_ST:$F3"
+mk f4hdr.req "Bad Name: v${CRLF}${CRLF}"
+parse "$TMP/f4hdr.req" 65536 "HEAD /fl HTTP/1.0"$'\r'; fields3; b="$P_ST:$F3"
+if [[ "$a" == "408:PATCH|/s|1.1|||" && "$b" == "400:HEAD|/fl|1.0|||" ]]; then kt_test_pass "'$a' / '$b'"; else kt_test_fail "a='$a' b='$b'"; fi
+
+kt_test_start "F4: a status FROM the request line leaves all fields '' (400 / 501 / 505 / 414, from the fd and from FIRSTLINE)"
+bad=""
+mk f4rl1.req "HEAD  /x HTTP/1.1${CRLF}Host: h${CRLF}${CRLF}"
+mk f4rl2.req "HEAD http://x/ HTTP/1.1${CRLF}Host: h${CRLF}${CRLF}"
+mk f4rl3.req "HEAD /x FOO/1.1${CRLF}${CRLF}"
+mk f4rl4.req "BREW /x HTTP/1.1${CRLF}Host: h${CRLF}${CRLF}"
+mk f4rl5.req "HEAD /x HTTP/2.0${CRLF}${CRLF}"
+for c in "f4rl1 400" "f4rl2 400" "f4rl3 400" "f4rl4 501" "f4rl5 505" "c_414-8193 414"; do
+    read -r f want <<< "$c"
+    parse "$TMP/$f.req"; fields3
+    [[ "$P_ST" == "$want" && "$F3" == "|||||" ]] || bad+=" $f=$P_ST:'$F3'"
+done
+parse "$TMP/hdronly.req" 65536 "HEAD /x HTTP/9.9"; fields3
+[[ "$P_ST" == 505 && "$F3" == "|||||" ]] || bad+=" firstline=$P_ST:'$F3'"
+if [[ -z "$bad" ]]; then kt_test_pass "7 request-line statuses, nothing kept"; else kt_test_fail "$bad"; fi
+
+kt_test_start "F5: CONSUMED 1 with an EMPTY FIRSTLINE — the consumed line WAS the request line → 400, and the fd is not read"
+mk f5.req "GET /f5 HTTP/1.1${CRLF}Host: x${CRLF}${CRLF}"
+fd=""; exec {fd}<"$TMP/f5.req"; fresh R; deadline 10000000
+rrc=0; R.ReadFrom "$fd" "$DL" 65536 "" "" 1 || rrc=$?; st="$RESULT"
+IFS= read -r -u "$fd" nxt; exec {fd}<&-
+fields3
+if [[ $rrc -eq 0 && "$st" == 400 && "$nxt" == "GET /f5 HTTP/1.1"$'\r' && "$F3" == "|||||" ]]; then kt_test_pass "400, the fd still at the GET line"; else kt_test_fail "rc=$rrc st='$st' next='$nxt' fields='$F3'"; fi
+
+kt_test_start "F5: CONSUMED 1 with a lone CR as FIRSTLINE → 400; with a real FIRSTLINE → parsed as before"
+parse "$TMP/f5.req" 65536 $'\r' "" 1; a="$P_ST"
+parse "$TMP/hdronly.req" 65536 "GET /c1 HTTP/1.1" "9.9.9.9:1" 1; get R URI; b="$P_ST:$G"; get R RemoteAddress; b+=":$G"
+if [[ "$a" == 400 && "$b" == "0:/c1:9.9.9.9:1" ]]; then kt_test_pass "400; 0 /c1"; else kt_test_fail "cr='$a' real='$b'"; fi
+
+kt_test_start "F5: CONSUMED 0 or omitted with an empty FIRSTLINE — nothing was consumed, the request line comes from the fd (unchanged)"
+parse "$TMP/f5.req" 65536 "" "" 0; get R URI; a="$P_ST:$G"
+parse "$TMP/f5.req" 65536 "" ""; get R URI; b="$P_ST:$G"
+parse "$TMP/f5.req" 65536 "" "" ""; get R URI; c="$P_ST:$G"
+if [[ "$a" == "0:/f5" && "$b" == "0:/f5" && "$c" == "0:/f5" ]]; then kt_test_pass "three × 0 /f5"; else kt_test_fail "0='$a' omitted='$b' empty='$c'"; fi
+
+kt_test_start "F5: a CONSUMED other than '' / 0 / 1 is a malformed call: rc 2 + RESULT ''"
+bad=""
+for v in 2 x yes -1 " 1"; do
+    parse "$TMP/f5.req" 65536 "" "" "$v"
+    [[ $P_RC -eq 2 && -z "$P_ST" ]] || bad+=" '$v'=$P_RC:'$P_ST'"
+done
+if [[ -z "$bad" ]]; then kt_test_pass "5 values refused"; else kt_test_fail "$bad"; fi
+
+kt_test_start "F5: every transport has LineConsumed (THttpTransport's read-only property); TReplayTransport never consumes (0)"
+TReplayTransport.new LT
+LT.AddRequestFile "$TMP/f5.req"
+get LT LineConsumed; a="$GRC:$G"
+LT.Accept 0 10
+get LT LineConsumed; b="$GRC:$G"
+wrc=0; LT.LineConsumed = 1 2>/dev/null || wrc=$?
+LT.delete
+if [[ "$a" == "0:0" && "$b" == "0:0" && $wrc -eq 1 ]]; then kt_test_pass "0 before and after Accept; read-only"; else kt_test_fail "before='$a' after='$b' write-rc=$wrc"; fi

@@ -450,7 +450,7 @@ S.ServeOne; [[ "$RESULT" == gone ]] || exit 7
 S.ServeOne; [[ "$RESULT" == 200 ]] || exit 6
 rc=0; S.ServeOne || rc=$?; [[ $rc -eq 2 ]] || exit 5; rc=0
 S.EndServe
-S.RequestCount; [[ "$RESULT" == 4 ]] || exit 4
+S.RequestCount; [[ "$RESULT" == 3 ]] || exit 4
 S.Active; [[ "$RESULT" == 0 ]] || exit 3
 TReplayTransport.new T2
 T2.AddRequestFile "$TMP/s1.req"
@@ -551,6 +551,9 @@ dcase "RouteParam ''"                 1 2 DR.RouteParam ""
 dcase "SetRouteParam ''"              1 2 DR.SetRouteParam "" v
 dcase "HeaderNames bad name"          1 2 DR.HeaderNames 1bad
 dcase "ReadFrom malformed call"       1 2 DR.ReadFrom x 1 1
+THttpRequest.new DR2
+dcase "ReadFrom malformed CONSUMED (F5)" 1 2 DR2.ReadFrom 0 1 1 "" "" 2
+DR2.delete
 dcase "SetCustomHeader non-token"     1 2 DS.SetCustomHeader "a b" v
 dcase "SetCustomHeader server-owned"  1 2 DS.SetCustomHeader Date v
 dcase "SetCustomHeader CR in value"   1 2 DS.SetCustomHeader X-A $'a\rb'
@@ -568,6 +571,7 @@ dcase "GetHeader hit — silent"                            0 0 DR.GetHeader x-a
 dcase "SetCustomHeader ok — silent"                       0 0 DS.SetCustomHeader X-Ok 1
 dcase "Write — silent"                                    0 0 DS.Write text
 dcase "CloseConnection with nothing open — silent"        0 0 DT.CloseConnection
+dcase "LineConsumed (read) — silent (F5)"                 0 0 DT.LineConsumed
 
 THttpRouter.new DX
 dfn() { :; }

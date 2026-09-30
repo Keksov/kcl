@@ -4,7 +4,7 @@
 # (httpdefs.pp: TRequest/TResponse) is a design reference only.
 #
 #   THttpRequest.new R
-#   R.ReadFrom FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE]]   # rc 0, RESULT = status
+#   R.ReadFrom FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE [CONSUMED]]]  # rc 0, RESULT = status
 #   R.Method; R.PathInfo; R.QueryField q; R.GetHeader host   # RESULT, nothing printed
 #
 #   THttpResponse.new S
@@ -367,34 +367,46 @@ THttpRequest.SetRouteParam() {
     return 0
 }
 
-# ReadFrom FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE]]
+# ReadFrom FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE [CONSUMED]]]
 #
 # Parses one request from FD (PLAN §2.2). rc 0 with the status in RESULT (C20):
-#   0                           parsed — the fields are set
-#   400 408 413 414 431 501 505 the status to answer (Method … Content stay
-#                               empty; RemoteAddress and the headers read so
-#                               far are kept)
+#   0                           parsed — every field is set
+#   400 408 413 414 431 501 505 the status to answer
 #   gone                        the client left (EOF): nothing is answered
 # rc 2 + RESULT '' for a malformed CALL (FD / DEADLINE_US / MAXBODY not
-# integers, FD or MAXBODY negative).
+# integers, FD or MAXBODY negative, CONSUMED not '' / 0 / 1).
 #
-# DEADLINE_US is absolute (EPOCHREALTIME in µs). FIRSTLINE, when non-empty, is
-# the request line a transport already consumed (a trailing CR is stripped);
-# REMOTE lands in RemoteAddress. The checks, in order: the request line (414;
-# structure / a control character / a garbage version → 400; the method → 501;
-# a target that is not origin-form → 400; the version → 505); every header
-# (431 for a line over 8192 bytes or the 101st header; a non-token name,
-# obs-fold, no colon, a control character in the value, two different
+# THE FIELDS AFTER A STATUS (review 2026-09-30 F4). A status that comes FROM
+# the request line (414, 400, 501, 505) leaves every field empty. Once the
+# request line is accepted, Method, URI and ProtocolVersion are set at once
+# and stay set whatever a LATER stage returns (400 / 408 / 413 / 431 / 501 /
+# gone): the server needs the method to answer a failed HEAD without a body.
+# PathInfo, QueryString, Content and the query fields are set only on status
+# 0. RemoteAddress and the headers read so far are always kept.
+#
+# DEADLINE_US is absolute (EPOCHREALTIME in µs). REMOTE lands in
+# RemoteAddress. FIRSTLINE is the request line a transport already consumed
+# (a trailing CR is stripped). CONSUMED says whether it did (review F5): 1 —
+# FIRSTLINE IS the request line, even when it is empty (a consumed empty line
+# is a 400, as it is when read from FD); 0 or omitted — a non-empty FIRSTLINE
+# is the consumed request line, an empty one means nothing was consumed and
+# the request line is read from FD (the P0 rule). The checks, in order: the
+# request line (414; structure / a control character / a garbage version →
+# 400; the method → 501; a target that is not origin-form → 400; the version
+# → 505); every header (431 for a line over 8192 bytes or the 101st header; a
+# non-token name, obs-fold, no colon, a control character in the value, a
+# second Host (any case, any value — RFC 9112 §3.2, review F2), two different
 # Content-Length values → 400); then HTTP/1.1 without Host → 400,
 # Transfer-Encoding → 501, a Content-Length that is not plain digits within
 # int64 → 400, above MAXBODY → 413 (the body is not read); the body in a
 # `read -d '' -n` loop — a NUL is 400 at once.
 THttpRequest.ReadFrom() {
-    local __ths_fd="${1:-}" __ths_dl="${2:-}" __ths_max="${3:-}"
+    local __ths_fd="${1:-}" __ths_dl="${2:-}" __ths_max="${3:-}" __ths_cons="${6:-0}"
     if ! kk.isInt "$__ths_fd" __ths_fd || (( __ths_fd < 0 )) \
        || ! kk.isInt "$__ths_dl" __ths_dl \
-       || ! kk.isInt "$__ths_max" __ths_max || (( __ths_max < 0 )); then
-        kk.debug "Error: THttpRequest.ReadFrom: usage: FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE]]"
+       || ! kk.isInt "$__ths_max" __ths_max || (( __ths_max < 0 )) \
+       || [[ "$__ths_cons" != 0 && "$__ths_cons" != 1 ]]; then
+        kk.debug "Error: THttpRequest.ReadFrom: usage: FD DEADLINE_US MAXBODY [FIRSTLINE [REMOTE [CONSUMED]]]"
         kk._return ""
         return 2
     fi
@@ -410,8 +422,11 @@ THttpRequest.ReadFrom() {
     _remoteAddress="${5:-}"
 
     # ---- the request line --------------------------------------------------
-    if [[ -n "${4:-}" ]]; then
-        __ths_line="${4%"$__THS_CR"}"
+    # A transport consumed it when CONSUMED is 1 (even an EMPTY line) or when
+    # FIRSTLINE is non-empty; else it is read from FD.
+    if [[ -n "${4:-}" || "$__ths_cons" == 1 ]]; then
+        __ths_line="${4:-}"
+        __ths_line="${__ths_line%"$__THS_CR"}"
         if (( ${#__ths_line} > 8192 )); then
             kk._return 414
             return 0
@@ -455,6 +470,12 @@ THttpRequest.ReadFrom() {
         kk._return 505
         return 0
     fi
+
+    # The request line is accepted: these three stay set whatever a later
+    # stage returns (review F4).
+    _method="$__ths_m"
+    _uri="$__ths_t"
+    _protocolVersion="${__ths_v#HTTP/}"
 
     # ---- the headers -------------------------------------------------------
     while :; do
@@ -500,7 +521,12 @@ THttpRequest.ReadFrom() {
         fi
         __ths_ln="${__ths_name,,}"
         if [[ -n "${__ths_h[$__ths_ln]+x}" ]]; then
-            if [[ "$__ths_ln" == content-length ]]; then
+            if [[ "$__ths_ln" == host ]]; then
+                # A second Host is a MUST-reject (RFC 9112 §3.2), whatever
+                # the values (review F2).
+                kk._return 400
+                return 0
+            elif [[ "$__ths_ln" == content-length ]]; then
                 if [[ "${__ths_h[$__ths_ln]}" != "$__ths_val" ]]; then
                     kk._return 400
                     return 0
@@ -564,10 +590,7 @@ THttpRequest.ReadFrom() {
         fi
     done
 
-    # ---- accepted: the fields ---------------------------------------------------
-    _method="$__ths_m"
-    _uri="$__ths_t"
-    _protocolVersion="${__ths_v#HTTP/}"
+    # ---- accepted: the rest of the fields -----------------------------------------
     _pathInfo="${__ths_t%%\?*}"
     if [[ "$__ths_t" == *\?* ]]; then
         _queryString="${__ths_t#*\?}"

@@ -63,11 +63,18 @@ ths._bytes() {
 
 # ===========================================================================
 # THttpTransport — the network seam (PLAN §2.5). The server only knows
-# InFd / OutFd / FirstLine / TimedOut / RemoteAddress / LastError, all
-# read-only properties over PROTECTED fields a descendant transport sets.
+# InFd / OutFd / FirstLine / LineConsumed / TimedOut / RemoteAddress /
+# LastError, all read-only properties over PROTECTED fields a descendant
+# transport sets.
 #
 #   Accept IDLE_MS REQUEST_TIMEOUT_S → rc 0 a connection · 1 an idle tick ·
 #                                      2 fatal (LastError says why)
+#   LineConsumed                     → 1 when Accept consumed the request
+#                                      line: FirstLine holds it, EVEN WHEN
+#                                      EMPTY (a bare LF before the request
+#                                      line); 0 when nothing was consumed
+#                                      (review 2026-09-30 F5 — FirstLine ''
+#                                      alone cannot tell the two apart)
 #   CloseConnection                  → close the current connection's fds
 #   Shutdown                         → stop listening; release everything
 #
@@ -79,6 +86,7 @@ class THttpTransport
         property InFd          read _inFd
         property OutFd         read _outFd
         property FirstLine     read _firstLine
+        property LineConsumed  read _lineConsumed
         property TimedOut      read _timedOut
         property RemoteAddress read _remoteAddress
         property LastError     read _lastError
@@ -91,6 +99,7 @@ class THttpTransport
         var _inFd
         var _outFd
         var _firstLine
+        var _lineConsumed
         var _timedOut
         var _remoteAddress
         var _lastError
@@ -100,6 +109,7 @@ THttpTransport.Create() {
     _inFd=""
     _outFd=""
     _firstLine=""
+    _lineConsumed=0
     _timedOut=0
     _remoteAddress=""
     _lastError=""
@@ -118,8 +128,9 @@ build THttpTransport
 # a fresh capture file on OutFd (`exec {fd}>CAPTURE`); with none left it is
 # rc 2 (LastError set). The capture of the N-th accepted request (0-based) is
 # `<request file>.N.out`, reported by `ResponseFile N`. An Accept while a
-# connection is still open closes that one first. FirstLine is always '' (the
-# parser reads the request line itself), TimedOut 0, RemoteAddress ''.
+# connection is still open closes that one first. FirstLine is always '' and
+# LineConsumed 0 (the parser reads the request line itself), TimedOut 0,
+# RemoteAddress ''.
 #
 # Per-instance arrays: `${inst}_rqf` (request files, in order) and
 # `${inst}_rsf` (capture files, by accept ordinal), freed in Destroy.
@@ -212,6 +223,7 @@ TReplayTransport.Accept() {
     _inFd="$__ths_in"
     _outFd="$__ths_out"
     _firstLine=""
+    _lineConsumed=0
     _timedOut=0
     _remoteAddress=""
     __ths_s[__ths_n]="$__ths_cap"
@@ -401,13 +413,10 @@ TNetcatTransport._spawn() {
     if ! "$__inst__.BuildArgv" ths_argv; then
         return 1
     fi
-    if (( __ths_s == 0 )); then
-        __ths_wo="$_wr1"
-        __ths_ro="$_rd1"
-    else
-        __ths_wo="$_wr0"
-        __ths_ro="$_rd0"
-    fi
+    local -n __ths_rdS="_rd$__ths_s" __ths_wrS="_wr$__ths_s" __ths_pidS="_pid$__ths_s" __ths_seenS="_seen$__ths_s"
+    local -n __ths_rdO="_rd$(( 1 - __ths_s ))" __ths_wrO="_wr$(( 1 - __ths_s ))"
+    __ths_wo="$__ths_wrO"
+    __ths_ro="$__ths_rdO"
     if ! { : > "$__ths_dir/err$__ths_s"; } 2>/dev/null; then
         _lastError="TNetcatTransport: cannot write '$__ths_dir/err$__ths_s'"
         kk.debug "Error: $_lastError"
@@ -438,17 +447,10 @@ TNetcatTransport._spawn() {
     fi
     __ths_pid=$!
     exec {__ths_wr}>"$__ths_dir/fifo$__ths_s"
-    if (( __ths_s == 0 )); then
-        _rd0="$__ths_rd"
-        _wr0="$__ths_wr"
-        _pid0="$__ths_pid"
-        _seen0=""
-    else
-        _rd1="$__ths_rd"
-        _wr1="$__ths_wr"
-        _pid1="$__ths_pid"
-        _seen1=""
-    fi
+    __ths_rdS="$__ths_rd"
+    __ths_wrS="$__ths_wr"
+    __ths_pidS="$__ths_pid"
+    __ths_seenS=""
     return 0
 }
 
@@ -459,18 +461,13 @@ TNetcatTransport._spawn() {
 TNetcatTransport._closeSlot() {
     local __ths_s="$1" __ths_mode="${2:-drain}" __ths_rd __ths_wr __ths_pid __ths_eof=0
     local __ths_x __ths_r __ths_left __ths_dl __ths_ct="$CloseTimeout"
+    local -n __ths_rdS="_rd$__ths_s" __ths_wrS="_wr$__ths_s" __ths_pidS="_pid$__ths_s" __ths_seenS="_seen$__ths_s"
     if ! kk.isInt "$__ths_ct" __ths_ct || (( __ths_ct < 0 )); then
         __ths_ct=2
     fi
-    if (( __ths_s == 0 )); then
-        __ths_rd="$_rd0"
-        __ths_wr="$_wr0"
-        __ths_pid="$_pid0"
-    else
-        __ths_rd="$_rd1"
-        __ths_wr="$_wr1"
-        __ths_pid="$_pid1"
-    fi
+    __ths_rd="$__ths_rdS"
+    __ths_wr="$__ths_wrS"
+    __ths_pid="$__ths_pidS"
     if [[ "$__ths_mode" == eof ]]; then
         __ths_eof=1
     fi
@@ -504,17 +501,10 @@ TNetcatTransport._closeSlot() {
         fi
         wait "$__ths_pid" 2>/dev/null || :
     fi
-    if (( __ths_s == 0 )); then
-        _rd0=""
-        _wr0=""
-        _pid0=""
-        _seen0=""
-    else
-        _rd1=""
-        _wr1=""
-        _pid1=""
-        _seen1=""
-    fi
+    __ths_rdS=""
+    __ths_wrS=""
+    __ths_pidS=""
+    __ths_seenS=""
     return 0
 }
 
@@ -555,8 +545,10 @@ TNetcatTransport._state() {
 }
 
 # Accept IDLE_MS REQUEST_TIMEOUT_S (PLAN §2.5, C5, C6) → rc 0 a connection
-# (InFd/OutFd/FirstLine/RemoteAddress; TimedOut 1 for a client silent past
-# REQUEST_TIMEOUT_S — the server answers 408) · rc 1 an idle tick (the
+# (InFd/OutFd/RemoteAddress; FirstLine = the consumed request line with
+# LineConsumed 1 — an EMPTY line included, review F5; or TimedOut 1 and
+# LineConsumed 0 for a client silent past REQUEST_TIMEOUT_S — the server
+# answers 408) · rc 1 an idle tick (the
 # listener stays alive), a client that connected and left, or a signal
 # (__THS_SIGNAL) · rc 2 fatal, LastError says why. A connection still open is
 # closed first. The request line is read in ≤ 1 s ticks, partial input
@@ -572,12 +564,13 @@ TNetcatTransport.Accept() {
         return 2
     fi
     local __ths_s __ths_spawned=0 __ths_t0 __ths_now __ths_us __ths_tick __ths_acc="" __ths_chunk
-    local __ths_r __ths_st __ths_rd __ths_pid __ths_seen
+    local __ths_r __ths_st __ths_rd __ths_seen
     local -a ths_probe=()
     if [[ -n "$_inFd" || -n "$_outFd" ]]; then
         kk.call_silent "$__inst__" CloseConnection
     fi
     _firstLine=""
+    _lineConsumed=0
     _timedOut=0
     _remoteAddress=""
     if [[ -n "$__THS_SIGNAL" ]]; then
@@ -603,8 +596,8 @@ TNetcatTransport.Accept() {
     fi
     local LC_ALL=C
     __ths_s="$_cur"
-    if (( __ths_s == 0 )); then __ths_pid="$_pid0"; else __ths_pid="$_pid1"; fi
-    if [[ -z "$__ths_pid" ]]; then
+    local -n __ths_rdS="_rd$__ths_s" __ths_wrS="_wr$__ths_s" __ths_pidS="_pid$__ths_s" __ths_seenS="_seen$__ths_s"
+    if [[ -z "$__ths_pidS" ]]; then
         if ! "$__inst__._spawn" "$__ths_s"; then
             kk._return ""
             return 2
@@ -617,7 +610,7 @@ TNetcatTransport.Accept() {
             kk._return ""
             return 1
         fi
-        if (( __ths_s == 0 )); then __ths_rd="$_rd0"; else __ths_rd="$_rd1"; fi
+        __ths_rd="$__ths_rdS"
         __ths_tick=1
         if (( __ths_idle > 0 )); then
             __ths_us=$(( __ths_idle * 1000 - (${EPOCHREALTIME//[!0-9]/} - __ths_t0) ))
@@ -636,8 +629,10 @@ TNetcatTransport.Accept() {
         __ths_st="$RESULT"
         if (( __ths_r == 0 )); then
             _firstLine="$__ths_acc"
+            _lineConsumed=1
             _remoteAddress="$REPLY"
-            if (( __ths_s == 0 )); then _inFd="$_rd0"; _outFd="$_wr0"; else _inFd="$_rd1"; _outFd="$_wr1"; fi
+            _inFd="$__ths_rdS"
+            _outFd="$__ths_wrS"
             "$__inst__._spawn" $(( 1 - __ths_s )) || :
             kk._return ""
             return 0
@@ -645,15 +640,16 @@ TNetcatTransport.Accept() {
         if (( __ths_r > 128 )); then
             __ths_now=${EPOCHREALTIME//[!0-9]/}
             if [[ "$__ths_st" == connected || -n "$__ths_acc" ]]; then
-                if (( __ths_s == 0 )); then __ths_seen="$_seen0"; else __ths_seen="$_seen1"; fi
+                __ths_seen="$__ths_seenS"
                 if [[ -z "$__ths_seen" ]]; then
                     __ths_seen="$__ths_now"
-                    if (( __ths_s == 0 )); then _seen0="$__ths_now"; else _seen1="$__ths_now"; fi
+                    __ths_seenS="$__ths_now"
                 fi
                 if (( __ths_now - __ths_seen >= __ths_rt * 1000000 )); then
                     _timedOut=1
                     _remoteAddress="$REPLY"
-                    if (( __ths_s == 0 )); then _inFd="$_rd0"; _outFd="$_wr0"; else _inFd="$_rd1"; _outFd="$_wr1"; fi
+                    _inFd="$__ths_rdS"
+                    _outFd="$__ths_wrS"
                     "$__inst__._spawn" $(( 1 - __ths_s )) || :
                     kk._return ""
                     return 0
@@ -706,14 +702,15 @@ TNetcatTransport.Accept() {
 # CloseConnection — the drained close of the current connection (PLAN §2.5
 # C2), then the other slot becomes current. rc 0; nothing open → rc 0.
 TNetcatTransport.CloseConnection() {
-    local __ths_s="$_cur" __ths_pid
-    if (( __ths_s == 0 )); then __ths_pid="$_pid0"; else __ths_pid="$_pid1"; fi
+    local __ths_s="$_cur"
+    local -n __ths_pidS="_pid$__ths_s"
     _inFd=""
     _outFd=""
     _firstLine=""
+    _lineConsumed=0
     _timedOut=0
     _remoteAddress=""
-    if [[ -z "$__ths_pid" ]]; then
+    if [[ -z "$__ths_pidS" ]]; then
         return 0
     fi
     "$__inst__._closeSlot" "$__ths_s" drain
@@ -741,12 +738,13 @@ TNetcatTransport.Shutdown() {
     fi
     if [[ -n "$_dir" ]]; then
         for __ths_s in 0 1; do
-            if (( __ths_s == 0 )); then __ths_pid="$_pid0"; else __ths_pid="$_pid1"; fi
-            if [[ -n "$__ths_pid" ]]; then
+            local -n __ths_pidS="_pid$__ths_s" __ths_wrS="_wr$__ths_s"
+            if [[ -n "$__ths_pidS" ]]; then
                 "$__inst__._state" "$__ths_s"
                 if [[ "$RESULT" == connected ]]; then
                     __ths_conn+=("$__ths_s")
-                    if (( __ths_s == 0 )); then __ths_fd="$_wr0"; _wr0=""; else __ths_fd="$_wr1"; _wr1=""; fi
+                    __ths_fd="$__ths_wrS"
+                    __ths_wrS=""
                     if [[ -n "$__ths_fd" ]]; then
                         exec {__ths_fd}>&-
                     fi
@@ -761,32 +759,30 @@ TNetcatTransport.Shutdown() {
         done
     fi
     for __ths_s in 0 1; do
-        if (( __ths_s == 0 )); then __ths_fd="$_wr0"; else __ths_fd="$_wr1"; fi
+        local -n __ths_rdS="_rd$__ths_s" __ths_wrS="_wr$__ths_s" __ths_pidS="_pid$__ths_s" __ths_seenS="_seen$__ths_s"
+        __ths_fd="$__ths_wrS"
         if [[ -n "$__ths_fd" ]]; then
             exec {__ths_fd}>&-
         fi
-        if (( __ths_s == 0 )); then __ths_fd="$_rd0"; else __ths_fd="$_rd1"; fi
+        __ths_fd="$__ths_rdS"
         if [[ -n "$__ths_fd" ]]; then
             exec {__ths_fd}<&-
         fi
-        if (( __ths_s == 0 )); then __ths_pid="$_pid0"; else __ths_pid="$_pid1"; fi
+        __ths_pid="$__ths_pidS"
         if [[ -n "$__ths_pid" ]]; then
             kill -TERM "$__ths_pid" 2>/dev/null || :
             wait "$__ths_pid" 2>/dev/null || :
         fi
+        __ths_rdS=""
+        __ths_wrS=""
+        __ths_pidS=""
+        __ths_seenS=""
     done
-    _pid0=""
-    _pid1=""
-    _rd0=""
-    _rd1=""
-    _wr0=""
-    _wr1=""
-    _seen0=""
-    _seen1=""
     _cur=0
     _inFd=""
     _outFd=""
     _firstLine=""
+    _lineConsumed=0
     _timedOut=0
     _remoteAddress=""
     if [[ -n "$_dir" ]]; then
@@ -811,9 +807,12 @@ build TNetcatTransport
 #               TNetcatTransport ${inst}_tr with the server's Address/Port.
 #   ServeOne    accept + handle ONE connection: rc 0 handled (RESULT = the
 #               code answered, or `gone`) · 1 idle tick / a client that left /
-#               a signal · 2 fatal (LastError). On rc 1 without a signal it
-#               fires OnAcceptIdle SERVER (P3: the event moved here from
-#               Serve's loop, so THttpApplication.DoRun gets it too).
+#               a signal · 2 fatal (LastError). RequestCount + 1 for every
+#               ANSWERED connection (a 408 included) — never for `gone`, so
+#               gone probes do not use up MaxRequests (review F3). On rc 1
+#               without a signal it fires OnAcceptIdle SERVER (P3: the event
+#               moved here from Serve's loop, so THttpApplication.DoRun gets
+#               it too).
 #   Stopping    1 once Terminate / Active = false / a signal asked the server
 #               to stop (read-only; THttpApplication.DoRun reads it, P3).
 #   EndServe    transport Shutdown, the owned transport freed, the saved traps
@@ -821,14 +820,18 @@ build TNetcatTransport
 #
 # One connection (_handleConnection, protected): fresh ${inst}_req /
 # ${inst}_resp (a stale pair from an aborted pass is deleted first) →
-# TimedOut ? 408 : ReadFrom (FIRSTLINE, REMOTE) → a status is sent as the
-# Code, `gone` sends nothing → else $inst.HandleRequest (VIRTUAL: OnRequest,
-# else Router.RouteRequest, else 404) → a handler rc ≠ 0 with nothing sent:
-# OnRequestError REQ RESP RC, then (unless it sent) a FRESH 500 response —
-# the handler's partial Content and headers are dropped → SendContent unless
-# sent → OnLog SERVER 'ADDR METHOD URI CODE BYTES MS' (empty → '-', control
-# characters → '?', BYTES = body bytes sent, MS by the owned TStopwatch
-# ${inst}_sw) → CloseConnection → both deleted → RequestCount + 1.
+# TimedOut ? 408 : ReadFrom (FIRSTLINE, REMOTE, CONSUMED = the transport's
+# LineConsumed — review F5) → ISHEAD from REQ.Method (kept after a later-stage
+# status — review F4; the FirstLine prefix only when Method is '') → a
+# status is sent as the Code, `gone` sends nothing → else
+# $inst.HandleRequest (VIRTUAL: OnRequest, else Router.RouteRequest, else 404)
+# → a handler rc ≠ 0 with nothing sent: OnRequestError REQ RESP RC, then
+# (unless it sent) a FRESH 500 response — the handler's partial Content and
+# headers are dropped → SendContent unless sent → OnLog SERVER 'ADDR METHOD
+# URI CODE BYTES MS' (empty → '-', control characters → '?', BYTES = body
+# bytes sent, MS by the owned TStopwatch ${inst}_sw; METHOD and URI are '-'
+# only when the request line did not parse) → CloseConnection → both deleted
+# → RequestCount + 1 unless gone.
 #
 # THE PROPERTY RULE (§1.3). RequestCount, LastError, Active, MaxRequests and
 # Stopping (the application reads the last two, P3) are properties. The other
@@ -1068,7 +1071,12 @@ THttpServer.ServeOne() {
     fi
     "$__inst__._handleConnection"
     __ths_code="$RESULT"
-    _requestCount=$(( _requestCount + 1 ))
+    # A `gone` connection (the client left, nothing sent, nothing logged) is
+    # not a request: it does not count, so gone probes cannot use up
+    # MaxRequests (review F3). A 408 and every other answer count.
+    if [[ "$__ths_code" != gone ]]; then
+        _requestCount=$(( _requestCount + 1 ))
+    fi
     kk._return "$__ths_code"
     return 0
 }
@@ -1078,7 +1086,7 @@ THttpServer.ServeOne() {
 # `gone`.
 THttpServer._handleConnection() {
     local __ths_tr="$Transport" __ths_req="${__inst__}_req" __ths_resp="${__inst__}_resp"
-    local __ths_in __ths_out __ths_fl __ths_to __ths_ra __ths_st __ths_head=0 __ths_hrc=0 __ths_v
+    local __ths_in __ths_out __ths_fl __ths_lc __ths_to __ths_ra __ths_st __ths_head=0 __ths_hrc=0 __ths_v
     local __ths_m="" __ths_u="" __ths_code __ths_b=0 __ths_ms="" __ths_rt="$RequestTimeout" __ths_max="$MaxContentLength"
     if ! kk.isInt "$__ths_rt" __ths_rt || (( __ths_rt < 1 )); then
         __ths_rt=10
@@ -1095,6 +1103,7 @@ THttpServer._handleConnection() {
     "$__ths_tr.InFd";          __ths_in="$RESULT"
     "$__ths_tr.OutFd";         __ths_out="$RESULT"
     "$__ths_tr.FirstLine";     __ths_fl="$RESULT"
+    "$__ths_tr.LineConsumed";  __ths_lc="$RESULT"
     "$__ths_tr.TimedOut";      __ths_to="$RESULT"
     "$__ths_tr.RemoteAddress"; __ths_ra="$RESULT"
     THttpRequest.new "$__ths_req"
@@ -1102,17 +1111,22 @@ THttpServer._handleConnection() {
     if [[ "$__ths_to" == 1 ]]; then
         __ths_st=408
     else
-        if "$__ths_req.ReadFrom" "$__ths_in" $(( ${EPOCHREALTIME//[!0-9]/} + __ths_rt * 1000000 )) "$__ths_max" "$__ths_fl" "$__ths_ra"; then
+        # CONSUMED from the transport (review F5): a consumed EMPTY line is
+        # the request line (→ 400), never "nothing consumed".
+        if "$__ths_req.ReadFrom" "$__ths_in" $(( ${EPOCHREALTIME//[!0-9]/} + __ths_rt * 1000000 )) "$__ths_max" "$__ths_fl" "$__ths_ra" "$__ths_lc"; then
             __ths_st="$RESULT"
         else
             __ths_st=500
         fi
     fi
-    if [[ "$__ths_st" == 0 ]]; then
-        "$__ths_req.Method"
-        __ths_m="$RESULT"
-    fi
-    if [[ "$__ths_m" == HEAD || "$__ths_fl" == 'HEAD '* ]]; then
+    # ISHEAD from the request's own Method, which ReadFrom keeps once the
+    # request line parsed, whatever a later stage returned (review F4). Only
+    # when there is none — a status from the request line itself, a 408
+    # without ReadFrom — the transport's FirstLine prefix is the hint (''
+    # under TReplayTransport).
+    "$__ths_req.Method"
+    __ths_m="$RESULT"
+    if [[ "$__ths_m" == HEAD ]] || [[ -z "$__ths_m" && "$__ths_fl" == 'HEAD '* ]]; then
         __ths_head=1
     fi
     "$__ths_resp.Attach" "$__ths_out" "$__ths_head" "$ServerBanner" || :

@@ -162,9 +162,9 @@ kt_test_start "'gone' (the client left mid-request): nothing is written, ServeOn
 cap 5
 if [[ "${codes[5]}" == "0:gone" && -z "$CAP" && ${#LOGS[@]} -eq 6 ]]; then kt_test_pass "empty capture, 6 log lines for 7 connections"; else kt_test_fail "code=${codes[5]} cap='${CAP:0:60}' logs=${#LOGS[@]}"; fi
 
-kt_test_start "the server goes on after all of it: the next request is 200; RequestCount 10 (3 + 7 connections, the fatal Accept not counted)"
+kt_test_start "the server goes on after all of it: the next request is 200; RequestCount 9 (3 + 6 answered connections — the gone one and the fatal Accept not counted, F3)"
 cap 6; SV.RequestCount
-if [[ "${codes[6]}" == "0:200" && "$CAPB" == "x-body" && "$RESULT" == 10 ]]; then kt_test_pass "200, 10"; else kt_test_fail "code=${codes[6]} body='$CAPB' count=$RESULT"; fi
+if [[ "${codes[6]}" == "0:200" && "$CAPB" == "x-body" && "$RESULT" == 9 ]]; then kt_test_pass "200, 9"; else kt_test_fail "code=${codes[6]} body='$CAPB' count=$RESULT"; fi
 
 kt_test_start "log lines of the error paths: '- - - 400 0 MS' (no method/URI parsed), HEAD logs 0 bytes"
 if [[ "${LOGS[2]:-}" =~ ^-\ HEAD\ /x\ 200\ 0\ [0-9]+$ && "${LOGS[3]:-}" =~ ^-\ -\ -\ 400\ 0\ [0-9]+$ && "${LOGS[0]:-}" =~ ^-\ GET\ /fail\ 500\ 0\ [0-9]+$ ]]; then
@@ -235,6 +235,90 @@ SV.MaxRequests = 0
 r2=0; SV.Serve || r2=$?
 SV.RequestCount; c2="$RESULT"
 if [[ $r -eq 0 && "$c" == 2 && $r2 -eq 0 && "$c2" == 1 ]]; then kt_test_pass "2 then stop; 1 then stop"; else kt_test_fail "max: rc=$r count=$c; terminate: rc=$r2 count=$c2"; fi
+
+kt_test_start "F3: a 'gone' connection does not count — MaxRequests 2 with gone + 3 requests queued: gone, then 2 answered, then Serve stops rc 0; RequestCount 2"
+fresh_replay gone.req get_x.req get_x.req get_x.req
+SV.Transport = RT0
+SV.OnRequest = hx
+SV.MaxRequests = 2
+r=0; SV.Serve || r=$?
+SV.RequestCount; c="$RESULT"
+cap 0; c0="$CAP"; cap 1; b1="${CAPH%%$'\n'*}|$CAPB"; cap 2; b2="${CAPH%%$'\n'*}|$CAPB"
+x3=0; RT0.ResponseFile 3 || x3=$?
+SV.MaxRequests = 0
+if [[ $r -eq 0 && "$c" == 2 && -z "$c0" && "$b1" == "HTTP/1.1 200 OK|x-body" && "$b2" == "HTTP/1.1 200 OK|x-body" && $x3 -eq 1 ]]; then
+    kt_test_pass "gone free, 2 × 200, the 4th never accepted"
+else
+    kt_test_fail "rc=$r count=$c gone-cap='${c0:0:40}' #1='$b1' #2='$b2' #3-accepted=$(( x3 == 0 ))"
+fi
+
+kt_test_start "F3: ServeOne on a gone connection leaves RequestCount unchanged; a 408/400 still counts"
+fresh_replay gone.req bad.req
+SV.Transport = RT0
+SV.OnRequest = ""
+SV.RequestCount; c0="$RESULT"
+SV.ServeOne; g="$RESULT"; SV.RequestCount; c1="$RESULT"
+SV.ServeOne; b="$RESULT"; SV.RequestCount; c2="$RESULT"
+if [[ "$g" == gone && "$c1" == "$c0" && "$b" == 400 && "$c2" == $(( c0 + 1 )) ]]; then kt_test_pass "gone +0, 400 +1"; else kt_test_fail "gone='$g' $c0→$c1; 400='$b' →$c2"; fi
+
+rq headbad.req "HEAD /x HTTP/1.1${CRLF}Host: h${CRLF}Bad Name: v${CRLF}${CRLF}"
+rq headte.req  "HEAD /x?t=1 HTTP/1.1${CRLF}Host: h${CRLF}Transfer-Encoding: chunked${CRLF}${CRLF}"
+HEADS=()
+lgh() { LOGS+=("$2"); HEADS+=("${SV_resp_data[_head]-unset}"); }
+fresh_replay headbad.req headte.req get_x.req
+SV.Transport = RT0
+SV.OnLog = lgh
+LOGS=(); codes=()
+for i in 1 2 3; do r=0; SV.ServeOne || r=$?; codes+=("$r:$RESULT"); done
+SV.OnLog = lg
+
+kt_test_start "F4 (wire): a replayed HEAD that fails at the header stage (400, 501) → the status head with Content-Length: 0 and no body"
+# raw N — the N-th capture byte for byte (a $(<file) would drop the final LF).
+raw() { RT0.ResponseFile "$1"; RAW=""; [[ -f "$RESULT" ]] && IFS= read -r -d '' RAW < "$RESULT"; }
+raw 0; a="$RAW"; cap 0; ah="$CAPH"; raw 1; b="$RAW"; cap 1; bh="$CAPH"
+if [[ "${codes[0]}" == "0:400" && "${codes[1]}" == "0:501" && "$ah" == "HTTP/1.1 400 Bad Request"* && "$ah" == *$'\nContent-Length: 0\n'* \
+      && "$a" == *$'Connection: close\r\n\r\n' && "$bh" == "HTTP/1.1 501 Not Implemented"* && "$bh" == *$'\nContent-Length: 0\n'* \
+      && "$b" == *$'Connection: close\r\n\r\n' ]]; then
+    kt_test_pass "400 and 501, length present, no body"
+else
+    kt_test_fail "codes=${codes[*]} a='${ah:0:120}' b='${bh:0:120}'"
+fi
+
+kt_test_start "F4: ISHEAD comes from REQ.Method (kept after a later-stage status), not from the transport's FirstLine (always '' under replay); the log names the request"
+if [[ "${HEADS[*]}" == "1 1 0" && "${LOGS[0]:-}" =~ ^-\ HEAD\ /x\ 400\ 0\ [0-9]+$ && "${LOGS[1]:-}" =~ ^-\ HEAD\ /x\?t=1\ 501\ 0\ [0-9]+$ \
+      && "${LOGS[2]:-}" =~ ^-\ GET\ /x\ 200\ 6\ [0-9]+$ ]]; then
+    kt_test_pass "ISHEAD 1 1 0; ${LOGS[0]%% [0-9]*} …"
+else
+    kt_test_fail "ishead=(${HEADS[*]}) logs=(${LOGS[*]})"
+fi
+
+# TLineTransport004 — a replay transport that consumes the request line itself,
+# as TNetcatTransport does: FirstLine = that line, LineConsumed 1 (F5).
+class TLineTransport004 : TReplayTransport
+    public
+        override func Accept
+end
+TLineTransport004.Accept() {
+    local __l_r=0 __l_line=""
+    inherited Accept "$@" || __l_r=$?
+    if (( __l_r != 0 )); then kk._return ""; return "$__l_r"; fi
+    IFS= read -r -u "$_inFd" __l_line || :
+    _firstLine="$__l_line"
+    _lineConsumed=1
+    kk._return ""
+    return 0
+}
+build TLineTransport004
+printf '\nGET /x HTTP/1.1\r\nHost: h\r\n\r\n' > "$TMP/lf.req"
+kt_test_start "F5: a transport that consumed an EMPTY request line (FirstLine '', LineConsumed 1) → 400, the next line is NOT taken as the request line; a consumed real line is served"
+TLineTransport004.new LT0
+LT0.AddRequestFile "$TMP/lf.req"; LT0.AddRequestFile "$TMP/get_x.req"
+SV.Transport = LT0
+SV.ServeOne; a="$RESULT"; SV.ServeOne; b="$RESULT"
+LT0.ResponseFile 0; c0=""; [[ -f "$RESULT" ]] && c0="$(<"$RESULT")"
+LT0.delete
+if [[ "$a" == 400 && "$c0" == "HTTP/1.1 400 Bad Request"* && "$b" == 200 ]]; then kt_test_pass "400, then 200"; else kt_test_fail "lf='$a' '${c0:0:30}' real='$b'"; fi
+SV.Transport = RT0
 
 kt_test_start "Serve saves and restores INT/TERM/PIPE exactly; during a handler PIPE is ignored and INT/TERM belong to the server"
 trap ': custom int' INT
