@@ -357,7 +357,7 @@
   "review_2026_09_30": {
     "date": "2026-09-30",
     "status": "done",
-    "commit": "",
+    "commit": "1cc2d57",
     "scope": "post-completion deep code review of the COMPLETE unit: six findings F1–F6, fixed red-first by the implementing worker; red = the new/amended tests run against the UNFIXED code (5.2.37, threaded), 20 FAIL in all",
     "findings": {
       "F1": {
