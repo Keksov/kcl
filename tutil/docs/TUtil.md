@@ -159,8 +159,10 @@ two bashes; §3.3 is not, and §3.6 records a shape that is still wrong.
 
 ### 3.1 C1 — `$this.func` prints under `$( )`
 
-`$this.NAME` compiles to `$__inst__.call NAME`, which does **not** set
-`__kk_return_silent`. The callee's `kk._return` then writes its value to stdout
+`$this.NAME` compiled to `$__inst__.call NAME` when this was measured; since
+kklass R2_P8 removed that text rewrite it is a plain call of the instance's
+wrapper, and the output below is unchanged (re-run 2026-10-02 on both bashes):
+neither form sets `__kk_return_silent`. The callee's `kk._return` then writes its value to stdout
 whenever the outer member is running in a subshell — which is exactly the three
 positions `run` exists for. `kk.call_silent` sets and restores the flag, keeps
 `RESULT`, and still dispatches **virtually**.

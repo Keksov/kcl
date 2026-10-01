@@ -99,8 +99,9 @@ source "$TUTIL_DIR/../tpipe/tpipe.sh"
 #
 # ---- Traps this unit is written around (PLAN §2.2, §2.3, §6) ---------------
 #  * An internal call to another member is `kk.call_silent "$__inst__" NAME …`,
-#    NEVER `$this.NAME`. `$this.NAME` compiles to `$__inst__.call NAME`, which
-#    does not set `__kk_return_silent`; the callee's `kk._return` then PRINTS
+#    NEVER `$this.NAME`. `$this.NAME` is a plain call of the instance's wrapper
+#    (until kklass R2_P8 it was rewritten into `$__inst__.call NAME`); neither
+#    form sets `__kk_return_silent`; the callee's `kk._return` then PRINTS
 #    whenever the outer member runs under `$( )`, on the LHS of a pipe or inside
 #    `<( )` — exactly the three positions `run` exists for (measured: `od -c <
 #    <(v.run)` showed buildArgv's count and mapRc's value wrapped around the

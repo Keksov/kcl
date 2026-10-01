@@ -98,7 +98,7 @@ stay file-scope globals).
 | clients | curl 8.14.1 (5.2) / 8.20.0 (5.3) send `Expect: 100-continue` only for bodies > 1 MiB; bash `/dev/tcp/127.0.0.1/PORT` is a raw client on both |
 | **proxy** | this machine exports `HTTP_PROXY=HTTPS_PROXY=http://127.0.0.1:2080`: plain curl to localhost goes through it (503, rc 0). Tests use `curl --noproxy '*'` and unset all proxy variables |
 | firewall | loopback-only listeners (`-s 127.0.0.1`) raised no prompt; all-interface binding may — tests never do it |
-| P3: `$this.NAME` inside quotes | kklass rewrites the **text** `$this.NAME` of a member body into `$__inst__.call NAME` for every method NAME of the class (`kklass.sh:141-146`), quoted data included: `RegisterRoute / GET "$this.Home"` registered `App.call Home` (refused, rc 2). A method of the running instance is registered as `"$__inst__.Home"` |
+| P3: `$this.NAME` inside quotes | (historical — kklass R2_P8, 2026-10-02, removed the rewrite; `"$this.Home"` is now the string `App.Home`, the same as `"$__inst__.Home"`) at P3 kklass rewrote the **text** `$this.NAME` of a member body into `$__inst__.call NAME` for every method NAME of the class (`kklass.sh:141-146` then), quoted data included: `RegisterRoute / GET "$this.Home"` registered `App.call Home` (refused, rc 2). A method of the running instance is registered as `"$__inst__.Home"` (works before and after R2_P8) |
 | P3 costs (`bench.sh`, 5.2.37 / 5.3.9) | fork-free replay ServeOne 28.1 / 26.5 ms, DoRun 31.0 / 29.6 ms; over sockets 107 / 95 ms per request with a `/dev/tcp` client (9 / 10 req/s), 139 / 107 ms with curl; the spawn's synchronous part 36 ms; the drained close 14.5 / 8.1 ms; 8-client bursts without retry 28 / 31 of 40 answered, the rest resets (and 2 refusals on 5.2.37), the access log = the 200s |
 
 ### 1.2 Classes and files
@@ -832,9 +832,9 @@ red against the stub 40/40, 12/105, 12/14, 4/4; kklass 344/344 and tcustomapplic
 377/377 on both bashes; both demos run by hand on both bashes. On THttpServer: a
 read-only `Stopping` property, and the `OnAcceptIdle` event moved from Serve's loop into
 ServeOne so it fires under `App.Run` too; the application's `Port`/`Address` are
-read/write properties (§1.3 rule). Found: kklass rewrites the text `$this.NAME` of a body
+read/write properties (§1.3 rule). Found: kklass rewrote the text `$this.NAME` of a body
 into its call form even inside quotes — register a method of the running instance as
-`"$__inst__.M"`. Deviations, the measured costs (≈ 28 ms per request on the fork-free
+`"$__inst__.M"` (the rewrite was removed in kklass R2_P8; `"$__inst__.M"` keeps working). Deviations, the measured costs (≈ 28 ms per request on the fork-free
 replay path, ≈ 95–107 ms per request over sockets, 9–10 req/s) and the gate numbers are in
 the ledger's P3 entry.
 

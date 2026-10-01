@@ -177,9 +177,10 @@ TMyApp.Initialize() {
     "$srv.Token" = "$token"
     "$srv.OnLog" = access_log
     _hits=0
-    # A method of THIS object is registered as "$__inst__.Method", never as
-    # "$this.Method": kklass rewrites the text `$this.NAME` of a member body
-    # into its call form, quoted or not — the router would get 'App.call Home'.
+    # A method of THIS object is registered as "$__inst__.Method". (Until
+    # kklass R2_P8 "$this.Method" was not the same: kklass rewrote the text
+    # `$this.NAME` of a member body into its call form, quoted or not, and the
+    # router got 'App.call Home'.)
     if [[ -z "$_kv" ]]; then
         _kv="${__inst__}_kv"
         TKvController.new "$_kv"

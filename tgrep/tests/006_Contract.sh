@@ -71,7 +71,8 @@ else
 fi
 
 kt_test_start "no internal member call is spelled \`\$this.NAME\` (PLAN §2.2)"
-# `$this.NAME` compiles to `$__inst__.call NAME`, which does not set
+# `$this.NAME` is a plain call of the instance's wrapper (until kklass R2_P8 it
+# was rewritten into `$__inst__.call NAME`); neither form sets
 # `__kk_return_silent`; the callee's `kk._return` then PRINTS whenever the outer
 # member runs under `$( )`, `|` or `<( )` — exactly where `run` is used.
 if bad="$(grep -n '\$this\.' "$UNIT")"; then

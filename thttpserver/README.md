@@ -320,10 +320,12 @@ route object reads `RouteData`).
 * **In a method override, pass the arguments on**: `inherited HandleRequest
   "$@"`, `inherited Initialize "$@"` — a bare `inherited` outside a
   constructor passes **none** (C8).
-* **Register a method of the running instance as `"$__inst__.Method"`**, never
-  `"$this.Method"`: kklass rewrites the text `$this.NAME` of a member body into
-  its call form (`App.call Method`), quoted or not, and the router refuses that
-  name (found in P3, `examples/demo_oop.sh`).
+* **Register a method of the running instance as `"$__inst__.Method"`**. Since
+  kklass R2_P8 `"$this.Method"` is the same string; before it, kklass rewrote
+  the text `$this.NAME` of a member body into its call form (`App.call Method`),
+  quoted or not, and the router refused that name (found in P3,
+  `examples/demo_oop.sh`) — a `.ckk` cache compiled before R2_P8 still carries
+  the rewritten text until it is rebuilt.
 * A **stopping** route calls `App.Terminate` (or `$srv.Terminate`); the
   response is still sent.
 

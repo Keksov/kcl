@@ -203,7 +203,8 @@ comparing the array, not by running grep.
 
 **Inside a member body, an internal call to another member goes through
 `kk.call_silent "$__inst__" NAME ARGS...`, never `$this.NAME`.** `$this.NAME`
-compiles to `$__inst__.call NAME`, which does not set `__kk_return_silent`; the
+is a plain call of the instance's wrapper (it compiled to `$__inst__.call NAME`
+until kklass R2_P8 removed that rewrite); neither form sets `__kk_return_silent`; the
 callee's `kk._return` then **prints** whenever the outer member runs under `$( )`,
 on the LHS of a pipe or inside `<( )` — exactly the three positions `run` is
 documented for. Measured: `od -c < <(v.run)` showed `2A\nB\n0` (buildArgv's count,

@@ -25,7 +25,8 @@
 #                     the inherited loop in BeginServe / EndServe (C11), the
 #                     idle event lives in ServeOne, `Stopping` is read-only;
 #                     the examples parse and never register a "$this.X"
-#                     handler (kklass rewrites that text into a call form).
+#                     handler (kklass rewrote that text into a call form
+#                     until its R2_P8; the examples keep "$__inst__.X").
 #   set -eu           a child under `set -eu` loads the unit (twice) and runs
 #                     the replay pipeline end to end, every parser status path,
 #                     every guarded miss and refusal, the server over a replay
@@ -191,7 +192,7 @@ else
     kt_test_fail "Stopping/OnAcceptIdle placement differs"
 fi
 
-kt_test_start "the examples register no \"\$this.X\" handler (kklass rewrites the text \$this.NAME of a member body into 'INST.call NAME'); each resolves nc and prints its URL"
+kt_test_start "the examples register no \"\$this.X\" handler (until kklass R2_P8 the text \$this.NAME of a member body was rewritten into 'INST.call NAME'; they keep \"\$__inst__.X\"); each resolves nc and prints its URL"
 bad=""
 for f in "${EXAMPLES[@]}"; do
     if grep -nE 'RegisterRoute[^#]*"\$this\.' "$f" >/dev/null; then bad+=" $(basename "$f"):this-handler"; fi
