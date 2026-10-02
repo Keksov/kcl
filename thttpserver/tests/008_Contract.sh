@@ -87,10 +87,11 @@ for f in "${FILES[@]}"; do
 done
 if [[ -z "$bad" ]]; then kt_test_pass "none"; else kt_test_fail "$bad"; fi
 
-kt_test_start "no internal member call spelled \`\$this.NAME\`"
+kt_test_start "no internal member call spelled \`\$this.NAME\`; no kklass internal read (\`_class_abstract\`, \`kk._class_derives_from\` — kklass R2_P9: kk.isAbstract, kk.derivesFrom)"
 bad=""
 for f in "${FILES[@]}"; do
     if b="$(grep -n '\$this\.' "$f")"; then bad+=" $(basename "$f"): ${b//$'\n'/ | }"; fi
+    if b="$(grep -nE '_class_abstract|kk\._class_derives_from' "$f" | grep -v '^[0-9]*:[[:space:]]*#')"; then bad+=" $(basename "$f"): ${b//$'\n'/ | }"; fi
 done
 if [[ -z "$bad" ]]; then kt_test_pass "none"; else kt_test_fail "$bad"; fi
 

@@ -140,9 +140,9 @@ THttpApplication.Initialize() {
         kk.debug "Error: THttpApplication.Initialize: the address is empty (--address=A)"
         return 2
     fi
-    __ths_v="${__ths_cls}_class_abstract"
-    if [[ ! "$__ths_cls" =~ $__THS_NAME_RE ]] || ! kk._class_derives_from "$__ths_cls" THttpServer \
-       || [[ "${!__ths_v:-0}" == 1 ]] || ! declare -F "$__ths_cls.new" >/dev/null; then
+    # kk.isAbstract rc 1 (built, concrete) is the only accept; rc 0 / 2 refuse.
+    if [[ ! "$__ths_cls" =~ $__THS_NAME_RE ]] || ! kk.derivesFrom "$__ths_cls" THttpServer \
+       || kk.isAbstract "$__ths_cls" || (( $? != 1 )) || ! declare -F "$__ths_cls.new" >/dev/null; then
         kk.debug "Error: THttpApplication.Initialize: ServerClass '$__ths_cls' is not a concrete THttpServer descendant"
         return 2
     fi

@@ -498,16 +498,18 @@ if [[ "$a" == 0 && $RR -ne 0 && $BADCTOR_RUN -eq 0 && $left -eq 0 ]]; then kt_te
 
 kt_test_start "THttpRouteObject is abstract: .new is rc 1 and leaves no instance"
 rc=0; THttpRouteObject.new AbsRO 2>"$TMP/abs.err" || rc=$?
-if [[ $rc -eq 1 && -z "$(declare -p AbsRO_class 2>/dev/null)" && "${THttpRouteObject_class_abstract:-}" == 1 ]]; then kt_test_pass "rc 1, no instance, flag 1"; else kt_test_fail "rc=$rc flag=${THttpRouteObject_class_abstract:-}"; fi
+ia=0; kk.isAbstract THttpRouteObject || ia=$?
+if [[ $rc -eq 1 && -z "$(declare -p AbsRO_class 2>/dev/null)" && $ia -eq 0 ]]; then kt_test_pass "rc 1, no instance, kk.isAbstract rc 0"; else kt_test_fail "rc=$rc isAbstract=$ia"; fi
 
 kt_test_start "D8 (fact 21): a route class with no HandleRequest → rc 2, NOTHING printed, no constructor run"
 NOH_CTOR=0; count K; n0="$RC_N"
 reg K /noh GET THsNoHandler003; a="$GRC:$GO"
 count K
-if [[ "$a" == "2:" && $NOH_CTOR -eq 0 && "$RC_N" == "$n0" && "${THsNoHandler003_class_abstract:-}" == 1 ]]; then
+ia=0; kk.isAbstract THsNoHandler003 || ia=$?
+if [[ "$a" == "2:" && $NOH_CTOR -eq 0 && "$RC_N" == "$n0" && $ia -eq 0 ]]; then
     kt_test_pass "rc 2, silent, 0 constructions, not registered"
 else
-    kt_test_fail "'$a' ctor=$NOH_CTOR count $n0→$RC_N flag=${THsNoHandler003_class_abstract:-}"
+    kt_test_fail "'$a' ctor=$NOH_CTOR count $n0→$RC_N isAbstract=$ia"
 fi
 
 kt_test_start "D8 reads the flag, not the name: the abstract base itself → rc 2; a non-route class → rc 2"
@@ -518,7 +520,8 @@ if [[ "$a" == "2:" && "$b" == "2:" ]]; then kt_test_pass "both rc 2, silent"; el
 kt_test_start "kklass: HandleRequest redeclared WITHOUT \`override\` still implements it — the class is concrete and accepted"
 reg K /forgot GET THsForgot003; a="$GRC"
 route K GET /forgot; S.Content
-if [[ "$a" == 0 && "${THsForgot003_class_abstract:-}" == 0 && $RR -eq 0 && "$RESULT" == forgot-ok ]]; then kt_test_pass "flag 0, served"; else kt_test_fail "reg=$a flag=${THsForgot003_class_abstract:-} rr=$RR body='$RESULT'"; fi
+ia=0; kk.isAbstract THsForgot003 || ia=$?
+if [[ "$a" == 0 && $ia -eq 1 && $RR -eq 0 && "$RESULT" == forgot-ok ]]; then kt_test_pass "kk.isAbstract rc 1, served"; else kt_test_fail "reg=$a isAbstract=$ia rr=$RR body='$RESULT'"; fi
 
 kt_test_start "a route class's destructor chains with a bare \`inherited\` (the empty base destructor, C9)"
 HELLO_DTOR=0

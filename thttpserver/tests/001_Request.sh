@@ -497,11 +497,13 @@ kt_test_start "THttpTransport is abstract: .new is rc 1"
 rc=0; THttpTransport.new AB 2>"$TMP/ab.err" || rc=$?
 if [[ $rc -eq 1 && -z "$(declare -p AB_class 2>/dev/null)" ]]; then kt_test_pass "rc 1, no instance"; else kt_test_fail "rc=$rc"; fi
 
-kt_test_start "TReplayTransport derives from THttpTransport and is concrete"
-if kk._class_derives_from TReplayTransport THttpTransport && [[ "${TReplayTransport_class_abstract:-0}" != "1" ]]; then
+kt_test_start "TReplayTransport derives from THttpTransport and is concrete (kk.derivesFrom rc 0, kk.isAbstract rc 1)"
+d=0; kk.derivesFrom TReplayTransport THttpTransport || d=$?
+a=0; kk.isAbstract TReplayTransport || a=$?
+if [[ $d -eq 0 && $a -eq 1 ]]; then
     kt_test_pass "derives, not abstract"
 else
-    kt_test_fail "derives/abstract wrong"
+    kt_test_fail "derivesFrom rc=$d isAbstract rc=$a"
 fi
 
 TReplayTransport.new T

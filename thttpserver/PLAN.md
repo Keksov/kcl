@@ -370,7 +370,7 @@ Added 2026-09-28 after designing the descendants (§2.11):
 |---|---|
 | D6 | **request fields are read-only properties** over private fields — generalised by C7 to every field another object reads (§1.3 property rule). A direct read inside a handler is silent and sets `RESULT`; a write is rc 1 |
 | D7 | **route data**: `RegisterRoute … [ISDEFAULT [DATA]]` (after FPC's `RegisterRoute(APattern, AData, ACallBack)`); a route object gets it in `RouteData`, a function or `inst.method` handler as `$3` |
-| D8 | **an abstract route class is refused at registration** with rc 2 — implemented by reading `${CLASS}_class_abstract`, the flag `.new` itself checks (C17): no probe instance, no constructor run, nothing printed. This couples to one kklass internal; a public `kk.isAbstract` in kklass would remove the coupling (roadmap note) |
+| D8 | **an abstract route class is refused at registration** with rc 2 — implemented by reading `${CLASS}_class_abstract`, the flag `.new` itself checks (C17): no probe instance, no constructor run, nothing printed. This couples to one kklass internal; a public `kk.isAbstract` in kklass would remove the coupling (roadmap note). **Done in kklass R2_P9 (2026-10-02):** the router and the application call `kk.isAbstract` (rc 1 = built + concrete is the only accept) and `kk.derivesFrom` |
 | D9 | **`THttpApplication.ServerClass`** (default `THttpServer`): `Initialize` creates the server as `ServerClass.new`; a class not derived from `THttpServer` → rc 2 |
 
 ### 2.1 kcl contract (README §1) — applies in full
@@ -464,8 +464,8 @@ own `Error: Property 'X' is read-only` line unconditionally.
   stored verbatim in `${inst}_rdat` (D7). Anything else → rc 2.
 * **HANDLER** is first checked against `^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`,
   then resolved **once, at registration**, and stored with its kind:
-  1. a **class** deriving from `THttpRouteObject` (`kk._class_derives_from`) and **not
-     abstract** (`${CLASS}_class_abstract` ≠ 1, D8) → per request: `CLASS.new
+  1. a **class** deriving from `THttpRouteObject` (`kk.derivesFrom`) and **not
+     abstract** (`kk.isAbstract` rc 1, D8 — since kklass R2_P9; before: `${CLASS}_class_abstract` ≠ 1) → per request: `CLASS.new
      __ths_route_obj`, `RouteData` assigned, `.HandleRequest REQ RESP`, `.delete`. A
      dispatch nested inside a route object's HandleRequest (a sub-router) uses
      `__ths_route_obj1`, `2`, … — one name per level, the level a `local` inherited

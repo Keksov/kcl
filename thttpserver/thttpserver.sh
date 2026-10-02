@@ -996,7 +996,7 @@ THttpServer.BeginServe() {
     if kk.isInt "$MaxRequests" __ths_n && (( __ths_n >= 0 )); then MaxRequests="$__ths_n"; else __ths_bad+=" MaxRequests"; fi
     if [[ -n "$Transport" ]]; then
         __ths_v="${Transport}_class"
-        if [[ ! "$Transport" =~ $__THS_NAME_RE ]] || ! kk._class_derives_from "${!__ths_v:-}" THttpTransport; then
+        if [[ ! "$Transport" =~ $__THS_NAME_RE ]] || ! kk.derivesFrom "${!__ths_v:-}" THttpTransport; then
             __ths_bad+=" Transport"
         fi
     fi

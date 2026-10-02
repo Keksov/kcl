@@ -574,7 +574,7 @@ into `ServeOne` (so it fires under `App.Run` too), and made the application's
 | kklass feature | where |
 |---|---|
 | inheritance, multi-level | `TNetcatTransport : THttpTransport`; `THttpApplication : TCustomApplication`; `TAuthServer : THttpServer`, `TMyApp : THttpApplication` (demo_oop) |
-| `abstract` | `THttpTransport`, `THttpRouteObject`; D8 refuses a still-abstract route class by the flag `.new` checks |
+| `abstract` | `THttpTransport`, `THttpRouteObject`; D8 refuses a still-abstract route class by `kk.isAbstract` (the flag `.new` checks) |
 | `override` + `inherited` with arguments | `THttpApplication.Initialize/Run/Terminate`; `TAuthServer.HandleRequest` → `inherited HandleRequest "$@"` |
 | virtual dispatch via `$this` (template method) | `ServeOne` calls `$inst.HandleRequest`; TCustomApplication's `Run` calls `$this.DoRun` — the overrides win |
 | read-only property over a private field | every `THttpRequest` field, the transport's state, `RequestCount`, `LastError`, `Stopping`, `Server`, `AppRouter` |

@@ -15,8 +15,8 @@
 # with 3 to 5 the 2nd is ALWAYS METHOD: PATTERN METHOD HANDLER [ISDEFAULT
 # [DATA]]. METHOD ∈ GET POST PUT DELETE OPTIONS HEAD TRACE PATCH ALL, ISDEFAULT
 # 0/1, DATA an opaque string kept verbatim. The HANDLER is resolved ONCE, here:
-#   1. a CLASS deriving from THttpRouteObject whose abstract flag
-#      (${CLASS}_class_abstract, the one .new checks — D8) is not 1. Per
+#   1. a CLASS deriving from THttpRouteObject (kk.derivesFrom) that is built
+#      and concrete (kk.isAbstract rc 1 — the flag .new checks, D8). Per
 #      request: CLASS.new __ths_route_obj (__ths_route_obj1, 2, … for a
 #      dispatch nested in a route object — review F1), RouteData = DATA,
 #      HandleRequest REQ RESP, delete. A still-abstract class (no
@@ -380,9 +380,10 @@ THttpRouter.RegisterRoute() {
             return 2
         fi
         __ths_kind=method
-    elif kk._class_derives_from "$__ths_h" THttpRouteObject; then
-        __ths_v="${__ths_h}_class_abstract"
-        if [[ "${!__ths_v:-0}" == 1 ]] || ! declare -F "$__ths_h.new" >/dev/null; then
+    elif kk.derivesFrom "$__ths_h" THttpRouteObject; then
+        # D8: kk.isAbstract rc 1 (a built, concrete class) is the only accept;
+        # rc 0 (still abstract) and rc 2 (not built) are refused.
+        if kk.isAbstract "$__ths_h" || (( $? != 1 )) || ! declare -F "$__ths_h.new" >/dev/null; then
             kk.debug "Error: THttpRouter.RegisterRoute: route class '$__ths_h' is abstract (no HandleRequest)"
             return 2
         fi
@@ -461,12 +462,12 @@ THttpRouter.RouteRequest() {
         return 2
     fi
     __ths_v="${__ths_req}_class"
-    if ! kk._class_derives_from "${!__ths_v:-}" THttpRequest; then
+    if ! kk.derivesFrom "${!__ths_v:-}" THttpRequest; then
         kk.debug "Error: THttpRouter.RouteRequest: '$__ths_req' is not a THttpRequest"
         return 2
     fi
     __ths_v="${__ths_resp}_class"
-    if ! kk._class_derives_from "${!__ths_v:-}" THttpResponse; then
+    if ! kk.derivesFrom "${!__ths_v:-}" THttpResponse; then
         kk.debug "Error: THttpRouter.RouteRequest: '$__ths_resp' is not a THttpResponse"
         return 2
     fi
