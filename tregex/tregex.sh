@@ -1,4 +1,6 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tregex.sh}../../kbool.sh" || return
+kk.unit tregex || return $__kk_unit_rc
 
 # ===========================================================================
 # tregex — a bash port of Delphi System.RegularExpressions.TRegEx
@@ -97,14 +99,6 @@
 # VERBOSE_KKLASS=debug; bash's own stderr is always suppressed).
 # ===========================================================================
 
-# Re-source guard: the class need only be built once per process; a second
-# source is a clean no-op (returns BEFORE `build`, so the kklass duplicate-
-# class guard never trips on a legitimate re-source).
-if [[ -n "${_TREGEX_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TREGEX_SOURCED=1
-
 # Character semantics are part of this unit's contract (S9, T3, D6): an empty
 # environment means the C locale, where the regex engine matches BYTES and `.`
 # does not cover a multibyte character. A locale the caller CHOSE is left alone.
@@ -112,9 +106,11 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
-TREGEX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TREGEX_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 
 # ---------------------------------------------------------------------------
 # Class surface (member types FINAL as of P0 — bodies filled per phase).

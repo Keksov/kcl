@@ -1,4 +1,6 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%thashset.sh}../../kbool.sh" || return
+kk.unit thashset || return $__kk_unit_rc
 
 # ===========================================================================
 # thashset — a bash port of FPC rtl-generics THashSet<T> (one class).
@@ -122,14 +124,14 @@
 # associative source is rc 2 as well.
 # ===========================================================================
 
-# Re-source guard.
-if [[ -n "${_THASHSET_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _THASHSET_SOURCED=1
-
-THASHSET_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$THASHSET_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
+# TSet.* are this unit's shared helpers, not a class: a declared
+# function namespace (U40), so no class or instance may take that name.
+kk.namespace TSet || return
 
 # ---------------------------------------------------------------------------
 # Member surface frozen at P0; bodies land per phase:

@@ -1,16 +1,15 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tdictionary.sh}../../kbool.sh" || return
+kk.unit tdictionary || return $__kk_unit_rc
 
-# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
-# sourceable — and re-sourceable — from a script running `set -eu`, and building
-# the class a second time is pure waste.
-if [[ -n "${_TDICTIONARY_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TDICTIONARY_SOURCED=1
-
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
-TDICTIONARY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TDICTIONARY_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
+# TDict.* are this unit's shared helpers, not a class: a declared
+# function namespace (U40), so no class or instance may take that name.
+kk.namespace TDict || return
 
 # ---------------------------------------------------------------------------
 # TDictionary: a string->string hash dictionary, an INSTANTIABLE class.

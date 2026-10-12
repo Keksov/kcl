@@ -1,11 +1,6 @@
 #!/bin/bash
-
-# Re-source guard: constants below are readonly, and the class only needs to
-# be built once per process (X-SETU / decision D7).
-if [[ -n "${_TPATH_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TPATH_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tpath.sh}../../kbool.sh" || return
+kk.unit tpath || return $__kk_unit_rc
 
 # Locale self-heal (decision D6, kcl/README.md 1.6). Character semantics are
 # part of this unit's contract: ${#s} must count characters and ${s,,} must not
@@ -14,9 +9,11 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
-TPATH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TPATH_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 
 # ---------------------------------------------------------------------------
 # Platform constants (decision D5).
@@ -35,37 +32,43 @@ source "$TPATH_DIR/../../kklass/kklass_pascal.sh"
 # process-wide globals - hence the __TPATH_ prefix and `readonly` below; the
 # public way to read them is the tpath.get*() methods.
 # ---------------------------------------------------------------------------
-case "$(uname -s)" in
-    MINGW*|CYGWIN*|MSYS*)
-        __TPATH_IS_WINDOWS=1
-        __TPATH_DIRECTORY_SEPARATOR_CHAR='/'
-        __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR='\'
-        __TPATH_PATH_SEPARATOR=';'
-        __TPATH_VOLUME_SEPARATOR_CHAR=':'
-        ;;
-    *)
-        __TPATH_IS_WINDOWS=0
-        __TPATH_DIRECTORY_SEPARATOR_CHAR='/'
-        __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR='/'
-        __TPATH_PATH_SEPARATOR=':'
-        __TPATH_VOLUME_SEPARATOR_CHAR='/'
-        ;;
-esac
+# Assigned once per process (uses U4, pattern rule 10): a reload after
+# `kk.unit --forget tpath` (U24') keeps the readonly constants instead of failing
+# on `readonly variable` (under `set -e` that exited the caller). `${x@a}` is
+# guarded by `${x+x}`: under `set -u` it is unbound for an unset name.
+if [[ -z ${__TPATH_BS+x} || ${__TPATH_BS@a} != *r* ]]; then
+    case "$(uname -s)" in
+        MINGW*|CYGWIN*|MSYS*)
+            __TPATH_IS_WINDOWS=1
+            __TPATH_DIRECTORY_SEPARATOR_CHAR='/'
+            __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR='\'
+            __TPATH_PATH_SEPARATOR=';'
+            __TPATH_VOLUME_SEPARATOR_CHAR=':'
+            ;;
+        *)
+            __TPATH_IS_WINDOWS=0
+            __TPATH_DIRECTORY_SEPARATOR_CHAR='/'
+            __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR='/'
+            __TPATH_PATH_SEPARATOR=':'
+            __TPATH_VOLUME_SEPARATOR_CHAR='/'
+            ;;
+    esac
 
-__TPATH_EXTENSION_SEPARATOR_CHAR='.'
+    __TPATH_EXTENSION_SEPARATOR_CHAR='.'
 
-# A literal backslash in its own variable. A bracket expression cannot carry
-# one: inside [...] bash reads `\` as an escape, so `${p##*[/\\]}` and
-# `[[ $p == [/\\]* ]]` match NEITHER `/` nor `\` (that is the mechanism behind
-# finding G6-01 - the class silently collapsed to `/` only, and on 5.2/5.3 it
-# does not even match that). `${p##*"$__TPATH_BS"}` and
-# `[[ $p == *"$__TPATH_BS"* ]]` are the forms that do work.
-__TPATH_BS='\'
+    # A literal backslash in its own variable. A bracket expression cannot carry
+    # one: inside [...] bash reads `\` as an escape, so `${p##*[/\\]}` and
+    # `[[ $p == [/\\]* ]]` match NEITHER `/` nor `\` (that is the mechanism behind
+    # finding G6-01 - the class silently collapsed to `/` only, and on 5.2/5.3 it
+    # does not even match that). `${p##*"$__TPATH_BS"}` and
+    # `[[ $p == *"$__TPATH_BS"* ]]` are the forms that do work.
+    __TPATH_BS='\'
 
-readonly __TPATH_IS_WINDOWS __TPATH_DIRECTORY_SEPARATOR_CHAR \
-         __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR __TPATH_PATH_SEPARATOR \
-         __TPATH_VOLUME_SEPARATOR_CHAR __TPATH_EXTENSION_SEPARATOR_CHAR \
-         __TPATH_BS
+    readonly __TPATH_IS_WINDOWS __TPATH_DIRECTORY_SEPARATOR_CHAR \
+             __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR __TPATH_PATH_SEPARATOR \
+             __TPATH_VOLUME_SEPARATOR_CHAR __TPATH_EXTENSION_SEPARATOR_CHAR \
+             __TPATH_BS
+fi
 
 # ---------------------------------------------------------------------------
 # TPath: a static utility namespace (Free Pascal's TPath / .NET System.IO.Path).

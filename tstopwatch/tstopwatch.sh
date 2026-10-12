@@ -1,12 +1,6 @@
 #!/bin/bash
-
-# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
-# sourceable — and re-sourceable — from a script running `set -eu`, and building
-# the class a second time is pure waste.
-if [[ -n "${_TSTOPWATCH_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TSTOPWATCH_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tstopwatch.sh}../../kbool.sh" || return
+kk.unit tstopwatch || return $__kk_unit_rc
 
 # Character semantics are part of this unit's contract (kcl/README.md 1.6,
 # decision D6); an empty environment means the C locale, where ${#s} counts
@@ -15,9 +9,11 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
-TSTOPWATCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TSTOPWATCH_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 
 # ---------------------------------------------------------------------------
 # TStopwatch: elapsed-time measurement, an INSTANTIABLE class.
