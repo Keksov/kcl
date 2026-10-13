@@ -1,17 +1,13 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tstringlist.sh}../../kbool.sh" || return
+kk.unit tstringlist || return $__kk_unit_rc
 
-# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
-# sourceable — and re-sourceable — from a script running `set -eu`, and building
-# the class a second time is pure waste.
-if [[ -n "${_TSTRINGLIST_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TSTRINGLIST_SOURCED=1
-
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
-TSTRINGLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TSTRINGLIST_DIR/../../kklass/kklass_pascal.sh"
-source "$TSTRINGLIST_DIR/../tlist/tlist.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
+kk.uses tlist || return
 
 # ---------------------------------------------------------------------------
 # TStringList: a string list with sorting, duplicate policies and

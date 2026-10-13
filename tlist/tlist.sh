@@ -1,20 +1,16 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tlist.sh}../../kbool.sh" || return
+kk.unit tlist || return $__kk_unit_rc
 
-# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
-# sourceable — and re-sourceable — from a script running `set -eu`, and building
-# the class a second time is pure waste.
-if [[ -n "${_TLIST_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TLIST_SOURCED=1
-
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR)
-TLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TLIST_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 # TArray.sort/binarySearch — the delegation target for CustomSort here and for
 # TStringList.Sort (composition, exactly as FPC generics TList<T>.Sort delegates
-# to TArrayHelper.Sort(FItems, cmp, 0, Count)). Re-source-guarded + fork-free.
-source "$TLIST_DIR/../tarray/tarray.sh"
+# to TArrayHelper.Sort(FItems, cmp, 0, Count)). A unit (loaded once) + fork-free.
+kk.uses tarray || return
 
 # ---------------------------------------------------------------------------
 # TList: a dynamic list (Free Pascal's Classes.TList), an INSTANTIABLE class.

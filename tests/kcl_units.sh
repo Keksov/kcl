@@ -14,7 +14,8 @@
 # has its own runtime file NNN_<UNIT>.sh (a 3-line stub calling kclt_unit_tests)
 # because loading a unit builds its classes — seconds per process (dateutils
 # ~20 s) — and one file per unit lets the threaded runner load units in
-# parallel; each stub loads its unit ONCE (kclt_unit_tests). 001 checks that
+# parallel; each stub loads its unit ONCE (kclt_unit_tests; a unit that uses
+# another unit of the table once more, behind that dependency). 001 checks that
 # rows and stubs match. A stub may add checks of its own unit after the call
 # (202_math.sh: the float engine across `kk.unit --forget math`).
 #
@@ -46,6 +47,13 @@ KCL_UNITS=(
     "math||rundir readonly|"
     "tinifile|||"
     "tstringhelper|||"
+    # G3 (kcl dependencies by name: tfile/tdirectory -> tpath, tlist -> tarray,
+    # tobjectlist/tstringlist -> tlist)
+    "tfile||readonly|"
+    "tdirectory|||"
+    "tlist|||"
+    "tobjectlist|||"
+    "tstringlist|||"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),
@@ -73,6 +81,24 @@ kclt_uses() {
     while IFS= read -r l || [[ -n $l ]]; do
         [[ $l =~ ^kk\.uses[[:space:]]+([^|#]*)\|\| ]] || continue
         for w in ${BASH_REMATCH[1]}; do [[ $w == --optional ]] || KUSES+=("$w"); done
+    done < "$1"
+}
+
+# kclt_scan FILE — read FILE statically: KFNS the file-scope functions in order
+# (newline-terminated; sentinel candidates), KBUILDS the classes of its
+# file-scope `build X` lines (" X Y"), KLASTFN the last function defined AFTER
+# the last build (completeness markers; a build consumes the Pascal method
+# bodies before it, its registration is the marker for them).
+kclt_scan() {
+    local l n
+    KFNS="" KBUILDS="" KLASTFN=""
+    while IFS= read -r l || [[ -n $l ]]; do
+        l=${l%$'\r'}
+        n=""
+        if [[ $l =~ ^([A-Za-z_][A-Za-z0-9_.]*)[[:space:]]*\(\) ]]; then n=${BASH_REMATCH[1]}
+        elif [[ $l =~ ^function[[:space:]]+([A-Za-z_][A-Za-z0-9_.]*)[[:space:]]*(\(\))?[[:space:]]*(\{|$) ]]; then n=${BASH_REMATCH[1]}; fi
+        if [[ -n $n ]]; then KFNS+=$n$'\n'; KLASTFN=$n; fi
+        if [[ $l =~ ^build[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*$ ]]; then KBUILDS+=" ${BASH_REMATCH[1]}"; KLASTFN=""; fi
     done < "$1"
 }
 
@@ -113,9 +139,10 @@ kclt_expect() {
 }
 
 # ---------------------------------------------------------------------------
-# kclt_unit_tests UNIT — the runtime checks of one row (3 or 4 tests). ONE
+# kclt_unit_tests UNIT — the runtime checks of one row (3 to 5 tests). ONE
 # full load of the unit (a fresh bash in the REAL tree, a neutral cwd) gives
-# the first three; nsbad is a second, short process (its load stops at the
+# the first three; mixed (rows with a kcl dependency) is a second full load
+# behind its dependencies; nsbad is a short process (its load stops at the
 # refused kk.namespace).
 #   once   under `set -eu`: a bare absolute `source` bootstraps kbool and
 #          registers the unit (U19', P7) and runs its body completely — every
@@ -123,7 +150,10 @@ kclt_expect() {
 #          last file-scope function defined after the last build (if any) is
 #          defined; then a SENTINEL replaces the first file-scope function that
 #          survived the load (a Pascal method body is consumed by `build`;
-#          a helper or static method is not); `./U.sh` from its folder,
+#          a helper or static method is not; when none survives — tlist — the
+#          sentinel is defined under the first one's NAME: a re-run defines
+#          that body again and the build or the same-site sink consumes it);
+#          `./U.sh` from its folder,
 #          `../kcl/D/U.sh` from kkore/, `kk.uses U` by NAME after a cd to a
 #          neutral folder (it resolves the name and compares the file, U12-U14,
 #          R3 of U1a) and the absolute source again leave the sentinel in place
@@ -145,6 +175,16 @@ kclt_expect() {
 #   taken  the same shell: the unit name and each row namespace N are TAKEN
 #          (U22/U40): `<Class>.new N` and `defineClass N` are refused and N's
 #          first file-scope function is unchanged.
+#   mixed  rows whose `kk.uses` lines name another unit of the table (U4-G3:
+#          tfile/tdirectory -> tpath, tlist -> tarray, tobjectlist/tstringlist ->
+#          tlist): a second process plain-sources those dependencies FIRST by
+#          the path the old header-less unit formed (kcl/D/../E/N.sh — the
+#          mixed order of P7 / pattern rule 8, a caller that still sources a
+#          dependency by path), puts a sentinel over each one's first surviving
+#          function, then sources the unit bare under set -eu: the unit registers
+#          and runs completely, every dependency stays registered to its file
+#          and is not loaded again (the sentinel stays), and `kk.uses N` of each
+#          is a silent no-op.
 #   nsbad  rows with namespaces: a class named like the first one exists BEFORE
 #          the unit loads -> its plain source is rc 2 and so are the next
 #          kk.uses and the next source (the refused kk.namespace taints the unit,
@@ -153,7 +193,7 @@ kclt_expect() {
 # whose unit file counted its complete body runs; the sentinel and the
 # registered classes prove the same in the real tree with one load (G2 fold).
 kclt_unit_tests() {
-    local u=$1 n fn fs l args=() wtaken="" fns="" lastfn="" builds=""
+    local u=$1 n fn fs l args=() wtaken="" fns="" lastfn="" builds="" d mdeps=() mwant=""
     if ! kclt_find "$u"; then
         kt_test_start "$u: has a row in kcl_units.sh"
         kt_test_fail "no row for '$u'"
@@ -163,18 +203,9 @@ kclt_unit_tests() {
     kclt_uses "$f"
     KDEPS="${KUSES[*]}"
 
-    # read statically: the file-scope functions in order (the once check's
-    # sentinel candidates), the `build X` classes and the last function defined
-    # AFTER the last build (completeness markers; a build consumes the Pascal
-    # method bodies before it, its registration is the marker for them)
-    while IFS= read -r l || [[ -n $l ]]; do
-        l=${l%$'\r'}
-        n=""
-        if [[ $l =~ ^([A-Za-z_][A-Za-z0-9_.]*)[[:space:]]*\(\) ]]; then n=${BASH_REMATCH[1]}
-        elif [[ $l =~ ^function[[:space:]]+([A-Za-z_][A-Za-z0-9_.]*)[[:space:]]*(\(\))?[[:space:]]*(\{|$) ]]; then n=${BASH_REMATCH[1]}; fi
-        if [[ -n $n ]]; then fns+=$n$'\n'; lastfn=$n; fi
-        if [[ $l =~ ^build[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*$ ]]; then builds+=" ${BASH_REMATCH[1]}"; lastfn=""; fi
-    done < "$f"
+    # read statically: the sentinel candidates and the completeness markers
+    kclt_scan "$f"
+    fns=$KFNS builds=$KBUILDS lastfn=$KLASTFN
 
     # --- once + name + taken (one process, the real tree) ----------------
     for n in "$u" $ns; do
@@ -203,9 +234,15 @@ KC_s=""
 while IFS= read -r KC_x; do
     if declare -F "$KC_x" >/dev/null; then KC_s=$KC_x; break; fi
 done < "$KCLT_TMP/fns.txt"
+# no file-scope function survived (all are Pascal method bodies its build
+# consumed: tlist) -> the sentinel takes the first one's NAME: a body re-run
+# defines it again and its build (or the same-site sink) consumes it
+[[ -n $KC_s ]] || IFS= read -r KC_s < "$KCLT_TMP/fns.txt" || :
 KC_orig="" KC_sent=""
+# put the unit's own function back (or drop the sentinel of a consumed name)
+KC_restore() { if [[ -n $KC_orig ]]; then eval "$KC_orig"; else unset -f "$KC_s"; fi; }
 if [[ -n $KC_s ]]; then
-    KC_orig="$(declare -f "$KC_s")"
+    KC_orig="$(declare -f "$KC_s" || :)"
     eval "$KC_s() { : kclt-sentinel; }"
     KC_sent="$(declare -f "$KC_s")"
 fi
@@ -219,16 +256,16 @@ else KC_n=rerun:$KC_s; fi
 KC_o+=" body=${KC_body// /,} n=$KC_n"
 if [[ " $KC_fl " == *" readonly "* ]]; then
     # the unit's own function while a stub's hook runs, then the sentinel again
-    [[ -z $KC_s ]] || eval "$KC_orig"
+    [[ -z $KC_s ]] || KC_restore
     if [[ -n ${KCLT_FORGET_PRE-} ]]; then eval "$KCLT_FORGET_PRE"; fi
     [[ -z $KC_s ]] || eval "$KC_s() { : kclt-sentinel; }"
     kk.unit --forget "$KC_u"
     source "$KC_f"
     kk.uses "$KC_u"
-    if [[ -n $KC_s && "$(declare -f "$KC_s")" == "$KC_orig" ]]; then KC_o+=" forget n=2"; else KC_o+=" forget not-reloaded"; fi
+    if [[ -n $KC_s && "$(declare -f "$KC_s" || :)" == "$KC_orig" ]]; then KC_o+=" forget n=2"; else KC_o+=" forget not-reloaded"; fi
     if [[ -n ${KCLT_FORGET_POST-} ]]; then eval "$KCLT_FORGET_POST"; fi
 fi
-[[ -z $KC_s ]] || eval "$KC_orig"
+[[ -z $KC_s ]] || KC_restore
 echo "$KC_o"
 set +eu
 # name: runtime census, owners, old variables
@@ -290,6 +327,61 @@ EOF
         kt_test_pass "ok"
     else
         kt_test_fail "out='${taken//$'\n'/|}' want='${wtaken//$'\n'/|}' rc=$RC"
+    fi
+
+    # --- mixed (rows that kk.uses another kcl unit of the table) ----------
+    for d in $KDEPS; do
+        kclt_find "$d" || continue
+        kclt_scan "$KF"
+        printf '%s' "$KFNS" > "$KCLT_TMP/fns_$d.txt"
+        mdeps+=("$d|$KCL_DIR/$dir/../$KD/$d.sh|$KCLT_TMP/fns_$d.txt|$KF")
+        mwant+=" $d=reg,1"
+    done
+    if (( ${#mdeps[@]} )); then
+        cat > "$KCLT_TMP/mixed.sh" <<'EOF'
+KC_u=$1 KC_f=$2 KC_builds=$3 KC_lastfn=$4; shift 4; KC_deps=("$@"); set --
+set -eu
+declare -A KC_sent=() KC_def=()
+# the dependencies first, plain-sourced by the path the old header-less unit
+# formed (its folder + ../D/N.sh), each with a sentinel over its first
+# surviving file-scope function (else the first one's name, as in once)
+for KC_p in "${KC_deps[@]}"; do
+    IFS='|' read -r KC_dn KC_dp KC_df KC_dfile <<<"$KC_p"
+    source "$KC_dp"
+    KC_s=""
+    while IFS= read -r KC_x; do
+        if declare -F "$KC_x" >/dev/null; then KC_s=$KC_x; break; fi
+    done < "$KC_df"
+    [[ -n $KC_s ]] || IFS= read -r KC_s < "$KC_df" || :
+    KC_sent[$KC_dn]=$KC_s KC_def[$KC_dn]=""
+    if [[ -n $KC_s ]]; then
+        eval "$KC_s() { : kclt-sentinel-$KC_dn; }"
+        KC_def[$KC_dn]="$(declare -f "$KC_s")"
+    fi
+done
+source "$KC_f"
+KC_o=noreg; [[ ${__KK_UNITS[$KC_u]-} -ef $KC_f ]] && KC_o=reg
+KC_body=complete
+for KC_x in $KC_builds; do
+    [[ " ${__KK_UNIT_CLASSES[$KC_u]-} " == *" $KC_x "* ]] || KC_body+=" no-build:$KC_x"
+done
+if [[ -n $KC_lastfn ]] && ! declare -F "$KC_lastfn" >/dev/null; then KC_body+=" no-fn:$KC_lastfn"; fi
+KC_o+=" body=${KC_body// /,}"
+for KC_p in "${KC_deps[@]}"; do
+    IFS='|' read -r KC_dn KC_dp KC_df KC_dfile <<<"$KC_p"
+    kk.uses "$KC_dn"
+    KC_s=${KC_sent[$KC_dn]}
+    KC_r=noreg; [[ ${__KK_UNITS[$KC_dn]-} -ef $KC_dfile ]] && KC_r=reg
+    if [[ -z $KC_s ]]; then KC_r+=",nosentinel"
+    elif [[ "$(declare -f "$KC_s" || :)" == "${KC_def[$KC_dn]}" ]]; then KC_r+=",1"
+    else KC_r+=",rerun:$KC_s"; fi
+    KC_o+=" $KC_dn=$KC_r"
+done
+echo "$KC_o"
+EOF
+        kclt_run "$KCLT_TMP/neutral" "$KCLT_TMP/mixed.sh" "$u" "$f" "$builds" "$lastfn" "${mdeps[@]}"
+        kclt_expect "$u mixed: its kcl dependencies plain-sourced FIRST by the old path (kcl/$dir/../D/N.sh), then a bare source of $u under set -eu: $u registers and runs completely, no dependency loads again (a sentinel stays) and kk.uses of each is a no-op [P7, rule 8, U27]" \
+            "reg body=complete$mwant"
     fi
 
     # --- nsbad (rows with namespaces) ------------------------------------

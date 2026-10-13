@@ -1,4 +1,6 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tobjectlist.sh}../../kbool.sh" || return
+kk.unit tobjectlist || return $__kk_unit_rc
 
 # ===========================================================================
 # tobjectlist — a bash port of FPC contnrs.TObjectList: the OWNING list.
@@ -37,15 +39,12 @@
 # chain (${class}_parent_class) for the non-exact IS-A walk.
 # ===========================================================================
 
-# Re-source guard.
-if [[ -n "${_TOBJECTLIST_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TOBJECTLIST_SOURCED=1
-
-# Parent class (transitively: kklass front-end, klib/kerr, tarray).
-TOBJECTLIST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TOBJECTLIST_DIR/../tlist/tlist.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+# Parent class (transitively: the kklass front-end, tarray).
+kk.uses tlist || return
 
 # ---------------------------------------------------------------------------
 # Class structure (P1-complete). Removal paths override the TList members and

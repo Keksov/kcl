@@ -1,11 +1,6 @@
 #!/bin/bash
-
-# Re-source guard: the constant below is readonly, and the class only needs to
-# be built once per process (X-SETU / decision D7).
-if [[ -n "${_TFILE_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TFILE_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tfile.sh}../../kbool.sh" || return
+kk.unit tfile || return $__kk_unit_rc
 
 # Locale self-heal (decision D6, kcl/README.md 1.6). Character semantics are
 # part of this unit's contract: ${#s} must count characters and a slurped file
@@ -14,27 +9,35 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
-TFILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TFILE_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 
 # tpath carries the SHARED filesystem helpers (R13) - _statTime, _touchTime,
 # _chmodAttrs, _attrs - so tfile and tdirectory implement timestamps and
 # attributes exactly once, and the path parsers (_fileName, _dirName) that
 # understand both separators (decision D5). It also carries the return helper
 # _ret / _retBool that both units answer through.
-source "$TFILE_DIR/../tpath/tpath.sh"
+kk.uses tpath || return
 
 # Check for cp command availability.
 # NOTE: a top-level (process-wide) global, NOT a `static var` - a class without
 # static variables gets the thin, capture-free dispatcher on every bash (see
 # tpath.sh). readonly: computed once, never mutated.
-if command -v cp >/dev/null 2>&1; then
-    TFILE_USE_CP=true
-else
-    TFILE_USE_CP=false
+# Assigned once per process (uses U4, pattern rule 10): a reload after
+# `kk.unit --forget tfile` (U24') keeps the readonly constant instead of failing
+# on `readonly variable` (under `set -e` that exited the caller). `${x@a}` is
+# guarded by `${x+x}`: under `set -u` it is unbound for an unset name.
+if [[ -z ${TFILE_USE_CP+x} || ${TFILE_USE_CP@a} != *r* ]]; then
+    if command -v cp >/dev/null 2>&1; then
+        TFILE_USE_CP=true
+    else
+        TFILE_USE_CP=false
+    fi
+    readonly TFILE_USE_CP
 fi
-readonly TFILE_USE_CP
 
 # ---------------------------------------------------------------------------
 # TFile: a static utility namespace (Free Pascal's TFile / .NET System.IO.File).
