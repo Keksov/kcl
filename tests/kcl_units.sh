@@ -14,7 +14,9 @@
 # has its own runtime file NNN_<UNIT>.sh (a 3-line stub calling kclt_unit_tests)
 # because loading a unit builds its classes — seconds per process (dateutils
 # ~20 s) — and one file per unit lets the threaded runner load units in
-# parallel. 001 checks that rows and stubs match.
+# parallel; each stub loads its unit ONCE (kclt_unit_tests). 001 checks that
+# rows and stubs match. A stub may add checks of its own unit after the call
+# (202_math.sh: the float engine across `kk.unit --forget math`).
 #
 # KCL_UNITS — one row per MIGRATED unit file, "UNIT|NAMESPACES|FLAGS|DIR":
 #   UNIT        the unit name = the file stem (U33); the file is kcl/DIR/UNIT.sh
@@ -39,6 +41,11 @@ KCL_UNITS=(
     "tqueuestack|TQueueStack||"
     "thashset|TSet||"
     "tdictionary|TDict||"
+    # G2
+    "dateutils||readonly|"
+    "math||rundir readonly|"
+    "tinifile|||"
+    "tstringhelper|||"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),
@@ -88,7 +95,8 @@ kclt_run() {
     ( cd "$cwd" && env -u KBOOL_CONFIG -u KBOOL_HOME -u USERPROFILE -u ProgramData -u PROGRAMDATA \
         -u KKLASS_CKK_DIR -u KK_UNIT_DIR -u VERBOSE_KKLASS \
         HOME="$KCLT_TMP/home" __KK_CFG_ETC="$KCLT_TMP/etc" \
-        KBOOL_ROOT="$KBOOL_ROOT" KCL_DIR="$KCL_DIR" KCLT_TMP="$KCLT_TMP" T="${T-}" KDEPS="${KDEPS-}" \
+        KBOOL_ROOT="$KBOOL_ROOT" KCL_DIR="$KCL_DIR" KCLT_TMP="$KCLT_TMP" KDEPS="${KDEPS-}" \
+        KCLT_FORGET_PRE="${KCLT_FORGET_PRE-}" KCLT_FORGET_POST="${KCLT_FORGET_POST-}" \
         "$BASH" "$@" >"$KCLT_TMP/run.out" 2>"$KCLT_TMP/run.err" ); RC=$?
     OUT="$(<"$KCLT_TMP/run.out")"
     ERR="$(<"$KCLT_TMP/run.err")"
@@ -105,96 +113,70 @@ kclt_expect() {
 }
 
 # ---------------------------------------------------------------------------
-# kclt_unit_tests UNIT — the runtime checks of one row (3 or 4 tests):
-#   once   a private copy of the tree (kbool.sh, kkore, kklass, the unit's and
-#          its kcl dependencies' folders) whose unit file counts its COMPLETE body
-#          runs; one fresh `set -eu` bash: a bare absolute `source` bootstraps
-#          kbool and registers the unit, then `./U.sh` from its folder,
-#          `../kcl/D/U.sh` from kkore/, kk.uses after a cd and the absolute source
-#          again are silent no-ops — one run (U19', U27, P7, X-SETU/D7). Rows
-#          flagged `readonly`: then `kk.unit --forget U` + a re-source runs it a
-#          second time, still clean under set -e (pattern rule 10).
-#   name   the REAL tree, a neutral cwd: `source kbool.sh`, the unit's own
-#          kk.uses dependencies, then `kk.uses U` by NAME (U12-U14) -> the file;
-#          RUNTIME census: every function prefix X (of X.y) the load added is a
-#          class of the unit (__KK_UNIT_CLASSES), the unit name, or a namespace
-#          __KK_NAMESPACES says this unit owns; the unit name and the row's
-#          namespaces are owned by the unit (U40); no old guard variable
-#          (`*_<U>_SOURCED`, any prefix) and no `<U>_DIR` / `<unit>_DIR` (unless
-#          rundir: then it names the folder); a repeated kk.uses and a plain
-#          source are silent no-ops.
-#   taken  in the same shell: the unit name and each row namespace N are TAKEN
+# kclt_unit_tests UNIT — the runtime checks of one row (3 or 4 tests). ONE
+# full load of the unit (a fresh bash in the REAL tree, a neutral cwd) gives
+# the first three; nsbad is a second, short process (its load stops at the
+# refused kk.namespace).
+#   once   under `set -eu`: a bare absolute `source` bootstraps kbool and
+#          registers the unit (U19', P7) and runs its body completely — every
+#          class of a file-scope `build X` line is filed under the unit and the
+#          last file-scope function defined after the last build (if any) is
+#          defined; then a SENTINEL replaces the first file-scope function that
+#          survived the load (a Pascal method body is consumed by `build`;
+#          a helper or static method is not); `./U.sh` from its folder,
+#          `../kcl/D/U.sh` from kkore/, `kk.uses U` by NAME after a cd to a
+#          neutral folder (it resolves the name and compares the file, U12-U14,
+#          R3 of U1a) and the absolute source again leave the sentinel in place
+#          = the body did not run again (U27, D7). Rows flagged `readonly`: then
+#          `kk.unit --forget U` + a re-source runs the body a second time (the
+#          sentinel is the unit's own function again) and a kk.uses after it is
+#          a no-op, still clean under set -e (pattern rule 10). A stub may set
+#          KCLT_FORGET_PRE / KCLT_FORGET_POST (shell text eval'd in that
+#          process, under set -eu, right before the --forget and after the
+#          reload; 202_math.sh checks its float engine across the reload) —
+#          no second load of the unit for it.
+#   name   the same shell, `set +eu`: RUNTIME census — every function prefix X
+#          (of X.y) in the shell is a class some unit registered
+#          (__KK_UNIT_CLASSES) or a namespace somebody declared
+#          (__KK_NAMESPACES: kbool's kk kl ke kv kc, unit names, kk.namespace);
+#          the unit name and the row's namespaces are owned by the unit (U40);
+#          no old guard variable (`*_<U>_SOURCED`, any prefix) and no `<U>_DIR` /
+#          `<unit>_DIR` (unless rundir: then it names the folder).
+#   taken  the same shell: the unit name and each row namespace N are TAKEN
 #          (U22/U40): `<Class>.new N` and `defineClass N` are refused and N's
 #          first file-scope function is unchanged.
 #   nsbad  rows with namespaces: a class named like the first one exists BEFORE
 #          the unit loads -> its plain source is rc 2 and so are the next
 #          kk.uses and the next source (the refused kk.namespace taints the unit,
 #          U34/U42; review R1 of G1).
+# Until U4-G2 `once` ran in a second process, in a private copy of the tree
+# whose unit file counted its complete body runs; the sentinel and the
+# registered classes prove the same in the real tree with one load (G2 fold).
 kclt_unit_tests() {
-    local u=$1 d n fn fs l args=() wtaken="" deps=() seen=" " q i
+    local u=$1 n fn fs l args=() wtaken="" fns="" lastfn="" builds=""
     if ! kclt_find "$u"; then
         kt_test_start "$u: has a row in kcl_units.sh"
         kt_test_fail "no row for '$u'"
         return
     fi
     local U=${KU^^} f=$KF ns=$KNS fl=$KFL dir=$KD
-
-    # kcl dependencies, transitively (their folders go into the private tree)
-    q=("$u")
-    for (( i = 0; i < ${#q[@]}; i++ )); do
-        kclt_find "${q[i]}" || continue
-        deps+=("$KD")
-        kclt_uses "$KF"
-        for n in "${KUSES[@]}"; do
-            [[ $seen == *" $n "* ]] && continue
-            seen+="$n "
-            q+=("$n")
-        done
-    done
-    kclt_find "$u"
     kclt_uses "$f"
     KDEPS="${KUSES[*]}"
 
-    # --- once (private counting tree) ------------------------------------
-    T="$KCLT_TMP/tree"
-    rm -rf "$T"
-    mkdir -p "$T/kkore" "$T/kklass" "$T/kcl"
-    cp "$KBOOL_ROOT/kbool.sh" "$T/"
-    cp "$KBOOL_ROOT"/kkore/*.sh "$T/kkore/"
-    cp "$KBOOL_ROOT"/kklass/*.sh "$T/kklass/"
-    for d in "${deps[@]}"; do
-        [[ -d $T/kcl/$d ]] && continue
-        mkdir -p "$T/kcl/$d"
-        local -a srcs=()    # the folder's files (a unit may read data files next to it)
-        for l in "$KCL_DIR/$d"/*; do [[ -f $l ]] && srcs+=("$l"); done
-        cp "${srcs[@]}" "$T/kcl/$d/"
-    done
-    printf '\n__KCLT_N=$(( ${__KCLT_N:-0} + 1 ))\n' >> "$T/kcl/$dir/$u.sh"
-    cat > "$KCLT_TMP/once.sh" <<'EOF'
-set -eu
-u=$1 d=$2 fl=$3; set --
-f=$T/kcl/$d/$u.sh
-source "$f"
-reg=noreg; [[ ${__KK_UNITS[$u]-} -ef $f ]] && reg=reg
-cd "$T/kcl/$d"; source "./$u.sh"
-cd "$T/kkore"; source "../kcl/$d/$u.sh"
-cd "$KCLT_TMP/neutral"; kk.uses "$u"
-source "$f"
-out="$reg n=${__KCLT_N:-0}"
-if [[ " $fl " == *" readonly "* ]]; then
-    kk.unit --forget "$u"
-    source "$f"
-    kk.uses "$u"
-    out+=" forget n=${__KCLT_N:-0}"
-fi
-echo "$out"
-EOF
-    local want="reg n=1"
-    [[ " $fl " == *" readonly "* ]] && want+=" forget n=2"
-    kclt_run "$KCLT_TMP/neutral" "$KCLT_TMP/once.sh" "$u" "$dir" "$fl"
-    kclt_expect "$u once: under set -eu a bare absolute source bootstraps kbool and runs $u once; ./$u.sh, ../kcl/$dir/$u.sh, kk.uses after a cd and the source again are silent no-ops${fl:+ [flags: $fl]} [U19', U27, P7, D7, rule 10]" "$want"
+    # read statically: the file-scope functions in order (the once check's
+    # sentinel candidates), the `build X` classes and the last function defined
+    # AFTER the last build (completeness markers; a build consumes the Pascal
+    # method bodies before it, its registration is the marker for them)
+    while IFS= read -r l || [[ -n $l ]]; do
+        l=${l%$'\r'}
+        n=""
+        if [[ $l =~ ^([A-Za-z_][A-Za-z0-9_.]*)[[:space:]]*\(\) ]]; then n=${BASH_REMATCH[1]}
+        elif [[ $l =~ ^function[[:space:]]+([A-Za-z_][A-Za-z0-9_.]*)[[:space:]]*(\(\))?[[:space:]]*(\{|$) ]]; then n=${BASH_REMATCH[1]}; fi
+        if [[ -n $n ]]; then fns+=$n$'\n'; lastfn=$n; fi
+        if [[ $l =~ ^build[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*$ ]]; then builds+=" ${BASH_REMATCH[1]}"; lastfn=""; fi
+    done < "$f"
 
-    # --- name + taken (real tree) ----------------------------------------
+    # --- once + name + taken (one process, the real tree) ----------------
     for n in "$u" $ns; do
         fn=""
         while IFS= read -r l || [[ -n $l ]]; do
@@ -204,65 +186,105 @@ EOF
         [[ -n $fn ]] && fs=same || fs=nofn
         wtaken+=$'\n'"$n new=refused class=refused fn=$fs"
     done
-    cat > "$KCLT_TMP/name.sh" <<'EOF'
-u=$1 f=$2 fl=$3; shift 3; names=("$@"); set --
-U=${u^^}
-source "$KBOOL_ROOT/kbool.sh" || { echo "kbool rc=$?"; exit 1; }
-for d in $KDEPS; do [[ $d == "$u" ]] || kk.uses "$d" || { echo "dep $d rc=$?"; exit 1; }; done
-declare -A pre=()
-while IFS= read -r l; do [[ $l == *.* ]] && pre[${l%%.*}]=1; done < <(compgen -A function)
-kk.uses "$u"; r1=$?
-[[ ${__KK_UNITS[$u]-} -ef $f ]] && out="reg" || out="noreg:${__KK_UNITS[$u]-}"
-cls=" ${__KK_UNIT_CLASSES[$u]-} " bad=""
-declare -A seen=()
-while IFS= read -r l; do
-    [[ $l == *.* ]] || continue
-    x=${l%%.*}
-    [[ -n ${pre[$x]+x} || -n ${seen[$x]+x} ]] && continue
-    seen[$x]=1
-    o=${__KK_NAMESPACES[$x]-}; o=${o%%$__KK_SEP*}
-    [[ $cls == *" $x "* || $x == "$u" || $o == "$u" ]] || bad+=" $x"
-done < <(compgen -A function)
-out+=" census:${bad:-ok}"
-bad=""
-for p in "${names[@]}"; do
-    n=${p%%:*}; o=${__KK_NAMESPACES[$n]-}; o=${o%%$__KK_SEP*}
-    [[ $o == "$u" ]] || bad+=" $n:${o:-none}"
+    printf '%s' "$fns" > "$KCLT_TMP/fns.txt"
+    cat > "$KCLT_TMP/unit.sh" <<'EOF'
+KC_u=$1 KC_f=$2 KC_d=$3 KC_fl=$4 KC_builds=$5 KC_lastfn=$6; shift 6; KC_names=("$@"); set --
+KC_U=${KC_u^^}
+set -eu
+# once: bootstrap through the header, complete body, sentinel, no-op re-sources
+source "$KC_f"
+KC_o=noreg; [[ ${__KK_UNITS[$KC_u]-} -ef $KC_f ]] && KC_o=reg
+KC_body=complete
+for KC_x in $KC_builds; do
+    [[ " ${__KK_UNIT_CLASSES[$KC_u]-} " == *" $KC_x "* ]] || KC_body+=" no-build:$KC_x"
 done
-out+=" owners:${bad:-ok}"
-bad=""
-while IFS= read -r l; do
-    [[ $l == *_${U}_SOURCED ]] && bad+=" $l"
+if [[ -n $KC_lastfn ]] && ! declare -F "$KC_lastfn" >/dev/null; then KC_body+=" no-fn:$KC_lastfn"; fi
+KC_s=""
+while IFS= read -r KC_x; do
+    if declare -F "$KC_x" >/dev/null; then KC_s=$KC_x; break; fi
+done < "$KCLT_TMP/fns.txt"
+KC_orig="" KC_sent=""
+if [[ -n $KC_s ]]; then
+    KC_orig="$(declare -f "$KC_s")"
+    eval "$KC_s() { : kclt-sentinel; }"
+    KC_sent="$(declare -f "$KC_s")"
+fi
+cd "$KCL_DIR/$KC_d"; source "./$KC_u.sh"
+cd "$KBOOL_ROOT/kkore"; source "../kcl/$KC_d/$KC_u.sh"
+cd "$KCLT_TMP/neutral"; kk.uses "$KC_u"
+source "$KC_f"
+if [[ -z $KC_s ]]; then KC_n=nosentinel
+elif [[ "$(declare -f "$KC_s")" == "$KC_sent" ]]; then KC_n=1
+else KC_n=rerun:$KC_s; fi
+KC_o+=" body=${KC_body// /,} n=$KC_n"
+if [[ " $KC_fl " == *" readonly "* ]]; then
+    # the unit's own function while a stub's hook runs, then the sentinel again
+    [[ -z $KC_s ]] || eval "$KC_orig"
+    if [[ -n ${KCLT_FORGET_PRE-} ]]; then eval "$KCLT_FORGET_PRE"; fi
+    [[ -z $KC_s ]] || eval "$KC_s() { : kclt-sentinel; }"
+    kk.unit --forget "$KC_u"
+    source "$KC_f"
+    kk.uses "$KC_u"
+    if [[ -n $KC_s && "$(declare -f "$KC_s")" == "$KC_orig" ]]; then KC_o+=" forget n=2"; else KC_o+=" forget not-reloaded"; fi
+    if [[ -n ${KCLT_FORGET_POST-} ]]; then eval "$KCLT_FORGET_POST"; fi
+fi
+[[ -z $KC_s ]] || eval "$KC_orig"
+echo "$KC_o"
+set +eu
+# name: runtime census, owners, old variables
+KC_cls=" ${__KK_UNIT_CLASSES[*]} " KC_bad=""
+declare -A KC_seen=()
+while IFS= read -r KC_l; do
+    [[ $KC_l == *.* ]] || continue
+    KC_x=${KC_l%%.*}
+    [[ -n ${KC_seen[$KC_x]+x} ]] && continue
+    KC_seen[$KC_x]=1
+    [[ $KC_cls == *" $KC_x "* || -n ${__KK_NAMESPACES[$KC_x]-} ]] || KC_bad+=" $KC_x"
+done < <(compgen -A function)
+KC_o="census:${KC_bad:-ok}"
+KC_bad=""
+for KC_p in "${KC_names[@]}"; do
+    KC_x=${KC_p%%:*} KC_w=${__KK_NAMESPACES[${KC_p%%:*}]-}; KC_w=${KC_w%%$__KK_SEP*}
+    [[ $KC_w == "$KC_u" ]] || KC_bad+=" $KC_x:${KC_w:-none}"
+done
+KC_o+=" owners:${KC_bad:-ok}"
+KC_bad=""
+while IFS= read -r KC_l; do
+    [[ $KC_l == *_${KC_U}_SOURCED ]] && KC_bad+=" $KC_l"
 done < <(compgen -v)
-for v in "${U}_DIR" "${u}_DIR"; do
-    if [[ " $fl " == *" rundir "* && $v == "${U}_DIR" ]]; then
-        [[ ${!v-} -ef ${f%/*} ]] || bad+=" $v=${!v-unset}"
-    elif [[ -n ${!v+x} ]]; then
-        bad+=" $v"
+for KC_v in "${KC_U}_DIR" "${KC_u}_DIR"; do
+    if [[ " $KC_fl " == *" rundir "* && $KC_v == "${KC_U}_DIR" ]]; then
+        [[ ${!KC_v-} -ef ${KC_f%/*} ]] || KC_bad+=" $KC_v=${!KC_v-unset}"
+    elif [[ -n ${!KC_v+x} ]]; then
+        KC_bad+=" $KC_v"
     fi
 done
-out+=" old:${bad:-none}"
-kk.uses "$u"; r2=$?
-source "$f"; r3=$?
-echo "r=$r1$r2$r3 $out"
+echo "$KC_o old:${KC_bad:-none}"
+# taken
 defineClass TKclZz "" property a || { echo "TKclZz rc=$?"; exit 1; }
-for p in "${names[@]}"; do
-    n=${p%%:*} fn=${p#*:}
-    before=""; [[ -n $fn ]] && before="$(declare -f "$fn")"
-    TKclZz.new "$n" 2>"$KCLT_TMP/n.err"; i=$?
-    if (( i != 0 )) && grep -qF "Invalid instance name: $n (" "$KCLT_TMP/n.err"; then i=refused; else i="ACCEPTED($i):$(<"$KCLT_TMP/n.err")"; fi
-    defineClass "$n" "" property zz 2>"$KCLT_TMP/c.err"; c=$?
-    if (( c != 0 )) && grep -q "Duplicate identifier" "$KCLT_TMP/c.err"; then c=refused; else c="ACCEPTED($c):$(<"$KCLT_TMP/c.err")"; fi
-    if [[ -z $fn ]]; then fs=nofn; elif [[ -n $before && "$(declare -f "$fn")" == "$before" ]]; then fs=same; else fs=changed; fi
-    printf '%s new=%s class=%s fn=%s\n' "$n" "$i" "$c" "$fs"
+for KC_p in "${KC_names[@]}"; do
+    KC_x=${KC_p%%:*} KC_fn=${KC_p#*:}
+    KC_before=""; [[ -n $KC_fn ]] && KC_before="$(declare -f "$KC_fn")"
+    TKclZz.new "$KC_x" 2>"$KCLT_TMP/n.err"; KC_i=$?
+    if (( KC_i != 0 )) && grep -qF "Invalid instance name: $KC_x (" "$KCLT_TMP/n.err"; then KC_i=refused; else KC_i="ACCEPTED($KC_i):$(<"$KCLT_TMP/n.err")"; fi
+    defineClass "$KC_x" "" property zz 2>"$KCLT_TMP/c.err"; KC_c=$?
+    if (( KC_c != 0 )) && grep -q "Duplicate identifier" "$KCLT_TMP/c.err"; then KC_c=refused; else KC_c="ACCEPTED($KC_c):$(<"$KCLT_TMP/c.err")"; fi
+    if [[ -z $KC_fn ]]; then KC_fs=nofn; elif [[ -n $KC_before && "$(declare -f "$KC_fn")" == "$KC_before" ]]; then KC_fs=same; else KC_fs=changed; fi
+    printf '%s new=%s class=%s fn=%s\n' "$KC_x" "$KC_i" "$KC_c" "$KC_fs"
 done
 EOF
-    kclt_run "$KCLT_TMP/neutral" "$KCLT_TMP/name.sh" "$u" "$f" "$fl" "${args[@]}"
-    local taken=""
-    [[ $OUT == *$'\n'* ]] && taken=${OUT#*$'\n'}
-    OUT=${OUT%%$'\n'*}
-    kclt_expect "$u name: kk.uses $u from a neutral cwd loads kcl/$dir/$u.sh; every function prefix it adds is a class of the unit, $u or a namespace it owns; $u${ns:+ $ns} owned by $u; no old guard / dir variable; repeats silent [U12-U14, U19', U26, U40]" \
-        "r=000 reg census:ok owners:ok old:none"
+    kclt_run "$KCLT_TMP/neutral" "$KCLT_TMP/unit.sh" "$u" "$f" "$dir" "$fl" "$builds" "$lastfn" "${args[@]}"
+    local once=${OUT%%$'\n'*} name="" taken=""
+    [[ $OUT == *$'\n'* ]] && name=${OUT#*$'\n'}
+    [[ $name == *$'\n'* ]] && taken=${name#*$'\n'}
+    name=${name%%$'\n'*}
+    local want="reg body=complete n=1"
+    [[ " $fl " == *" readonly "* ]] && want+=" forget n=2"
+    OUT=$once
+    kclt_expect "$u once: under set -eu a bare absolute source bootstraps kbool, registers $u and runs its body completely; ./$u.sh, ../kcl/$dir/$u.sh, kk.uses $u by name from a neutral cwd and the source again are silent no-ops (a sentinel function stays)${fl:+ [flags: $fl]} [U19', U27, P7, D7, U12-U14, rule 10]" "$want"
+    OUT=$name
+    kclt_expect "$u name: every function prefix in the shell is a registered class or a declared namespace; $u${ns:+ $ns} owned by $u; no old guard / dir variable [U19', U26, U40]" \
+        "census:ok owners:ok old:none"
     kt_test_start "$u taken: {$u${ns:+ $ns}}: .new and defineClass refused, the helpers intact [U22, U40, found_in_U2b]"
     if [[ "$taken" == "${wtaken#$'\n'}" && $RC -eq 0 ]]; then
         kt_test_pass "ok"

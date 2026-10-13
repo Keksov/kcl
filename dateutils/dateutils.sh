@@ -1,4 +1,6 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%dateutils.sh}../../kbool.sh" || return
+kk.unit dateutils || return $__kk_unit_rc
 
 # ===========================================================================
 # dateutils — a bash port of Free Pascal's DateUtils unit (kcl static class).
@@ -32,7 +34,7 @@
 # capture-free dispatcher (fast on bash 5.2 and 5.3 alike). Constants are
 # therefore NOT class members but top-level variables. Bash has no file scope,
 # so a top-level variable is a process-wide global — hence the `__KDT_` prefix
-# and `readonly` (behind the re-source guard). The public way to read them is
+# and `readonly` (assigned once per process). The public way to read them is
 # the dateutils.msPer*/approx* getters (FPC exposes the same constants). See
 # PLAN.md "Why not a TDateUtils class with static var constants".
 #
@@ -43,13 +45,6 @@
 # subshells.
 # ===========================================================================
 
-# Re-source guard: the __KDT_* constants below are readonly, and the class only
-# needs to be built once per process.
-if [[ -n "${_DATEUTILS_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _DATEUTILS_SOURCED=1
-
 # Character semantics are part of this unit's contract (kcl/README.md 1.6,
 # decision D6); an empty environment means the C locale, where ${#s} counts
 # bytes and ${s,,} corrupts UTF-8.
@@ -57,28 +52,36 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
-DATEUTILS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$DATEUTILS_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 
 # ---- KDT constants (readonly, __KDT_-prefixed process globals) --------------
 # All millisecond counts. The two "approx" values mirror FPC's ApproxDaysPer*
 # (365.25 / 30.4375 days) used by the approximate yearsBetween/monthsBetween.
-__KDT_MS_PER_SECOND=1000
-__KDT_MS_PER_MINUTE=60000
-__KDT_MS_PER_HOUR=3600000
-__KDT_MS_PER_DAY=86400000
-__KDT_MS_PER_WEEK=604800000
-__KDT_APPROX_MS_PER_MONTH=2629800000    # 30.4375 days
-__KDT_APPROX_MS_PER_YEAR=31557600000    # 365.25  days
-# FPC ApproxDaysPerMonth / ApproxDaysPerYear as decimal strings (getters only).
-__KDT_APPROX_DAYS_PER_MONTH='30.4375'
-__KDT_APPROX_DAYS_PER_YEAR='365.25'
+# Assigned once per process (uses U4, pattern rule 10): a reload after
+# `kk.unit --forget dateutils` (U24') keeps the readonly constants instead of
+# failing on `readonly variable` (under `set -e` that exited the caller).
+# `${x@a}` is guarded by `${x+x}`: under `set -u` it is unbound for an unset name.
+if [[ -z ${__KDT_MS_PER_SECOND+x} || ${__KDT_MS_PER_SECOND@a} != *r* ]]; then
+    __KDT_MS_PER_SECOND=1000
+    __KDT_MS_PER_MINUTE=60000
+    __KDT_MS_PER_HOUR=3600000
+    __KDT_MS_PER_DAY=86400000
+    __KDT_MS_PER_WEEK=604800000
+    __KDT_APPROX_MS_PER_MONTH=2629800000    # 30.4375 days
+    __KDT_APPROX_MS_PER_YEAR=31557600000    # 365.25  days
+    # FPC ApproxDaysPerMonth / ApproxDaysPerYear as decimal strings (getters only).
+    __KDT_APPROX_DAYS_PER_MONTH='30.4375'
+    __KDT_APPROX_DAYS_PER_YEAR='365.25'
 
-readonly __KDT_MS_PER_SECOND __KDT_MS_PER_MINUTE __KDT_MS_PER_HOUR \
-         __KDT_MS_PER_DAY __KDT_MS_PER_WEEK __KDT_APPROX_MS_PER_MONTH \
-         __KDT_APPROX_MS_PER_YEAR __KDT_APPROX_DAYS_PER_MONTH \
-         __KDT_APPROX_DAYS_PER_YEAR
+    readonly __KDT_MS_PER_SECOND __KDT_MS_PER_MINUTE __KDT_MS_PER_HOUR \
+             __KDT_MS_PER_DAY __KDT_MS_PER_WEEK __KDT_APPROX_MS_PER_MONTH \
+             __KDT_APPROX_MS_PER_YEAR __KDT_APPROX_DAYS_PER_MONTH \
+             __KDT_APPROX_DAYS_PER_YEAR
+fi
 
 # ---------------------------------------------------------------------------
 # Class interface (grows per implementation phase; P0 = core only).

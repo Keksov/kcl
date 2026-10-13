@@ -1,4 +1,6 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tinifile.sh}../../kbool.sh" || return
+kk.unit tinifile || return $__kk_unit_rc
 
 # ===========================================================================
 # tinifile — a bash port of FPC fcl-base inifiles.pp:
@@ -75,12 +77,6 @@
 # not a plain identifier or is an associative array.
 # ===========================================================================
 
-# Re-source guard.
-if [[ -n "${_TINIFILE_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TINIFILE_SOURCED=1
-
 # Character semantics are part of this unit's contract (D6, kcl/README.md §1.6):
 # the case-insensitive section/key lookup is `${x,,}`, and under the C locale
 # that leaves a multi-byte letter alone, so `[Café]` would not answer to `CAFÉ`.
@@ -89,8 +85,11 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-TINIFILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TINIFILE_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 
 # ---------------------------------------------------------------------------
 # TIniFile — member surface frozen at P0; bodies land per phase:

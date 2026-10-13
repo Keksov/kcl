@@ -1,4 +1,6 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%math.sh}../../kbool.sh" || return
+kk.unit math || return $__kk_unit_rc
 
 # ===========================================================================
 # math — a bash port of Free Pascal's Math unit (kcl static class).
@@ -76,18 +78,11 @@
 # The class declares NO `static var`, so every method gets the thin,
 # capture-free dispatcher (fast on bash 5.2 and 5.3). Constants are therefore
 # top-level __MATH_* globals (bash has no file scope), `readonly` where
-# constant, behind the re-source guard. The engine's pid/fds are the mutable
+# constant, assigned once per process. The engine's pid/fds are the mutable
 # __MATH_FE_* globals. Internal helpers (math._dec_cmp, math._fe, ...) are
 # plain functions, NOT class members: they return via REPLY / __m_* scratch
 # globals and rely on dynamic scoping — zero subshells on the Tier-A paths.
 # ===========================================================================
-
-# Re-source guard: the __MATH_* constants below are readonly, and the class
-# only needs to be built once per process.
-if [[ -n "${_MATH_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _MATH_SOURCED=1
 
 # Character semantics are part of the kcl contract (README §1.6); an empty
 # environment means the C locale. math itself is ASCII-only, but a caller that
@@ -96,9 +91,15 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
-MATH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$MATH_DIR/../../kklass/kklass_pascal.sh"
+# MATH_DIR = this folder, kept for RUN time (C19, pattern rule 5): the float
+# engine's temp-file fallback (math._fe_start) probes it. KK_UNIT_DIR names
+# the folder only while this unit loads, so the copy is taken before kk.uses.
+MATH_DIR=$KK_UNIT_DIR
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 
 # ---- Mathematical + IEEE constants (readonly __MATH_* process globals) ------
 # Pi/E to Extended precision (FPC values). The IEEE range constants are
@@ -106,40 +107,54 @@ source "$MATH_DIR/../../kklass/kklass_pascal.sh"
 # float); NaN/±Inf are the literal tokens the engine emits and IsNan/IsInfinite
 # recognise. They are also the tokens the engine ACCEPTS (math._is_num
 # normalises them to the signed form gawk understands).
-__MATH_PI='3.1415926535897932385'
-__MATH_E='2.7182818284590452354'
-__MATH_INFINITY='inf'
-__MATH_NEG_INFINITY='-inf'
-__MATH_NAN='nan'
-__MATH_MIN_SINGLE='1.1754943508e-38'
-__MATH_MAX_SINGLE='3.4028234664e+38'
-__MATH_MIN_DOUBLE='2.2250738585072014e-308'
-__MATH_MAX_DOUBLE='1.7976931348623157e+308'
-__MATH_MIN_EXTENDED='3.36210314311209350626e-4932'
-__MATH_MAX_EXTENDED='1.18973149535723176502e+4932'
+# Assigned once per process (uses U4, pattern rule 10; the same for the two
+# readonly blocks below): a reload after `kk.unit --forget math` (U24') keeps
+# the readonly constants instead of failing on `readonly variable` (under
+# `set -e` that exited the caller). `${x@a}` is guarded by `${x+x}`: under
+# `set -u` it is unbound for an unset name.
+if [[ -z ${__MATH_PI+x} || ${__MATH_PI@a} != *r* ]]; then
+    __MATH_PI='3.1415926535897932385'
+    __MATH_E='2.7182818284590452354'
+    __MATH_INFINITY='inf'
+    __MATH_NEG_INFINITY='-inf'
+    __MATH_NAN='nan'
+    __MATH_MIN_SINGLE='1.1754943508e-38'
+    __MATH_MAX_SINGLE='3.4028234664e+38'
+    __MATH_MIN_DOUBLE='2.2250738585072014e-308'
+    __MATH_MAX_DOUBLE='1.7976931348623157e+308'
+    __MATH_MIN_EXTENDED='3.36210314311209350626e-4932'
+    __MATH_MAX_EXTENDED='1.18973149535723176502e+4932'
 
-readonly __MATH_PI __MATH_E __MATH_INFINITY __MATH_NEG_INFINITY __MATH_NAN \
-         __MATH_MIN_SINGLE __MATH_MAX_SINGLE __MATH_MIN_DOUBLE \
-         __MATH_MAX_DOUBLE __MATH_MIN_EXTENDED __MATH_MAX_EXTENDED
+    readonly __MATH_PI __MATH_E __MATH_INFINITY __MATH_NEG_INFINITY __MATH_NAN \
+             __MATH_MIN_SINGLE __MATH_MAX_SINGLE __MATH_MIN_DOUBLE \
+             __MATH_MAX_DOUBLE __MATH_MIN_EXTENDED __MATH_MAX_EXTENDED
+fi
 
 # Largest / smallest int64 — the boundary the pure-bash exact paths must not
 # cross silently (M8). $(( )) is intmax_t and wraps past these.
-__MATH_INT64_MAX=9223372036854775807
-__MATH_INT64_MIN=-9223372036854775808
-readonly __MATH_INT64_MAX __MATH_INT64_MIN
+if [[ -z ${__MATH_INT64_MAX+x} || ${__MATH_INT64_MAX@a} != *r* ]]; then
+    __MATH_INT64_MAX=9223372036854775807
+    __MATH_INT64_MIN=-9223372036854775808
+    readonly __MATH_INT64_MAX __MATH_INT64_MIN
+fi
 
-# ---- Float-engine state (MUTABLE globals — not readonly) --------------------
-__MATH_FE_UP=""       # non-empty once the co-process has been spawned
-__MATH_FE_IN=""       # fd to write requests to (awk stdin)
-__MATH_FE_OUT=""      # fd to read answers from (awk stdout)
-__MATH_FE_PID=""      # awk co-process pid
-__MATH_FE_PROGFILE="" # temp file holding the awk program (fallback path only)
-__MATH_FE_TRAPPED=""  # non-empty once the EXIT trap chain has been armed
-# Answer timeout in seconds, used on the start probe always and on every call
-# when __MATH_FE_STRICT is non-empty (see math._fe for why it is not the
-# default: `read -t` costs ~410 us a call on this platform).
-__MATH_FE_TIMEOUT=10
-__MATH_FE_STRICT="${__MATH_FE_STRICT:-}"
+# Set once per process like the constants (uses U4, G2): a reload after
+# `kk.unit --forget math` while the engine runs must keep its pid/fds — reset,
+# they would make math._fe_start spawn a SECOND `coproc MATH_FE` ("coproc
+# [pid:MATH_FE] still exists") and leave the first awk running.
+if [[ -z ${__MATH_FE_UP+x} ]]; then
+    __MATH_FE_UP=""       # non-empty once the co-process has been spawned
+    __MATH_FE_IN=""       # fd to write requests to (awk stdin)
+    __MATH_FE_OUT=""      # fd to read answers from (awk stdout)
+    __MATH_FE_PID=""      # awk co-process pid
+    __MATH_FE_PROGFILE="" # temp file holding the awk program (fallback path only)
+    __MATH_FE_TRAPPED=""  # non-empty once the EXIT trap chain has been armed
+    # Answer timeout in seconds, used on the start probe always and on every call
+    # when __MATH_FE_STRICT is non-empty (see math._fe for why it is not the
+    # default: `read -t` costs ~410 us a call on this platform).
+    __MATH_FE_TIMEOUT=10
+    __MATH_FE_STRICT="${__MATH_FE_STRICT:-}"
+fi
 # The awk prelude: derived functions built from awk primitives + a dispatch
 # loop. Single-quoted so awk's $1/$2 fields are NOT expanded by bash.
 #
@@ -153,7 +168,8 @@ __MATH_FE_STRICT="${__MATH_FE_STRICT:-}"
 # The non-finite values themselves are built in BEGIN (1e308*10 overflows to
 # +inf; inf-inf is nan) rather than written as literals, because gawk parses a
 # bare `inf` token as 0.
-__MATH_AWK_PROG='
+if [[ -z ${__MATH_AWK_PROG+x} || ${__MATH_AWK_PROG@a} != *r* ]]; then
+    __MATH_AWK_PROG='
 function _dv(a,b) { if (b == 0) { if (a == 0) return _NAN; return (a < 0 ? _NINF : _INF) } return a/b }
 function _isnan(x,  s){ s=sprintf("%g",x); return (index(s,"nan") > 0) }
 function _nf(x,     s){ s=sprintf("%g",x); return (index(s,"nan") > 0 || index(s,"inf") > 0) }
@@ -276,7 +292,8 @@ BEGIN { srand(); _INF=1e308*10; _NINF=-_INF; _NAN=_INF-_INF; _P32=2^32; _M32=2^-
   else                   printf "ERR\n"
   fflush()
 }'
-readonly __MATH_AWK_PROG
+    readonly __MATH_AWK_PROG
+fi
 # ---------------------------------------------------------------------------
 # Class interface (grows per implementation phase; P0 = constants + engine).
 # ---------------------------------------------------------------------------
