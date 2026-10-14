@@ -433,6 +433,7 @@ Runner: `tests/tests.sh` → ktests, as every unit.
   every one given a `tpipe._pending` body (rc 2 + `kk.debug`, never `RESULT`);
   `__TPIPE_STOP=0`, `__TPIPE_RC=-1` at load. 001/002 are written against this
   skeleton for their red counts.
+  *(Superseded by uses U4 (2026-10-14): no re-source guard any more — tpipe.sh is a unit with the kbool header, kcl/README.md §1.10.)*
 - P0.2 `tpipe._open` / `tpipe._close` / the flag parser / validation order §2.5 /
   the D1 guard and message / D6 debug line / pid capture / close-kill-wait per §2.3
   with every `wait` guarded.

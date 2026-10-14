@@ -1,17 +1,26 @@
 # kcl — Free Pascal RTL/FCL classes, ported to bash
 
 kcl is a set of bash ports of Free Pascal RTL/FCL units, built on the
-[kklass](../kklass) OOP framework and the [kkore](../kkore) helpers. Each unit
-lives in its own directory (`kcl/<unit>/<unit>.sh`), has its own test suite
-(`kcl/<unit>/tests/tests.sh`) and its own ledger (`<unit>_ledger.json`).
+[kklass](../kklass) OOP framework and the [kkore](../kkore) helpers. Every
+file is a kbool **unit** (section 1.10): 29 units in 26 folders — each folder
+`kcl/<unit>/` holds `<unit>.sh`, except the thttpserver package, whose folder
+holds four (`thttpmessage`, `thttprouter`, `thttpserver`, `thttpapplication`).
+Each folder has its own test suite (`kcl/<unit>/tests/tests.sh`) and its own
+ledger (`<unit>_ledger.json`).
 
 ```bash
-source kcl/tlist/tlist.sh          # the unit sources kklass itself
+source /path/to/kbool/kbool.sh     # once per script (see the kbool README)
+kk.uses tlist                      # a unit by NAME; it loads kklass itself
 TList.new L
 L.Add alpha
 L.Get 0; printf '%s\n' "$RESULT"   # -> alpha
 L.delete
 ```
+
+`source kcl/tlist/tlist.sh` works too: the unit's header loads `kbool.sh` when
+it is not loaded yet, and a unit is loaded once however it is reached. The
+loader, the search path and the configuration are described in the
+[kbool README](../README.md) and the [kkore reference](../kkore/README.md).
 
 ---
 
@@ -123,7 +132,9 @@ bash's rule for every command, and it is the price of rc-based booleans.
 
 Every unit is sourceable and usable from a script that runs `set -eu`:
 
-* re-source guards read `${_X_SOURCED:-}`, never `$_X_SOURCED`;
+* the unit header (section 1.10) is `set -eu` safe: a first load runs the
+  unit, every later `source` or `kk.uses` returns 0 without running it (it
+  replaced the hand-written `${_X_SOURCED:-}` re-source guards, uses phase U4);
 * indirect reads of optional metadata use `${!var:-}`;
 * optional positional parameters use `${2:-}`;
 * a bare arithmetic statement ends with `|| :` — **any** `(( … ))` used as a
@@ -242,16 +253,84 @@ instance that reuses the name starts out pre-filled.
 Temporary files are removed on the path that created them and, for anything that
 outlives a call, by an `EXIT` trap.
 
+### 1.10 Every unit is a kbool unit
+
+A kcl unit file is a kbool unit (kklass/USES_PLAN.md, rolled out in phase U4;
+the loader's rules: [kkore/README.md](../kkore/README.md)). Its shape, checked
+for every unit by `kcl/tests` (section 3):
+
+1. **Header.** Line 1 `#!/bin/bash`; lines 2–3 exactly the in-tree header,
+   with the file stem as the unit name:
+
+   ```bash
+   #!/bin/bash
+   [[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tlist.sh}../../kbool.sh" || return
+   kk.unit tlist || return $__kk_unit_rc
+   ```
+
+   then the unit's own comment block. `../../kbool.sh` is the unit's ONLY
+   relative path. A unit is loaded once per shell, by a direct `source`, by
+   `kk.uses` or as a dependency.
+2. **No guard of its own.** The header is the guard: no `_X_SOURCED` variable.
+3. **Dependencies through `kk.uses`, by name.** The kklass module the unit
+   needs — `kk.uses kklass_pascal || return` (or `kklass`, `kklass_decl`) —
+   and every other kcl unit by NAME, one `kk.uses NAME || return` line each,
+   where the code needs it (`kk.uses tpath || return`). Never a path, never a
+   kkore unit (`kbool.sh` always loads `klib`, `kerr`, `kvar`, `kcfg`).
+   `kk.uses --optional X || fallback` only for a dependency the unit handles
+   itself (and the row flag `optional` in `kcl/tests`). A name the unit uses —
+   another unit's class, namespace or function — must come through its
+   `kk.uses` closure.
+4. **Helper namespaces are declared.** A file-scope function `X.name` whose X
+   is neither a class of the unit nor the unit's name (`TDict.*`, `ths.*`,
+   `tca.*`) needs `kk.namespace X || return` on the code line right after the
+   `kk.uses` lines, with a short comment saying so; then no class or
+   instance may take X. A namespace shared by a package (thttpserver's `ths`)
+   is declared in every file of the package that defines `ths.*`; only files of
+   one folder may share one. Lowercase helpers named like the unit (`tpipe.*`,
+   `tawk.*`) are declared by the header.
+5. **No folder variable, no fork.** No `X_DIR=$(cd "$(dirname …)" && pwd)`.
+   While the unit loads, its folder is `KK_UNIT_DIR`; code that needs the folder
+   at run time keeps a fork-free copy taken before the first `kk.uses`
+   (`MATH_DIR=$KK_UNIT_DIR`; row flag `rundir`).
+6. **No file-scope `local` / `declare` without `-g`.** A unit loaded by
+   `kk.uses` runs inside a function: they would become the loader's locals
+   (the unit lint rejects them).
+7. **`readonly` once per process.** A unit that assigns readonly globals
+   wraps the assignments AND the `readonly` statement, keyed on one of its own
+   names, so `kk.unit --forget U` + a re-source (the development hatch) does not
+   fail with `readonly variable` — which under `set -e` exits the caller:
+
+   ```bash
+   if [[ -z ${__TPATH_BS+x} || ${__TPATH_BS@a} != *r* ]]; then
+       __TPATH_BS='\'
+       ...
+       readonly __TPATH_BS ...
+   fi
+   ```
+
+   (`${X@a}` of an unset name aborts under `set -u`, hence `${X+x}` first.)
+   Mutable process state that must survive such a reload — a running
+   co-process's pid and fds (math), a registry other units extend at their
+   load (tutil's `TUTIL_OUT_PREFIXES`) — is set once per process too:
+   `if [[ -z ${X+x} ]]; then … fi` (row flags `readonly`, `state`).
+8. **Tests may keep plain `source`.** A unit suite sources its unit by path
+   (`source "$TLIST_DIR/tlist.sh"`); that loads kbool and registers the
+   unit like any other load.
+
 ---
 
 ## 2. Units
 
-Twenty-six units are implemented; `fpjson` is planned. **Kind** is how the unit
-is called: a *static* unit has one class whose members are called on the class
-(`tpath.getFileName x`), an *instance* unit is constructed (`TList.new L`) and
-freed (`L.delete`). **Contract** says which of the section 1 rules the unit
-meets after the phased rollout in `PLAN.md`, and names every deviation that is
-meant to stay; a unit marked "§1 in full" satisfies 1.1–1.9 with no exception.
+Twenty-nine units in twenty-six folders are implemented — one row per folder
+below; the thttpserver row is a package of four units — and `fpjson` is
+planned. **Kind** is how the unit is called: a *static* unit has one class
+whose members are called on the class (`tpath.getFileName x`), an *instance*
+unit is constructed (`TList.new L`) and freed (`L.delete`). **Contract** says
+which of the section 1 rules the unit meets after the phased rollout in
+`PLAN.md`, and names every deviation that is meant to stay; a unit marked "§1
+in full" satisfies 1.1–1.9 with no exception. Every unit meets 1.10 (uses phase
+U4, checked by `kcl/tests`).
 
 | Unit | Ported class(es) | Kind | Contract |
 |---|---|---|---|
@@ -319,14 +398,69 @@ bash tests/tests.sh                               # the whole kbool corpus
 
 Suites must be run **one at a time** — they share `tests/.ckk` and `/tmp` names.
 Read the result by grepping **all** `[FAIL]` lines, not by looking at the tail of
-the output. The second bash on this machine is started as
+the output. To run under a second bash, put its folder first on `PATH` and start
+the runner with it:
 
 ```bash
-PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe tests/tests.sh
+PATH="/opt/bash53/bin:$PATH" /opt/bash53/bin/bash kcl/tlist/tests/tests.sh
 ```
 
-— without the `PATH` prefix the runner's child `bash` is the other build and the
-suite reports 0 tests.
+— without the `PATH` prefix the runner's child `bash` is the other build (see
+the [kbool README](../README.md#running-the-tests)).
+
+The runner gives every test file an empty `HOME` and no kbool configuration
+(`KBOOL_CONFIG`, `KBOOL_HOME`, `USERPROFILE`, `ProgramData` unset, `BASH_ENV`
+emptied, the `/etc/kbool` level pointed at a missing folder): a developer's
+`~/.kbool/config` cannot change a result.
+
+### `kcl/tests` — the unit shape of every unit
+
+```bash
+bash kcl/tests/tests.sh                           # 179 tests, ~75 s threaded
+```
+
+One kcl-level suite checks section 1.10 for all 29 units, so the unit suites
+keep their own concerns and totals:
+
+* `kcl_units.sh` — the table `KCL_UNITS`, one row per unit
+  `UNIT|NAMESPACES|FLAGS|DIR` (the `kk.namespace` names; flags `rundir`,
+  `readonly`, `state`, `optional`; the folder when it is not `UNIT`), and the
+  shared checks. Not a test file.
+* `001_UnitFiles.sh` — every row statically: the header on lines 2–3, no old
+  guard / folder variable / hard path / fork / `source` statement, the
+  `kk.uses … || return` and `kk.namespace … || return` forms and place, a
+  census of file-scope `X.name` functions against the classes, the unit name
+  and the row's namespaces, the lint, `--optional` only with its flag, every
+  cross-unit reference inside the `kk.uses` closure, rows ↔ stubs.
+* `NNN_<UNIT>.sh` — one runtime stub per row (101–107, 201–204, 301–305,
+  401–408, 501–505: the migration groups), copies of `101_tstopwatch.sh`;
+  the unit is the stem after `NNN_`; a stub may add checks of its own unit
+  after the shared ones (102 tpath, 202 math, 402 tutil, 502 thttpmessage).
+  Each loads its unit once in a fresh shell under `set -eu` and checks: loaded once by an absolute,
+  a relative and a by-name load (a sentinel function stays), its classes filed
+  under it, `kk.unit --forget` + reload clean for `readonly` / `state` rows, a
+  runtime census of function prefixes, no old globals, its name and namespaces
+  taken (`.new` / `defineClass` refused), a refused `kk.namespace` fails the
+  load, and — for units that use another unit of the table — a mixed load
+  behind a plain-sourced dependency.
+
+### Adding a unit
+
+1. `kcl/<unit>/<unit>.sh` with the section 1.10 shape: shebang, the two
+   header lines, the comment block, `kk.uses kklass_pascal || return` and the
+   kcl units it needs by name, `kk.namespace` for helper prefixes; the §1.6
+   locale self-heal; no `X_DIR`, no fork, no path, no file-scope `local`;
+   readonly constants and reload-surviving state once per process.
+2. Its suite `kcl/<unit>/tests/tests.sh` (a copy of a sibling's runner) with
+   a `NNN_Contract.sh` that loads the unit under `set -eu` (§1.4).
+3. A row in `kcl/tests/kcl_units.sh` `KCL_UNITS` and a stub
+   `kcl/tests/NNN_<unit>.sh` (a copy of `101_tstopwatch.sh`, a new number);
+   `001` fails while one exists without the other.
+4. `bash kcl/tests/tests.sh` and the unit's own suite on both bashes; a row in
+   the section 2 table; its README, TEST_COVERAGE_NOTES and ledger.
+5. A unit outside `kcl/` (your own project) uses the user header with
+   `KBOOL_HOME` instead and a `unitpath` entry in its project file — see the
+   [kbool README](../README.md#units).
 
 ---
 

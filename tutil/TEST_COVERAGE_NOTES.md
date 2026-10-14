@@ -168,7 +168,7 @@ stubs gone (3). Rows are in file order.
 | 001.maprc-127-quiet | mapRc | `mapRc 127` is silent with the switch OFF | contract | §1.2 |
 | 001.maprc-1 | mapRc | `mapRc 1` → RESULT 1 — the base has no "no match" case; TGrep overrides it | contract | §2.4 |
 | 001.eu-load | — | the unit loads under `set -eu` | contract | §1.4, §1.6 |
-| 001.eu-load-twice | — | loading the unit TWICE under `set -eu` is a no-op (the re-source guard) | contract | §1.4 |
+| 001.eu-load-twice | — | loading the unit TWICE under `set -eu` is a no-op (the unit header) | contract | §1.4 |
 | 001.eu-fail | run | a FAILING tool under `run` does not abort a `set -eu` caller | contract | **C12** — `"${argv[@]}" \|\| rc=$?`, never bare |
 | 001.eu-missing | run | a MISSING tool under `run` does not abort a `set -eu` caller either | contract | **C12**, **C15** |
 | 001.eu-happy | all | the whole happy path runs under `set -eu` | contract | §1.3 |
@@ -258,7 +258,7 @@ print exactly `OK`, and write **nothing** to stderr.
 | 003.openquote | — | no single-quoted `printf` format is left open at end of line | contract | §4 |
 | 003.inline-cr | — | no member body carries an inline `$'\r'` | bash-convention | §6 — it does not survive the `declare -f`/`eval` round trip |
 | 003.eu-load | — | the unit loads under `set -eu` | contract | §1.4 |
-| 003.eu-load2 | — | it loads TWICE (both re-source guards hold) | contract | §1.4 |
+| 003.eu-load2 | — | it loads TWICE (both unit headers make it a no-op) | contract | §1.4 |
 | 003.eu-each-ok | each | a succeeding tool | contract | §1.3 |
 | 003.eu-toarray-ok | toArray | a succeeding tool | contract | §1.3 |
 | 003.eu-tolist-ok | toList | a succeeding tool | contract | §1.3 |

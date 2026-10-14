@@ -141,6 +141,7 @@
             "kcl/tdictionary/tests/tests.sh"
           ],
           "fix": "class TDictionary ... end + build via kklass_pascal.sh (tlist model: sources kklass_pascal.sh/klib.sh/kerr.sh, TDICTIONARY_DIR guard); ktests runner mirroring other kcl suites; header comment documenting the scope decision (API not machinery) + the pinned idioms. Baseline re-measured with the master suite BEFORE creating tests/tests.sh (discovery is upfront, so the baseline run excludes tdictionary).",
+          "superseded_by_uses_U4": "superseded by uses U4 (2026-10-14): the unit has no re-source guard and no path source any more — the kbool unit header loads it once, dependencies come through kk.uses (kcl/README.md §1.10)",
           "acceptance": "source tdictionary.sh succeeds on 5.2 and 5.3; suite runs green; baseline numbers confirmed and recorded in this ledger.",
           "depends_on": []
         },

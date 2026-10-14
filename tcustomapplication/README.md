@@ -10,7 +10,8 @@ The option parser is a line-by-line port of that file (decision **D4**, phase P4
 of the 2026-09-06 review).
 
 ```bash
-source kcl/tcustomapplication/tcustomapplication.sh
+source /path/to/kbool/kbool.sh
+kk.uses tcustomapplication
 
 TCustomApplication.new app "$@"          # or: TCustomApplication.new app; app.SetArgs "$@"
 

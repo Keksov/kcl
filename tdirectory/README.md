@@ -5,7 +5,8 @@ kklass **static** class: no per-instance state, every member reached as
 `tdirectory.<member>`.
 
 ```bash
-source kcl/tdirectory/tdirectory.sh
+source /path/to/kbool/kbool.sh
+kk.uses tdirectory
 
 tdirectory.createDirectory /tmp/work/sub
 tdirectory.getFiles /tmp/work                 # RESULT = newline-joined paths

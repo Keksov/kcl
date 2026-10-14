@@ -5,7 +5,8 @@ class deriving from [`TList`](../tlist/README.md): a string list with optional
 **sorting**, a **duplicates policy** and **case-insensitive** comparison.
 
 ```bash
-source kcl/tstringlist/tstringlist.sh
+source /path/to/kbool/kbool.sh
+kk.uses tstringlist
 
 TStringList.new l
 l.Add banana; l.Add apple; l.Add cherry

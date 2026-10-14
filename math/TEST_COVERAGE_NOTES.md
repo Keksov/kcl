@@ -26,7 +26,7 @@ it** · **basis**.
 | id | functions | case | why FPC lacks it | basis |
 |---|---|---|---|---|
 | 001/constants | `pi` `e` `infinity` `negInfinity` `nan` `min/maxSingle/Double/Extended` | getters echo the `math.pp` constant values / tokens | representation (bash string constants; IEEE ranges informational) | `math.pp` interface literals (lines 84–98, 173–175) |
-| 001/readonly | `__MATH_*` | constants reject reassignment | bash-convention (kcl house rule) | `readonly` behind the re-source guard |
+| 001/readonly | `__MATH_*` | constants reject reassignment | bash-convention (kcl house rule) | `readonly`, assigned once per process (kcl/README.md §1.10 rule 7) |
 | 001/dec_cmp | `_dec_cmp` | 16 pairs: trailing-zero precision (`1.5==1.50`), signed zero (`0==-0`), length-driven magnitude, fractional magnitude, negatives, cross-sign, zero-vs-tiny, >64-bit ints | representation (no native float → decimal-string comparison) | independent calculation; string compare is overflow-safe |
 | 001/trunc-frac | `_trunc` `_frac` `_abs` | `trunc(-2.9)=-2`, `frac(-2.9)=-0.9`, `abs(-2.5)=2.5`, exact integers | representation (toward-zero split of a decimal string) | definition (truncate toward zero; signed fraction) |
 | 001/is_int | `_is_int` | integer literals only (`42`,`-7`,`+3` yes; `3.5`,`abc`,``,`1e3` no) | bash-convention (type probe) | regex `^[+-]?[0-9]+$` |

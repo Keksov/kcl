@@ -366,7 +366,7 @@ sink call in a child is guarded `|| rc=$?`. Class `contract`, basis **H12** +
 | ID | Case | extra basis |
 |---|---|---|
 | 006.1-load | the unit loads under `set -eu` | §1.4 |
-| 006.1-load-twice | the unit loads TWICE under `set -eu` (every re-source guard holds) | §1.4 |
+| 006.1-load-twice | the unit loads TWICE under `set -eu` (every unit header makes the second load a no-op) | §1.4 |
 | 006.1-each | `t.each`: an instance that delivers records | **H6** |
 | 006.1-form2 | form 2: `TPipe.each CB -- "${argv[@]}"` with the argv TTail built | **T4** |
 | 006.1-form2-take | form 2 with `TTail.take` as the producer command | **T4** |

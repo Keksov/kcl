@@ -130,6 +130,7 @@
             "G8-01 / X-SETU" : {
                "test" : "the `loads` / `loads TWICE` / `main path` assertions in all 17 NNN_Contract.sh",
                "fix" : "All 17 units load AND re-load under `set -eu`: 10 existing re-source guards moved to ${_X_SOURCED:-}, 7 units that had none (tcustomapplication tdictionary tdirectory tlist tstopwatch tstringhelper tstringlist) got one. Plus the two classes of set -u error the reviewers had not seen: 58 optional positionals read without a default (`local delta=$3` in math.compareValue, 57 `local x=\"$4\"` across nine units) and `${BASH_REMATCH[0]}` in tregex._match1, which is unset on every no-match.",
+               "superseded_by_uses_U4" : "superseded by uses U4 (2026-10-14): the ${_X_SOURCED:-} re-source guards are gone — every kcl, kklass and kkore unit carries the kbool unit header (kk.unit), which makes a repeated source a no-op, also under set -eu (kcl/README.md §1.4, §1.10)",
                "red_before" : "13 of 17 units died on their own guard; the other 4 died later in the main path"
             },
             "TSH-02 / M12 / G6-03 (X-ECHO)" : {
@@ -461,6 +462,7 @@
             "G6-27" : {
                "test" : "tdirectory/tests/036_G6_ReturnContract.sh + 032_Contract.sh",
                "fix" : "verified, not changed: the re-source guard landed in P1. The assertion that re-sourcing under `set -eu` is a no-op is now pinned in the suite.",
+               "superseded_by_uses_U4" : "superseded by uses U4 (2026-10-14): the ${_X_SOURCED:-} re-source guards are gone — every kcl, kklass and kkore unit carries the kbool unit header (kk.unit), which makes a repeated source a no-op, also under set -eu (kcl/README.md §1.4, §1.10)",
                "red_before" : "n/a — this one was already green; it is pinned so it stays that way"
             },
             "G6-04" : {
@@ -1451,6 +1453,7 @@
                "round2" : "Owner review caught the miss: the first pass fixed only the trailing ${1:-} on kerr.sh:146, leaving a bare \"$1\" in the re-source branch on line 5. That branch is not hypothetical — kklass.sh loads kkore, and tlist.sh / tdictionary.sh / tstopwatch.sh (and tstringlist.sh through tlist.sh) then source klib.sh and kerr.sh AGAIN, so those four units would still have died under set -u after the P1 guards. Test 128 missed it because it loaded each file exactly once in a fresh shell; it now sources every kkore and kklass entry point TWICE, plus the real kklass-then-unit shape and the `source kerr.sh set_trap` forwarding path.",
                "partial" : "P0 covers kklass + kkore + ktests only; the 17 kcl units are P1",
                "fix" : "re-source guards read ${_X_SOURCED:-} in kklass_pascal.sh, kklass_decl.sh, kklass_kkp.sh, kkore/{klib,kerr,kvar,kcfg,kuse}.sh and ktests/{ktest,ktest_assertions,ktest_core,ktest_fixtures,ktest_runner}.sh; kerr.sh ${1:-} BOTH at the end of the file and INSIDE the re-source branch; ktest.sh ${KTESTS_LIB_DIR:-} / ${KK_OUTPUT_COUNTS:-}. The kcl units' own guards are P1.",
+               "superseded_by_uses_U4" : "superseded by uses U4 (2026-10-14): the ${_X_SOURCED:-} re-source guards are gone — every kcl, kklass and kkore unit carries the kbool unit header (kk.unit), which makes a repeated source a no-op, also under set -eu (kcl/README.md §1.4, §1.10)",
                "red_before" : "every source of kklass/kkore under set -u died with '<GUARD>: unbound variable'; after the first round, 3 more assertions were red on kerr.sh:5",
                "test" : "kklass/tests/128_SetUContract.sh"
             },

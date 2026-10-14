@@ -34,7 +34,8 @@
 of a hand-built command string, one rc convention, and the five `TPipe` sinks.
 
 ```bash
-source kcl/tawk/tawk.sh
+source /path/to/kbool/kbool.sh
+kk.uses tawk
 
 TAwk.apply '{print $2}' data.txt       # the one-liner: `gawk --sandbox -e PROGRAM -- data.txt`
 

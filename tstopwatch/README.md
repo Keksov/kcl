@@ -15,7 +15,8 @@ no monotonic builtin — documented wontfix).
 ## Quick start
 
 ```bash
-source kcl/tstopwatch/tstopwatch.sh
+source /path/to/kbool/kbool.sh
+kk.uses tstopwatch
 
 TStopwatch.new sw            # Delphi TStopwatch.Create — created STOPPED
 sw.Start

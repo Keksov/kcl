@@ -6,7 +6,8 @@ in memory until `UpdateFile`, or a dirty-on-destroy auto-flush). kklass
 instantiable classes, so you make instances and call methods:
 
 ```bash
-source kcl/tinifile/tinifile.sh
+source /path/to/kbool/kbool.sh
+kk.uses tinifile
 
 TMemIniFile.new cfg ~/.myapp.ini          # cached; loads the file if present
 cfg.WriteString  server host  example.com

@@ -6,7 +6,8 @@ A bash port of Free Pascal's `TPath` / .NET `System.IO.Path` as a kklass
 `tpath.<member>`.
 
 ```bash
-source kcl/tpath/tpath.sh
+source /path/to/kbool/kbool.sh
+kk.uses tpath
 
 tpath.combine /c/tmp file.txt      # RESULT=/c/tmp/file.txt (direct: prints nothing)
 tpath.getFileName "$RESULT"        # RESULT=file.txt

@@ -8,7 +8,8 @@ non-owning vs owning containers (temp files, coprocesses, kklass objects held
 by name).
 
 ```bash
-source kcl/tobjectlist/tobjectlist.sh
+source /path/to/kbool/kbool.sh
+kk.uses tobjectlist
 
 TObjectList.new pool             # owning (FPC default)
 TStopwatch.new sw1; TStopwatch.new sw2

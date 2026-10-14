@@ -25,7 +25,8 @@ of a hand-built command string, one rc convention, and the five `TPipe` sinks
 for free.
 
 ```bash
-source kcl/tfind/tfind.sh
+source /path/to/kbool/kbool.sh
+kk.uses tfind
 
 TFind.byName '*.log' /var/log         # the one-liner: `find /var/log -name '*.log'`
 

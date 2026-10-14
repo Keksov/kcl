@@ -7,7 +7,8 @@ kklass utility — no instances, no state of its own: every member operates on a
 operate on your `TArray<T>` variable.
 
 ```bash
-source kcl/tarray/tarray.sh
+source /path/to/kbool/kbool.sh
+kk.uses tarray
 
 nums=(37 12 99 1 50)
 TArray.sort nums -n                    # in place -> 1 12 37 50 99

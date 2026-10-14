@@ -234,6 +234,7 @@
         "escapelinefeeds": "RESOLVED: read-side-only join (RemoveBackslashes :1039) -> PORTED."
       },
       "skeleton": "tinifile.sh: class TIniFile (ctor REAL: file_name, option-token grammar + dedupe + alias normalize + unknown->rc1-instance-valid, TIniFile-only auto-ifoStripQuotes via ${inst}_class check, cache_updates=false, dirty=false, storage arrays init; dtor tears storage down) + class TMemIniFile : TIniFile (ctor = inherited + cache_updates=true); 25 member stubs via kk._return sentinel (trailer trap respected). tests/001 = 11 cases: defaults split, auto-quotes asymmetry, token parse/dedupe/alias, explicit TMemIniFile opt-in, bogus-token rc1-valid, storage exists/empty, inheritance chain, stub sentinels, delete teardown, re-source guard, PATH='' zero-fork. NB harness trap re-hit: a func stub under $() echoes TWICE (explicit kk._return + auto trailer) — mute stdout in $() captures.",
+      "superseded_by_uses_U4": "superseded by uses U4 (2026-10-14): the unit has no re-source guard and no path source any more — the kbool unit header loads it once, dependencies come through kk.uses (kcl/README.md §1.10)",
       "baseline_remeasured": "Master sweep on 5.2.37 GREEN: 18/18 suites, 0 failed, 'All test suites passed.', 2853 tests (was 17/2842 pre-tinifile; +11 from the skeleton), no [FAIL] lines, clean first attempt. No regression: only ADDS a suite; no existing unit or kklass file touched."
     },
     {

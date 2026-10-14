@@ -25,7 +25,8 @@ properties instead of a hand-built command string, one rc convention, and the
 five `TPipe` sinks for free.
 
 ```bash
-source kcl/tgrep/tgrep.sh
+source /path/to/kbool/kbool.sh
+kk.uses tgrep
 
 TGrep.search "needle" src/            # the one-liner: `grep -r`, streamed
 

@@ -561,7 +561,7 @@ table of contents:
 | 1.1 | static units need `static proc` + `_ret` | **n/a** — fpjson is an *instance* class, so `func` + `kk._return` is correct as-is |
 | 1.2 | rc 1 + `RESULT=""` + silence; `kk.debug` for the diagnostic; rc 2 = malformed call | §5.5 |
 | 1.3 | predicates answer by rc | `doc.IsNull`, `doc.Has`, `doc.IsValid`, `doc.Contains` |
-| 1.4 | `set -eu` clean: `${_FPJSON_SOURCED:-}`, `${2:-}`, `(( … )) \|\| :`, no trailing `&&` list | every arithmetic statement in the lexer is `x=$((…))` (an assignment, always rc 0) rather than `(( x++ ))` — the hot loop is where this bites |
+| 1.4, 1.10 | `set -eu` clean: the kbool unit header (`kk.unit fpjson`, no `_FPJSON_SOURCED` guard; dependencies through `kk.uses`), `${2:-}`, `(( … )) \|\| :`, no trailing `&&` list | every arithmetic statement in the lexer is `x=$((…))` (an assignment, always rc 0) rather than `(( x++ ))` — the hot loop is where this bites |
 | 1.5 | caller-supplied numbers through `kk.isInt`/`kk.isNum` **before** `(( ))` or `${arr[i]}` | **critical here**: every member takes a handle, and `${doc}_type[$h]` with `h='x[$(touch pwn)]'` *executes*. `kk.isInt "$1" h \|\| return 1` is the first line of every member that takes a handle or an index; `kk.isNum` guards `AsFloat` |
 | 1.6 | UTF-8 assumed; byte semantics pinned **locally** | §4.2 — the load-time self-heal is the standard four lines; `LC_ALL=C` appears only inside the lexer, the unescaper and the serialiser's escape scan |
 | 1.7 | output arrays by name, validated by `kk._outName` before the nameref binds | `doc.Items`, `doc.Names`, `doc.Keys`, `doc.Paths`; the unit passes its own prefix `__fpj_`, and additionally refuses the six per-document array names |
@@ -665,8 +665,9 @@ status` clean, no `.ckk`/`/tmp` growth. Then STOP and wait for "go".
 * **P7 — docs, bench, closeout.** `README.md` (API, positioning, jq-vs-fpjson guidance,
   divergence table), `docs/TJSONData.md` (upstream FPC reference with the standard kcl header),
   `bench.sh` (parse 1/10/100 KB, `GetPath` hot, `AsJSON`, informational `jq`-fork comparison),
-  timed through `TStopwatch.getTimeStamp` (source `../tstopwatch/tstopwatch.sh` — do not
-  hand-roll a clock), `TEST_COVERAGE_NOTES.md`, ledger COMPLETE.
+  timed through `TStopwatch.getTimeStamp` (`kk.uses tstopwatch || exit` after the
+  unit's own source, as every kcl `bench.sh` does since uses U4 — do not hand-roll a
+  clock), `TEST_COVERAGE_NOTES.md`, ledger COMPLETE.
 * **P8 — OPTIONAL awk co-process tokenizer.** Own owner gate, only if real usage demands it.
   Same token interface, corpus equivalence against the pure lexer, the kcl/math engine's
   lifecycle lessons (temp-file program feed, `TMPDIR` fallback, lazy start, the `$( )` subshell

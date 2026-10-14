@@ -4,7 +4,8 @@
 every member is called as `string.<member>`.
 
 ```bash
-source kcl/tstringhelper/tstringhelper.sh
+source /path/to/kbool/kbool.sh
+kk.uses tstringhelper
 
 string.trim "  hello  "          # direct call: prints NOTHING
 printf '%s\n' "$RESULT"          # -> hello

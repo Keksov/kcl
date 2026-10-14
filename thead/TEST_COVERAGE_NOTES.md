@@ -342,7 +342,7 @@ Every child runs under `set -eu` with `timeout 20` and its own stdin, and
 | ID | Case | extra basis |
 |---|---|---|
 | 006.1-load | the unit loads under `set -eu` | §1.4 |
-| 006.1-load-twice | the unit loads TWICE under `set -eu` (every re-source guard holds) | §1.4 |
+| 006.1-load-twice | the unit loads TWICE under `set -eu` (every unit header makes the second load a no-op) | §1.4 |
 | 006.1-each | `h.each`: an instance that delivers records | **H6** |
 | 006.1-form2 | form 2: `TPipe.each CB -- "${argv[@]}"` with the argv THead built | **H11** |
 | 006.1-form2-take | form 2 with `THead.take` as the producer command | **H11** |

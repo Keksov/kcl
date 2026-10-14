@@ -29,6 +29,8 @@
 >   kcl `README.md` §1.2); `first` answers the record itself, rc 1 only when
 >   there was none. A malformed **call** is rc 2, `RESULT=''`, and runs nothing.
 
+*(Superseded by uses U4 (2026-10-14): the probe scripts below source `kklass_pascal.sh` by an absolute path, as they were run then; today a script writes `source /path/to/kbool/kbool.sh && kk.uses kklass_pascal` — kcl/README.md §1.10.)*
+
 **How to read the measurements.** Every section below is a script that can be
 pasted into a file and run. Each was run on **bash 5.2.37 (MSYS2 `bash`)** and on
 **bash 5.3.9 (`C:/bin/msys64/usr/bin/bash.exe`)**, sequentially, on Windows 11 /

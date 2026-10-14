@@ -36,6 +36,8 @@
 >   record, rc 1 only when there was none. A malformed **call** is rc 2,
 >   `RESULT=''`, and runs nothing.
 
+*(Superseded by uses U4 (2026-10-14): the probe scripts below source `kklass_pascal.sh`, `tutil.sh` and `tgrep.sh` by absolute paths, as they were run then; today a script writes `source /path/to/kbool/kbool.sh && kk.uses tutil` (or `kklass_pascal`, `tgrep`) — kcl/README.md §1.10.)*
+
 **How to read the measurements.** Every script in [§3](#3-the-measurements) can
 be pasted into a file and run. Each was run on **bash 5.2.37 (MSYS2 `bash`)** and
 on **bash 5.3.9 (`C:/bin/msys64/usr/bin/bash.exe`)**, sequentially, on Windows 11

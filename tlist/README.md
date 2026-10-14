@@ -6,7 +6,8 @@ the indexed accessors (`Get`/`Put`/`First`/`Last`) are real values rather than
 pointer arithmetic, and `IndexOf` compares strings.
 
 ```bash
-source kcl/tlist/tlist.sh
+source /path/to/kbool/kbool.sh
+kk.uses tlist
 
 TList.new l
 l.Add alpha            # RESULT=0  — the INDEX of the new element (FPC)

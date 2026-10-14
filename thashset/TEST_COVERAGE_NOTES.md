@@ -49,7 +49,7 @@ from this unit's own phases (`thashset_ledger.json`).
 | 001.no-sentinel | UnionWith, Notify | neither answers with `__ths_pending__`: `UnionWith` is rc 1 on a non-set operand, `Notify` is a quiet rc 0 | contract | the P2/P3 stub removal (`TSet._pending` is gone from the unit) |
 | 001.event-surface | on_notify, _notifyHook, onNotify | all three exist and both hook slots start empty | contract | P3 surface; FPC has no default handler either (`SetOnNotify` :2530 leaves the dictionary unhooked) |
 | 001.teardown | Destroy | `s.delete` leaves no `${inst}_items` behind | contract | destructor contract; FPC `Destroy` :2554 frees the internal dictionary |
-| 001.resource | (unit) | a second `source` of the unit is a clean no-op | contract | the re-source guard (house rule) |
+| 001.resource | (unit) | a second `source` of the unit is a clean no-op | contract | the unit header (kcl/README.md §1.10) |
 | 001.isolation | Create | two sets have independent storage | contract | per-instance storage |
 | 001.zero-fork | Create, Count, Destroy | ctor, `Count` and teardown run under `PATH=''` | contract | no external commands on any path (kcl §1.6) |
 
@@ -85,7 +85,7 @@ eleventh is this unit's deliberate exception (see its own row).
 | 003.parse | (unit) | `bash -n` on `thashset.sh` is clean | contract | house source-integrity rule |
 | 003.no-open-quote | (unit) | no `printf '…` is left open at end of line | contract | the P1 sweep that put a **real newline** inside a format string while every behavioural test stayed green |
 | 003.setu-load | (unit) | the unit loads under `set -eu` with empty stderr | contract | X-SETU / decision D7 |
-| 003.setu-reload | (unit) | loading it **twice** under `set -eu` is a clean no-op | contract | X-SETU + the re-source guard |
+| 003.setu-reload | (unit) | loading it **twice** under `set -eu` is a clean no-op | contract | X-SETU + the unit header |
 | 003.setu-main | Add, Count, Contains, Remove, Clear, Destroy | the main path under `set -eu` | contract | D7 |
 | 003.setu-toarray-empty | ToArray | fills a `declare -a out=()` target under `set -eu` | contract | finding P9-F3 — `${ref@a}` on an unbound array aborted the caller |
 | 003.setu-toarray-unset | ToArray | fills a `declare -a out` (declared, never assigned) target | contract | P9-F3 (the harder half) |

@@ -348,7 +348,7 @@ the child must end rc 0, print exactly `OK` and write nothing to stderr. Class
 | ID | Case | Basis |
 |---|---|---|
 | 006.eu-load | the unit loads under `set -eu` | §1.4, §1.6 |
-| 006.eu-load2 | it loads TWICE — every re-source guard holds (tgrep → tutil → tpipe → kklass) | §1.4 |
+| 006.eu-load2 | it loads TWICE — every unit header makes the second load a no-op (tgrep → tutil → tpipe → kklass) | §1.4 |
 | 006.eu-each | `g.each` on a matching instance | §1.3 |
 | 006.eu-form2 | form 2: `TPipe.each CB -- "${argv[@]}"` with the argv TGrep built | README §7 |
 | 006.eu-form2-search | form 2 with `TGrep.search` as the producer command | §2.5 |

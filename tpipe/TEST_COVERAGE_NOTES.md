@@ -268,7 +268,7 @@ and give the producer `2>/dev/null`: a closed pipe routinely makes it print
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
 | 004.setu-load | (unit) | the unit loads under `set -eu` | contract | X-SETU |
-| 004.setu-reload | (unit) | loading it **twice** is a no-op | contract | the re-source guard |
+| 004.setu-reload | (unit) | loading it **twice** is a no-op | contract | the unit header |
 | 004.setu-dashdash | all five | the `--` form of all five sinks runs clean | contract | X-SETU |
 | 004.setu-stdin | all five | the **stdin** form of all five sinks runs clean (`first` on empty stdin is rc 1, `lastRc` -1) | contract | X-SETU + C11 |
 | 004.setu-herestring | toArray | the stdin form actually reading a here-string | contract | §1.3 |

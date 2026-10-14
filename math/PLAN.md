@@ -114,12 +114,14 @@ math.min() { ... }
 ...
 build math
 ```
+*(Superseded by uses U4 (2026-10-14): the unit loads kklass with `kk.uses kklass_pascal || return` after its kbool unit header — no path source, kcl/README.md §1.10.)*
 
 - **No `static var`** — the class must stay on the thin, capture-free dispatcher
   (fast on bash 5.2 which lacks funsub, and 5.3). The engine's pid/fds and all
   constants are therefore top-level globals, prefixed `__MATH_` and declared
   `readonly` where constant (behind a `_MATH_SOURCED` re-source guard), exactly
   as `dateutils` does with `__KDT_*`.
+  *(Superseded by uses U4 (2026-10-14): no `_MATH_SOURCED` guard any more — the unit header loads math once; the constants are assigned once per process, kcl/README.md §1.10 rule 7.)*
 - **Public constant getters as `static proc`s**: `math.pi`, `math.e`,
   `math.infinity`, `math.nan`, `math.minDouble`, `math.maxDouble`, … — keeps the
   class static-var-free while giving a namespaced API for the constants FPC

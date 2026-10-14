@@ -13,7 +13,8 @@ FPC's `Math` is ~80% floating point, and bash has no float type, so the port is
 | **C** — FPU / precision control | `get/setRoundMode`, `…ExceptionMask`, Single/Extended distinctions | **wontfix** — no bash equivalent (stubs provided) |
 
 ```bash
-source /path/to/kcl/math/math.sh
+source /path/to/kbool/kbool.sh
+kk.uses math
 
 math.min 3 7;               echo "$RESULT"   # 3     (pure bash, exact)
 math.roundTo 2.5 0;         echo "$RESULT"   # 2     (banker's rounding, engine)

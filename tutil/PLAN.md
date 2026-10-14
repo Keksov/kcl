@@ -29,6 +29,7 @@ assert the GNU banner (§4).
 (concrete: a generic argv runner); `kcl/tgrep/tgrep.sh` — `TGrep : TUtil` (sources
 `../tutil/tutil.sh` by `$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)`, the
 tobjectlist→tlist pattern, verified across files by the critic).
+*(Superseded by uses U4 (2026-10-14): tgrep loads tutil with `kk.uses tutil || return` after its kbool unit header — no folder variable, no fork, no path; kcl/README.md §1.10.)*
 **Ledger:** `kcl/tutil/tutil_ledger.json` (one ledger for both units; tgrep gets its
 own when the second wrapper lands and the template in §7 is exercised).
 **Workflow / conventions:** as `kcl/tpipe/PLAN.md`. Local prefix `__tu_` (tutil),

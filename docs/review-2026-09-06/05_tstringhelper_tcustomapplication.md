@@ -78,6 +78,7 @@ Fresh app: `GetNonOptions "" "" nn` → 3 `['' '' 'nn']`; `CheckOptions "hv" "he
 `TCA-10 | MED | :502-511 | No DoRun; Run is a fork-per-10 ms busy loop that cannot be stopped from a background job` — `grep -c DoRun` = 0 while docs describe it. Fix: `proc DoRun` (default: Terminate), `while [[ $Terminated != true ]]; do $this.call DoRun; done` reading the property nameref directly.
 
 `TCA-11 | MED | :596-599 | Location returns the kklass directory` — `BASH_SOURCE[0]` inside an eval'd body is kklass.sh. Fix: `kk.getScriptDir "$0"`.
+*(Superseded by uses U1a (2026-10-06): `kk.getScriptDir` was removed; a unit's folder is `KK_UNIT_DIR` while it loads, kkore/README.md.)*
 
 `TCA-12 | LOW | :497-499 | Terminate exports EXITCODE into the environment of every child process`.
 `TCA-13 | LOW | :432,441,120-124 | '-' and non-leading '--' become non-options; leading '--' is silently dropped by SetArgs`.

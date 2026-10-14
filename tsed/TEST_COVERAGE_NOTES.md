@@ -499,7 +499,7 @@ stdout exactly `OK`, and **empty stderr**; every sink call inside is guarded
 | ID | Case |
 |---|---|
 | 006.1-load | the unit loads under `set -eu` |
-| 006.1-load-twice | it loads TWICE (every re-source guard holds, the registry appends stay idempotent) |
+| 006.1-load-twice | it loads TWICE (every unit header makes the second load a no-op, the registry appends stay idempotent) |
 | 006.1-each | `s.each`: an instance that delivers records — rc 0, 3 calls, `lastRc` 0 |
 | 006.1-tpipe-argv | form 2: `TPipe.each CB -- "${argv[@]}"` with the argv TSed built (6 words) |
 | 006.1-tpipe-edit | form 2 with `TSed.edit` as the producer command |

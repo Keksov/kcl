@@ -12,6 +12,7 @@ Use the scratchpad dir given in your prompt for any temp files.
 - Unit tests: `bash kcl/<unit>/tests/tests.sh --verbosity info` (ktests framework; kt_test_start/pass/fail).
   Tests print nothing on pass at default verbosity. Do NOT run two suites concurrently.
 - Load a unit in a scratch script: `source /c/projects/kkbot/kbool/kcl/<unit>/<unit>.sh` (it sources kklass itself).
+  *(Superseded by uses U4 (2026-10-14): a unit now loads kbool and kklass through its unit header; the canonical form is `source kbool.sh` + `kk.uses <unit>`, kcl/README.md §1.10.)*
 - `python` is a broken Store stub here — never call it. perl/awk/sed are fine.
 
 ## kklass contracts you must judge code against (as of 2026-09-05)

@@ -32,7 +32,8 @@
 of a hand-built command string, one rc convention, and the five `TPipe` sinks.
 
 ```bash
-source kcl/tsed/tsed.sh
+source /path/to/kbool/kbool.sh
+kk.uses tsed
 
 TSed.edit 's/foo/bar/' notes.txt       # the one-liner: `sed --sandbox -e EXPR -- notes.txt`
 

@@ -119,6 +119,9 @@ Each `.sh` has the kcl re-source guard (`${_THS_<FILE>_SOURCED:-}`), the §1.6 l
 self-heal and sources kklass through `kklass_pascal.sh`. Class names carry the `THttp`
 prefix to stay clear of generic names — kklass refuses a same-name class from a
 different file.
+*(Superseded by uses U4 (2026-10-14): the guard and the path source are gone — each file
+is a unit with the kbool header and loads kklass_pascal and its siblings through
+`kk.uses`, kcl/README.md §1.10.)*
 
 ### 1.3 Surface
 

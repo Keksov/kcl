@@ -6,7 +6,8 @@ subclasses `TObjectQueue : TQueue` and `TObjectStack : TStack` that
 auto-`.delete` handle elements on removal. kklass instantiable classes:
 
 ```bash
-source kcl/tqueuestack/tqueuestack.sh
+source /path/to/kbool/kbool.sh
+kk.uses tqueuestack
 
 TQueue.new q
 q.Enqueue alpha; q.Enqueue beta

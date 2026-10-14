@@ -9,7 +9,8 @@ dimension removed. Elements are **strings**, and every string is a valid
 element, the empty one included.
 
 ```bash
-source kcl/thashset/thashset.sh
+source /path/to/kbool/kbool.sh
+kk.uses thashset
 
 THashSet.new s
 s.Add alpha            # rc 0 — newly added
@@ -118,8 +119,8 @@ nothing over bash's native hash. Sort at the boundary instead, by composing
 `ToArray` with [`tarray`](../tarray/README.md)'s `TArray.sort`:
 
 ```bash
-source kcl/thashset/thashset.sh
-source kcl/tarray/tarray.sh
+source /path/to/kbool/kbool.sh
+kk.uses thashset tarray
 
 THashSet.new fruit
 fruit.AddRange pear apple fig banana cherry || :

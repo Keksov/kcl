@@ -5,7 +5,8 @@ A bash port of Free Pascal's `TFile` / .NET `System.IO.File` as a kklass
 `tfile.<member>`.
 
 ```bash
-source kcl/tfile/tfile.sh
+source /path/to/kbool/kbool.sh
+kk.uses tfile
 
 tfile.create      /tmp/a.txt
 tfile.appendAllText /tmp/a.txt "hello"     # writes DATA — "-n" is two bytes

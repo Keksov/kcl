@@ -73,7 +73,8 @@ the descendant way (§4), with a bearer token (`--token=T` or `$DEMO_TOKEN`).
 The smallest application needs no class of its own:
 
 ```bash
-source kcl/thttpserver/thttpapplication.sh
+source /path/to/kbool/kbool.sh
+kk.uses thttpapplication
 
 hello() {                                   # handler: REQ RESP DATA
     local who                               # every variable local (§3)
@@ -91,7 +92,8 @@ App.delete
 Without the application, the server alone:
 
 ```bash
-source kcl/thttpserver/thttpserver.sh
+source /path/to/kbool/kbool.sh
+kk.uses thttpserver
 THttpRouter.new R;  R.RegisterRoute /hello/:name GET hello
 THttpServer.new S;  S.Port = 8080;  S.Router = R
 S.Serve                                     # or: S.Active = true (FPC style) — blocks
@@ -115,10 +117,14 @@ multibyte data from a file, `--data-binary @file`.
 | `thttpapplication.sh` | `THttpApplication : TCustomApplication` | + thttpserver.sh, [`../tcustomapplication`](../tcustomapplication/README.md) |
 | `examples/demo.sh`, `examples/demo_oop.sh` | the showcase (§0, §4) | + [`../tdictionary`](../tdictionary/README.md) |
 
-Every file has the kcl re-source guard and the §1.6 locale self-heal and loads
-under `set -eu`. Prefixes: `__ths_` (locals), `__THS_` (file-scope constants),
-`ths.` (file-scope helpers). Class names carry `THttp` to stay clear of generic
-names (kklass refuses a same-name class from another file).
+Every file is a kbool unit (the unit header, [kcl/README.md §1.10](../README.md#110-every-unit-is-a-kbool-unit);
+the four are one package: `kk.uses thttpserver` or `kk.uses thttpapplication`
+loads what it needs), has the §1.6 locale self-heal and loads under
+`set -eu`. Prefixes: `__ths_` (locals), `__THS_` (file-scope constants),
+`ths.` (file-scope helpers: a namespace the package's files declare with
+`kk.namespace ths`, owned by `thttpmessage`). Class names carry `THttp` to stay
+clear of generic names (a class declared again from another file is a
+*Duplicate identifier*).
 
 ---
 

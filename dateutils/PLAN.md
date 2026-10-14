@@ -71,6 +71,7 @@ dateutils.now() { ... }
 ...
 build dateutils
 ```
+*(Superseded by uses U4 (2026-10-14): the unit loads kklass with `kk.uses kklass_pascal || return` after its kbool unit header — no path source, kcl/README.md §1.10.)*
 
 - **No `static var`** — the class must stay on the thin, capture-free
   dispatcher path (fast on bash 5.2 and 5.3). Constants are therefore NOT
@@ -81,6 +82,7 @@ build dateutils
   check, same as the `_KKLASS_PASCAL_SOURCED` idiom), so no other library can
   silently overwrite them. The thin-dispatch property is regression-pinned the
   same way as `tfile` test 038.
+  *(Superseded by uses U4 (2026-10-14): no re-source check any more — the unit header loads dateutils once, and the readonly block is assigned once per process, kcl/README.md §1.10 rule 7.)*
 
   *Why not a `TDateUtils` class with `static var` constants*: kklass stores a
   static var as the very same process global (`TDateUtils_static_MsPerDay`) —

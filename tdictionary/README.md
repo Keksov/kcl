@@ -19,7 +19,8 @@ Upstream API reference (per-member Pascal signatures + mapping):
 ## Quickstart
 
 ```bash
-source kcl/tdictionary/tdictionary.sh
+source /path/to/kbool/kbool.sh
+kk.uses tdictionary
 
 TDictionary.new d            # TDictionary.new d 1000 also works (arg ignored)
 d.Add host example.com       # duplicate key -> rc 1, dict unchanged

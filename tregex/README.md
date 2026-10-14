@@ -14,7 +14,8 @@ instances): the whole surface is class functions, same as Delphi's usage.
 ## Quick start
 
 ```bash
-source kcl/tregex/tregex.sh
+source /path/to/kbool/kbool.sh
+kk.uses tregex
 
 # predicate
 if TRegEx.isMatch "$line" '^[0-9]+'; then echo "starts with a number"; fi

@@ -9,7 +9,8 @@ hot paths, thin (capture-free) dispatch on bash 5.2 and 5.3 alike.
 - Test-coverage analysis: [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)
 
 ```bash
-source /path/to/kcl/dateutils/dateutils.sh
+source /path/to/kbool/kbool.sh
+kk.uses dateutils
 
 dateutils.encodeDateTime 2011 3 26 19 15 30 555   # direct call: sets RESULT
 kdt=$RESULT                                        # ... a "KDT" integer

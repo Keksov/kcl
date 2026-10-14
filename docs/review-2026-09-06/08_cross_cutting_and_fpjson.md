@@ -10,6 +10,7 @@ Facts (`hygiene2.sh`, all 17 units in one shell, 5.2 and 5.3): sourcing all unit
 
 `G8-01 | MED | all units + kklass | e.g. dateutils.sh:48, tpath.sh:5, tqueuestack.sh:61, kklass/kklass_pascal.sh:42 | re-source guard breaks every unit under set -u`
 `bash -c 'set -u; source kcl/tpath/tpath.sh; tpath.combine a b'` → `tpath.sh: line 5: _TPATH_SOURCED: unbound variable`. All 17 fail (the ones without an own guard die inside kklass_pascal.sh:42). Fix: `${_X_SOURCED:-}` everywhere.
+*(Superseded by uses U4 (2026-10-14): the `_X_SOURCED` guards are gone — every unit carries the kbool unit header, kcl/README.md §1.10.)*
 
 `G8-02 | MED | math | math.sh:474-485,504 | awk program temp file leaks on shell exit` (= M6).
 

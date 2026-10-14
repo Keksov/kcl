@@ -25,7 +25,8 @@ a specific tool ([`TGrep`](../tgrep/README.md)) is a descendant that adds typed
 properties and overrides `buildArgv`.
 
 ```bash
-source kcl/tutil/tutil.sh
+source /path/to/kbool/kbool.sh
+kk.uses tutil
 
 TUtil.new u git log --format=%H     # cmd = git, args = (log --format=%H)
 u.run                               # runs it; the tool's stdout is inherited
@@ -196,7 +197,8 @@ All three deliver the same records in the same order. With
 [`TGrep`](../tgrep/README.md), which is the wrapper you can run right now:
 
 ```bash
-source kcl/tgrep/tgrep.sh
+source /path/to/kbool/kbool.sh
+kk.uses tgrep
 shopt -s lastpipe                                   # once, top of a NON-interactive script
 
 TGrep.search needle src/ | TPipe.each r.onLine      # 1. a real pipe (needs lastpipe)
@@ -424,17 +426,20 @@ template for the next five wrappers.
 **A new wrapper appends its own local prefix to the `TUTIL_OUT_PREFIXES`
 registry.** The helper that refuses an output-array name passes this family's
 prefixes to `kk._outName`, and the list is shared by every descendant because
-the sinks are inherited. `tutil.sh` declares it at load and `tutil._badOut`
-reads it:
+the sinks are inherited. `tutil.sh` declares it ONCE per process (kcl/README.md
+§1.10 rule 7: a `kk.unit --forget tutil` + reload keeps the descendants'
+entries) and `tutil._badOut` reads it:
 
 ```bash
-declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )   # tutil.sh, at load
+if [[ -z ${TUTIL_OUT_PREFIXES+x} || ${TUTIL_OUT_PREFIXES@a} != *a* ]]; then   # tutil.sh, at load
+    declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
+fi
 ...
 if ! kk._outName "$__tu_n" "${TUTIL_OUT_PREFIXES[@]}"; then  # tutil._badOut
 ```
 
-A descendant appends its prefix at load, **only if absent**, so a re-source adds
-nothing (`tfind.sh` is the worked example):
+A descendant appends its prefix at load, **only if absent**, so a second load
+(after a `--forget`) adds nothing (`tfind.sh` is the worked example):
 
 ```bash
 TUTIL_OUT_PREFIXES+=( __tfd_ )

@@ -35,7 +35,8 @@ each record to a callback that may be a plain function, an instance member
 `command` would find.
 
 ```bash
-source kcl/tpipe/tpipe.sh
+source /path/to/kbool/kbool.sh
+kk.uses tpipe
 
 TRec.new r
 TPipe.each r.onLine -- git log --format=%H     # r keeps every mutation

@@ -411,7 +411,7 @@ inside is guarded `|| rc=$?`. Class `contract` throughout, basis **F12**.
 | ID | Case |
 |---|---|
 | 006.1-load | the unit loads under `set -eu` |
-| 006.1-load-twice | it loads TWICE (every re-source guard holds, and the registry append stays idempotent) |
+| 006.1-load-twice | it loads TWICE (every unit header makes the second load a no-op, and the registry append stays idempotent) |
 | 006.1-each | `f.each`: an instance that delivers records — rc 0, 2 calls, `lastRc` 0 |
 | 006.1-tpipe-argv | form 2: `TPipe.each CB -- "${argv[@]}"` with the argv TFind built (4 words) |
 | 006.1-tpipe-byname | form 2 with `TFind.byName` as the producer command |

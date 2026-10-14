@@ -21,7 +21,8 @@ for free — plus `follow`, which is the one property in this family that change
 which sinks you may call.
 
 ```bash
-source kcl/ttail/ttail.sh
+source /path/to/kbool/kbool.sh
+kk.uses ttail
 
 TTail.take 20 build.log               # the one-liner: `tail -n 20`, streamed
 TTail.take +2 data.csv                # skip the header row

@@ -25,7 +25,8 @@ of a hand-built command string, one rc convention, and the five `TPipe` sinks
 for free.
 
 ```bash
-source kcl/thead/thead.sh
+source /path/to/kbool/kbool.sh
+kk.uses thead
 
 THead.take 20 build.log               # the one-liner: `head -n 20`, streamed
 

@@ -28,6 +28,7 @@
     "representation": "KDT = integer milliseconds since 1970-01-01 00:00:00, naive (no zone), proleptic Gregorian. Negative = before 1970. Bash 64-bit integer arithmetic only; no floats anywhere.",
     "calendar_math": "Hinnant days_from_civil / civil_from_days in pure bash integers; ISO-8601 week rules; zero `date` forks (EPOCHREALTIME for wall clock, printf %(%z)T for local offset).",
     "class_shape": "Pascal DSL static utility class `dateutils` (like tpath/tfile): static proc members, bodies as real bash functions, `build dateutils`. NO static vars — must stay on the thin capture-free dispatcher. Constants are top-level variables; bash has NO file scope, so they are process-wide globals — hence prefixed __KDT_* and declared readonly (behind a re-source guard) to prevent collisions/overwrites.",
+    "superseded_by_uses_U4": "superseded by uses U4 (2026-10-14): no re-source guard and no path source any more — the unit header loads the unit once and kk.uses loads kklass_pascal; the readonly constants are assigned once per process instead (kcl/README.md §1.10 rules 1, 3, 7)",
     "naming": "FPC names in lowerCamelCase: YearOf -> dateutils.yearOf.",
     "returns": "results echoed; booleans echo true/false; multi-out echoes space-separated fields; Try* echo result + return status; Span* echo fixed-point 6dp strings; errors return 1 (stderr only under VERBOSE_KKLASS=debug).",
     "recode_sentinel": "literal '-' argument = RecodeLeaveFieldAsIs",
@@ -78,6 +79,7 @@
       "goal": "Class skeleton + civil-calendar core + ISO parse/format + wall clock; the foundation every later phase builds on.",
       "status": "done",
       "result": "dateutils.sh (class skeleton, __KDT_* readonly constants behind a re-source guard, Hinnant civil helpers, ISO fmt/parse, EPOCHREALTIME+%(%z)T wall clock, 9 constant getters); tests/001_Core.sh 20/20 on bash 5.2 and functional on 5.3 (thin dispatch confirmed on both; %(%z)T=+0300, EPOCHREALTIME present); tests/002_FpcParity.sh skeleton green; TEST_COVERAGE_NOTES.md seeded (19 P0 rows). Anchors verified: KDT 0=1970-01-01 Thu, KDT -1=1969-12-31 23:59:59.999, 1899-12-30=-2209161600000. Full kcl+kklass sweep green (no regression).",
+      "superseded_by_uses_U4": "superseded by uses U4 (2026-10-14): the re-source guard is gone — the unit header loads dateutils once; the __KDT_* constants are assigned once per process (kcl/README.md §1.10 rule 7)",
       "tasks": [
         {
           "id": "P0.1",
