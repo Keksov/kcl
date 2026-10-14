@@ -1,11 +1,6 @@
 #!/bin/bash
-
-# Re-source guard: the class only needs to be built once per process
-# (kcl/README.md §1.4 — the guard reads the flag with `:-` so `set -u` is happy).
-if [[ -n "${_TGREP_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TGREP_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tgrep.sh}../../kbool.sh" || return
+kk.unit tgrep || return $__kk_unit_rc
 
 # Locale self-heal (kcl/README.md §1.6). A pattern, a path and the bytes grep
 # emits are all data and pass through verbatim, so character semantics are part
@@ -15,13 +10,15 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# The base class. `tutil.sh` transitively brings kklass's Pascal front-end and
-# `tpipe.sh`; both carry re-source guards, so a caller that already loaded them
-# pays nothing. This is the tobjectlist -> tlist pattern: a descendant in
-# another file sources its parent by the parent's own path, resolved from
-# `${BASH_SOURCE[0]}`.
-TGREP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TGREP_DIR/../tutil/tutil.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+# The base class. `tutil` transitively brings kklass's Pascal front-end and
+# `tpipe`; both are units (loaded once per process), so a caller that already
+# loaded them pays nothing. This is the tobjectlist -> tlist pattern: a
+# descendant in another file loads its parent's unit by name.
+kk.uses tutil || return
 
 # Monotonic sequence for `TGrep.search`'s throw-away instance name (§2.5). A
 # FIXED name is deleted out from under an outer `search` by a nested one, so the

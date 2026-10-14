@@ -1,11 +1,6 @@
 #!/bin/bash
-
-# Re-source guard: the class only needs to be built once per process
-# (kcl/README.md §1.4 — the guard reads the flag with `:-` so `set -u` is happy).
-if [[ -n "${_TUTIL_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TUTIL_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tutil.sh}../../kbool.sh" || return
+kk.unit tutil || return $__kk_unit_rc
 
 # Locale self-heal (kcl/README.md §1.6). The words of an argv and the bytes a
 # tool emits are data and pass through verbatim, so character semantics are part
@@ -15,17 +10,19 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
-TUTIL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TUTIL_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 
 # TPipe is the engine behind all five sinks (PLAN §2.3): `each`, `toArray`,
 # `toList`, `first` and `count` are one `TPipe.<sink> … -- "${argv[@]}"` call
-# each. It is sourced ONCE here, at load time and after kklass, because the
-# sinks are member bodies and a member body may not source anything; `tpipe.sh`
-# carries its own re-source guard, so a caller that already loaded it pays
+# each. It is loaded ONCE here, at load time and after kklass, because the
+# sinks are member bodies and a member body may not source anything; `tpipe` is
+# a unit (loaded once per process), so a caller that already loaded it pays
 # nothing.
-source "$TUTIL_DIR/../tpipe/tpipe.sh"
+kk.uses tpipe || return
 
 # ---------------------------------------------------------------------------
 # TUtil — the CLI-tool wrapper base, and a usable generic runner on its own.
@@ -166,10 +163,14 @@ end
 #
 #     TUTIL_OUT_PREFIXES+=( __tfd_ )     # tfind.sh, only if absent
 #
-# The declaration sits BELOW the re-source guard, so a second `source` of this
-# file cannot reset it and drop a descendant's entry. `tutil/README.md` §5 is
+# A second `source` of this file is a no-op (the unit header), and the
+# declaration runs once per process — also across the `kk.unit --forget tutil`
+# + re-source dev hatch (U24', kcl unit pattern rule 10 / amendment l) — so a
+# reload cannot reset it and drop a descendant's entry. `tutil/README.md` §5 is
 # the instruction for a new wrapper.
-declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
+if [[ -z ${TUTIL_OUT_PREFIXES+x} || ${TUTIL_OUT_PREFIXES@a} != *a* ]]; then
+    declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
+fi
 
 # TUTIL_OUT_SUFFIXES — the second registry (tsed PLAN §2.1): the per-instance
 # arrays this family keeps beyond kklass's `_data`/`_class`/`_items`. It was a
@@ -180,9 +181,11 @@ declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
 #
 #     TUTIL_OUT_SUFFIXES+=( _exprs )     # tsed.sh
 #
-# Same placement below the re-source guard, and the same two guards in
-# `tutil._badOut`, as the prefix registry.
-declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )
+# Declared once per process like the prefix registry, and the same two guards
+# in `tutil._badOut`.
+if [[ -z ${TUTIL_OUT_SUFFIXES+x} || ${TUTIL_OUT_SUFFIXES@a} != *a* ]]; then
+    declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )
+fi
 
 # tutil._badOut NAME — rc 0 when NAME must NOT be used as an output array,
 # rc 1 when it is usable. The shape is `TQueueStack._outName`

@@ -32,6 +32,11 @@
 #                 readonly  the unit assigns readonly globals once per process
 #                           (pattern rule 10): `kk.unit --forget UNIT` + a
 #                           re-source under `set -e` must be clean
+#                 state     the unit sets MUTABLE process state once per process
+#                           (rule 10 extended, amendment l: state that must
+#                           survive a reload — tutil's out-name registries the
+#                           descendants extend); the same --forget + re-source
+#                           check as readonly (a stub's hooks check the state)
 #   DIR         the unit's folder under kcl/ (default: UNIT)
 KCL_UNITS=(
     # G1
@@ -54,6 +59,18 @@ KCL_UNITS=(
     "tlist|||"
     "tobjectlist|||"
     "tstringlist|||"
+    # G4, the wrapper family (kcl dependencies by name: tutil -> tpipe, the six
+    # wrappers -> tutil). The lowercase helpers tpipe.* tutil.* tsed.* tawk.*
+    # bear their unit's name: kk.unit declares them, no kk.namespace line
+    # (rule 4); taken checks them through the unit name
+    "tpipe|||"
+    "tutil||state|"
+    "tgrep|||"
+    "thead|||"
+    "ttail|||"
+    "tfind|||"
+    "tsed|||"
+    "tawk|||"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),
@@ -157,7 +174,8 @@ kclt_expect() {
 #          `../kcl/D/U.sh` from kkore/, `kk.uses U` by NAME after a cd to a
 #          neutral folder (it resolves the name and compares the file, U12-U14,
 #          R3 of U1a) and the absolute source again leave the sentinel in place
-#          = the body did not run again (U27, D7). Rows flagged `readonly`: then
+#          = the body did not run again (U27, D7). Rows flagged `readonly` or
+#          `state`: then
 #          `kk.unit --forget U` + a re-source runs the body a second time (the
 #          sentinel is the unit's own function again) and a kk.uses after it is
 #          a no-op, still clean under set -e (pattern rule 10). A stub may set
@@ -254,7 +272,7 @@ if [[ -z $KC_s ]]; then KC_n=nosentinel
 elif [[ "$(declare -f "$KC_s")" == "$KC_sent" ]]; then KC_n=1
 else KC_n=rerun:$KC_s; fi
 KC_o+=" body=${KC_body// /,} n=$KC_n"
-if [[ " $KC_fl " == *" readonly "* ]]; then
+if [[ " $KC_fl " == *" readonly "* || " $KC_fl " == *" state "* ]]; then
     # the unit's own function while a stub's hook runs, then the sentinel again
     [[ -z $KC_s ]] || KC_restore
     if [[ -n ${KCLT_FORGET_PRE-} ]]; then eval "$KCLT_FORGET_PRE"; fi
@@ -316,7 +334,7 @@ EOF
     [[ $name == *$'\n'* ]] && taken=${name#*$'\n'}
     name=${name%%$'\n'*}
     local want="reg body=complete n=1"
-    [[ " $fl " == *" readonly "* ]] && want+=" forget n=2"
+    [[ " $fl " == *" readonly "* || " $fl " == *" state "* ]] && want+=" forget n=2"
     OUT=$once
     kclt_expect "$u once: under set -eu a bare absolute source bootstraps kbool, registers $u and runs its body completely; ./$u.sh, ../kcl/$dir/$u.sh, kk.uses $u by name from a neutral cwd and the source again are silent no-ops (a sentinel function stays)${fl:+ [flags: $fl]} [U19', U27, P7, D7, U12-U14, rule 10]" "$want"
     OUT=$name

@@ -1,11 +1,6 @@
 #!/bin/bash
-
-# Re-source guard: the class only needs to be built once per process
-# (kcl/README.md §1.4 — the guard reads the flag with `:-` so `set -u` is happy).
-if [[ -n "${_TAWK_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TAWK_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tawk.sh}../../kbool.sh" || return
+kk.unit tawk || return $__kk_unit_rc
 
 # Locale self-heal (kcl/README.md §1.6). A path, a program and the bytes gawk
 # emits are data and pass through verbatim, so character semantics are part of
@@ -14,11 +9,14 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# The base class. `tutil.sh` transitively brings kklass's Pascal front-end and
-# `tpipe.sh`; both carry re-source guards. This is the ONLY `source` line in
-# the unit.
-TAWK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TAWK_DIR/../tutil/tutil.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+# The base class. `tutil` transitively brings kklass's Pascal front-end and
+# `tpipe`; both are units (loaded once per process). This is the ONLY
+# dependency of the unit.
+kk.uses tutil || return
 
 # Register this unit in TUtil's two out-name registries (PLAN §2.1):
 #   * the local prefix `__taw_` — bash scopes locals DYNAMICALLY, so a caller
@@ -27,8 +25,7 @@ source "$TAWK_DIR/../tutil/tutil.sh"
 #     `a.toArray a_progs` would turn the records into the NEXT run's program,
 #     `a_vnames`/`a_vvals` into its variables.
 # Each append is idempotent (only if absent), and the scratch globals are
-# released right after, so the unit leaves exactly `_TAWK_SOURCED`, `TAWK_DIR`
-# and `__TAW_SEQ` behind.
+# released right after, so the unit leaves exactly `__TAW_SEQ` behind.
 declare -g __taw_seen=0
 declare -g __taw_p=''
 declare -g __taw_s=''

@@ -1,11 +1,6 @@
 #!/bin/bash
-
-# Re-source guard: the class only needs to be built once per process
-# (kcl/README.md §1.4 — the guard reads the flag with `:-` so `set -u` is happy).
-if [[ -n "${_TPIPE_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TPIPE_SOURCED=1
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tpipe.sh}../../kbool.sh" || return
+kk.unit tpipe || return $__kk_unit_rc
 
 # Locale self-heal (kcl/README.md §1.6). Records are data and are handed to the
 # callback verbatim, so character semantics are part of this unit's contract:
@@ -15,9 +10,11 @@ if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-# Source the kklass Pascal-style DSL front-end (don't override SCRIPT_DIR).
-TPIPE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TPIPE_DIR/../../kklass/kklass_pascal.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
 
 # ---------------------------------------------------------------------------
 # Process-wide slots.

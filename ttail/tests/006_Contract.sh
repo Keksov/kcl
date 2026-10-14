@@ -102,16 +102,13 @@ else
     kt_test_fail "the regex or the \`[[ =~ \$var ]]\` form is missing"
 fi
 
-kt_test_start "the unit sources ONLY \`../tutil/tutil.sh\` (\`TTail : THead\` would be wrong: \`+N\` differs)"
+kt_test_start "the unit's only dependency is \`kk.uses tutil || return\` and it has no \`source\` line (a unit: kklass/USES_PLAN.md U4 rule 3) (\`TTail : THead\` would be wrong: \`+N\` differs)"
 srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$UNIT" || :)"
-nsrc=0
-while IFS= read -r line; do
-    [[ -n "$line" ]] && nsrc=$(( nsrc + 1 ))
-done <<< "$srcs"
-if [[ $nsrc -eq 1 && "$srcs" == *'/../tutil/tutil.sh"'* ]]; then
-    kt_test_pass "one \`source\` line, and it is ../tutil/tutil.sh"
+uses="$(grep -E '^[[:space:]]*kk\.uses[[:space:]]' "$UNIT" || :)"
+if [[ -z "$srcs" && "$uses" == 'kk.uses tutil || return' ]]; then
+    kt_test_pass "one \`kk.uses\` line, and it is kk.uses tutil"
 else
-    kt_test_fail "$nsrc source line(s): ${srcs//$'\n'/ | }"
+    kt_test_fail "source: ${srcs//$'\n'/ | }; kk.uses: ${uses//$'\n'/ | }"
 fi
 
 # The blocker the critic measured: a `func` body that merely ENDS on
