@@ -1,4 +1,7 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%thttpapplication.sh}../../kbool.sh" || return
+kk.unit thttpapplication || return $__kk_unit_rc
+
 # thttpapplication.sh — THttpApplication : TCustomApplication for
 # kcl/thttpserver (PLAN.md §1.3, §2.7, §2.10, §2.11). A kcl addition with its
 # own names; FPC fcl-web (fphttpapp.pp: THTTPApplication) is a design
@@ -52,21 +55,17 @@
 # NO FORKS on the request path: DoRun adds builtins only to ServeOne's (proved
 # by tests/006 over TReplayTransport).
 
-# Re-source guard (kcl README §1.4).
-if [[ -n "${_THS_THTTPAPPLICATION_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _THS_THTTPAPPLICATION_SOURCED=1
-
 # Locale self-heal (kcl README §1.6).
 if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-THTTPAPPLICATION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$THTTPAPPLICATION_DIR/../../kklass/kklass_pascal.sh"
-source "$THTTPAPPLICATION_DIR/thttpserver.sh"
-source "$THTTPAPPLICATION_DIR/../tcustomapplication/tcustomapplication.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
+kk.uses thttpserver tcustomapplication || return
 
 class THttpApplication : TCustomApplication
     public

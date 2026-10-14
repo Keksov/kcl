@@ -1,4 +1,7 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%thttprouter.sh}../../kbool.sh" || return
+kk.unit thttprouter || return $__kk_unit_rc
+
 # thttprouter.sh — THttpRouteObject and THttpRouter for kcl/thttpserver
 # (PLAN.md §1.3, §2.4, §2.11). A kcl addition with its own names; FPC fcl-web
 # (httproute.pp: THTTPRouter, TRouteObject) is a design reference only.
@@ -78,20 +81,20 @@
 # NO FORKS on the request path (RouteRequest, FindRoute): builtins and
 # parameter expansion only. Proved by tests/003 §8.
 
-# Re-source guard (kcl README §1.4).
-if [[ -n "${_THS_THTTPROUTER_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _THS_THTTPROUTER_SOURCED=1
-
 # Locale self-heal (kcl README §1.6).
 if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-THTTPROUTER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$THTTPROUTER_DIR/../../kklass/kklass_pascal.sh"
-source "$THTTPROUTER_DIR/thttpmessage.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
+kk.uses thttpmessage || return
+# ths.* are this unit's shared helpers, not a class: a declared
+# function namespace (U40), so no class or instance may take that name.
+kk.namespace ths || return
 
 # ---------------------------------------------------------------------------
 # File-scope constants (never `static var`: kcl README §1.1).

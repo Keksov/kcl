@@ -31,8 +31,9 @@
 # frames, where a bare `Port=…` or `Title=…` would write those objects.
 
 DEMO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The package entry by path (a unit: it loads kbool.sh), other kcl units by name.
 source "$DEMO_DIR/../thttpapplication.sh"
-source "$DEMO_DIR/../../tdictionary/tdictionary.sh"
+kk.uses tdictionary || exit 1
 
 if [[ -z "${KCL_NC:-}" ]] && ! type -P nc >/dev/null && [[ -x /c/bin/msys64/usr/bin/nc.exe ]]; then
     export KCL_NC=/c/bin/msys64/usr/bin/nc.exe

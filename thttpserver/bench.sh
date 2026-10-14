@@ -42,8 +42,9 @@
 # test file) which also stops the server child.
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The package entry by path (a unit: it loads kbool.sh), other kcl units by name.
 source "$DIR/thttpapplication.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 exec </dev/null
 

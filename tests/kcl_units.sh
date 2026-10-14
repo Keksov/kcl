@@ -71,6 +71,16 @@ KCL_UNITS=(
     "tfind|||"
     "tsed|||"
     "tawk|||"
+    # G5 (kcl dependencies by name: thttprouter -> thttpmessage, thttpserver ->
+    # thttpmessage thttprouter tstopwatch, thttpapplication -> thttpserver
+    # tcustomapplication). The thttpserver package is 4 units in one folder; ths
+    # is shared by thttpmessage, thttprouter and thttpserver (amendment a: each
+    # declares it, the first loaded owns it)
+    "tcustomapplication|tca||"
+    "thttpmessage|ths||thttpserver"
+    "thttprouter|ths||thttpserver"
+    "thttpserver|ths||"
+    "thttpapplication|||thttpserver"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),
@@ -99,6 +109,35 @@ kclt_uses() {
         [[ $l =~ ^kk\.uses[[:space:]]+([^|#]*)\|\| ]] || continue
         for w in ${BASH_REMATCH[1]}; do [[ $w == --optional ]] || KUSES+=("$w"); done
     done < "$1"
+}
+
+# kclt_order UNIT — append to KORDER the units of the table in the order a bare
+# load of UNIT runs their kk.namespace lines: its dependencies first (depth
+# first, in kk.uses order, each once), UNIT last. Names outside the table
+# (kklass_pascal) are skipped. Clobbers the K* row variables.
+kclt_order() {
+    local u=$1 d
+    local -a deps
+    [[ " ${KORDER[*]-} " == *" $u "* ]] && return 0
+    kclt_find "$u" || return 0
+    kclt_uses "$KF"
+    deps=("${KUSES[@]}")
+    for d in "${deps[@]}"; do kclt_order "$d"; done
+    [[ " ${KORDER[*]-} " == *" $u "* ]] || KORDER+=("$u")
+}
+
+# kclt_owner UNIT NS — KOWNER: the unit that owns namespace NS once UNIT is
+# loaded bare: the first unit of UNIT's load order whose row lists NS (a
+# namespace shared by a package is owned by the first file that declares it,
+# amendment a); '' when none does. Clobbers the K* row variables.
+kclt_owner() {
+    local x
+    KORDER=() KOWNER=""
+    kclt_order "$1"
+    for x in "${KORDER[@]}"; do
+        kclt_find "$x"
+        if [[ " $KNS " == *" $2 "* ]]; then KOWNER=$x; return 0; fi
+    done
 }
 
 # kclt_scan FILE — read FILE statically: KFNS the file-scope functions in order
@@ -187,7 +226,9 @@ kclt_expect() {
 #          (of X.y) in the shell is a class some unit registered
 #          (__KK_UNIT_CLASSES) or a namespace somebody declared
 #          (__KK_NAMESPACES: kbool's kk kl ke kv kc, unit names, kk.namespace);
-#          the unit name and the row's namespaces are owned by the unit (U40);
+#          the unit name and the row's namespaces are owned by the unit (U40) —
+#          a namespace shared by a package (ths) by the first unit of the
+#          unit's load order that declares it (kclt_owner, amendment a);
 #          no old guard variable (`*_<U>_SOURCED`, any prefix) and no `<U>_DIR` /
 #          `<unit>_DIR` (unless rundir: then it names the folder).
 #   taken  the same shell: the unit name and each row namespace N are TAKEN
@@ -206,12 +247,15 @@ kclt_expect() {
 #   nsbad  rows with namespaces: a class named like the first one exists BEFORE
 #          the unit loads -> its plain source is rc 2 and so are the next
 #          kk.uses and the next source (the refused kk.namespace taints the unit,
-#          U34/U42; review R1 of G1).
+#          U34/U42; review R1 of G1). Its dependencies are loaded first, except
+#          one that would declare that namespace itself (a shared one: then the
+#          load fails at the dependency's refused kk.namespace — U42 taints the
+#          unit all the same; U4-G5).
 # Until U4-G2 `once` ran in a second process, in a private copy of the tree
 # whose unit file counted its complete body runs; the sentinel and the
 # registered classes prove the same in the real tree with one load (G2 fold).
 kclt_unit_tests() {
-    local u=$1 n fn fs l args=() wtaken="" fns="" lastfn="" builds="" d mdeps=() mwant=""
+    local u=$1 n fn fs l own shn="" args=() wtaken="" fns="" lastfn="" builds="" d mdeps=() mwant=""
     if ! kclt_find "$u"; then
         kt_test_start "$u: has a row in kcl_units.sh"
         kt_test_fail "no row for '$u'"
@@ -231,7 +275,12 @@ kclt_unit_tests() {
         while IFS= read -r l || [[ -n $l ]]; do
             if [[ $l =~ ^($n\.[A-Za-z_][A-Za-z0-9_.]*)[[:space:]]*\(\) ]]; then fn=${BASH_REMATCH[1]}; break; fi
         done < "$f"
-        args+=("$n:$fn")
+        # the expected owner: the unit for its own name; for a row namespace
+        # the first unit of its load order that declares it (a shared one, ths)
+        own=$u
+        if [[ $n != "$u" ]]; then kclt_owner "$u" "$n"; own=${KOWNER:-$u}; fi
+        [[ $own == "$u" ]] || shn+=" $n by $own"
+        args+=("$n:$fn:$own")
         [[ -n $fn ]] && fs=same || fs=nofn
         wtaken+=$'\n'"$n new=refused class=refused fn=$fs"
     done
@@ -299,8 +348,8 @@ done < <(compgen -A function)
 KC_o="census:${KC_bad:-ok}"
 KC_bad=""
 for KC_p in "${KC_names[@]}"; do
-    KC_x=${KC_p%%:*} KC_w=${__KK_NAMESPACES[${KC_p%%:*}]-}; KC_w=${KC_w%%$__KK_SEP*}
-    [[ $KC_w == "$KC_u" ]] || KC_bad+=" $KC_x:${KC_w:-none}"
+    KC_x=${KC_p%%:*} KC_own=${KC_p##*:} KC_w=${__KK_NAMESPACES[${KC_p%%:*}]-}; KC_w=${KC_w%%$__KK_SEP*}
+    [[ $KC_w == "$KC_own" ]] || KC_bad+=" $KC_x:${KC_w:-none}"
 done
 KC_o+=" owners:${KC_bad:-ok}"
 KC_bad=""
@@ -318,7 +367,7 @@ echo "$KC_o old:${KC_bad:-none}"
 # taken
 defineClass TKclZz "" property a || { echo "TKclZz rc=$?"; exit 1; }
 for KC_p in "${KC_names[@]}"; do
-    KC_x=${KC_p%%:*} KC_fn=${KC_p#*:}
+    KC_x=${KC_p%%:*} KC_fn=${KC_p#*:}; KC_fn=${KC_fn%%:*}
     KC_before=""; [[ -n $KC_fn ]] && KC_before="$(declare -f "$KC_fn")"
     TKclZz.new "$KC_x" 2>"$KCLT_TMP/n.err"; KC_i=$?
     if (( KC_i != 0 )) && grep -qF "Invalid instance name: $KC_x (" "$KCLT_TMP/n.err"; then KC_i=refused; else KC_i="ACCEPTED($KC_i):$(<"$KCLT_TMP/n.err")"; fi
@@ -338,7 +387,7 @@ EOF
     OUT=$once
     kclt_expect "$u once: under set -eu a bare absolute source bootstraps kbool, registers $u and runs its body completely; ./$u.sh, ../kcl/$dir/$u.sh, kk.uses $u by name from a neutral cwd and the source again are silent no-ops (a sentinel function stays)${fl:+ [flags: $fl]} [U19', U27, P7, D7, U12-U14, rule 10]" "$want"
     OUT=$name
-    kclt_expect "$u name: every function prefix in the shell is a registered class or a declared namespace; $u${ns:+ $ns} owned by $u; no old guard / dir variable [U19', U26, U40]" \
+    kclt_expect "$u name: every function prefix in the shell is a registered class or a declared namespace; $u${ns:+ $ns} owned by $u${shn:+ except the shared$shn (the first unit of its load order that declares it, amendment a)}; no old guard / dir variable [U19', U26, U40]" \
         "census:ok owners:ok old:none"
     kt_test_start "$u taken: {$u${ns:+ $ns}}: .new and defineClass refused, the helpers intact [U22, U40, found_in_U2b]"
     if [[ "$taken" == "${wtaken#$'\n'}" && $RC -eq 0 ]]; then
@@ -405,6 +454,16 @@ EOF
     # --- nsbad (rows with namespaces) ------------------------------------
     [[ -n $ns ]] || return 0
     set -- $ns
+    # the dependencies are loaded first — except one that would declare the
+    # namespace itself (a shared one: thttprouter's thttpmessage declares ths);
+    # then the unit's load fails at that dependency's refused kk.namespace,
+    # which taints the unit just the same (U42)
+    local keep="" skip=""
+    for d in $KDEPS; do
+        kclt_owner "$d" "$1"
+        if [[ -n $KOWNER ]]; then skip+=" $d"; else keep+=" $d"; fi
+    done
+    KDEPS=${keep# }
     cat > "$KCLT_TMP/nsbad.sh" <<'EOF'
 u=$1 f=$2 n=$3; set --
 source "$KBOOL_ROOT/kbool.sh"
@@ -416,5 +475,5 @@ source "$f" 2>/dev/null; c=$?
 echo "rc=$a$b$c"
 EOF
     kclt_run "$KCLT_TMP/neutral" "$KCLT_TMP/nsbad.sh" "$u" "$f" "$1"
-    kclt_expect "$u nsbad: a class '$1' exists before $u loads -> its plain source, the next kk.uses and the next source are all rc 2 (the refused kk.namespace taints the unit) [U40, U34/U42, G1 R1]" "rc=222"
+    kclt_expect "$u nsbad: a class '$1' exists before $u loads${skip:+ (and before its dependencies that declare '$1' too:$skip)} -> its plain source, the next kk.uses and the next source are all rc 2 (the refused kk.namespace taints the unit) [U40, U34/U42, G1 R1${skip:+, amendment a}]" "rc=222"
 }

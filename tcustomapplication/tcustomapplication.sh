@@ -1,4 +1,6 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tcustomapplication.sh}../../kbool.sh" || return
+kk.unit tcustomapplication || return $__kk_unit_rc
 
 # kcl/tcustomapplication — Free Pascal's CustApp.TCustomApplication, ported.
 #
@@ -13,18 +15,14 @@
 #
 # See README.md for the API table and the list of deliberate differences.
 
-# Re-source guard (kcl review 2026-09-06, X-SETU / decision D7): every unit is
-# sourceable — and re-sourceable — from a script running `set -eu`, and building
-# the class a second time is pure waste.
-if [[ -n "${_TCUSTOMAPPLICATION_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _TCUSTOMAPPLICATION_SOURCED=1
-
-# Source kklass system (don't override SCRIPT_DIR)
-TCUSTOMAPPLICATION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$TCUSTOMAPPLICATION_DIR/../../kklass/kklass_pascal.sh"
-source "$TCUSTOMAPPLICATION_DIR/../../kkore/kuse.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
+# tca.* are this unit's shared helpers, not a class: a declared
+# function namespace (U40), so no class or instance may take that name.
+kk.namespace tca || return
 
 # Character semantics are part of this unit's contract (kcl/README.md 1.6,
 # decision D6): CaseSensitiveOptions folds case with ${s,,}/${s^^}, and an empty

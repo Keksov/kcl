@@ -1,7 +1,10 @@
 #!/bin/bash
+[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%thttpserver.sh}../../kbool.sh" || return
+kk.unit thttpserver || return $__kk_unit_rc
+
 # thttpserver.sh — the entry point of kcl/thttpserver (PLAN.md §1.2).
 #
-# Sources thttpmessage.sh (THttpRequest, THttpResponse), thttprouter.sh
+# Uses the units thttpmessage (THttpRequest, THttpResponse), thttprouter
 # (THttpRouteObject, THttpRouter) and kcl/tstopwatch (the access-log timing).
 # Own content: the transport seam — THttpTransport (abstract), TReplayTransport
 # (the fork-free test double), TNetcatTransport (GNU netcat 0.7.1, two
@@ -30,22 +33,20 @@
 # is not cut short by a trapped signal anyway (measured: it runs to its
 # timeout). EndServe restores the saved traps exactly. EXIT is never touched.
 
-# Re-source guard (kcl README §1.4).
-if [[ -n "${_THS_THTTPSERVER_SOURCED:-}" ]]; then
-    return
-fi
-declare -g _THS_THTTPSERVER_SOURCED=1
-
 # Locale self-heal (kcl README §1.6).
 if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
     export LC_CTYPE=C.UTF-8
 fi
 
-THTTPSERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$THTTPSERVER_DIR/../../kklass/kklass_pascal.sh"
-source "$THTTPSERVER_DIR/thttpmessage.sh"
-source "$THTTPSERVER_DIR/thttprouter.sh"
-source "$THTTPSERVER_DIR/../tstopwatch/tstopwatch.sh"
+# A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
+# top load kbool.sh when needed and make a repeated `source` a no-op, also
+# under `set -eu` (they replaced the D7 re-source guard). Dependencies come
+# through kk.uses.
+kk.uses kklass_pascal || return
+kk.uses thttpmessage thttprouter tstopwatch || return
+# ths.* are this unit's shared helpers, not a class: a declared
+# function namespace (U40), so no class or instance may take that name.
+kk.namespace ths || return
 
 # ---------------------------------------------------------------------------
 # File-scope state and helpers (never `static var`: kcl README §1.1).

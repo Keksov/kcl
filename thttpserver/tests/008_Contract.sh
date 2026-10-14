@@ -14,10 +14,10 @@
 #                     file-scope constants; destructors freeing every extra
 #                     per-instance array (router: _pat _met _hnd _kind _def
 #                     _rdat, never _data); ONE write in SendContent, errors
-#                     silenced; the scope — thttpserver.sh sources the message,
-#                     router and tstopwatch files and declares the transports
-#                     and THttpServer, thttpapplication.sh (P3) sources
-#                     thttpserver.sh and tcustomapplication and declares
+#                     silenced; the scope — thttpserver.sh uses (kk.uses) the message,
+#                     router and tstopwatch units and declares the transports
+#                     and THttpServer, thttpapplication.sh (P3) uses the
+#                     thttpserver and tcustomapplication units and declares
 #                     THttpApplication only; the transport's FIFO writer is
 #                     O_WRONLY (never `<>`), the close path never kills before
 #                     the drain; (P3) the application's overrides pass "$@" on
@@ -141,27 +141,27 @@ b="$(sed -n '/^THttpResponse.SendContent()/,/^}/p' "$MSG")"
 nw=0; while IFS= read -r l; do [[ "$l" == *'>&"$__ths_fd"'* ]] && nw=$(( nw + 1 )); done <<< "$b"
 if [[ $nw -eq 1 && "$b" == *"printf '%s' \"\$__ths_out\" 2>/dev/null >&\"\$__ths_fd\""* ]]; then kt_test_pass "one write"; else kt_test_fail "writes=$nw"; fi
 
-kt_test_start "scope: thttpserver.sh sources kklass_pascal.sh, thttpmessage.sh, thttprouter.sh, tstopwatch.sh; declares exactly the two transports + TNetcatTransport + THttpServer; the application is in its own file"
+kt_test_start "scope: thttpserver.sh is a unit whose dependencies are \`kk.uses kklass_pascal || return\` and \`kk.uses thttpmessage thttprouter tstopwatch || return\`, with no \`source\` line (kklass/USES_PLAN.md U4 rule 3, amendment b); declares exactly the two transports + TNetcatTransport + THttpServer; the application is in its own file"
 srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$UNIT" || :)"
-n=0; while IFS= read -r l; do [[ -n "$l" ]] && n=$(( n + 1 )); done <<< "$srcs"
+uses="$(grep -E '^[[:space:]]*kk\.uses[[:space:]]' "$UNIT" || :)"
 cls="$(grep -E '^class ' "$UNIT" || :)"
-if [[ $n -eq 4 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *thttpmessage.sh* && "$srcs" == *thttprouter.sh* && "$srcs" == *tstopwatch/tstopwatch.sh* \
+if [[ -z "$srcs" && "$uses" == $'kk.uses kklass_pascal || return\nkk.uses thttpmessage thttprouter tstopwatch || return' \
       && "$cls" == $'class THttpTransport\nclass TReplayTransport : THttpTransport\nclass TNetcatTransport : THttpTransport\nclass THttpServer' ]] \
    && ! grep -nE '^class THttpApplication' "$UNIT" "$ROUTER" "$MSG" >/dev/null; then
-    kt_test_pass "four sources; four classes; no application here"
+    kt_test_pass "two kk.uses lines, no source; four classes; no application here"
 else
-    kt_test_fail "sources: ${srcs//$'\n'/ | } classes: ${cls//$'\n'/ | }"
+    kt_test_fail "source: ${srcs//$'\n'/ | }; kk.uses: ${uses//$'\n'/ | }; classes: ${cls//$'\n'/ | }"
 fi
 
-kt_test_start "P3 scope: thttpapplication.sh sources kklass_pascal.sh, thttpserver.sh, tcustomapplication.sh; declares exactly 'class THttpApplication : TCustomApplication'"
+kt_test_start "P3 scope: thttpapplication.sh is a unit whose dependencies are \`kk.uses kklass_pascal || return\` and \`kk.uses thttpserver tcustomapplication || return\`, with no \`source\` line (kklass/USES_PLAN.md U4 rule 3, amendment b); declares exactly 'class THttpApplication : TCustomApplication'"
 srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$APP" || :)"
-n=0; while IFS= read -r l; do [[ -n "$l" ]] && n=$(( n + 1 )); done <<< "$srcs"
+uses="$(grep -E '^[[:space:]]*kk\.uses[[:space:]]' "$APP" || :)"
 cls="$(grep -E '^class ' "$APP" || :)"
-if [[ $n -eq 3 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *'/thttpserver.sh'* && "$srcs" == *tcustomapplication/tcustomapplication.sh* \
+if [[ -z "$srcs" && "$uses" == $'kk.uses kklass_pascal || return\nkk.uses thttpserver tcustomapplication || return' \
       && "$cls" == 'class THttpApplication : TCustomApplication' ]]; then
-    kt_test_pass "three sources; one class"
+    kt_test_pass "two kk.uses lines, no source; one class"
 else
-    kt_test_fail "sources: ${srcs//$'\n'/ | } classes: ${cls//$'\n'/ | }"
+    kt_test_fail "source: ${srcs//$'\n'/ | }; kk.uses: ${uses//$'\n'/ | }; classes: ${cls//$'\n'/ | }"
 fi
 
 kt_test_start "P3 C8/C9/C11: every override passes \"\$@\" to inherited; no bare inherited outside the constructor; Destroy has NO inherited (TCustomApplication has no destructor) and frees _server and _router; Run = BeginServe → inherited Run → EndServe"
@@ -236,15 +236,15 @@ else
     kt_test_fail "EndServe/BeginServe trap handling differs"
 fi
 
-kt_test_start "thttprouter.sh: sources kklass_pascal.sh and thttpmessage.sh only (never the entry point), declares exactly THttpRouteObject and THttpRouter"
+kt_test_start "thttprouter.sh: a unit whose only dependencies are \`kk.uses kklass_pascal || return\` and \`kk.uses thttpmessage || return\` (never the entry point), with no \`source\` line (kklass/USES_PLAN.md U4 rule 3); declares exactly THttpRouteObject and THttpRouter"
 srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$ROUTER" || :)"
-n=0; while IFS= read -r l; do [[ -n "$l" ]] && n=$(( n + 1 )); done <<< "$srcs"
+uses="$(grep -E '^[[:space:]]*kk\.uses[[:space:]]' "$ROUTER" || :)"
 cls="$(grep -E '^class ' "$ROUTER" || :)"
-if [[ $n -eq 2 && "$srcs" == *kklass_pascal.sh* && "$srcs" == *thttpmessage.sh* && "$srcs" != *thttpserver.sh* \
+if [[ -z "$srcs" && "$uses" == $'kk.uses kklass_pascal || return\nkk.uses thttpmessage || return' \
       && "$cls" == $'class THttpRouteObject\nclass THttpRouter' ]]; then
-    kt_test_pass "two sources; two classes"
+    kt_test_pass "two kk.uses lines, no source; two classes"
 else
-    kt_test_fail "sources: ${srcs//$'\n'/ | } classes: ${cls//$'\n'/ | }"
+    kt_test_fail "source: ${srcs//$'\n'/ | }; kk.uses: ${uses//$'\n'/ | }; classes: ${cls//$'\n'/ | }"
 fi
 
 kt_test_start "the router sourced ALONE (fresh child) loads its classes and the message classes it needs"
