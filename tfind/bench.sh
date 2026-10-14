@@ -74,7 +74,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tfind.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 NDIR=${1:-20}       # sub-directories in the big tree
 NR=${2:-21}         # interleaved repetitions per gated shape (odd, >= 15)

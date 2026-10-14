@@ -7,7 +7,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/math.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"   # shared, tested µs clock (fork-free)
+kk.uses tstopwatch || exit 1   # shared, tested µs clock (fork-free)
 
 N=${1:-3000}
 # Timing primitive: TStopwatch.getTimeStamp (kcl/tstopwatch) — one tested,

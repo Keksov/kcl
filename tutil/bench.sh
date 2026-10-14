@@ -43,7 +43,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tutil.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 N=${1:-10000}       # records per stream measurement
 ND=${2:-300}        # calls per per-call measurement (a wrapper call is ~0.5 ms)

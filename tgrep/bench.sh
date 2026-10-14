@@ -56,7 +56,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tgrep.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 NL=${1:-10000}      # corpus lines in tree/big.txt
 NR=${2:-20}         # repetitions per timed shape

@@ -9,8 +9,8 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tdictionary.sh"
-source "$DIR/../tlist/tlist.sh"             # reference point for instance-dispatch cost
-source "$DIR/../tstopwatch/tstopwatch.sh"   # shared, tested µs clock (fork-free)
+kk.uses tlist || exit 1        # reference point for instance-dispatch cost
+kk.uses tstopwatch || exit 1   # shared, tested µs clock (fork-free)
 
 N=${1:-300}
 # Timing primitive: TStopwatch.getTimeStamp (kcl/tstopwatch) — one tested,

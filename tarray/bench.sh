@@ -15,7 +15,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tarray.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 report() {  # label total_us iters -> us/iter with tenths + total ms
     local x10=$(( $2 * 10 / $3 ))

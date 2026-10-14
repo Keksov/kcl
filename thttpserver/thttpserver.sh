@@ -44,8 +44,9 @@ fi
 # through kk.uses.
 kk.uses kklass_pascal || return
 kk.uses thttpmessage thttprouter tstopwatch || return
-# ths.* are this unit's shared helpers, not a class: a declared
-# function namespace (U40), so no class or instance may take that name.
+# ths.* are the PACKAGE's shared helpers (owned by thttpmessage; U44: only a
+# file of this folder may share them), not a class: a declared function
+# namespace (U40), so no class or instance may take that name.
 kk.namespace ths || return
 
 # ---------------------------------------------------------------------------

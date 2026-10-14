@@ -37,6 +37,9 @@
 #                           survive a reload — tutil's out-name registries the
 #                           descendants extend); the same --forget + re-source
 #                           check as readonly (a stub's hooks check the state)
+#                 optional  the unit may have `kk.uses --optional X || ...`
+#                           lines (U42); 001 refuses them in any other row
+#                           (no row has it today; U4 final review R5)
 #   DIR         the unit's folder under kcl/ (default: UNIT)
 KCL_UNITS=(
     # G1
@@ -169,13 +172,14 @@ kclt_setup() {
 
 # kclt_run CWD SCRIPT [ARG...] — run SCRIPT in a fresh "$BASH" with cwd CWD and
 # a hermetic loader environment (no config, no KBOOL_HOME / KK_UNIT_DIR from
-# the caller; found_in_U3: fixture shells start in a chosen folder). Sets OUT,
-# ERR, RC.
+# the caller; found_in_U3: fixture shells start in a chosen folder; no
+# BASH_ENV — a developer's would run in every child, U4 final review R6). Sets
+# OUT, ERR, RC. Extra arguments go to "$BASH" (`-s` reads the caller's stdin).
 kclt_run() {
     local cwd=$1
     shift
     ( cd "$cwd" && env -u KBOOL_CONFIG -u KBOOL_HOME -u USERPROFILE -u ProgramData -u PROGRAMDATA \
-        -u KKLASS_CKK_DIR -u KK_UNIT_DIR -u VERBOSE_KKLASS \
+        -u KKLASS_CKK_DIR -u KK_UNIT_DIR -u VERBOSE_KKLASS -u BASH_ENV \
         HOME="$KCLT_TMP/home" __KK_CFG_ETC="$KCLT_TMP/etc" \
         KBOOL_ROOT="$KBOOL_ROOT" KCL_DIR="$KCL_DIR" KCLT_TMP="$KCLT_TMP" KDEPS="${KDEPS-}" \
         KCLT_FORGET_PRE="${KCLT_FORGET_PRE-}" KCLT_FORGET_POST="${KCLT_FORGET_POST-}" \

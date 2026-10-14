@@ -29,7 +29,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tpipe.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 N=${1:-10000}       # records per stream measurement
 ND=${2:-2000}       # calls per dispatch measurement (instance dispatch is ~200us)

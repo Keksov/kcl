@@ -12,7 +12,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tregex.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 N=${1:-2000}       # iterations for dispatched calls
 NS=${2:-200}       # iterations for the scan/throughput loops (heavier per call)

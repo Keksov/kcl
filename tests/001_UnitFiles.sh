@@ -18,6 +18,9 @@
 #   * every row has its runtime stub NNN_<UNIT>.sh and every stub a row;
 #   * the lint (kkore/tests/unit_lint.sh): no file-scope `local` / `declare`
 #     without -g (a unit loaded by kk.uses runs inside a function, C11);
+#   * `kk.uses --optional X || ...` only in a row flagged `optional` (none is);
+#   * dependencies: another unit's name / class / namespace referenced in a
+#     unit's code lines is in that unit's kk.uses closure (U4 final review R4);
 #   * U43 for ONE row (the first): `bash -s` with the cwd in a folder holding a
 #     headered stand-in <UNIT>.sh — no calling file, not interactive: the cwd is
 #     never searched, kk.uses finds the kcl unit. (A script FILE caller searches
@@ -47,6 +50,7 @@ kclt_code() {
 }
 
 files=() rows=" "
+declare -A KDEFS=()
 for row in "${KCL_UNITS[@]}"; do
     kclt_row "$row"
     files+=("$KF")
@@ -74,6 +78,9 @@ for row in "${KCL_UNITS[@]}"; do
             if [[ $t =~ ^[[:space:]]*(source|\.)[[:space:]] ]]; then bad+=" source@${c%%:*}"; fi
             if [[ $t =~ ^kk\.uses[[:space:]] && ! $t =~ ^kk\.uses(\ [A-Za-z_][A-Za-z0-9_]*)+\ \|\|\ return$ \
                   && ! $t =~ ^kk\.uses\ --optional(\ [A-Za-z_][A-Za-z0-9_]*)+\ \|\|\  ]]; then bad+=" uses-form@${c%%:*}"; fi
+            # `kk.uses --optional X || <fallback>` only where the row says so
+            # (flag optional; none does today) — the fallback is not checked (R5)
+            if [[ $t =~ ^kk\.uses[[:space:]]+--optional && " $KFL " != *" optional "* ]]; then bad+=" optional-without-flag@${c%%:*}"; fi
         done
     fi
     if [[ -z "$bad" ]]; then kt_test_pass "ok"; else kt_test_fail "${KF#$KBOOL_ROOT/}:$bad"; fi
@@ -117,6 +124,8 @@ for row in "${KCL_UNITS[@]}"; do
     done
     for w in "${!decl[@]}"; do [[ -n ${want[$w]+x} ]] || bad+=" not-in-row:$w"; done
     for w in "${!want[@]}"; do [[ -n ${decl[$w]+x} ]] || bad+=" not-declared:$w"; done
+    # what this unit defines, for the dependency check (5.)
+    KDEFS[$KU]="$KU $KNS ${!cls[*]}"
     unset cls pre decl want
     if [[ -z "$bad" ]]; then kt_test_pass "ok"; else kt_test_fail "${KF#$KBOOL_ROOT/}:$bad"; fi
 done
@@ -139,7 +148,68 @@ kt_test_start "lint: no file-scope 'local' / 'declare' without -g in the migrate
 lint="$(kk_unit_lint "${files[@]}" 2>&1)"; lrc=$?
 if (( lrc == 0 )) && [[ -z "$lint" ]]; then kt_test_pass "clean"; else kt_test_fail "rc=$lrc ${lint//$'\n'/ | }"; fi
 
-# --- 5. U43 with a file-less caller (one row) ---------------------------------
+# --- 5. dependency completeness ------------------------------------------------
+# Every OTHER unit's namespace a unit's code refers to — `P.name` on a code line
+# (not a `#` line) or the parent of `class X : P`, where P is a unit name, a
+# class or a row namespace of another row — must come through the unit's own
+# kk.uses closure (its kk.uses names, transitively over the table; a namespace
+# several units define, ths, through any of them). A deleted `kk.uses tpath`
+# in tfile.sh or a `tstopwatch` dropped from thttpserver's line would otherwise
+# stay green: every once/name check loads the unit with whatever the process
+# already holds (U4 final review R4, critic_u4 C2 / xref.sh). One awk over all
+# files lists the (file, prefix) references.
+kt_test_start "dependencies: every other unit's class / unit name / namespace referenced in a unit's code lines (P.name, class X : P) is in that unit's kk.uses closure (${#KCL_UNITS[@]} rows) [U4 final review R4, critic_u4 C2]"
+cat > "$KCLT_TMP/xref.awk" <<'EOF'
+FNR == 1 { delete seen }
+/^[ \t]*#/ { next }
+{
+    l = $0
+    if (match(l, /^[ \t]*class[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*:[ \t]*[A-Za-z_][A-Za-z0-9_]*/)) {
+        p = substr(l, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", p)
+        if (!((FILENAME, p) in seen)) { seen[FILENAME, p] = 1; print FILENAME "\t" p }
+    }
+    l = " " l
+    while (match(l, /[^A-Za-z0-9_.][A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_]/)) {
+        p = substr(l, RSTART + 1, RLENGTH - 3)
+        l = substr(l, RSTART + RLENGTH - 1)
+        if (!((FILENAME, p) in seen)) { seen[FILENAME, p] = 1; print FILENAME "\t" p }
+    }
+}
+EOF
+declare -A KBY=() KDEP=() KUNIT_OF=()
+for row in "${KCL_UNITS[@]}"; do
+    kclt_row "$row"
+    KUNIT_OF[$KF]=$KU
+    for w in ${KDEFS[$KU]-}; do [[ ${KBY[$w]-} == *" $KU "* ]] || KBY[$w]+=" $KU "; done
+    kclt_uses "$KF"
+    KDEP[$KU]="${KUSES[*]}"
+done
+# kclt_closure U -> KCLOS: " U d1 d2 ... " (U and its kk.uses names, transitively)
+kclt_closure() {
+    local q=("$1") x d
+    KCLOS=" "
+    while (( ${#q[@]} )); do
+        x=${q[0]}; q=("${q[@]:1}")
+        [[ $KCLOS == *" $x "* ]] && continue
+        KCLOS+="$x "
+        for d in ${KDEP[$x]-}; do q+=("$d"); done
+    done
+}
+bad="" nx=0
+xr="$(awk -f "$KCLT_TMP/xref.awk" "${files[@]}" 2>&1)"; xrc=$?
+(( xrc == 0 )) || bad+=" awk-rc=$xrc:${xr//$'\n'/|}"
+while IFS=$'\t' read -r f p; do
+    [[ -n $f && -n ${KBY[$p]+x} ]] || continue
+    u=${KUNIT_OF[$f]-}
+    [[ -n $u && ${KBY[$p]} != *" $u "* ]] || continue
+    kclt_closure "$u"; (( ++nx ))
+    ok=""
+    for v in ${KBY[$p]}; do [[ $KCLOS == *" $v "* ]] && ok=1; done
+    if [[ -z $ok ]]; then vs=(${KBY[$p]}); bad+=" $u:$p(of ${vs[*]})"; fi
+done <<<"$xr"
+if [[ -z "$bad" ]]; then kt_test_pass "ok ($nx cross-unit references)"; else kt_test_fail "not in the kk.uses closure:$bad"; fi
+
+# --- 6. U43 with a file-less caller (one row) ---------------------------------
 kclt_row "${KCL_UNITS[0]}"
 DECOY="$KCLT_TMP/decoy"
 mkdir -p "$DECOY"
@@ -151,8 +221,7 @@ source "$KBOOL_ROOT/kbool.sh"
 kk.uses "$u"; r=$?
 [[ ${__KK_UNITS[$u]-} -ef $f ]] && echo "r=$r kcl" || echo "r=$r other:${__KK_UNITS[$u]-}"
 EOF
-( cd "$DECOY" && env -u KBOOL_CONFIG -u KBOOL_HOME -u USERPROFILE -u ProgramData -u PROGRAMDATA -u KK_UNIT_DIR \
-    HOME="$KCLT_TMP/home" __KK_CFG_ETC="$KCLT_TMP/etc" KBOOL_ROOT="$KBOOL_ROOT" \
-    "$BASH" -s "$KU" "$KF" < "$KCLT_TMP/decoy.sh" >"$KCLT_TMP/run.out" 2>"$KCLT_TMP/run.err" ); RC=$?
-OUT="$(<"$KCLT_TMP/run.out")"; ERR="$(<"$KCLT_TMP/run.err")"
+# kclt_run: the same hermetic environment as every runtime check (no
+# VERBOSE_KKLASS / KKLASS_CKK_DIR / BASH_ENV from the caller — R6)
+kclt_run "$DECOY" -s "$KU" "$KF" < "$KCLT_TMP/decoy.sh"
 kclt_expect "$KU: bash -s (no calling file) with the cwd in a folder holding a headered stand-in $KU.sh: kk.uses $KU loads kcl/$KD/$KU.sh, the cwd is not searched [U43, found_in_U3]" "r=0 kcl"

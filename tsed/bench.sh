@@ -79,7 +79,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tsed.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 NL=${1:-10000}      # lines in the big file
 NR=${2:-21}         # interleaved repetitions per gated shape (odd, >= 15)

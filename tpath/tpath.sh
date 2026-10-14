@@ -37,8 +37,11 @@ kk.uses kklass_pascal || return
 # on `readonly variable` (under `set -e` that exited the caller). `${x@a}` is
 # guarded by `${x+x}`: under `set -u` it is unbound for an unset name.
 if [[ -z ${__TPATH_BS+x} || ${__TPATH_BS@a} != *r* ]]; then
-    case "$(uname -s)" in
-        MINGW*|CYGWIN*|MSYS*)
+    # $OSTYPE, not `$(uname -s)` (U4 final review R8: no fork at load): bash
+    # sets msys (Git-bash, MSYS2), cygwin (Cygwin, some MSYS2 builds) — uname's
+    # MINGW*/MSYS*/CYGWIN* — or linux-gnu, darwin..., the POSIX branch.
+    case $OSTYPE in
+        msys*|cygwin*|mingw*|win32*)
             __TPATH_IS_WINDOWS=1
             __TPATH_DIRECTORY_SEPARATOR_CHAR='/'
             __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR='\'

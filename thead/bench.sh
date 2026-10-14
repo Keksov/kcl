@@ -72,7 +72,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/thead.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 NL=${1:-10000}      # corpus lines in big.txt
 NR=${2:-21}         # interleaved repetitions per gated shape (odd, >= 15)

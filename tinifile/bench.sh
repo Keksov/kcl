@@ -13,7 +13,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tinifile.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tstopwatch || exit 1
 
 BD="$(mktemp -d)"
 trap 'rm -rf "$BD"' EXIT

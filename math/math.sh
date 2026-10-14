@@ -138,11 +138,26 @@ if [[ -z ${__MATH_INT64_MAX+x} || ${__MATH_INT64_MAX@a} != *r* ]]; then
     readonly __MATH_INT64_MAX __MATH_INT64_MIN
 fi
 
-# Set once per process like the constants (uses U4, G2): a reload after
-# `kk.unit --forget math` while the engine runs must keep its pid/fds — reset,
-# they would make math._fe_start spawn a SECOND `coproc MATH_FE` ("coproc
-# [pid:MATH_FE] still exists") and leave the first awk running.
-if [[ -z ${__MATH_FE_UP+x} ]]; then
+# The engine's state (pid, fds, temp file) is set once per PROCESS like the
+# constants (uses U4-G2): a reload after `kk.unit --forget math` while the
+# engine runs must keep its pid/fds — reset, math._fe_start would spawn a
+# SECOND `coproc MATH_FE` ("coproc [pid:MATH_FE] still exists") and leave the
+# first awk running. And it is never taken from the ENVIRONMENT (U4 final
+# review R1): "set in this process" is the assoc __MATH_FE_OWN, which no
+# environment can supply (bash exports no arrays), so an inherited
+# __MATH_FE_* — a hostile export, or a `set -a` parent whose fds this process
+# does not hold — is reset here. The assoc also records what THIS process
+# started: [pid] the awk, [in]/[out] its fds, [prog] the fallback temp file;
+# math._fe_drop / math._fe_cleanup kill, close and remove only those, whatever
+# the __MATH_FE_* scalars say. A `( )` / `$( )` subshell inherits the assoc and
+# shares the co-process's fds, which is right.
+# math._fe_own -> rc 0 when this shell owns the state; else it initialises the
+# state (no kill, no close, no rm) and returns 1. Ownership first (R14):
+# nothing subscripts __MATH_FE_OWN before it is known to be an assoc.
+math._fe_own() {
+    [[ ${__MATH_FE_OWN[@]@a} == A* ]] && return 0
+    unset __MATH_FE_OWN
+    declare -gA __MATH_FE_OWN=([pid]="" [in]="" [out]="" [prog]="")
     __MATH_FE_UP=""       # non-empty once the co-process has been spawned
     __MATH_FE_IN=""       # fd to write requests to (awk stdin)
     __MATH_FE_OUT=""      # fd to read answers from (awk stdout)
@@ -154,7 +169,9 @@ if [[ -z ${__MATH_FE_UP+x} ]]; then
     # default: `read -t` costs ~410 us a call on this platform).
     __MATH_FE_TIMEOUT=10
     __MATH_FE_STRICT="${__MATH_FE_STRICT:-}"
-fi
+    return 1
+}
+math._fe_own || :
 # The awk prelude: derived functions built from awk primitives + a dispatch
 # loop. Single-quoted so awk's $1/$2 fields are NOT expanded by bash.
 #
@@ -647,22 +664,34 @@ math._num_cmp() {
 # (M9: bash warns `execute_coproc: coproc [pid:MATH_FE] still exists` if the
 # slot is still occupied).
 math._fe_drop() {
-    if [[ -n "$__MATH_FE_PID" ]]; then
-        kill "$__MATH_FE_PID" 2>/dev/null
-        wait "$__MATH_FE_PID" 2>/dev/null
+    # only what THIS process started (R1): a numeric pid, all-digit fds, as
+    # math._fe_start recorded them in __MATH_FE_OWN. `|| :` (R2): `wait` of
+    # the awk just killed returns 143, `kill` of one already gone 1 — neither
+    # may end a `set -e` caller.
+    if math._fe_own; then
+        local __m_p=${__MATH_FE_OWN[pid]} __m_i=${__MATH_FE_OWN[in]} __m_o=${__MATH_FE_OWN[out]}
+        if [[ -n $__m_p && $__m_p != *[!0-9]* ]]; then
+            kill "$__m_p" 2>/dev/null || :
+            wait "$__m_p" 2>/dev/null || :
+        fi
+        if [[ -n $__m_i && $__m_i != *[!0-9]* ]]; then eval "exec $__m_i>&-" 2>/dev/null || :; fi
+        if [[ -n $__m_o && $__m_o != *[!0-9]* ]]; then eval "exec $__m_o<&-" 2>/dev/null || :; fi
+        __MATH_FE_OWN[pid]="" __MATH_FE_OWN[in]="" __MATH_FE_OWN[out]=""
     fi
-    if [[ -n "$__MATH_FE_IN" ]]; then eval "exec ${__MATH_FE_IN}>&-" 2>/dev/null; fi
-    if [[ -n "$__MATH_FE_OUT" ]]; then eval "exec ${__MATH_FE_OUT}<&-" 2>/dev/null; fi
     __MATH_FE_UP=""; __MATH_FE_IN=""; __MATH_FE_OUT=""; __MATH_FE_PID=""
     return 0
 }
 
-# Remove the fallback temp file (no-op on the process-substitution path).
+# Remove the fallback temp file (no-op on the process-substitution path) —
+# only the one this process wrote (R1): recorded in __MATH_FE_OWN[prog] and
+# named */.math_fe_$$.awk ($$ is the top shell also in a `$( )` subshell).
 math._fe_cleanup() {
-    if [[ -n "$__MATH_FE_PROGFILE" ]]; then
-        rm -f -- "$__MATH_FE_PROGFILE" 2>/dev/null
-        __MATH_FE_PROGFILE=""
+    if math._fe_own; then
+        local __m_f=${__MATH_FE_OWN[prog]}
+        if [[ -n $__m_f && $__m_f == */.math_fe_"$$".awk ]]; then rm -f -- "$__m_f" 2>/dev/null || :; fi
+        __MATH_FE_OWN[prog]=""
     fi
+    __MATH_FE_PROGFILE=""
     return 0
 }
 
@@ -688,10 +717,14 @@ math._fe_arm_trap() {
 # still-alive co-process (so a $() subshell doesn't spawn a second one).
 # Returns 1 (no spawn) when awk is unavailable.
 math._fe_start() {
-    if [[ -n "$__MATH_FE_UP" ]] && kill -0 "$__MATH_FE_PID" 2>/dev/null; then
+    # up = this process's engine (R1): the scalars still name what
+    # __MATH_FE_OWN recorded, and the awk is alive
+    if math._fe_own && [[ -n $__MATH_FE_UP && $__MATH_FE_PID == "${__MATH_FE_OWN[pid]}" \
+          && $__MATH_FE_IN == "${__MATH_FE_OWN[in]}" && $__MATH_FE_OUT == "${__MATH_FE_OWN[out]}" ]] \
+       && kill -0 "$__MATH_FE_PID" 2>/dev/null; then
         return 0
     fi
-    [[ -n "$__MATH_FE_PID" ]] && math._fe_drop
+    math._fe_drop
     command -v awk >/dev/null 2>&1 || { __MATH_FE_UP=""; return 1; }
 
     # Preferred: hand the program to awk through PROCESS SUBSTITUTION. Nothing
@@ -703,6 +736,7 @@ math._fe_start() {
     # print `2,5` in a comma locale.
     coproc MATH_FE { LC_ALL=C awk -f <(printf '%s\n' "$__MATH_AWK_PROG") 2>/dev/null; }
     __MATH_FE_IN=${MATH_FE[1]}; __MATH_FE_OUT=${MATH_FE[0]}; __MATH_FE_PID=$MATH_FE_PID
+    __MATH_FE_OWN[pid]=$__MATH_FE_PID __MATH_FE_OWN[in]=$__MATH_FE_IN __MATH_FE_OWN[out]=$__MATH_FE_OUT
     local __m_probe
     if printf 'pi\n' >&"$__MATH_FE_IN" 2>/dev/null \
        && IFS= read -r -t "$__MATH_FE_TIMEOUT" -u "$__MATH_FE_OUT" __m_probe 2>/dev/null \
@@ -719,11 +753,13 @@ math._fe_start() {
     for __m_d in "${TMPDIR:-/tmp}" "$MATH_DIR" /tmp; do
         [[ -d "$__m_d" && -w "$__m_d" ]] || continue
         __MATH_FE_PROGFILE="$__m_d/.math_fe_$$.awk"
+        __MATH_FE_OWN[prog]=$__MATH_FE_PROGFILE
         printf '%s\n' "$__MATH_AWK_PROG" > "$__MATH_FE_PROGFILE" 2>/dev/null \
-            || { __MATH_FE_PROGFILE=""; continue; }
+            || { math._fe_cleanup; continue; }
         math._fe_arm_trap
         coproc MATH_FE { LC_ALL=C awk -f "$__MATH_FE_PROGFILE" 2>/dev/null; }
         __MATH_FE_IN=${MATH_FE[1]}; __MATH_FE_OUT=${MATH_FE[0]}; __MATH_FE_PID=$MATH_FE_PID
+        __MATH_FE_OWN[pid]=$__MATH_FE_PID __MATH_FE_OWN[in]=$__MATH_FE_IN __MATH_FE_OWN[out]=$__MATH_FE_OUT
         if printf 'pi\n' >&"$__MATH_FE_IN" 2>/dev/null \
            && IFS= read -r -t "$__MATH_FE_TIMEOUT" -u "$__MATH_FE_OUT" __m_probe 2>/dev/null \
            && [[ -n "$__m_probe" ]]; then
@@ -881,7 +917,8 @@ math.feStart() { math._fe_start; }
 math.feStop()  { math._fe_stop; }
 # feActive: is the engine running? rc (R8) + true/false in RESULT.
 math.feActive() {
-    if [[ -n "$__MATH_FE_UP" ]] && kill -0 "$__MATH_FE_PID" 2>/dev/null; then
+    if math._fe_own && [[ -n $__MATH_FE_UP && $__MATH_FE_PID == "${__MATH_FE_OWN[pid]}" ]] \
+       && kill -0 "$__MATH_FE_PID" 2>/dev/null; then
         math._retBool 0
     else
         math._retBool 1

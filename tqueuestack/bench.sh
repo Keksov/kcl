@@ -16,8 +16,8 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tqueuestack.sh"
-source "$DIR/../tlist/tlist.sh"
-source "$DIR/../tstopwatch/tstopwatch.sh"
+kk.uses tlist || exit 1
+kk.uses tstopwatch || exit 1
 
 report() {  # label total_us iters unit -> us/iter with tenths + total ms
     local x10=$(( $2 * 10 / $3 ))
