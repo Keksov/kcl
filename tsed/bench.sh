@@ -149,8 +149,11 @@ SED_BIN="$(command -v sed 2>/dev/null || printf '(none)')"
 # line has an `a`, so `s/a/A/` really substitutes on every record), ONE holds a
 # single such line. The lines are built into an array and written by ONE
 # `printf` — no fork per line, and NL stays overridable.
-BD="$(mktemp -d)"
+BD="$(mktemp -d "${TMPDIR:-/tmp}/kbool_bench_tsed.XXXXXX")" || exit 1
 trap 'rm -rf "$BD"' EXIT
+# TERM/INT/HUP exit 128+N so the EXIT trap runs: bash 5.2 runs no EXIT trap on
+# a signal by itself (ktests round 5, DE1 - a killed bench leaked its dir)
+trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
 BIG="$BD/big.txt"
 ONE="$BD/one.txt"
 declare -a _lines=()

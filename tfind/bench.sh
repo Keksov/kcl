@@ -143,8 +143,11 @@ esac
 # `.dat` per directory, so `-name '*.txt'` really filters), ONE holds a single
 # `.txt`. Every file holds `x\n` so a `-size +0` probe would have something to
 # match, and no file name needs quoting beyond what the wrapper already does.
-BD="$(mktemp -d)"
+BD="$(mktemp -d "${TMPDIR:-/tmp}/kbool_bench_tfind.XXXXXX")" || exit 1
 trap 'rm -rf "$BD"' EXIT
+# TERM/INT/HUP exit 128+N so the EXIT trap runs: bash 5.2 runs no EXIT trap on
+# a signal by itself (ktests round 5, DE1 - a killed bench leaked its dir)
+trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
 BIG="$BD/tree"
 ONE="$BD/one"
 mkdir -p "$BIG" "$ONE"

@@ -68,7 +68,13 @@ IEEE-754 binary64 FPC uses for `Double` on the x86-64 targets.
   substitution alive for the co-process's lifetime; if it ever fails, the code
   falls back to a temp file plus an `EXIT` trap that **chains** the caller's own
   handler instead of replacing it. Either way a process that used the engine
-  leaves no `/tmp/.math_fe_*.awk` behind.
+  leaves no `/tmp/.math_fe_*.awk` behind. A process KILLED by a signal runs no
+  EXIT trap (bash 5.2), so on the fallback path an engine start first removes
+  the `.math_fe_<pid>.awk` files of dead processes in the folder it writes to
+  (only that name shape, a regular file, a pid that is not alive, and older
+  than 5 minutes — a younger one may be another MSYS runtime's engine starting
+  right now; ktests round 5, DE1 / review R3). A drive-letter folder (`C:/…`,
+  `C:\…`) is swept like any absolute one (review round 2, N2).
 
 ### The engine never dies
 

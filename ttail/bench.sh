@@ -138,8 +138,11 @@ case "$TAIL_BANNER" in
 esac
 
 # --- the corpus -------------------------------------------------------------
-BD="$(mktemp -d)"
+BD="$(mktemp -d "${TMPDIR:-/tmp}/kbool_bench_ttail.XXXXXX")" || exit 1
 trap 'rm -rf "$BD"' EXIT
+# TERM/INT/HUP exit 128+N so the EXIT trap runs: bash 5.2 runs no EXIT trap on
+# a signal by itself (ktests round 5, DE1 - a killed bench leaked its dir)
+trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
 {
     for (( _i = 0; _i < NL; _i++ )); do
         printf 'line %d of the bench corpus, some payload here\n' "$_i"

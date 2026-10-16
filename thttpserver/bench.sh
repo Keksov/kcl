@@ -54,7 +54,7 @@ ROUNDS=${3:-5}      # parallel bursts
 NQ=4                # requests per replay sample
 NSS=5               # socket samples per client
 
-BD="$(mktemp -d)"
+BD="$(mktemp -d "${TMPDIR:-/tmp}/kbool_bench_thttpserver.XXXXXX")" || exit 1
 CHILD=""
 cleanup() {
     if [[ -n "$CHILD" ]] && kill -0 "$CHILD" 2>/dev/null; then
@@ -64,6 +64,9 @@ cleanup() {
     rm -rf "$BD"
 }
 trap cleanup EXIT
+# TERM/INT/HUP exit 128+N so the EXIT trap runs: bash 5.2 runs no EXIT trap on
+# a signal by itself (ktests round 5, DE1 - a killed bench leaked its dir)
+trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
 
 # ---------------------------------------------------------------------------
 # helpers

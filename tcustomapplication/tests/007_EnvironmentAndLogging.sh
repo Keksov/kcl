@@ -21,7 +21,7 @@ source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
-TMPD="$SCRIPT_DIR/.tmp/$(basename "${BASH_SOURCE[0]}" .sh)"
+TMPD="$(kt_fixture_tmpdir)/priv"   # fixture dir, removed at teardown (ktests round 5 review R7)
 mkdir -p "$TMPD"
 ERRF="$TMPD/stderr.txt"
 

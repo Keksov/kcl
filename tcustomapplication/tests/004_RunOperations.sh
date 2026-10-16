@@ -112,7 +112,7 @@ fi
 counter.delete
 
 kt_test_start "Run hands a failing DoRun to HandleException"
-TMPD="$SCRIPT_DIR/.tmp/$(basename "${BASH_SOURCE[0]}" .sh)"
+TMPD="$(kt_fixture_tmpdir)/priv"   # fixture dir, removed at teardown (ktests round 5 review R7)
 mkdir -p "$TMPD"
 TFailingApp.new failing
 failing.Initialize

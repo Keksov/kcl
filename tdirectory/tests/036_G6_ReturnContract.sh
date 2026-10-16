@@ -170,7 +170,7 @@ fi
 kt_test_start "the unit exports a UTF-8 LC_CTYPE into a bare environment [D6]"
 out="$(env -u LC_ALL -u LC_CTYPE -u LANG bash -c "
 source '$UNIT'
-d=\$(mktemp -d)
+d=\$(mktemp -d '$W/locale.XXXXXX')
 mkdir -p \"\$d/дом\"
 tdirectory.getDirectories \"\$d\" >/dev/null
 printf '%s|%s' \"\${LC_CTYPE:-}\" \"\${RESULT##*/}\"

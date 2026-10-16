@@ -20,13 +20,11 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 
 kt_test_init "SecurityTests" "$SCRIPT_DIR" "$@"
 
-# A directory of our own: the ktests fixture temp dir is named after $0, which
-# is "bash" for every file the runner starts, and the runner runs files in
-# PARALLEL — a neighbour's teardown deletes it while we are using it, and a
-# redirect into a vanished directory means the member never runs at all
-# (kcl_ledger.json, found_in_P4/P4-F2).
-PRIVTMP="$SCRIPT_DIR/.tmp/$(basename "${BASH_SOURCE[0]}" .sh)"
-mkdir -p "$PRIVTMP"
+# A directory of our own inside this file's fixture dir: per file since ktests
+# P8-F2 (no neighbour shares or deletes it) and removed at teardown (ktests
+# round 5, T11/DT11 - it used to be a hand-made tests/.tmp/<file> that every
+# run left in the tree).
+PRIVTMP="$(kt_fixture_tmpdir_create priv)"
 
 source "$SCRIPT_DIR/../tstringhelper.sh"
 

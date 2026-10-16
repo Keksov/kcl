@@ -87,7 +87,7 @@ fi
 myapp.delete
 
 kt_test_start "Location follows \$0 in a script of its own [TCA-11]"
-TMPD="$SCRIPT_DIR/.tmp/$(basename "${BASH_SOURCE[0]}" .sh)"
+TMPD="$(kt_fixture_tmpdir)/priv"   # fixture dir, removed at teardown (ktests round 5 review R7)
 mkdir -p "$TMPD/sub"
 {
     printf '%s\n' '#!/bin/bash'

@@ -53,7 +53,7 @@ fi
 
 # --- multi-value contract: DIRECT match prints nothing (silent)
 kt_test_start "direct match prints nothing to stdout"
-tmpout="$(mktemp)"
+tmpout="$(kt_fixture_tmpfile out)"   # in the fixture dir (ktests round 5 review R5)
 TRegEx.match "abcd" "bc" >"$tmpout" 2>/dev/null
 if [[ ! -s "$tmpout" ]]; then
     kt_test_pass "no stdout from direct call"

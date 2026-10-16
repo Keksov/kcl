@@ -250,6 +250,8 @@ answer `''` with rc 0, which is invisible in the failing call itself.
 | 015.tempfile | sin/roundTo | a child shell that used the engine leaves NO `.math_fe_*.awk` behind | contract (M6) |
 | 015.tempfile-trap | sin | the same when the caller has its own EXIT trap — which still runs | contract (M6) |
 | 015.lazy | min/divMod | a shell that never touches Tier B starts no engine at all | behavior (M6) |
+| 018.sweep | sin | forced fallback path: the own temp file is removed at exit; an engine start removes a DEAD pid's `.math_fe_<pid>.awk` older than 5 min only (a fresh dead one, a live pid's, other names, a symlink kept) | contract (DE1, R14, R3) |
+| 018.killed | sin/cos | a process killed after its engine started (no EXIT trap) leaves its file; the next engine start removes it | contract (DE1) |
 | 015.respawn | feStop/sin | 5 restarts, empty stderr (no `execute_coproc` warning) | contract (M9) |
 | 015.killed | sin/cos/sqrt | an engine killed from outside is replaced silently and answers correctly | contract (M9/R11) |
 | 015.noawk | 22 Tier-B members | `PATH=` → rc 1, silent, `RESULT=''`; `feStart`/`feActive` rc 1 | contract (M10) |

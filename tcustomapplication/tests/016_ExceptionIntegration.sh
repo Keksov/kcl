@@ -69,7 +69,7 @@ myapp.delete
 
 # Test: ShowException called when no OnException handler
 kt_test_start "ShowException called when no OnException handler"
-TMPD="$SCRIPT_DIR/.tmp/$(basename "${BASH_SOURCE[0]}" .sh)"
+TMPD="$(kt_fixture_tmpdir)/priv"   # fixture dir, removed at teardown (ktests round 5 review R7)
 mkdir -p "$TMPD"
 TCustomApplication.new myapp
 myapp.property StopOnException = "false"

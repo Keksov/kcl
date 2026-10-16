@@ -17,10 +17,10 @@ source "$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
-# A directory of our own: the ktests fixture temp dir is named after $0, which
-# is "bash" for every file the runner starts, and the runner runs files in
-# parallel — a neighbour's teardown would delete our helper scripts.
-TMPD="$SCRIPT_DIR/.tmp/$(basename "${BASH_SOURCE[0]}" .sh)"
+# A directory of our own inside this file's fixture dir: per file since ktests
+# P8-F2 and removed at teardown also after an early exit (ktests round 5,
+# review R7 - it used to be a hand-made tests/.tmp/<file>).
+TMPD="$(kt_fixture_tmpdir)/priv"   # fixture dir, removed at teardown (ktests round 5 review R7)
 mkdir -p "$TMPD"
 UNIT="$TCUSTOMAPPLICATION_DIR/tcustomapplication.sh"
 

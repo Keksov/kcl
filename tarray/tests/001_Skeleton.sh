@@ -40,7 +40,7 @@ fi
 
 # --- direct call sets RESULT and prints nothing (real min, a value-returner)
 kt_test_start "direct call: RESULT set, silent stdout"
-a=(5 2 8); RESULT="preset"; tmpout="$(mktemp)"
+a=(5 2 8); RESULT="preset"; tmpout="$(kt_fixture_tmpfile out)"   # in the fixture dir (ktests round 5 review R5)
 TArray.min a -n >"$tmpout" 2>/dev/null
 if [[ "$RESULT" == "2" && ! -s "$tmpout" ]]; then
     kt_test_pass "RESULT=2 (min), no stdout"

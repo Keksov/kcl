@@ -15,8 +15,11 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/tinifile.sh"
 kk.uses tstopwatch || exit 1
 
-BD="$(mktemp -d)"
+BD="$(mktemp -d "${TMPDIR:-/tmp}/kbool_bench_tinifile.XXXXXX")" || exit 1
 trap 'rm -rf "$BD"' EXIT
+# TERM/INT/HUP exit 128+N so the EXIT trap runs: bash 5.2 runs no EXIT trap on
+# a signal by itself (ktests round 5, DE1 - a killed bench leaked its dir)
+trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
 
 report() {  # label total_us iters unit -> us/iter with tenths + total ms
     local x10=$(( $2 * 10 / $3 ))

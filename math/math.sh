@@ -695,6 +695,37 @@ math._fe_cleanup() {
     return 0
 }
 
+# Remove the fallback temp files of DEAD processes in folder $1 (ktests round
+# 5, E1/DE1): a process killed by a signal runs no EXIT trap on bash 5.2 and
+# left its .math_fe_<pid>.awk behind. Run before this process writes its own
+# file there. Only a regular file (not a symlink) named .math_fe_<digits>.awk
+# whose pid is not this process ($$, also in a subshell) and not alive is
+# removed (R14); nothing is taken from the environment. AND only a file older
+# than 5 minutes (ktests round 5 review R3): another MSYS runtime sharing the
+# folder has pids `kill -0` cannot see, and its engine may be starting right
+# now (its file written, awk not yet reading it). The age is read by ONE `find`
+# — on the fallback path only; the process-substitution path never gets here.
+math._fe_sweep() {
+    local __m_d=$1 __m_f __m_p
+    local -A __m_old=()
+    # absolute: /…, C:/…, C:\… (review round 2, N2: a drive-letter TMPDIR or
+    # MATH_DIR used to become ./C:/… and nothing was swept); else ./ so a
+    # leading `-` is never a find option
+    [[ $__m_d == /* || $__m_d == [A-Za-z]:/* || $__m_d == [A-Za-z]:"\\"* ]] || __m_d=./$__m_d
+    while IFS= read -r __m_f; do
+        __m_old["${__m_f##*/}"]=1
+    done < <(command find "$__m_d/" -maxdepth 1 -type f -name '.math_fe_*.awk' -mmin +5 2>/dev/null)
+    for __m_f in "${!__m_old[@]}"; do
+        [[ $__m_f == .math_fe_*.awk ]] || continue
+        __m_p=${__m_f#.math_fe_}; __m_p=${__m_p%.awk}
+        [[ -n $__m_p && $__m_p != *[!0-9]* && $__m_p != "$$" ]] || continue
+        [[ -f $__m_d/$__m_f && ! -L $__m_d/$__m_f ]] || continue
+        kill -0 "$__m_p" 2>/dev/null && continue
+        rm -f -- "$__m_d/$__m_f" 2>/dev/null || :
+    done
+    return 0
+}
+
 # Arm the EXIT trap for the fallback temp file, CHAINING whatever the caller
 # had installed rather than replacing it (§1.9).
 math._fe_arm_trap() {
@@ -752,6 +783,7 @@ math._fe_start() {
     local __m_d
     for __m_d in "${TMPDIR:-/tmp}" "$MATH_DIR" /tmp; do
         [[ -d "$__m_d" && -w "$__m_d" ]] || continue
+        math._fe_sweep "$__m_d"
         __MATH_FE_PROGFILE="$__m_d/.math_fe_$$.awk"
         __MATH_FE_OWN[prog]=$__MATH_FE_PROGFILE
         printf '%s\n' "$__MATH_AWK_PROG" > "$__MATH_FE_PROGFILE" 2>/dev/null \

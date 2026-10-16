@@ -63,7 +63,7 @@ printf OK" 2>"$errf")"; rc=$?
 expect_clean "the unit loads under set -eu [X-SETU, D7]" ":"
 expect_clean "loading the unit TWICE under set -eu is a no-op [X-SETU]" "source '$UNIT'"
 expect_clean "main path under set -eu [X-SETU, D7]" "
-d=\$(mktemp -d)
+d=\$(mktemp -d '$TMP/setu.XXXXXX')
 tfile.create \"\$d/a.txt\"
 tfile.appendAllText \"\$d/a.txt\" hello
 tfile.readAllText \"\$d/a.txt\" >/dev/null

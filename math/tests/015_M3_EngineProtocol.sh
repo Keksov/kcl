@@ -63,27 +63,35 @@ $ok && kt_test_pass "mean still 5" || kt_test_fail "$why"
 # ---------------------------------------------------------------------------
 # 2. M6 — a process that used the engine leaves NOTHING behind. Counted
 #    before/after around a child shell, so a stale file from another run
-#    cannot mask a leak.
+#    cannot mask a leak. Compared by NAME (ktests round 5, DE1): an engine
+#    start on the fallback path removes the files of dead processes, so the
+#    count may drop — only a file that was not there before is a leak.
 # ---------------------------------------------------------------------------
-_count_progfiles() {
-    local n=0 d f
+_count_progfiles() {   # -> the .math_fe_*.awk paths, one per line
+    local d f
     for d in "${TMPDIR:-/tmp}" "$MATH_DIR" /tmp; do
         [[ -d "$d" ]] || continue
         for f in "$d"/.math_fe_*.awk; do
-            [[ -e "$f" ]] && (( n += 1 ))
+            [[ -e "$f" ]] && printf '%s\n' "$f"
         done
     done
-    printf '%s' "$n"
+}
+_new_progfiles() {     # BEFORE AFTER -> the paths in AFTER not in BEFORE
+    local f
+    while IFS= read -r f; do
+        [[ -n "$f" && $'\n'"$1"$'\n' != *$'\n'"$f"$'\n'* ]] && printf '%s ' "$f"
+    done <<< "$2"
 }
 
 kt_test_start "a plain shell exit leaves no engine temp file behind [M6]"
 before="$(_count_progfiles)"
 bash -c "source '$UNIT'; math.sin 1 >/dev/null; math.roundTo 2.5 0 >/dev/null" >/dev/null 2>&1
 after="$(_count_progfiles)"
-if [[ "$before" == "$after" ]]; then
-    kt_test_pass "count unchanged ($before)"
+new="$(_new_progfiles "$before" "$after")"
+if [[ -z "$new" ]]; then
+    kt_test_pass "no new file"
 else
-    kt_test_fail "temp files leaked: $before -> $after"
+    kt_test_fail "temp files leaked: $new"
 fi
 
 kt_test_start "the same holds for a shell that exits through its own EXIT trap [M6]"
@@ -93,20 +101,22 @@ trap 'printf caller-trap-ran > \"$TMP/trapmark\"' EXIT
 math.sin 1 >/dev/null" >/dev/null 2>&1
 after="$(_count_progfiles)"
 mark="$(cat "$TMP/trapmark" 2>/dev/null)"
-if [[ "$before" == "$after" && "$mark" == "caller-trap-ran" ]]; then
+new="$(_new_progfiles "$before" "$after")"
+if [[ -z "$new" && "$mark" == "caller-trap-ran" ]]; then
     kt_test_pass "no leak, and the caller's own EXIT trap still ran"
 else
-    kt_test_fail "count $before -> $after, caller trap mark='$mark'"
+    kt_test_fail "new files '$new', caller trap mark='$mark'"
 fi
 
 kt_test_start "a shell that never touches Tier B starts no engine at all [M6]"
 before="$(_count_progfiles)"
 out="$(bash -c "source '$UNIT'; math.min 3 7 >/dev/null; math.divMod 7 2 >/dev/null; printf '%s' \"\$__MATH_FE_UP\"" 2>&1)"
 after="$(_count_progfiles)"
-if [[ "$before" == "$after" && -z "$out" ]]; then
+new="$(_new_progfiles "$before" "$after")"
+if [[ -z "$new" && -z "$out" ]]; then
     kt_test_pass "engine still lazy, nothing on disk"
 else
-    kt_test_fail "count $before -> $after, __MATH_FE_UP='$out'"
+    kt_test_fail "new files '$new', __MATH_FE_UP='$out'"
 fi
 
 # ---------------------------------------------------------------------------
