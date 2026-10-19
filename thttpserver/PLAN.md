@@ -115,8 +115,9 @@ kcl/thttpserver/
     tests/ bench.sh README.md TEST_COVERAGE_NOTES.md thttpserver_ledger.json
 ```
 
-Each `.sh` has the kcl re-source guard (`${_THS_<FILE>_SOURCED:-}`), the §1.6 locale
-self-heal and sources kklass through `kklass_pascal.sh`. Class names carry the `THttp`
+Each `.sh` is a unit: the two `kk.unit` header lines (kcl/README.md §1.10; the hand-written
+`${_THS_<FILE>_SOURCED:-}` re-source guards were removed in uses U4 — the header loads a
+unit once), the §1.6 locale self-heal, and kklass through `kk.uses kklass_pascal`. Class names carry the `THttp`
 prefix to stay clear of generic names — kklass refuses a same-name class from a
 different file.
 *(Superseded by uses U4 (2026-10-14): the guard and the path source are gone — each file
