@@ -47,13 +47,13 @@ fi
 # measurement and the budget floor is only 60 ms.
 
 # --- the baseline: what bash itself costs for the same work -----------------
-t0=${EPOCHREALTIME/./}; t0=$(( t0 / 1000 ))
+t0=${EPOCHREALTIME/[.,]/}; t0=$(( t0 / 1000 ))
 for ((i = 0; i < N; i++)); do
     tmp="${big//X/Y}"
     tmp="${big%%X*}"
     tmp="${big//X/}"
 done
-t1=${EPOCHREALTIME/./}; t1=$(( t1 / 1000 ))
+t1=${EPOCHREALTIME/[.,]/}; t1=$(( t1 / 1000 ))
 baseline=$(( t1 - t0 ))
 (( baseline < 1 )) && baseline=1
 budget=$(( baseline * LIMIT_FACTOR ))
@@ -63,10 +63,10 @@ gate() {   # TITLE MEMBER ARGS...
     local title="$1"; shift
     kt_test_start "$title"
     local a b spent
-    a=${EPOCHREALTIME/./}; a=$(( a / 1000 ))
+    a=${EPOCHREALTIME/[.,]/}; a=$(( a / 1000 ))
     local i
     for ((i = 0; i < N; i++)); do "$@" >/dev/null 2>&1 || :; done
-    b=${EPOCHREALTIME/./}; b=$(( b / 1000 ))
+    b=${EPOCHREALTIME/[.,]/}; b=$(( b / 1000 ))
     spent=$(( b - a ))
     if (( spent <= budget && spent <= ABS_MS )); then
         kt_test_pass "$title: ${spent} ms for $N calls (budget ${budget} ms, baseline ${baseline} ms)"
@@ -125,18 +125,18 @@ fi
 # `${s//"$c"/}` costs what bash costs for that many replacements, so a needle
 # that occurs 1024 times in the 10 KB fixture is measured against the bare
 # expansion doing exactly that, not against the two-occurrence baseline above.
-t0=${EPOCHREALTIME/./}; t0=$(( t0 / 1000 ))
+t0=${EPOCHREALTIME/[.,]/}; t0=$(( t0 / 1000 ))
 for ((i = 0; i < N; i++)); do tmp="${big//a/}"; done
-t1=${EPOCHREALTIME/./}; t1=$(( t1 / 1000 ))
+t1=${EPOCHREALTIME/[.,]/}; t1=$(( t1 / 1000 ))
 dense_baseline=$(( t1 - t0 ))
 (( dense_baseline < 1 )) && dense_baseline=1
 dense_budget=$(( dense_baseline * 3 ))
 (( dense_budget < 60 )) && dense_budget=60
 
 kt_test_start "countChar of a needle that occurs 1024 times stays within 3x of \${s//a/} [TSH-09]"
-t0=${EPOCHREALTIME/./}; t0=$(( t0 / 1000 ))
+t0=${EPOCHREALTIME/[.,]/}; t0=$(( t0 / 1000 ))
 for ((i = 0; i < N; i++)); do string.countChar "$big" "a" >/dev/null 2>&1 || :; done
-t1=${EPOCHREALTIME/./}; t1=$(( t1 / 1000 ))
+t1=${EPOCHREALTIME/[.,]/}; t1=$(( t1 / 1000 ))
 spent=$(( t1 - t0 ))
 if (( spent <= dense_budget )) && [[ "$RESULT" == "1024" ]]; then
     kt_test_pass "${spent} ms for $N calls (budget ${dense_budget} ms, baseline ${dense_baseline} ms), count 1024"
@@ -145,9 +145,9 @@ else
 fi
 
 kt_test_start "replace of a needle that occurs 1024 times stays within 3x [TSH-09]"
-t0=${EPOCHREALTIME/./}; t0=$(( t0 / 1000 ))
+t0=${EPOCHREALTIME/[.,]/}; t0=$(( t0 / 1000 ))
 for ((i = 0; i < N; i++)); do string.replace "$big" "a" "z" >/dev/null 2>&1 || :; done
-t1=${EPOCHREALTIME/./}; t1=$(( t1 / 1000 ))
+t1=${EPOCHREALTIME/[.,]/}; t1=$(( t1 / 1000 ))
 spent=$(( t1 - t0 ))
 if (( spent <= dense_budget )) && [[ "$RESULT" != *a* && "${#RESULT}" == "${#big}" ]]; then
     kt_test_pass "${spent} ms for $N calls (budget ${dense_budget} ms)"

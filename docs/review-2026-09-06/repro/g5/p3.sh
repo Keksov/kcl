@@ -13,19 +13,19 @@ for N in 200 400 800; do
   for ((i=0;i<N;i++)); do A.WriteString s "key$i" "v$i"; done
   t1=$EPOCHREALTIME
   A.dirty = false; A.delete
-  printf 'N=%d  total=%.0f ms  per-write=%.2f ms\n' $N "$(( (${t1/./}-${t0/./}) ))e-3" "$(( (${t1/./}-${t0/./}) / N ))e-3"
+  printf 'N=%d  total=%.0f ms  per-write=%.2f ms\n' $N "$(( (${t1/[.,]/}-${t0/[.,]/}) ))e-3" "$(( (${t1/[.,]/}-${t0/[.,]/}) / N ))e-3"
 done
 
 echo "== U: ReadString cost vs position — key in LAST section (findKey scans ALL rows)"
 { for s in $(seq 1 20); do echo "[sec$s]"; for k in $(seq 1 50); do echo "k$k=v"; done; done; } > "$D/big.ini"
 TMemIniFile.new B "$D/big.ini"
 for sec in sec1 sec20; do t0=$EPOCHREALTIME; for ((i=0;i<50;i++)); do B.ReadString $sec k50 X; done; t1=$EPOCHREALTIME
-  printf '%s k50: %.2f ms/lookup\n' $sec "$(( (${t1/./}-${t0/./}) / 50 ))e-3"; done
+  printf '%s k50: %.2f ms/lookup\n' $sec "$(( (${t1/[.,]/}-${t0/[.,]/}) / 50 ))e-3"; done
 B.delete
 
 echo "== V: eager UpdateFile cost per write at 1000 keys (compose+mv+reparse)"
 TIniFile.new EG "$D/big.ini"; t0=$EPOCHREALTIME; for ((i=0;i<5;i++)); do EG.WriteString sec1 k1 $i; done; t1=$EPOCHREALTIME
-printf 'eager WriteString @1000 keys: %.1f ms/write\n' "$(( (${t1/./}-${t0/./}) / 5 ))e-3"; EG.delete
+printf 'eager WriteString @1000 keys: %.1f ms/write\n' "$(( (${t1/[.,]/}-${t0/[.,]/}) / 5 ))e-3"; EG.delete
 
 echo "== W: temp file left behind when the target replace fails (dash name already shown); also check tmp naming collision across instances"
 cd "$D"; TIniFile.new DN "-y.ini"; DN.WriteString a b c 2>/dev/null; echo "rc=$?"; ls -1 "$D" | grep -- '-y' ; cd /

@@ -170,11 +170,11 @@ else
 fi
 
 kt_test_start "200 direct calls are faster than 200 through a subshell [1.1, 1.8]"
-t0=${EPOCHREALTIME/./}
+t0=${EPOCHREALTIME/[.,]/}
 for ((i = 0; i < 200; i++)); do string.indexOf "hello world" "o" >/dev/null; done
-t1=${EPOCHREALTIME/./}
+t1=${EPOCHREALTIME/[.,]/}
 for ((i = 0; i < 200; i++)); do : "$(string.indexOf "hello world" "o")"; done
-t2=${EPOCHREALTIME/./}
+t2=${EPOCHREALTIME/[.,]/}
 direct=$(( (t1 - t0) / 1000 )); forked=$(( (t2 - t1) / 1000 ))
 if (( direct < forked )); then
     kt_test_pass "direct ${direct} ms < subshell ${forked} ms"
