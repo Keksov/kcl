@@ -82,7 +82,19 @@ printf '%s' \"\$\$\" > '$TMP/killed.pid'
 exec sleep 120" >/dev/null 2>&1 &
 cpid=$!
 for (( i = 0; i < 1200; i++ )); do [[ -s "$TMP/killed.pid" ]] && break; sleep 0.1; done
-kill -TERM "$cpid" 2>/dev/null; wait "$cpid" 2>/dev/null
+# the pid file is written just BEFORE the exec: a TERM that lands while cygwin
+# execs is lost and the wait used to sit out the whole sleep 120 (found by the
+# ktests gate G4: ~1 run in 3 threaded on 5.2). So: TERM only once the process
+# IS the sleep, then a bounded wait, KILL if it is still there
+for (( i = 0; i < 100; i++ )); do
+    c=""; { read -r -d '' c < "/proc/$cpid/cmdline"; } 2>/dev/null
+    [[ "${c##*/}" == sleep* || -z "$c" ]] && break
+    sleep 0.05
+done
+kill -TERM "$cpid" 2>/dev/null
+for (( i = 0; i < 50; i++ )); do kill -0 "$cpid" 2>/dev/null || break; sleep 0.1; done
+kill -0 "$cpid" 2>/dev/null && kill -KILL "$cpid" 2>/dev/null
+wait "$cpid" 2>/dev/null
 kpid="$(<"$TMP/killed.pid")"
 leaked=no; [[ -n "$kpid" && -e "$P/.math_fe_${kpid}.awk" ]] && leaked=yes
 # ... and some minutes pass (the age guard, R3)
