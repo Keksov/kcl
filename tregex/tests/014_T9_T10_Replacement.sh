@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7 — the replacement grammar and the $( ) capture caveat.
 #
 #   T9   `$(TRegEx.replace …)` / `$(TRegEx.escape …)` lose the result's TRAILING

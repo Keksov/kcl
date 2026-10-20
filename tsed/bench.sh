@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for tsed (P1). Publishes the numbers README.md §10 quotes and
 # measures the PLAN.md §5 P1 gate:
 #

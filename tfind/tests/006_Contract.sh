@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Contract.sh — tfind P0: the kcl-wide contract (kcl/README.md §1) for
 # TFind (tfind/PLAN.md §2.1–§2.6, §3 F12).
 #

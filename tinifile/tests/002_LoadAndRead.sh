@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_LoadAndRead.sh - tinifile P1: the file parser (FillSectionList verbatim)
 # + the read core. Every case is an S-pin from PLAN.md section 3 (anchors into
 # inifiles.pp): S1 missing file, S2 comments/blank lines, S3 duplicates

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 010_Exchange_Operations.sh - Test Exchange Operations
 # Auto-migrated to ktests framework
 

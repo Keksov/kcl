@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_AddFamily.sh - Add / TryAdd / AddOrSetValue (P1.1)
 # FPC seed: rtl-generics tests.generics.dictionary2.pas (TTestGenDictionary:
 # TestAdd / TestTryAdd / TestAddOrSet / TestAddModify — the add-method matrix,

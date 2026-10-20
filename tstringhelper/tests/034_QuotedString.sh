@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 034_QuotedString.sh — rewritten in P5 for finding TSH-08.
 #
 # The old file accepted "either of two answers" on three of its ten

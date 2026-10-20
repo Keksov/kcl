@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P6 — ISO 8601 strings, TZ offsets, local<->UTC, time intervals (own-design).
 # Rows in ../TEST_COVERAGE_NOTES.md.
 

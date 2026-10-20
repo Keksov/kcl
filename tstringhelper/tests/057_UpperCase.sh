@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # UpperCase
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 012_D6_Locale.sh - decision D6 (kcl/PLAN.md section 1, kcl/README.md 1.6).
 #
 # Character semantics are part of this unit's contract: the case-insensitive

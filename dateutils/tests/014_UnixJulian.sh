@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P6.1/P6.2 — Unix + Julian/MJD conversions (own-design). tw16040 Julian and
 # tunitdt1 Unix anchors live in 002_FpcParity.sh. Rows in ../TEST_COVERAGE_NOTES.md.
 

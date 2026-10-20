@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_SortStabilityTorture.sh - TArray.sort STABILITY (a bash-side guarantee
 # stronger than FPC introsort, whose equal-order is unspecified — TEST_COVERAGE
 # row) proven with tagged elements, plus the torture matrix (elements with

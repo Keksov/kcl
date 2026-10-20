@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 017_G6_Separators.sh — review 2026-09-06, phase P3: the separator findings.
 #
 #   G6-01  `${path##*[$SEP$ALT]}` expands to a bracket expression containing a

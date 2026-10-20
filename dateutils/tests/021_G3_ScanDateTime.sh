@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 021_G3_ScanDateTime.sh — finding G3-08 (scanDateTime token rules).
 #
 # FPC reference: packages/rtl-objpas/src/inc/dateutil.inc, the nested

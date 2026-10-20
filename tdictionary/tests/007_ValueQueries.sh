@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_ValueQueries.sh - ContainsValue + GetValueDef (P2.2)
 # FPC impl ref: ContainsValue :750-774 (linear scan, default equality).
 # GetValueDef is a documented bash convenience (TryGetValue sugar), NOT in

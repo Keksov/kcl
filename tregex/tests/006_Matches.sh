@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Matches.sh - TRegEx.matches: global leftmost-longest scan -> count in
 # RESULT + lossless nameref array of match texts (+ optional offsets); empty-
 # match advance-by-one (.NET parity), greedy, no-match, invalid, i-flag, the

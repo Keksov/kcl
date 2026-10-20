@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for tregex (P4.2). Publishes the honest-positioning numbers
 # README.md quotes:
 #   - DISPATCH overhead: TRegEx.isMatch / .match (kklass static-proc dispatch)

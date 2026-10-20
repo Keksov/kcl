@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_BasicCreationAndInitialization.sh - Test TCustomApplication creation, initialization and destruction
 # Auto-generated for ktests framework
 

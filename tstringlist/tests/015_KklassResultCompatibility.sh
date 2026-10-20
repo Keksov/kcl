@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 015_KklassResultCompatibility.sh - kklass RESULT/stdout compatibility regressions
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

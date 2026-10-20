@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 037_Split.sh — rewritten in P5 for finding TSH-03 (and default R9).
 #
 # What the old file tested: `result=$(string.split "a,b,c" ",")` and then

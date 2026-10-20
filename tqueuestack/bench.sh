@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for tqueuestack (P5). Publishes the honest-positioning numbers:
 #   - per-op Enqueue/Dequeue and Push/Pop cost at a few sizes;
 #   - THE COMPACTION PROOF: a 10k interleaved-then-drained queue must show flat

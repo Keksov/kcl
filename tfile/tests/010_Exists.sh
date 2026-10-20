@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 010_exists.sh - Test TFile.Exists method
 # Auto-migrated to ktests framework
 

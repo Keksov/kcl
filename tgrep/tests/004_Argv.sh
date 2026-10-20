@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Argv.sh — tgrep P2: the argv model (tutil/PLAN.md §1.3, §2.1, §2.7, §5 P2;
 # pinned facts G1–G4).
 #

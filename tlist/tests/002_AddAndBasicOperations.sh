@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_AddAndBasicOperations.sh - Test Add method and basic operations
 # Auto-migrated to ktests framework
 

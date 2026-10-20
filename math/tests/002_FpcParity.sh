@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # FPC parity fixtures — ported verbatim from the FPC test tree, values kept
 # exactly (never "improved"). Built up incrementally: each assertion lands in
 # the phase that implements its function.

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 027_OptionsAtEnd.sh - Test edge cases with options at end of arguments
 # Tests options without values at end of argument list
 

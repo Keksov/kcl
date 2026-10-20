@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 020_integer_to_file_attributes.sh - Test TFile.IntegerToFileAttributes method
 # Auto-migrated to ktests framework
 

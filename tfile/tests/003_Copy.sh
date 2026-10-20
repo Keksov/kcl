@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_copy.sh - Test TFile.Copy method
 # Auto-migrated to ktests framework
 

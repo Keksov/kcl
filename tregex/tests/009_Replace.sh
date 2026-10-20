@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 009_Replace.sh - TRegEx.replace / replaceCb: the $-replacement grammar
 # ($0/$&/$1-$9/${n}/$$, invalid-group and unknown-$x kept literal, sed
 # metacharacters & \ LITERAL), replace-ALL default + maxCount, i-flag, empty-

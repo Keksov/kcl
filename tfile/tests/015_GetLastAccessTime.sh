@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 015_get_last_access_time.sh - Test TFile.GetLastAccessTime method
 # Auto-migrated to ktests framework
 

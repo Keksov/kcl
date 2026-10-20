@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 066_TSH09_Performance.sh — finding TSH-09: O(n*m) character loops.
 #
 # Before P5 replace/indexOf/countChar walked the string one character at a

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 015_Performance_Test.sh - Test Performance Test
 # Auto-migrated to ktests framework
 

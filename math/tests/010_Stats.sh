@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P6: statistics. Arrays as arg lists; engine computes each in one awk pass.
 # sumInt is pure-bash integer (exact, zero-fork). Sample stats use N-1, popn N.
 # New coverage — see ../TEST_COVERAGE_NOTES.md.

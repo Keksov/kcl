@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 026_read_all_bytes.sh - Test TFile.ReadAllBytes method
 # Auto-migrated to ktests framework
 

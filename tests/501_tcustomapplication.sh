@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # The runtime checks of ONE migrated kcl unit — the stem after `NNN_` names it;
 # the checks are kclt_unit_tests in kcl_units.sh (one file per unit: loads run
 # in parallel under the threaded runner).

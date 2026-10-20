@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P5-F1 (owner decision 2026-09-09): compareTo is FPC's StrComp — an ORDINAL,
 # byte-wise comparison independent of the caller's locale. compare and
 # compareOrdinal keep comparing the WHOLE strings (a documented difference from

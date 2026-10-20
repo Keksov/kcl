@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for tpipe (P2.1). Publishes the numbers README.md §6 quotes
 # and measures the PLAN.md §2.6 gates:
 #   (a) DISPATCH COST — a plain function call vs a kklass STATIC member vs a

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 018_SecurityTests.sh - Comprehensive security testing for TCustomApplication
 # Tests argument storage safety against various attack vectors
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 011_Notifications.sh - onKeyNotify / onValueNotify mechanics (P5.1)
 # FPC impl refs: KeyNotify/ValueNotify/PairNotify :40-70 (PairNotify = KeyNotify
 # THEN ValueNotify), SetValue :54-63 (assign FIRST, then ValueNotify(old,

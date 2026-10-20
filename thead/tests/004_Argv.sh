@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Argv.sh — thead P0: the argv model (thead/PLAN.md §1.2, §2.1–§2.3, §2.8;
 # pinned facts H1–H5, H4b).
 #

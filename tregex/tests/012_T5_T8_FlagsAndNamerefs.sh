@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7 — malformed CALLS answer rc 2 (kcl/README.md §1.2, §1.7).
 #
 #   T5  flags were tested with `*i*`, so any flag word containing an `i` turned

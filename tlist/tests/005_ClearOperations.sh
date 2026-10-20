@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_Clear_Operations.sh - Test Clear Operations
 # Auto-migrated to ktests framework
 

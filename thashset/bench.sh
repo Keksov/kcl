@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for thashset (P4.2). Publishes the honest-positioning numbers:
 #   (a) per-op Add and Contains (hit and miss) at n=1000 and n=5000;
 #   (b) per-op Remove at the same sizes;

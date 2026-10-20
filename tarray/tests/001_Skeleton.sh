@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_Skeleton.sh - tarray P0.2 skeleton gate. Proves the SCAFFOLDING, not
 # behavior: (1) source green, (2) `build TArray` green, (3) all 13 static-proc
 # members dispatch, (4) the silent RESULT contract (direct call sets RESULT,

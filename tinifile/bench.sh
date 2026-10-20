@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for tinifile (P4). Publishes the honest-positioning numbers:
 #   - load: parse an N-key file (fork-free while-read + FillSectionList);
 #   - ReadString hot path: per-lookup cost (linear first-match scan — FPC's own

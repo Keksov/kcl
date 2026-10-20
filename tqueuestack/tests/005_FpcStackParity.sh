@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_FpcStackParity.sh - FPC-TRACEABLE cross-checks: the TTestSimpleStack core
 # procedures of packages/rtl-generics/tests/tests.generics.stack.pas, adapted
 # verbatim (DoAdd pushes IntToStr(1..count); exceptions -> rc 1). Notification

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_IndexOfAndSearchOperations.sh - Test IndexOf and search operations
 # Auto-migrated to ktests framework
 

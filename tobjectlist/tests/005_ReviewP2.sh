@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_ReviewP2.sh — regressions for the 2026-09-06 review, phase P2.
 #
 #   G1-01  TObjectList.Destroy freed the elements but not `${inst}_items`, and

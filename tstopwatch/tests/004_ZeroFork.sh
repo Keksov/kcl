@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_ZeroFork.sh - the ENTIRE TStopwatch API runs with PATH='' (zero forks:
 # every operation is builtins + 64-bit shell arithmetic; EPOCHREALTIME is a
 # builtin variable). House goal — on MSYS2 a single fork costs ~10-17 ms,

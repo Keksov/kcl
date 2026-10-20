@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 019_G3_IsoForms.sh — findings G3-02 and G3-09 (ISO 8601 parsing).
 #
 # G3-02: `_parse_iso` only checked `d <= 31`, so `2011-02-31` was *accepted* and

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GetHashCode
 # Auto-migrated to ktests framework
 

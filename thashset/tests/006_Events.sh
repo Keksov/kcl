@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Events.sh — thashset P3: the OnNotify event seam.
 #
 # Source of truth: FPC 3.2.2 packages/rtl-generics/src/generics.collections.pas

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 043_G6_ReturnContract.sh — decision D3 + default R8 for tfile.
 #
 # Before P3 every member answered by printing, so reading one cost a fork and

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 KCL=/c/projects/kkbot/kbool/kcl
 for u in dateutils math tarray tdirectory tfile tpath tregex tstringhelper tlist tdictionary thashset tqueuestack tinifile tstopwatch tcustomapplication; do source $KCL/$u/$u.sh; done
 c() { local l=$1; shift; RESULT="<unset>"; REPLY="<unset>"; "$@" >"$G8/c.out" 2>/dev/null; local rc=$?; printf '%-38s rc=%s stdout=[%s] RESULT=[%s] REPLY=[%s]\n' "$l" $rc "$(head -c30 $G8/c.out|tr '\n' '~')" "${RESULT:0:30}" "${REPLY:0:20}"; }

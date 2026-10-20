@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_Chars.sh — TStringHelper.Chars[] (0-based character indexing).
 #
 # P5: the out-of-range answer changed. The member used to PRINT the word

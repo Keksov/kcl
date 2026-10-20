@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 011_DeQuotedString.sh — rewritten in P5 for finding TSH-08.
 #
 # The old member was `printf '%s\n' "${self//\"/}"`: it deleted EVERY double

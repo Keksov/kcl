@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for tutil (P3.1). Publishes the numbers README.md §6 quotes
 # and measures the PLAN.md §5 P3.1 gate:
 #

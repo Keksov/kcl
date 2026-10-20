@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 028_SetArgsEdgeCases.sh - Test SetArgs method edge cases
 # Tests various boundary conditions for SetArgs initialization
 

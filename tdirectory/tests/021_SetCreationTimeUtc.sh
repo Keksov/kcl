@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SetCreationTimeUtc
 #
 # Rewritten for P3 (review 2026-09-06, G6-08 / R13): the body mapped this to

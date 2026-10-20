@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Escape.sh - TRegEx.escape: every ERE metacharacter backslash-quoted so
 # the output matches the input LITERALLY; round-trip via isMatch/match; the
 # body-echo ($()) + RESULT dual contract; empty / no-meta / all-meta / torture

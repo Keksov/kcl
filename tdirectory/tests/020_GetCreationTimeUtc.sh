@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GetCreationTimeUtc
 # Auto-migrated to ktests framework
 

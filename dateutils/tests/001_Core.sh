@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Core representation (P0): civil calendar, KDT split/join, ISO format/parse,
 # wall clock, dateOf/timeOf, constant getters, and the perf/shape contracts.
 #

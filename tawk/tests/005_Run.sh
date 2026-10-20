@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_Run.sh — tawk P0: TAwk against the real tool on a real fixture tree
 # (tawk/PLAN.md §1.1, §2.2–§2.7, §4; pinned facts A5–A12).
 #

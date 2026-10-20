@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_Lifecycle.sh — thttpserver P2: what a Serve leaves behind, and signals
 # (PLAN §2.5 Shutdown, §2.6, §3 facts 10 (server path) and 11).
 #

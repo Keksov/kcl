@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 014_LogFiltering.sh - Log with EventLogFilter, in the shapes a program uses.
 #
 # Like 010, but exercising a changing filter, formatted messages and long

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for dateutils hot paths (P7.3; caller section added in P6).
 #
 # Two different costs live here and the README used to quote only the first:

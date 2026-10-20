@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7 — the two documentation defects that were also behaviour claims.
 #
 #   T3 (X-LOCALE)  `tregex.sh` S9 and `docs/ERE-vs-PCRE.md` §5 claimed that

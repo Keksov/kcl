@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 026_MixedShortOptions.sh - Test mixed/combined short options
 # Tests handling of -abc format where it should be -a -b -c via CheckOptions
 

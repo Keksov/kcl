@@ -170,7 +170,7 @@ positions `run` exists for. `kk.call_silent` sets and restores the flag, keeps
 `RESULT`, and still dispatches **virtually**.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
 
 class TStream
@@ -232,7 +232,7 @@ arguments unchanged. For `TGrep.Create PATTERN PATH...` that hands `TUtil`
 built argv twice, once from `${inst}_args` and once from `${inst}_paths`.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
 
 class TB
@@ -307,7 +307,7 @@ rule: a unit that assigns every var cannot be bitten by either behaviour, and a
 unit that does not will pass its suite on one bash and die on the other.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
 
 class TV
@@ -367,7 +367,7 @@ explicit `return` **skips** it, and `kk._invoke` then restores the **caller's**
 spelling that works.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
 
 class TR
@@ -408,7 +408,7 @@ attributed to `kklass.sh` and a line number inside kklass — which sends the
 reader to the wrong file.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
 
 class TN
@@ -464,7 +464,7 @@ The first attempted fix was `>/dev/null` on the delegated call. It suppresses th
 count — and the callback's own output, and a printing `.Add`'s, with it.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kcl/tutil/tutil.sh
 
 p2()  { printf 'x\ny\n'; }
@@ -510,7 +510,7 @@ member bodies, and it is why every CR-bearing expected value in both suites is
 built with `printf -v CR '\r'` and copied with a plain `COPY=( "${SRC[@]}" )`.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 printf -v CR '\r'
 x=$'cr\r';                  printf "x=\$'cr\\\\r'          len %s\n" "${#x}"
 A=( $'cr\r' );              printf "A=( \$'cr\\\\r' )      len %s\n" "${#A[0]}"
@@ -583,7 +583,7 @@ undo it), caller-set (never touch), off — and it was only distinguishing two.
 This is the probe that found it:
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kcl/tgrep/tgrep.sh
 show() { printf '%-42s nul=%s _nulDerived=%s\n' "$1" "$( g.nul )" "$( g._nulDerived )"; }
 

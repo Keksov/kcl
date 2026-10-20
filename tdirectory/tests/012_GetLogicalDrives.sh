@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GetLogicalDrives
 #
 # Rewritten for P3 (review 2026-09-06): Test 1 was

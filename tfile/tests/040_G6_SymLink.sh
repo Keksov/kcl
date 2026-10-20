@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 040_G6_SymLink.sh — review 2026-09-06, phase P3.
 #
 #   G6-05  createSymLink handed POSIX paths to `cmd /c mklink`, so it never

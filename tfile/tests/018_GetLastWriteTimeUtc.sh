@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 018_get_last_write_time_utc.sh - Test TFile.GetLastWriteTimeUtc method
 # Auto-migrated to ktests framework
 

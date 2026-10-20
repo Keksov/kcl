@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source /c/projects/kkbot/kbool/kcl/tdirectory/tdirectory.sh
 bs=$'\x5c'; printf 'bs bytes: %s\n' "$(printf %s "$bs" | od -An -c)"

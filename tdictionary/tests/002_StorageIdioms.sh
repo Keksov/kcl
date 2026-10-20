@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_StorageIdioms.sh - P0.2 gate: the prefixed-assoc storage design and its
 # pinned idioms must be safe for ARBITRARY bash-string keys on this bash.
 #

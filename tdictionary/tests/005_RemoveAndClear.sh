@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_RemoveAndClear.sh - Remove / Clear (P1.3)
 # FPC seed: tests.generics.dictionary2.pas (DoTestRemove — remove-existing path).
 # FPC impl refs: Remove :492 (absent key -> silent no-op), Clear :515.

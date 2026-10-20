@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 016_Adaptive_Growth.sh - Test Adaptive Growth
 # Auto-migrated to ktests framework
 

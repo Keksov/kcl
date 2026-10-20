@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 008_PropertiesAndIntegration.sh - Test TCustomApplication properties and integration scenarios
 # Auto-generated for ktests framework
 

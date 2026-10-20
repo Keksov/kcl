@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 021_ReviewP2.sh — regressions for the 2026-09-06 review, phase P2 (containers).
 # Findings pinned here (each was RED on the pre-fix code):
 #

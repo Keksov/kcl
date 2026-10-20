@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for tdictionary hot paths (P7.2).
 # Thin-wrapper claims to prove:
 #   - every operation is fork-free on the direct-call path;

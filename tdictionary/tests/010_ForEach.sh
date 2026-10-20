@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 010_ForEach.sh - ForEach (P3.2): pair-enumerator analog with SNAPSHOT
 # semantics. FPC enumeration over a mutating dictionary is undefined; this
 # implementation is defined-safe: deleted pairs are skipped (existence

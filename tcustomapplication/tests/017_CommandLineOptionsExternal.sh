@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 017_CommandLineOptionsExternal.sh - the option API as seen from a SEPARATE
 # bash process: the unit must behave the same when it is sourced fresh, and the
 # answers must not depend on anything this shell happens to have in scope.

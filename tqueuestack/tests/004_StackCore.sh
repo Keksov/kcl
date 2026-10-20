@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_StackCore.sh - tqueuestack P2: the TStack core. Pins: LIFO order incl.
 # interleaved push/pop, Pop/Extract/Peek empty -> rc 1 vs TryPop's SILENT
 # rc 1, Clear = Pop-loop shape (LIFO events from P3), ToArray bottom->top

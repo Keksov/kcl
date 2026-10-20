@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # IndexOfAny
 # Auto-migrated to ktests framework
 

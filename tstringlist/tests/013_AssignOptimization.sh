@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 013_AssignOptimization.sh - Test Assign operation with optimization verification
 # Tests the optimized Assign procedure (Issue 2.1: 41.2x speedup)
 

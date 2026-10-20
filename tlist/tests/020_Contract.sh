@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Contract — the kcl-wide contract for this unit (kcl/README.md section 1),
 # kcl review 2026-09-06 phase P1. Findings pinned here:
 #

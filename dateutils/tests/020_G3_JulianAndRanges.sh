@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 020_G3_JulianAndRanges.sh — findings G3-03, G3-06, G3-07, G3-10.
 #
 # G3-03 `_span_fixed` divided a NEGATIVE numerator and then printed whole and

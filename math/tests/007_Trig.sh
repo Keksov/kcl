@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P4: circular trig + inverse trig (engine). kt_assert_near throughout.
 # pi fractions given as exact Double literals (avoid awk %.6g truncation).
 # New coverage — see ../TEST_COVERAGE_NOTES.md.

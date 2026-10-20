@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_GetNonOptions.sh - Test TCustomApplication GetNonOptions method
 # Auto-generated for ktests framework
 

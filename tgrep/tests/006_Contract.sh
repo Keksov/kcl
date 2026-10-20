@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Contract.sh — tgrep P2: the kcl-wide contract (kcl/README.md §1) for
 # TGrep (tutil/PLAN.md §2.2, §2.4, §5 P2.2).
 #

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 030_set_attributes.sh - Test TFile.SetAttributes method
 #
 # Rewritten for P3 (review 2026-09-06, G6-07): the body used to be a silent

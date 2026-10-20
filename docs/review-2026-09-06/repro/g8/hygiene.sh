@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Load-hygiene probe: snapshot shell state, source every unit, diff.
 KCL=/c/projects/kkbot/kbool/kcl
 snap() { set -o > "$1.seto"; shopt -p > "$1.shopt"; printf '%q\n' "$IFS" > "$1.ifs"; pwd > "$1.pwd"; trap -p > "$1.trap"; jobs -l > "$1.jobs"; compgen -v | sort > "$1.vars"; compgen -A function | sort > "$1.funcs"; }

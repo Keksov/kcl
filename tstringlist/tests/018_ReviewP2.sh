@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 018_ReviewP2.sh — regressions for the 2026-09-06 review, phase P2.
 #
 #   G1-01  `${inst}_items` survived `.delete` (TList had no destructor).

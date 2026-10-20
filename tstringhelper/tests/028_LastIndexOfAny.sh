@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 028_LastIndexOfAny.sh — rewritten in P5 for finding TSH-06.
 #
 # Two of the old assertions accepted either of two answers ("4 or 7",

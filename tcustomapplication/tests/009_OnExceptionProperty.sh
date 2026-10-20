@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 009_OnExceptionProperty.sh - the OnException property and its validation.
 #
 # TCA-20: `OnException = "my handler"` used to be executed as a command, so the

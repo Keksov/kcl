@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 KCL=/c/projects/kkbot/kbool/kcl
 for u in tlist tstringlist tobjectlist tdictionary thashset tqueuestack tarray tstringhelper dateutils math tinifile; do source $KCL/$u/$u.sh; done
 M='/tmp/g8_inj_marker'

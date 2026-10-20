@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_Run.sh — ttail P0: TTail against the real tool on a real tree
 # (ttail/PLAN.md §1.1, §2.1, §2.2, §3; thead/PLAN.md §2.2–§2.7, §4; pinned facts
 # H3, H6–H11 mirrored for tail, and T1–T4).

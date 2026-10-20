@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Bench.sh — tutil P3: the PLAN.md §5 P3.1 performance gates, as assertions.
 #
 # TWO SETS OF NUMBERS, on purpose.

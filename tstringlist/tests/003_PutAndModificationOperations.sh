@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_PutAndModificationOperations.sh - Test Put method and string modifications
 # Auto-migrated to ktests framework
 

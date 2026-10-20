@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_ReviewP2.sh — regressions for the 2026-09-06 review, phase P2 (the G2
 # items of this unit; the set algebra of thashset's own P2 is NOT touched here).
 #

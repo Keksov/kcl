@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_MembershipCore.sh - thashset P1: the membership core. Pins: the
 # Boolean-rc contract that is the LOUD difference from TDictionary (Add rc 0
 # added / rc 1 dup SILENT; Remove rc 0 removed / rc 1 absent SILENT; Contains

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P5.2 — week-date and day-of-week-in-month encodings (own-design).
 # Rows in ../TEST_COVERAGE_NOTES.md.
 

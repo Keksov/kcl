@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_FpcParity.sh - FPC-TRACEABLE cross-checks. Mined from the FPC seed
 #   packages/rtl-generics/tests/tests.generics.arrayhelper.pas
 # (the dedicated TArrayHelper fpcunit). Each case cites its FPC procedure and

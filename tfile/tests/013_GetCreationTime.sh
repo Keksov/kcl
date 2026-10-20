@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 013_get_creation_time.sh - Test TFile.GetCreationTime method
 # Auto-migrated to ktests framework
 

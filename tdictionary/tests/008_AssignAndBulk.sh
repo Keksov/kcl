@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 008_AssignAndBulk.sh - Assign + AddPairs (P2.3)
 # FPC ref: Create(ACollection) = Create + `for pair in collection do Add(pair)`
 # (impl:106-114); a raise mid-loop aborts it — AddPairs mirrors that shape.

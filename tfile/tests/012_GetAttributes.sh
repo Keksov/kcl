@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 012_get_attributes.sh - Test TFile.GetAttributes method
 # Auto-migrated to ktests framework
 

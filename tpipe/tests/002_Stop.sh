@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_Stop.sh — tpipe P0: TPipe.stop, the close/kill/wait path, TPipe.lastRc.
 #
 # Pinned facts (PLAN.md §3), by section:
@@ -87,7 +87,7 @@ kt_test_section "B/C. the close-kill-wait path, in a child under timeout"
 
 CHILD="$TMP/stop_child.sh"
 cat > "$CHILD" <<'CHILD_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # $1 = tpipe unit dir, $2 = mode. Prints one line: rc=N res=N lastrc=N us=N
 source "$1/tpipe.sh"
 

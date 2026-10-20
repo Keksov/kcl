@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 012_IntegrationAndComplexScenarios.sh - Integration tests and complex scenarios
 # Auto-migrated to ktests framework
 

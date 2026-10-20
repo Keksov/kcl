@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P4: hyperbolic + area (inverse hyperbolic) functions (engine). Includes the
 # Delphi (arc*H) and FK (ar*H) spellings, robust large-x tanh, and round-trips.
 # New coverage — see ../TEST_COVERAGE_NOTES.md.

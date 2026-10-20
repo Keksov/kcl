@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 017_Batch_Operations.sh - Test Batch Operations
 # Auto-migrated to ktests framework
 

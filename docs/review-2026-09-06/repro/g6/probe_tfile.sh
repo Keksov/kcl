@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source /c/projects/kkbot/kbool/kcl/tfile/tfile.sh
 W="$S/w_tfile"; rm -rf "$W"; mkdir -p "$W"; cd "$W"

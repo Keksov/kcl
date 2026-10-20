@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_decrypt.sh - Test TFile.Decrypt method
 # Auto-migrated to ktests framework
 

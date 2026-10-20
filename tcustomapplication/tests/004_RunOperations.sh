@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_RunOperations.sh - Run / DoRun / Terminate.
 #
 # FPC: `Run` is `Repeat Try DoRun except HandleException(Self) Until Terminated`.

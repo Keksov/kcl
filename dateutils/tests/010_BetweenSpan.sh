@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P4.2 — *Between, periodBetween, *Span, dateTimeDiff (own-design).
 # Rows in ../TEST_COVERAGE_NOTES.md.
 

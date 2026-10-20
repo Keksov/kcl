@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7 — the two performance findings, closed with RELATIVE gates (kcl PLAN §4:
 # perf walls are pinned by ratios, never by milliseconds).
 #

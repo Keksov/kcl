@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_ItemsAndLookup.sh - GetItem / SetItem / TryGetValue / ContainsKey (P1.2)
 # FPC seed: tests.generics.dictionary2.pas (TestAddModify — Items[] update path;
 # AssertKeyVal/AssertKeyNotFound — TryGetValue/ContainsKey shapes).

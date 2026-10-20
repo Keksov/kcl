@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Argv.sh — tsed P0: the argv model (tsed/PLAN.md §1.2, §2.1–§2.5; pinned
 # facts S1–S5).
 #

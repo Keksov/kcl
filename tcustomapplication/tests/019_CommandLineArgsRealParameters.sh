@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 019_CommandLineArgsRealParameters.sh - a real script's own command line.
 #
 # The old version of this file wrote its helper apps into /tmp and guessed the

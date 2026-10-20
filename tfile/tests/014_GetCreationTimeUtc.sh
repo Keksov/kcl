@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 014_get_creation_time_utc.sh - Test TFile.GetCreationTimeUtc method
 # Auto-migrated to ktests framework
 

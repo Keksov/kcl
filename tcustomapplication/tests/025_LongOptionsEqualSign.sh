@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 025_LongOptionsEqualSign.sh - Long options with an equals sign.
 #
 # `--name=value` is the ONLY way a long option carries a value in FPC: the

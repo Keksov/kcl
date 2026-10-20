@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 011_Move_Operations.sh - Test Move Operations
 # Auto-migrated to ktests framework
 

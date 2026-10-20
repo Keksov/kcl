@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_Skeleton.sh - tqueuestack P0 skeleton gate. Pins the ctor core: storage
 # init (items + qhead), computed Count == ${#items[@]} (probes Q1/Q7),
 # TObjectQueue/TObjectStack ctor token with the FPC OWNS-DEFAULT-TRUE (:483/

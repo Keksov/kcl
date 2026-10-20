@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 011_T6_Performance.sh - review 2026-09-06, phase P8, finding T6.
 #
 # Key lookup used to call a helper FUNCTION per candidate row and to walk the

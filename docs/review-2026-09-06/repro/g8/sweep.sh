@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 G8=$(dirname "$0"); KB=/c/projects/kkbot/kbool
 snap() { (cd $KB && git status --porcelain --ignored=no) > $G8/gs_kbool_$1.txt; (cd $KB/kcl && git status --porcelain) > $G8/gs_kcl_$1.txt; (cd $KB/kklass && git status --porcelain) > $G8/gs_kklass_$1.txt; find $KB -name '.ckk' -type d | sort > $G8/ckk_$1.txt; ls /tmp | sort > $G8/tmp_$1.txt; }
 snap before

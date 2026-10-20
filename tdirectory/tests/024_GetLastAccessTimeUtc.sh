@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GetLastAccessTimeUtc
 # Auto-migrated to ktests framework
 

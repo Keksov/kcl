@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 010_Bench.sh — thttpserver P3: the loose performance gate on the fork-free
 # REPLAY path (PLAN §2.8, C22). Socket numbers are REPORTED by ../bench.sh,
 # never asserted: a socket request is one listener spawn (a fork, an msys

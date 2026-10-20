@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 032_set_creation_time_utc.sh - Test TFile.SetCreationTimeUtc method
 #
 # Rewritten for P3 (review 2026-09-06, G6-07 / R13): the body was a silent

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_TypedAccessors.sh - tinifile P3: the typed Read/Write family + options.
 # Pins from PLAN.md section 3: S5 integer val() grammar (decimal / $hex / 0x /
 # &octal / %binary / leading-zero-is-DECIMAL / sign / invalid->default), the

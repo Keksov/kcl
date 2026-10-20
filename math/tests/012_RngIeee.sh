@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7: RNG (randomRange/randomFrom, pure-bash), IEEE predicates (isNan/
 # isInfinite), and the FPU-control wontfix stubs. New coverage — see NOTES.
 

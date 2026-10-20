@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kcl/tcustomapplication/tcustomapplication.sh
 echo "--- A1 --opt=value (FPC's long-option value syntax)"
 TCustomApplication.new a; a.SetArgs -- --config=data.ini file.txt

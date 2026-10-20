@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 012_Pack_Operations.sh - Test Pack Operations
 # Auto-migrated to ktests framework
 

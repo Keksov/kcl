@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 014_Edge_Cases.sh - Test Edge Cases
 # Auto-migrated to ktests framework
 

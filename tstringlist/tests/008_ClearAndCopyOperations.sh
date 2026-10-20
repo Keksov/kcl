@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 008_ClearAndCopyOperations.sh - Test Clear and Copy operations
 # Auto-migrated to ktests framework
 

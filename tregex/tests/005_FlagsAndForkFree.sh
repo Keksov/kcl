@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_FlagsAndForkFree.sh - the i-flag semantics (case sensitivity is decided
 # SOLELY by the flag, ambient `shopt nocasematch` RESTORED after every call),
 # and the zero-fork discipline (PATH='' on every P1 entry point; no $() in the

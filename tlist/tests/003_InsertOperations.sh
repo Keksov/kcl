@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_Insert_Operations.sh - Test Insert Operations
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 022_CaseSensitiveOptions.sh - Test TCustomApplication case-sensitive option handling
 # Tests the CaseSensitiveOptions property behavior
 

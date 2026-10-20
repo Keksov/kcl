@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 008_Index_Of_Operations.sh - Test Index Of Operations
 # Auto-migrated to ktests framework
 

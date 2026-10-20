@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 022_open.sh - Test TFile.Open method
 # Auto-migrated to ktests framework
 

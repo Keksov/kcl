@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 016_SortDelegation.sh - pins the TStringList.Sort -> TArray.sort delegation
 # (roadmap follow-up). The existing 001-015 suites already prove byte-identical
 # Sort/CompareStrings output; this file adds what they lacked: STABILITY on

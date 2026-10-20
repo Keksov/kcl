@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 027_read_all_lines.sh - Test TFile.ReadAllLines method
 # Auto-migrated to ktests framework
 

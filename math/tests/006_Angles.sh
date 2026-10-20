@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P3: angle conversions (deg/rad/grad/cycle) + DegNormalize. All Tier-B engine
 # results -> kt_assert_near. New coverage — see ../TEST_COVERAGE_NOTES.md.
 

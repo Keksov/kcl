@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 018_G6_PathParsing.sh — review 2026-09-06, phase P3.
 #
 #   G6-02  changeExtension cut at the last dot of the WHOLE path, so a dotted

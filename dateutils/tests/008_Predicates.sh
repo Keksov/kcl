@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P3 — day predicates: isToday, isSameDay, isSameMonth, previousDayOfWeek.
 # Rows in ../TEST_COVERAGE_NOTES.md.
 

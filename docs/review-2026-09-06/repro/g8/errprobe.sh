@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 KCL=/c/projects/kkbot/kbool/kcl
 probe() { # label, command...
   local label=$1; shift

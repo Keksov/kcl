@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 034_G6_Lifecycle.sh — review 2026-09-06, phase P3.
 #
 #   G6-04  `tdirectory.delete "lnk/"` ran `rm -rf -- "lnk/"`, and a trailing

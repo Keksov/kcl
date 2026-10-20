@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 024_GetOptionValuesEdgeCases.sh - Test GetOptionValues edge cases
 #
 # GetOptionValues writes a caller array and returns the COUNT in RESULT

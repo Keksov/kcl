@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 029_ConstructorWithArgs.sh - Test TCustomApplication SetArgs functionality
 # Tests creating instances and setting arguments via SetArgs method
 

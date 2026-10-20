@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_FpcBoolParity.sh - the COMPLETE fpcunit seed
 #   packages/fcl-base/tests/utcinifile.pp
 # mined verbatim: TIniFile_TestWriteBoolean + TIniFile_TestReadBoolean, all 16

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_BasicCreationAndDestruction.sh - Test basic TList creation and destruction
 # Auto-migrated to ktests framework
 

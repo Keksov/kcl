@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_Skeleton.sh - tregex class WIRING + return-contract mechanics (phase-
 # stable). Proves: (1) source is green, (2) `build TRegEx` is green, (3) every
 # declared member is defined, (4) the silent-RESULT / no-$()-leak contract for

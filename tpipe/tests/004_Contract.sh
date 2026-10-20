@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Contract.sh — tpipe P1: the kcl-wide contract (kcl/README.md §1) for TPipe.
 #
 # What it pins:
@@ -204,7 +204,7 @@ fi'
 # exit status tells the two apart exactly.
 FAILCHILD="$TMP/fail_child.sh"
 cat > "$FAILCHILD" <<'FAIL_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # $1 = tpipe unit dir, $2 = which sink. Runs under set -eu: the sink answers
 # rc 1 (the producer exited 4), so errexit must end this script with status 1
 # and "NEVER-REACHED" must not be printed.
@@ -240,7 +240,7 @@ fi
 
 NOECHILD="$TMP/noe_child.sh"
 cat > "$NOECHILD" <<'NOE_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 # The same producer WITHOUT set -e: the caller keeps running, RESULT holds the
 # records read before the producer failed (the named deviation, PLAN §2.4).
 set -u

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 028_read_all_text.sh - Test TFile.ReadAllText method
 # Auto-migrated to ktests framework
 

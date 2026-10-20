@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 024_open_text.sh - Test TFile.OpenText method
 # Auto-migrated to ktests framework
 

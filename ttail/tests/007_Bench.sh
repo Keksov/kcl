@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_Bench.sh — ttail P1: the PLAN.md §4 P1 performance gate, as assertions
 # (the shared gate text is ../../thead/PLAN.md §5 P1).
 #

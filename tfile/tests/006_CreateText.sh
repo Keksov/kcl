@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_create_text.sh - Test TFile.CreateText method
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7 / R11 — the float engine NEVER dies.
 #
 # Findings closed here:

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_Bench.sh — tsed P1: the PLAN.md §5 P1 performance gate, as assertions.
 #
 # TWO SETS OF NUMBERS, on purpose.

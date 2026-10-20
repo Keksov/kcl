@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_AddAndRetrievalOperations.sh - Test Add, Get, and retrieval operations
 # Auto-migrated to ktests framework
 

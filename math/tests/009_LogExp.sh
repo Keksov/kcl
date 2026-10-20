@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P5: logarithms, exponentials, powers, hypot, frexp/ldexp (engine).
 # Highlights: LnXP1/ExpM1 accuracy near 0, overflow-safe Hypot, frexp/ldexp
 # round-trip. New coverage — see ../TEST_COVERAGE_NOTES.md.

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 029_replace.sh - Test TFile.Replace method
 # Auto-migrated to ktests framework
 

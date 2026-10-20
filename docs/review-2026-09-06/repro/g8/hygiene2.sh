@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 KCL=/c/projects/kkbot/kbool/kcl
 G8=$(dirname "$0")
 units="dateutils math tarray tcustomapplication tdictionary tdirectory tfile thashset tinifile tlist tobjectlist tpath tqueuestack tregex tstopwatch tstringhelper tstringlist"

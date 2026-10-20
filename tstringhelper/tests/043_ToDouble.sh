@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ToDouble
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_OwnershipTorture.sh - the ownership matrix across every removal path
 # (owning AND non-owning), plus the hostile cases: duplicate handles, mixed
 # live/plain-string/dead elements, owns toggled mid-life, invalid indices

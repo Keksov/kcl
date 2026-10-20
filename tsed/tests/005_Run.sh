@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_Run.sh — tsed P0: TSed against the real tool on a real fixture tree
 # (tsed/PLAN.md §1.1, §2.2–§2.7, §4; pinned facts S5–S12).
 #

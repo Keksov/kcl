@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 050_ToUpper.sh — extended in P5 for finding TSH-04.
 #
 # The old file was ASCII only, so the byte-vs-character defect could not show:

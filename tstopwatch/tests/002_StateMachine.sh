@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_StateMachine.sh - TStopwatch state machine: EXACT, timing-free tests.
 # S1 (fresh stopped/zero), S4 (double-transition no-ops), S5 (Reset/Restart),
 # S6 (truncating ms — proven by white-box seeding _accum, no real time

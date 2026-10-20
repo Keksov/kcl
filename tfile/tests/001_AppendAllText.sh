@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_append_all_text.sh - Test TFile.AppendAllText method
 # Auto-migrated to ktests framework
 

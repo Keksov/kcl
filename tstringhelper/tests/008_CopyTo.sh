@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 008_CopyTo.sh — extended in P5 for finding TSH-16.
 #
 # The old file had one assertion and wrote its capture file into the system

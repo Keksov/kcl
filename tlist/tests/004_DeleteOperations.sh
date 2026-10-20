@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Delete_Operations.sh - Test Delete Operations
 # Auto-migrated to ktests framework
 

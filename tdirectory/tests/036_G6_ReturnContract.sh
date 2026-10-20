@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 036_G6_ReturnContract.sh — decision D3 + default R8 for tdirectory.
 #
 # Before P3 every member printed its answer (exists/isEmpty even printed

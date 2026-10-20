@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Application.sh — thttpserver P3: THttpApplication : TCustomApplication
 # (PLAN §1.3, §2.7, §2.11; §3 facts 10 (the App.Run path), 18 and 22).
 #

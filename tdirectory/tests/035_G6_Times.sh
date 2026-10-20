@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 035_G6_Times.sh — review 2026-09-06, phase P3.
 #
 #   G6-08  the *Utc setters formatted the value with `date -u … +%Y%m%d%H%M.%S`

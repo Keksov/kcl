@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 010_T13_OutArrays.sh - review 2026-09-06, phase P8, finding T13.
 #
 # The six members that fill (or read) a caller-named array - ReadSection,

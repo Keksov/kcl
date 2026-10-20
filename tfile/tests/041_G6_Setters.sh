@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 041_G6_Setters.sh — review 2026-09-06, phase P3.
 #
 #   G6-07  tfile.set*Time and tfile.setAttributes were silent no-ops (`: ;`)

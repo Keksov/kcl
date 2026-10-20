@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_Run.sh — thead P0: THead against the real tool on a real tree
 # (thead/PLAN.md §1.1, §2.2–§2.7, §3, §4; pinned facts H3, H6–H11).
 #

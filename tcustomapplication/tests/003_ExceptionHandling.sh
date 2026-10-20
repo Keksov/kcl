@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_ExceptionHandling.sh - HandleException / ShowException.
 #
 # The old version asserted `$? -eq 0` after every call, which every possible

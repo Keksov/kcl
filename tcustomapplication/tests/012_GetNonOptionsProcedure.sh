@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 012_GetNonOptionsProcedure.sh - Test TCustomApplication GetNonOptions procedure overload
 # Auto-generated for ktests framework
 

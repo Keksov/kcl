@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 013_CheckOptionsTStrings.sh - Test TCustomApplication CheckOptions overloads with TStrings parameters
 # Auto-generated for ktests framework
 

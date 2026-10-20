@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 037_write_all_bytes.sh - Test TFile.WriteAllBytes method
 # Auto-migrated to ktests framework
 

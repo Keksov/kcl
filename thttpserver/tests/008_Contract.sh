@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 008_Contract.sh — thttpserver P0–P3: the kcl contract (kcl/README.md §1,
 # PLAN §2.1) for the message classes, the replay transport, the router, the
 # netcat transport, the server and (P3) the application and the examples.

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Format
 # Auto-migrated to ktests framework
 

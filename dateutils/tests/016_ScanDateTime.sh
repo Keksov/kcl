@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7.1 — scanDateTime practical subset (own-design). The tw16040 anchor lives in
 # 002_FpcParity.sh. Rows in ../TEST_COVERAGE_NOTES.md.
 

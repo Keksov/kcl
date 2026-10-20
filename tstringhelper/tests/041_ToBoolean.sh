@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 041_ToBoolean.sh — rewritten in P5 for finding TSH-07 (default R9).
 #
 # The old file had exactly two assertions, `true` and `false`, and the member

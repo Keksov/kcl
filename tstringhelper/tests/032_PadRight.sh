@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PadRight
 # Auto-migrated to ktests framework
 

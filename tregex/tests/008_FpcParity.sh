@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 008_FpcParity.sh - FPC-TRACEABLE cross-checks. The ONLY tregex tests sourced
 # from an external oracle: FPC's Delphi-compatible TRegEx
 #   packages/vcl-compat/src/system.regularexpressions.pp

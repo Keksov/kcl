@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_G3_BooleansAndLocale.sh — findings G3-11 and G3-12 for tstopwatch.
 #
 # G3-12 (default R8, decision D2): `isRunning` and `isHighResolution` answered

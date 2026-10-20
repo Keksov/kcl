@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7 — integer overflow on the "exact" pure-bash paths, and the RNG.
 #
 #   M8  `intPower 2 63` answered -9223372036854775808 and `2 64` answered 0;

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P2.2 — OfThe* families + nthDayOfWeek/decodeDayOfWeekInMonth (own-design).
 # Rows in ../TEST_COVERAGE_NOTES.md.
 

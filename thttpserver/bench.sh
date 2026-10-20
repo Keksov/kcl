@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # bench.sh — kcl/thttpserver micro-benchmark (P3, PLAN §2.8). Publishes the
 # numbers README.md §11 quotes; asserts nothing (tests/010_Bench.sh is the
 # gate, on the replay path only).

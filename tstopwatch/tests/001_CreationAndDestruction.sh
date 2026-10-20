@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_CreationAndDestruction.sh - TStopwatch skeleton: ctor (plain + startnew
 # token), field initialization, token validation, destruction. P0.2 gate.
 # Spec basis: Delphi DocWiki TStopwatch.Create (S1: created STOPPED, elapsed

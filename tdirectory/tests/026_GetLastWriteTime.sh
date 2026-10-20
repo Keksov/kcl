@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GetLastWriteTime
 # Auto-migrated to ktests framework
 

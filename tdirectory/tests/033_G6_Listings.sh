@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 033_G6_Listings.sh — review 2026-09-06, phase P3.
 #
 #   G6-09  the listings globbed `"$dir"/*` without `dotglob`, so a dot-entry

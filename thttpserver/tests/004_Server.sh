@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Server.sh — thttpserver P2: THttpServer over TReplayTransport (§0, no
 # socket, always runs) and over real sockets through TNetcatTransport
 # (§1–§3; the test is the client, the server a child bash). PLAN §2.5, §2.6,

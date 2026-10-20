@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 013_ObjectDictionary.sh - TObjectDictionary ownership matrix (P6)
 # FPC refs: TObjectDictionary = TObjectOpenAddressingLP (dictionariesh.inc:669);
 # KeyNotify/ValueNotify overrides free the item after `inherited` iff the

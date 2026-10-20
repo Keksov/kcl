@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 009_CompareStringsOperations.sh - Test CompareStrings method
 # Auto-migrated to ktests framework
 

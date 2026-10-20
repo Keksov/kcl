@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 009_ReviewP2.sh — regressions for the 2026-09-06 review, phase P2.
 #
 #   G2-02  ToArray had no output-name validation: `q.ToArray __tqs_it` aliased

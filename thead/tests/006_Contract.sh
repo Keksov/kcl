@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Contract.sh — thead P0: the kcl-wide contract (kcl/README.md §1) for
 # THead (thead/PLAN.md §2.1, §2.5, §3 H12).
 #

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # CreateDirectory
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Argv.sh — tfind P0: the argv model (tfind/PLAN.md §1.2, §2.1–§2.3, §2.6;
 # pinned facts F1–F5, F5b).
 #

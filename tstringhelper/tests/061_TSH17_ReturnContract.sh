@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 061_TSH17_ReturnContract.sh — decision D3 + default R8 for tstringhelper.
 #
 # Finding TSH-17: the unit's contract was inverted against kcl/README.md 1.1 —

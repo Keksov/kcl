@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_BinarySearch.sh - TArray.binarySearch: the TBinarySearchResult contract
 # (RESULT=FoundIndex, RESULT_CANDIDATE, RESULT_COMPARE sign) across hit/miss/
 # empty, the three comparator modes, the range form, and a sort+search closure

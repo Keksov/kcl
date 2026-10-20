@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_Skeleton.sh - tinifile P0 skeleton gate. Pins the CTOR CORE (the part
 # that is real at P0): the FPC class split — TIniFile auto-adds ifoStripQuotes
 # and is eager (cache_updates=false), TMemIniFile does NOT auto-add and is

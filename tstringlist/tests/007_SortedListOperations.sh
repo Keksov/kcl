@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_SortedListOperations.sh - Test Add operations on sorted lists
 # Auto-migrated to ktests framework
 

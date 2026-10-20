@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 019_G6_Platform.sh — review 2026-09-06, phase P3.
 #
 #   G6-14  getAttributes added `stat -L` when FollowLink was FALSE — the flag

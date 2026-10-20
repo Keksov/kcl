@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P1: InRange / EnsureRange / CompareValue / IfThen / IsZero / SameValue.
 # Tier-A (pure-bash) for the range/compare ops; the engine handles the float-
 # tolerance predicates (isZero decimals, sameValue, compareValue delta).

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_QueueCore.sh - tqueuestack P1: the TQueue core. Pins: FIFO order incl.
 # interleaved enqueue/dequeue over head holes, Dequeue/Extract/Peek empty ->
 # rc 1 (the EArgumentOutOfRange analog) vs TryDequeue's SILENT rc 1, Clear =

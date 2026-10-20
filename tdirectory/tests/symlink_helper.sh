@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Shared symlink helpers for the tdirectory suite (review 2026-09-06, phase P3).
 #
 # The old probe was `ln -s <NONEXISTENT> link`. On MSYS/cygwin, `ln -s` runs in

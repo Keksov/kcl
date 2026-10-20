@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7 / R11 — the request/answer protocol and the engine's process lifecycle.
 #
 # Findings closed here:

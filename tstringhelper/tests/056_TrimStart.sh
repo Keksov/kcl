@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # TrimStart
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Core (P0): the float engine (lazy awk co-process), pure-bash decimal helpers,
 # constants, and the perf/shape contracts. Every check here is "new coverage"
 # (P0's plumbing has no FPC test counterpart) — see ../TEST_COVERAGE_NOTES.md.

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for tarray (P4.2). Publishes the honest-positioning numbers
 # README.md quotes:
 #   - sort scaling n=100/1000/5000 (per-element cost, byte mode);

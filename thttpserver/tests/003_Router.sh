@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_Router.sh — thttpserver P1: THttpRouteObject and THttpRouter (PLAN §1.3,
 # §2.4, §2.11; §3 facts 16 (router half), 17, 20, 21).
 #

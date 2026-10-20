@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # IsDelimiter
 # Auto-migrated to ktests framework
 

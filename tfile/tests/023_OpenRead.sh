@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 023_open_read.sh - Test TFile.OpenRead method
 # Auto-migrated to ktests framework
 

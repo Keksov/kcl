@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_append_text.sh - Test TFile.AppendText method
 # Auto-migrated to ktests framework
 

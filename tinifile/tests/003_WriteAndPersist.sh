@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_WriteAndPersist.sh - tinifile P2: the write core + the persistence split.
 # Pins: eager TIniFile (every Write flushes) vs cached TMemIniFile (dirty until
 # UpdateFile / DESTROY-flush per FPC :1024); WriteString first-match update in

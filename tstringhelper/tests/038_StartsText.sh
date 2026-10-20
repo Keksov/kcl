@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # StartsText
 # Auto-migrated to ktests framework
 

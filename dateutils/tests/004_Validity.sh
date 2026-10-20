@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P1.2 — validity predicates + calendar-size functions (own-design coverage).
 # Every check has a row in ../TEST_COVERAGE_NOTES.md.
 

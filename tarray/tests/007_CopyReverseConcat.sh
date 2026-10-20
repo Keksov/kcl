@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_CopyReverseConcat.sh - TArray.copy / reverse / reverseInPlace / concat /
 # compact: the source-pinned semantics S4 (reverse via temp, in-place safe),
 # S6 (copy same-array error + strict bounds, dst NOT auto-grown), S7 (concat

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_Request.sh — thttpserver P0: THttpRequest (the ReadFrom parser, limits,
 # decoding, statuses, read-only fields), the transport seam (THttpTransport is
 # abstract, TReplayTransport is the fork-free test double) and the fork-free

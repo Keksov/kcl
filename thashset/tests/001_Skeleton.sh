@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_Skeleton.sh - thashset P0 skeleton gate. Pins the ctor core: storage init
 # (${inst}_items assoc), computed Count == ${#items[@]}, and a REDUCED storage
 # torture proving the tdictionary k-prefix idioms survive on the exotic

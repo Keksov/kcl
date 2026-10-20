@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 021_CommandLineOptionsExternalScript.sh - Test TCustomApplication with external scripts
 # This test creates external scripts to verify all option methods work correctly
 # when called from actual command-line invocations with real parameters
@@ -48,7 +48,7 @@ create_test_app() {
     # The unit is located relative to THIS test file, not guessed from a
     # hard-coded repository path (the old form pinned c:/projects/...).
     cat > "${TCA_TMPD}/${app_name}.sh" << TESTAPP
-#!/bin/bash
+#!/usr/bin/env bash
 source "${TCUSTOMAPPLICATION_DIR}/tcustomapplication.sh"
 
 # Create app instance

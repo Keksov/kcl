@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_CreationAndDestruction.sh - TDictionary creation, computed count, Clear, destruction
 # P0.1/P0.3 gate (tlist 001 analog), amended to API v2 (thin wrapper: the capacity
 # family is NOT ported — owner decision 2026-07-12; the ctor's ACapacity argument is

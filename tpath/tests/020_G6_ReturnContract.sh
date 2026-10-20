@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 020_G6_ReturnContract.sh — decision D3 + default R8 for tpath.
 #
 # Before P3 every member printed its answer with `printf '%s\n'`, so the only

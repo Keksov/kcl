@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 023_OptionCharTests.sh - Test TCustomApplication with different option characters
 # Tests the OptionChar property to use alternative prefix characters
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 059_SecurityTests.sh — the arithmetic-injection guard (X-INJ / D1), extended
 # in P5 with the FPC conversion contract (TSH-14).
 #

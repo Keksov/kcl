@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 009_Remove_Operations.sh - Test Remove Operations
 # Auto-migrated to ktests framework
 

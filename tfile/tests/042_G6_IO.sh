@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 042_G6_IO.sh — review 2026-09-06, phase P3.
 #
 #   G6-18  readAllText/readAllBytes/readAllLines piped `cat` through `$( )`,

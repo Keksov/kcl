@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # demo.sh — the kcl/thttpserver showcase (PLAN §2.10): an HTTP application
 # built from plain FUNCTIONS and App.RegisterRoute, with objects that live
 # across requests. The handlers run in THIS shell, so the counter and the

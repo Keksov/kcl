@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_SetAlgebra.sh — thashset P2: the set algebra and the two AddRange forms.
 #
 # Source of truth: FPC 3.2.2 packages/rtl-generics/src/generics.collections.pas

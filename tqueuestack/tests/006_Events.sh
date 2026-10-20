@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Events.sh - tqueuestack P3: the OnNotify event seam. Pins: S1 (write
 # then added), S2 (Notify is the removal TAIL with the value), S4 (Clear =
 # per-item removed in FIFO/LIFO order), S6 (Destroy -> Clear -> events fire

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 011_PropertyManipulation.sh - Test property get/set operations
 # Auto-migrated to ktests framework
 

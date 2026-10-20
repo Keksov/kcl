@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kcl/tpath/tpath.sh
 p() { printf '%-46s -> [%s]\n' "$1" "$2"; }
 u=$'\\srv\share\f'; printf 'input bytes: %s\n' "$(printf %s "$u" | od -c | head -1)"

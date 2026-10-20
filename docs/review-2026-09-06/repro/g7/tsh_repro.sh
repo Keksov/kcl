@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kcl/tstringhelper/tstringhelper.sh
 echo "locale: $(locale 2>/dev/null | grep LC_CTYPE)"
 echo "--- S1 arithmetic injection via numeric params (marker file created = RCE)"

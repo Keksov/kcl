@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_Each.sh — tpipe P0: the engine + TPipe.each.
 #
 # No upstream: TPipe is a kcl addition (PLAN.md §1.2). The oracle is bash
@@ -298,7 +298,7 @@ fi
 # the whole test file.
 IXCHILD="$TMP/index_child.sh"
 cat > "$IXCHILD" <<'IX_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 set -eu
 source "$1/tpipe.sh"
 ix() { printf 'ix=%s;' "$TPIPE_INDEX"; return 0; }

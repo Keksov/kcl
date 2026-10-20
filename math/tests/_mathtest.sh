@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Shared helper for the math test suite: pulls in the ktest framework and adds
 # kt_assert_near — the tolerance comparison used for Tier-B (float-engine)
 # results, which match FPC Double only to ~1-2 ulps.

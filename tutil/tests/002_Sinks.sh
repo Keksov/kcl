@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_Sinks.sh — tutil P1: the five sinks through TPipe (PLAN.md §2.3, §2.4,
 # §5 P1; pinned facts U1, U6, U7-for-sinks, U8).
 #
@@ -1078,7 +1078,7 @@ kt_test_section "L. the three forms agree"
 kt_test_start "\`u.run | TPipe.each cb\` under lastpipe == \`TPipe.each cb -- argv\` == \`u.each cb\`"
 FORMS="$TMP/forms.sh"
 cat > "$FORMS" <<'FORMS_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 set -eu
 shopt -s lastpipe
 source "$1"          # tutil.sh, which sources tpipe.sh itself

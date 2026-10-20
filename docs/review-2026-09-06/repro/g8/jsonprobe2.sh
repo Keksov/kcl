@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 ms() { local s0=$EPOCHREALTIME; "$@"; local e0=$EPOCHREALTIME; awk -v s=$s0 -v e=$e0 'BEGIN{printf "  %.1f ms\n", (e-s)*1000}'; }
 j='{"users":['; for ((i=0;i<300;i++)); do j+="{\"id\":$i,\"name\":\"user $i\",\"tags\":[\"a\",\"b\"],\"ok\":true,\"x\":null},"; done; j="${j%,}]}"
 J=$j; for k in 1 2 3 4; do J+="$j"; done   # ~96KB

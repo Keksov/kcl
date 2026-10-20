@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 016_ExceptionIntegration.sh - Test TCustomApplication exception handling integration scenarios
 # Auto-generated for ktests framework
 

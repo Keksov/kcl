@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_Bench.sh — tgrep P3: the PLAN.md §5 P3.1 performance gates, as assertions.
 #
 # TWO SETS OF NUMBERS, on purpose.

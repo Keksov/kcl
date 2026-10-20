@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_Count_Operations.sh - Test Count Operations
 # Auto-migrated to ktests framework
 

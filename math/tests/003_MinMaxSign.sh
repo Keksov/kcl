@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P1: Min/Max (2-arg + array reducers) and Sign. Tier-A pure-bash on plain
 # integers/decimals (zero-fork); engine only for exotic-notation operands.
 # All new coverage (basis: FPC source semantics) — see ../TEST_COVERAGE_NOTES.md.

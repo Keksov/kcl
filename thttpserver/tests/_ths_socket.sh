@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # _ths_socket.sh — shared helpers of the socket tests (004, 005, 007; P3: 006,
 # 009 through ths_launch / ths_reap). Not a test file (no NNN_ prefix):
 # sourced by them after ktest.sh.

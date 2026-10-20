@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_BasicCreationAndInitialization.sh - Test TStringList creation and initialization
 # Auto-migrated to ktests framework
 

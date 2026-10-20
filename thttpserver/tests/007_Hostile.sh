@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_Hostile.sh — thttpserver P2: hostile input through the whole server.
 # §1 over TReplayTransport (always runs): response splitting through every
 # field a handler can fill from request data (a custom header, ContentType,

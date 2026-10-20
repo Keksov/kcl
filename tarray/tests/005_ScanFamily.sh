@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_ScanFamily.sh - TArray.indexOf / firstIndexOf / lastIndexOf / contains /
 # min / max: first-vs-last on duplicates (S3), the empty/default contract (S5),
 # the three comparator modes, and torture. FPC-oracle values live in

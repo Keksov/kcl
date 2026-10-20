@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_TimingAndAccumulation.sh - TStopwatch real-time behavior: S3
 # (accumulation across Start/Stop cycles), S2 (startnew measures at once),
 # S8 (getTimeStamp deltas + RESULT-only contract).

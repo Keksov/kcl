@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GetCurrentDirectory
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7: financial (annuity) functions (engine). APaymentTime is a 0/1 flag.
 # Verified by solve-for-x round-trips (payment<->presentValue, interestRate,
 # numberOfPeriods) + rate=0 edge + start-of-period. New coverage — see NOTES.

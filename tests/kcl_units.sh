@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # kcl_units.sh — the table of kcl units that carry the unit header, and the
 # checks the kcl-level unit tests share (kklass/USES_PLAN.md phase U4; pattern:
 # kklass/uses_ledger.json phases.U4.pattern). Not a test file: the ktests

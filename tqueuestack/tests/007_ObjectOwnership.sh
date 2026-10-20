@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_ObjectOwnership.sh - tqueuestack P4: TObjectQueue/TObjectStack. Pins:
 # S7 (Notify = inherited FIRST — the user callback observes the instance
 # ALIVE — then free on 'removed' ONLY when owning; 'extracted' hands

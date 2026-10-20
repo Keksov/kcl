@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GetAttributes
 #
 # Rewritten for P3 (review 2026-09-06):

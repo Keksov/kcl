@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 047_ToLower.sh — extended in P5 for finding TSH-04.
 #
 # The old file was ASCII only ("HELLO WORLD", "hello", "HeLLo WoRlD", ""), so

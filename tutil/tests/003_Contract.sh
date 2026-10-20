@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_Contract.sh — tutil P1: the kcl-wide contract (kcl/README.md §1) for the
 # five sinks (PLAN.md §5 P1.2).
 #

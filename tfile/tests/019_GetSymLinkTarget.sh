@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 019_get_sym_link_target.sh - Test TFile.GetSymLinkTarget method
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # demo_oop.sh — the same application as demo.sh, written the object way
 # (PLAN §2.11: "what a descendant implements"):
 #

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 063_TSH04_Locale.sh — finding TSH-04 (X-LOCALE) and decision D6.
 #
 # TStringHelper's whole API is defined on CHARACTERS: `length`, `chars`,

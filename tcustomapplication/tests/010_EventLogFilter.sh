@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 010_EventLogFilter.sh - the EventLogFilter property and what it filters.
 #
 # FPC: `If (FEventLogFilter=[]) or (EventType in FEventLogFilter) then DoLog`.

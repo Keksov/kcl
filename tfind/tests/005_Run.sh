@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_Run.sh — tfind P0: TFind against the real tool on a real tree
 # (tfind/PLAN.md §1.1, §2.1–§2.5, §3, §4; pinned facts F6–F11).
 #

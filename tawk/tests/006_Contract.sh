@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Contract.sh — tawk P0: the kcl-wide contract (kcl/README.md §1) for TAwk
 # (tawk/PLAN.md §2.1–§2.7, §3 A13).
 #

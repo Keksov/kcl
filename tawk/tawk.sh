@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 [[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%tawk.sh}../../kbool.sh" || return
 kk.unit tawk || return $__kk_unit_rc
 

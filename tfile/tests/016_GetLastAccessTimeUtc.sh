@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 016_get_last_access_time_utc.sh - Test TFile.GetLastAccessTimeUtc method
 # Auto-migrated to ktests framework
 

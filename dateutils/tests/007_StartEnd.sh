@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P3 — start/end of year/month/week/day (own-design). tw16040 StartOfTheYear/
 # EndOfTheYear anchors live in 002_FpcParity.sh. Rows in ../TEST_COVERAGE_NOTES.md.
 

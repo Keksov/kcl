@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for ttail (P1). Publishes the numbers README.md §9 quotes and
 # measures the PLAN.md §4 P1 gate (the shared text is thead/PLAN.md §5 P1):
 #

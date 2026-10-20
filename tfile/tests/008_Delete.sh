@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 008_delete.sh - Test TFile.Delete method
 # Auto-migrated to ktests framework
 

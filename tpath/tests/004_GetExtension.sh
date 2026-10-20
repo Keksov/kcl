@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # GetExtension
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # fpjson feasibility probes (rough numbers; run while idle-ish)
 KCL=/c/projects/kkbot/kbool/kcl
 ms() { local s=$EPOCHREALTIME; "$@"; local e=$EPOCHREALTIME; awk -v s=$s -v e=$e 'BEGIN{printf "%.1f ms", (e-s)*1000}'; }

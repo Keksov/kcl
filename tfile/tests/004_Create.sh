@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_create.sh - Test TFile.Create method
 # Auto-migrated to ktests framework
 

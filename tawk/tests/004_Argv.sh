@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 004_Argv.sh — tawk P0: the argv model (tawk/PLAN.md §1.2, §2.1–§2.4; pinned
 # facts A1–A4).
 #

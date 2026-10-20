@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_Core.sh — tutil P0: the TUtil core (PLAN.md §5 P0.1–P0.3, pinned facts §3).
 #
 # TUtil is CONCRETE: `TUtil.new u git log --format=%H` is the whole TProcess use

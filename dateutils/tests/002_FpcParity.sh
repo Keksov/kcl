@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # FPC-parity fixture set — ported 1:1 from Free Pascal's own DateUtils tests.
 # Primary seed: FPC tests/webtbs/tw16040.pp (17 assertions).
 #

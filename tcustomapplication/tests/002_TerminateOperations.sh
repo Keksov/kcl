@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_TerminateOperations.sh - Test TCustomApplication Terminate method
 # Auto-generated for ktests framework
 

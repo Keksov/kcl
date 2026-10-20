@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Contains
 # Auto-migrated to ktests framework
 

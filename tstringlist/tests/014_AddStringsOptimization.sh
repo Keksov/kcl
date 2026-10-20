@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 014_AddStringsOptimization.sh - Test AddStrings operation with optimization verification
 # Tests the optimized AddStrings procedure (Issue 2.2: 5-10% speedup)
 

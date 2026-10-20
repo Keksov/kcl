@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # IsNullOrWhiteSpace
 # Auto-migrated to ktests framework
 

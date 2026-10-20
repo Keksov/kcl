@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 020_ConstructorSetArgsInvocation.sh - Test that SetArgs in constructor receives actual script arguments
 # This test verifies that when TCustomApplication is created with script parameters,
 # the constructor's SetArgs call receives the exact same arguments that were passed to the script

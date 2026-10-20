@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # CompareOrdinal
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_Match.sh - TRegEx.match: the RESULT / RESULT_INDEX / RESULT_LENGTH /
 # RESULT_GROUPS contract, offset recovery (S5 exact unanchored, S6 anchored
 # CAVEAT pinned as a divergence row), numbered groups incl. non-participating

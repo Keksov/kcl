@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ToInt64
 # Auto-migrated to ktests framework
 

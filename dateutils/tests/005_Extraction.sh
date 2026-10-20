@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P2.1 — simple field extractors, ISO week/day-of-week, isAM/isPM (own-design).
 # FPC-traceable extraction anchors live in 002_FpcParity.sh; rows in
 # ../TEST_COVERAGE_NOTES.md.

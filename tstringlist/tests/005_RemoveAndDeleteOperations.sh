@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_RemoveAndDeleteOperations.sh - Test Remove and Delete operations
 # Auto-migrated to ktests framework
 

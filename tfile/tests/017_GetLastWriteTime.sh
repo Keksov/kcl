@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 017_get_last_write_time.sh - Test TFile.GetLastWriteTime method
 # Auto-migrated to ktests framework
 

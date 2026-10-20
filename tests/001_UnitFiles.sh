@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # UnitFiles — the FILE of every migrated kcl unit (KCL_UNITS, kcl_units.sh) has
 # the unit shape of kklass/USES_PLAN.md phase U4 (pattern: kklass/uses_ledger.json
 # phases.U4.pattern; §7.4, U19', U26, U40, C11):
@@ -64,7 +64,7 @@ for row in "${KCL_UNITS[@]}"; do
         bad=" no file $KF"
     else
         mapfile -t -n 3 h < "$KF"
-        [[ "${h[0]}" == '#!/bin/bash' ]] || bad+=" line1='${h[0]}'"
+        [[ "${h[0]}" == '#!/usr/bin/env bash' ]] || bad+=" line1='${h[0]}'"
         [[ "${h[1]}" == '[[ ${__KK_UNITS[@]@a} == A* ]] || source "${BASH_SOURCE%'"$KU"'.sh}../../kbool.sh" || return' ]] \
             || bad+=" line2='${h[1]}'"
         [[ "${h[2]}" == "kk.unit $KU || return \$__kk_unit_rc" ]] || bad+=" line3='${h[2]}'"

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 011_ParamsIndices.sh - Params[Index] over the stored argv.
 #
 # Every test here used to be wrapped in `if [[ $param_count -gt N ]]`, and

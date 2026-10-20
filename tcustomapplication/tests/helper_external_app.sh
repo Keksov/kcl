@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # helper_external_app.sh - Helper application for testing SetArgs with external
 # arguments. It simulates a real program: it receives a command line and hands
 # it to the application itself with `SetArgs "$@"` (nothing is auto-captured any

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 019_GetPut.sh - TList.Get / TList.Put are now REAL (previously subclass stubs).
 # A raw TList holds strings, so indexed read/write is meaningful here. Bounds are
 # [0,count); out of range -> rc 1 (Get leaves RESULT untouched, Put changes

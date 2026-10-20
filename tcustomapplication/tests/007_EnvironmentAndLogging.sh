@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_EnvironmentAndLogging.sh - GetEnvironmentList / EnvironmentVariable / Log.
 #
 # The old version asserted `$? -eq 0` after every call, so nothing here could

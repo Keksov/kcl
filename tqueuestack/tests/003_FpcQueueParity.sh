@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_FpcQueueParity.sh - FPC-TRACEABLE cross-checks: the TTestSimpleQueue core
 # procedures of packages/rtl-generics/tests/tests.generics.queue.pas, adapted
 # verbatim (DoAdd enqueues IntToStr(offset+1..offset+count); exceptions ->

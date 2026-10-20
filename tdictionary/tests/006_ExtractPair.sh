@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_ExtractPair.sh - ExtractPair (P2.1)
 # FPC impl ref: ExtractPair :503-513 — hit: Result=(AKey, DoRemove(...)) with
 # cnExtracted; miss: Exit(Default(TPair(TKey,TValue))) -> ('','') and rc=0

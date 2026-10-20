@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_IsMatch.sh - TRegEx.isMatch: rc 0 match / 1 no-match / 2 invalid, anchors,
 # POSIX classes, alternation, word boundaries, i-flag, and kcl torture subjects
 # (newlines, globs, quotes, $(...), unicode, empty, leading dash). Basis:

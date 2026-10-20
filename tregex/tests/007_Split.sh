@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_Split.sh - TRegEx.split: pieces BETWEEN matches (.NET Regex.Split, S12) —
 # captured groups INTERLEAVED, leading/trailing/consecutive empties KEPT, no
 # match -> whole text, empty-match patterns split by absolute position, invalid

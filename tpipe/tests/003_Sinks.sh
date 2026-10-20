@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 003_Sinks.sh — tpipe P1: toArray / toList / first / count and the -0 / -c flags.
 #
 # No upstream: TPipe is a kcl addition (PLAN.md §1.2). The oracle is bash
@@ -521,7 +521,7 @@ HS.delete
 kt_test_start "the same rejecting .Add under \`set -eu\` in a child does not tear the frame down"
 RJCHILD="$TMP/reject_child.sh"
 cat > "$RJCHILD" <<'RJ_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 set -eu
 source "$1/tpipe.sh"
 source "$1/../thashset/thashset.sh"

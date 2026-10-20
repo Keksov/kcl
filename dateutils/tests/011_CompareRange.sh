@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P4.3 — compare*/same*, withinPast*, *InRange (own-design).
 # Rows in ../TEST_COVERAGE_NOTES.md.
 

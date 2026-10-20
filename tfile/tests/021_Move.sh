@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 021_move.sh - Test TFile.Move method
 # Auto-migrated to ktests framework
 

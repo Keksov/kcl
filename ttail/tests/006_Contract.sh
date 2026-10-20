@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Contract.sh — ttail P0: the kcl-wide contract (kcl/README.md §1) for
 # TTail (ttail/PLAN.md §2.1; thead/PLAN.md §2.1, §2.5, §3 H12, §6).
 #

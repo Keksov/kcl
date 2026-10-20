@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P4.1 — Inc* family (own-design). Rows in ../TEST_COVERAGE_NOTES.md.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

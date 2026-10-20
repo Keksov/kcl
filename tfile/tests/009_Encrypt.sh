@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 009_encrypt.sh - Test TFile.Encrypt method
 # Auto-migrated to ktests framework
 

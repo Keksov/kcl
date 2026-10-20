@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 023_D3_ReturnContract.sh — decision D3, default R8, decision D6 for dateutils.
 #
 # Until P6 all 185 members ended in `printf '%s\n'`, so the only way to read one

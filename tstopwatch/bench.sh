@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for tstopwatch (P2.2). Publishes the honest-positioning
 # numbers README.md quotes:
 #   - clock primitive costs (raw EPOCHREALTIME parse vs TStopwatch.getTimeStamp);

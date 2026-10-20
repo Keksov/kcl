@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P1.1 — encode*/decode* and try* variants (own-design coverage).
 # FPC-traceable anchors live in 002_FpcParity.sh; every check here has a row in
 # ../TEST_COVERAGE_NOTES.md.

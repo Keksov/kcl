@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 009_KeysValues.sh - Keys / Values / KeysToArray / ValuesToArray / ToArrays (P3.1)
 # FPC seed: tests.generics.dictionary.pas TestKeys (all keys present exactly
 # once). Collections analogs: Keys/Values echo one item per line; the *ToArray

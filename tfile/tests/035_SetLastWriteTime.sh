@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 035_SetLastWriteTime.sh - Test TFile.SetLastWriteTime method
 #
 # Rewritten for P3 (review 2026-09-06, G6-07/G6-08): tfile.set*Time was a

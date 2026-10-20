@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P5.1 — recode* family (own-design). '-' = RecodeLeaveFieldAsIs.
 # Rows in ../TEST_COVERAGE_NOTES.md.
 

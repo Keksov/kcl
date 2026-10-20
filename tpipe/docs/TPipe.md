@@ -49,7 +49,7 @@ count when it is fed by a process substitution or under `lastpipe`, and loses it
 in an ordinary pipe — silently, with no error anywhere.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
 
 class TCounter
@@ -92,7 +92,7 @@ true exactly when the caller's mutations are about to be thrown away.
 extra function frames kklass's thin static dispatcher adds do not disturb it.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
 
 class TProbe
@@ -146,7 +146,7 @@ recoverable, and the whole thing must survive a callback that starts jobs of its
 own.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 run() {                                  # run LABEL -- CMD...
     local label="$1"; shift 2
     local fd pid rc=0 n=0 line
@@ -207,7 +207,7 @@ is **not** enough for one that ignores it and then stops writing: `wait` then
 blocks for the producer's whole remaining life.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 now() { local t=$EPOCHREALTIME; US=$(( ${t%[.,]*} * 1000000 + 10#${t##*[.,]} )); }
 
 stop_after_one() {        # stop_after_one kill|nokill -- CMD...
@@ -294,7 +294,7 @@ because that prefix applies to the command's own environment, not to the
 expansion of its arguments.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 count_expanded() {              # the BROKEN form
     local nul=1 fd n=0 line
     exec {fd}< <( printf 'a\0b\0' )
@@ -343,7 +343,7 @@ innermost frame that declared it. A stop flag declared `local` by every sink
 therefore gets all four nested semantics with no bookkeeping at all.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 declare -g FLAG=0            # the process-wide slot a STRAY stop would write
 declare -g RES=''            # stands in for RESULT
 
@@ -398,7 +398,7 @@ never the bare form.
 The callback validator is one line, and without the `--` it has a hole.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 probe() {
     local rc1=0 rc2=0 out
     out="$(declare -F "$1" 2>/dev/null)" || rc1=$?
@@ -437,7 +437,7 @@ re-parse drops it. P0 shipped `-c` (strip one trailing CR) this way and it
 stripped nothing — silently. P1 caught it.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 strip_inline() { printf '%s' "${1%$'\r'}"; }        # what P0 shipped
 printf -v CR '\r'
 strip_var()    { printf '%s' "${1%"$CR"}"; }        # what P1 ships
@@ -496,7 +496,7 @@ be refused **before** the producer starts, two because bash prints a diagnostic
 silence.
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 # NB: the mapfile runs in THIS shell — inside a `$( )` the fill would be thrown
 # away and every case would look harmless.
 ERR="${TMPDIR:-/tmp}/p9.err"

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_SortOperations.sh - Test Sort method and sorted list operations
 # Auto-migrated to ktests framework
 

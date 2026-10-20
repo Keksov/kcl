@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_Bench.sh — tpipe P2: the PLAN.md §2.6 performance gates, as assertions.
 #
 # TWO SETS OF NUMBERS, on purpose.
@@ -174,7 +174,7 @@ LAT_SLACK_US=300000
 LAT_HANG_US=10000000
 LAT_PAIRS=7
 cat > "$LATCHILD" <<'LAT_EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 T0=${EPOCHREALTIME/[.,]/}
 source "$1/tpipe.sh"
 source "$1/../tstopwatch/tstopwatch.sh"

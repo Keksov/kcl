@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 024_IsoWeekSweep.sh — the ISO calendar cross-checked against perl.
 #
 # The reviewer's `repro/g3/r3_isoweek.sh` walked all 15 006 days of 1995..2035

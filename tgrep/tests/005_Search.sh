@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_Search.sh — tgrep P2: TGrep against the real tool on a real tree
 # (tutil/PLAN.md §2.4, §2.5, §2.6, §2.7, §4, §5 P2; pinned facts G5–G12).
 #

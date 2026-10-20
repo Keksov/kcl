@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 031_set_creation_time.sh - Test TFile.SetCreationTime method
 #
 # Rewritten for P3 (review 2026-09-06, G6-07 / R13): the body was a silent

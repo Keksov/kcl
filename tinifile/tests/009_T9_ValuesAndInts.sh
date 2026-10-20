@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 009_T9_ValuesAndInts.sh - review 2026-09-06, phase P8.
 #
 #   T9  ifoEscapeLineFeeds: FPC RemoveBackslashes (inifiles.pp:1022-1044) walks

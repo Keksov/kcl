@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PathAnalysis
 # Auto-migrated to ktests framework
 

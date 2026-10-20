@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 012_NotificationParity.sh - FPC-seed notification scenarios (P5.2)
 # Ports the assertion logic of rtl-generics tests.generics.dictionary.pas:
 #   TestValueNotification        -> values notified 'added' on Add

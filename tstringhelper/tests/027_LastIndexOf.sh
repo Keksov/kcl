@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 027_LastIndexOf.sh — rewritten in P5 for finding TSH-06.
 #
 # Three of the old assertions accepted EITHER of two answers ("12 or 0",

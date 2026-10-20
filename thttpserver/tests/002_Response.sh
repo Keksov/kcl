@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_Response.sh — thttpserver P0: THttpResponse (PLAN §1.3, §2.3; §3 facts 2,
 # 3, 14, 15, 19). The serializer's head format, byte lengths, the 1xx/204/304/
 # HEAD rules, custom headers and their refusals, validation → 500 with the

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P7 / D3 + R8 — the kcl return contract for the math static class.
 #
 #   D3   every public member answers through RESULT and prints NOTHING on a

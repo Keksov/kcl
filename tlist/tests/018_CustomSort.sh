@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 018_CustomSort.sh - TList.CustomSort (roadmap follow-up): the previously-stub
 # method now delegates the in-place [0,count) sort to TArray.sort with a
 # caller-supplied comparator (TArray cmpFn protocol: rc 0=a<b / 1=a==b / 2=a>b),

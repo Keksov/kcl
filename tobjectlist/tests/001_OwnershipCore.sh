@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 001_OwnershipCore.sh - tobjectlist P0: the WORKING ownership core.
 # Pins: ctor default owns=true (FPC TestCreate), ctor token true/false
 # (FPC Create(FreeObjects)), unknown token rc 1 (still a valid owning list),

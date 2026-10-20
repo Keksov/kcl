@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ktests round 5, E1 / DE1 (2026-10-16) — the fallback program file of a KILLED
 # process.
 #

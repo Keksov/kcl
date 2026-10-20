@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_Sort.sh - TArray.sort: the three comparator modes (default byte-order,
 # numeric -n, custom cmpFn), the range form (S8), edge inputs (empty/single/
 # all-equal/already-sorted/reversed), and the rejections (associative array,

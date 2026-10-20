@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Micro-benchmark for math hot paths (P8.3).
 #   Tier A (pure-bash core): target <= 0.3 ms/call, zero forks.
 #   Tier B (float engine):   report the pipe round-trip latency (cold path,

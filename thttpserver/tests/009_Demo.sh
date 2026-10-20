@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 009_Demo.sh — thttpserver P3: a smoke test of both examples (PLAN §2.10,
 # §2.11) run exactly as a user runs them — `bash examples/demo.sh --port=N`
 # in a child bash, the test is the client.

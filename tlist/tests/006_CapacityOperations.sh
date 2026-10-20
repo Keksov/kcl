@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 006_Capacity_Operations.sh - Test Capacity Operations
 # Auto-migrated to ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 002_FpcParity.sh - FPC-TRACEABLE cross-checks: the 9 fpcunit tests of
 #   packages/fcl-base/tests/utcobjectlist.pp
 # adapted to bash: TObject instances -> kklass instances (TList handles),

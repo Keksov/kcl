@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 007_T1_Persistence.sh - review 2026-09-06, phase P8: the persistence edges.
 #
 #   T1  UpdateFile onto a path that IS a directory must fail (rc 1), keep the

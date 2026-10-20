@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 010_ErrorHandlingAndEdgeCases.sh - Test error handling and edge cases
 # Auto-migrated to ktests framework
 

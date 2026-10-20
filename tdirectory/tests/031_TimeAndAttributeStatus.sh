@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Time and attribute status consistency
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 025_open_write.sh - Test TFile.OpenWrite method
 # Auto-migrated to ktests framework
 

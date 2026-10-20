@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 005_create_sym_link.sh - Test TFile.CreateSymLink method
 # Auto-migrated to ktests framework
 

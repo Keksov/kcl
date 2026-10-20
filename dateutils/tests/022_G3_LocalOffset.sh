@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 022_G3_LocalOffset.sh — finding G3-05, default R7 (date-aware local offset).
 #
 # `_local_offset_ms` used `printf '%(%z)T' -1`, i.e. the offset RIGHT NOW, for

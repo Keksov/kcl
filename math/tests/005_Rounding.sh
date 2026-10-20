@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P2: rounding & number conversion. Ceil/Floor/DivMod/integer-IntPower are
 # Tier-A exact (string compare); RoundTo/SimpleRoundTo/FMod/float-IntPower are
 # Tier-B engine results (kt_assert_near). New coverage — see TEST_COVERAGE_NOTES.

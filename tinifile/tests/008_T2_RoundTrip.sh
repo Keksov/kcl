@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 008_T2_RoundTrip.sh - review 2026-09-06, phase P8: the two round-trip
 # corruptions and the SectionExists divergence.
 #

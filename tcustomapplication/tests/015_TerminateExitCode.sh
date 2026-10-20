@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 015_TerminateExitCode.sh - Test TCustomApplication Terminate setting System.ExitCode
 # Auto-generated for ktests framework
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 018_G3_NumericBoundary.sh — findings G3-01 and G3-04, decision D1.
 #
 # G3-01: a zero-padded field (`08`, `09`) is the NORMAL shape of a date field —
