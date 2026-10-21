@@ -137,7 +137,7 @@ kt_test_section "A. lifecycle — Create assigns every var, the arrays are right
 
 # TTail's own seven (PLAN §1.2 — THead's six plus `follow`) plus TUtil's five.
 TT_VARS=( lines bytes quiet verbose zeroTerminated follow _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
 
 kt_test_start "every declared var is present in \`\${inst}_data\` right after \`new\`"
 TTail.new tA 2 f1

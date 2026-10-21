@@ -1,11 +1,11 @@
 # tutil — test coverage notes
 
-**Status: refreshed 2026-09-24 (tawk P1) to the live suite; last updated before
-that at P4 (D6 final, `subshellOk`, 2026-09-15); FINALIZED at P3
-(2026-09-11).** Suite `001`–`004` = **209 cases**, green on bash 5.2.37
-(primary) and on bash 5.3.9 (secondary), in the default threaded mode and under
-`--mode single`. The per-file row counts below sum to 209 — 86 + 64 + 51 + 8 —
-and **every case in the suite has a row**.
+**Status: refreshed 2026-10-22 (launch L2.7-C, the CR contract: `005_TextMode.sh`
+added); before that 2026-09-24 (tawk P1); at P4 (D6 final, `subshellOk`,
+2026-09-15); FINALIZED at P3 (2026-09-11).** Suite `001`–`005` = **226 cases**,
+green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
+threaded mode and under `--mode single`. The per-file row counts below sum to
+226 — 86 + 64 + 51 + 8 + 17 — and **every case in the suite has a row**.
 
 **What changed since the P4 edition (184 cases).** Three descendants each
 changed `tutil._badOut` and added their cases to `001_Core.sh` §C; 002, 003 and
@@ -16,6 +16,7 @@ changed `tutil._badOut` and added their cases to `001_Core.sh` §C; 002, 003 and
 | thead / ttail P0 (2026-09-15) | `a4c01a8` | +3 (184 → 187) | `__th_` and `__tt_` refused, and the four-prefix sweep — the hard-coded prefix list had refused only `__tu_ __tg_` (thead PLAN §2.8, critic major 8) |
 | tfind P0 (2026-09-16) | `c281d40` | +10 (187 → 197) | the **`TUTIL_OUT_PREFIXES` registry** and its two guards — the registry's own name reserved, fail closed when emptied / unset / scalar (tfind PLAN §2.6, critic blocker 1); 9 of the 10 were red against the pre-registry `_badOut` |
 | tsed P0 (2026-09-23) | `eafa7f7` | +12 (197 → 209) | the **`TUTIL_OUT_SUFFIXES` registry** (`_args _argv _paths`, `_exprs` appended by tsed) with the same two guards (tsed PLAN §2.1, critic major 3); 10 of the 12 were red against the unchanged tutil |
+| launch L2.7-C (2026-10-22) | — | +17 (209 → 226) | `005_TextMode.sh`, the CR contract (owner DL11): `_textMode`, `__TUTIL_TOOLS_STRIP_CR`, the sinks' `-c` and `run`'s filter on the strip path, nothing added on the native path; `001_Core.sh`'s member sweep lists `_textMode` (count unchanged) |
 
 tawk P0 (2026-09-23) appended `__taw_` and `_progs _vnames _vvals` to the two
 registries without touching tutil's code or tests; its registry cases live in
@@ -323,3 +324,29 @@ files threaded with 8 workers and the same two cases have been seen at 0.94× an
 | 004.fork-tolist | toList | `.Add` runs in THIS process for every record | contract | §1.5 |
 | 004.fork-producer | toArray, count, first | the ONLY fork per call is the producer — 5 records, one foreign pid, and `count`/`first` agree | contract | §1.5 |
 | 004.fork-run | run + the six builder members | the `cmd` that `run` executes reports THIS process's `$BASHPID` (a function cmd is not forked), rc 0 / `lastRc` 0, and `buildArgv`/`argv`/`addArg`/`clearArgs`/`mapRc`/`lastRc` leave `$BASHPID` untouched | contract | §1.5, §2.3 |
+
+## 005_TextMode.sh — the CR contract at the base (launch L2.7-C, owner DL11) — 17 cases
+
+Both platform paths are driven on any host: `__TUTIL_TOOLS_STRIP_CR` is flipped
+per case and the tool is a bash function that writes the CRs itself (a stand-in
+for "a tool that keeps the CR"); `_textMode` is set by hand on a plain TUtil
+instance, because the base `buildArgv` never touches it.
+
+| ID | Member | Case | Class | Basis |
+|---|---|---|---|---|
+| 005.a-default | Create | `_textMode` is a var, `0` after `new`; `__TUTIL_TOOLS_STRIP_CR` is `1` exactly on cygwin/msys | contract | README §3 |
+| 005.a-off ×2 | all sinks, run | `_textMode = 0` on both paths: every CR survives every sink and `run` | representation | README §3 |
+| 005.b-sinks | all five sinks | strip path: ONE trailing CR per record — `('a 1' 'p\rq' 'b 2\r' 'c')`, first `a 1`, count 4 | contract | DL11 |
+| 005.b-run | run | strip path: `a 1\nb 2\n`, rc 0, `lastRc` 0; `$( )` carries no framework bytes | contract | DL11, §2 |
+| 005.b-run-inner | run | a CR inside a line stays, an unterminated tail stays unterminated (`p\rq\nc`) | representation | DL11 |
+| 005.b-run-rc | run | the TOOL's raw rc 3 → rc 1, `lastRc` 3 (never the filter's 0), records still CR-free | contract | §2 |
+| 005.b-run-stdin | run | the caller's stdin still reaches the tool through the filter | contract | §2 |
+| 005.c-sinks | all five sinks | native path: nothing added, the tool's own CRs reach every sink | contract | DL11 (Windows byte-identity) |
+| 005.c-run | run | native path: byte-identical, the tool runs in THIS shell (`$BASHPID`) — no filter | contract | DL11, §1.5 |
+| 005.d-nul | toArray | `nul = 1`: a NUL record is not a line, its CR stays | representation | README §3 |
+| 005.d-crlf | toArray | `crlf = 1` + text mode strips ONE CR, not two | representation | README §3 |
+| 005.e-set-e | run | strip path in a child under `set -euo pipefail`: tool rc 3 → rc 1 / `lastRc` 3, the script goes on; a tool rc 0 → rc 0 | contract | §2 |
+| 005.f-run-nul | run | `nul = 1` on the strip path: `run` is not filtered either | representation | critic B2 |
+| 005.f-filter-fails | run, `tutil._crStdin` | a fake `sed` exiting 4: tool ok → `lastRc` 2, rc 1, exactly one debug line; tool rc 3 wins; the stdin filter answers 2 | contract | critic B5 |
+| 005.f-crstdin | `tutil._crStdin` | LF lines reach the tool; `false` → 1; `head -n 1` (SIGPIPE on the filter) → 0 | contract | DL11 |
+| 005.f-sed-u | `tutil._sedOpts` | `-u` exactly when this sed accepts it; probed once | contract | critic B4 |

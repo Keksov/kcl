@@ -136,7 +136,7 @@ else
 fi
 
 kt_test_start "no \`var\` shadows a TUtil or kklass member name"
-RESERVED=" cmd crlf nul _lastRc subshellOk buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
+RESERVED=" cmd crlf nul _lastRc subshellOk _textMode buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
 clash=""
 declared=""
 while IFS= read -r line; do

@@ -1024,13 +1024,13 @@ fi
 kt_test_start "every declared member exists as a real body (none is a bare rc 2 stub)"
 TUtil.new uR2 printf '%s\n' a b
 missing=""
-for m in cmd crlf nul _lastRc subshellOk buildArgv addArg clearArgs argv run \
+for m in cmd crlf nul _lastRc subshellOk _textMode buildArgv addArg clearArgs argv run \
          each toArray toList first count lastRc mapRc; do
     declare -F -- "uR2.$m" >/dev/null 2>&1 || missing="$missing $m"
 done
 uR2.delete
 if [[ -z "$missing" ]]; then
-    kt_test_pass "all 17 members of the PLAN §1.2 surface are bound"
+    kt_test_pass "all 18 members of the surface (PLAN §1.2 + L2.7-C _textMode) are bound"
 else
     kt_test_fail "missing:$missing"
 fi

@@ -69,6 +69,7 @@ declare -g __TSD_SEQ=0
 #
 # ---- The pinned argv (PLAN §1.2) ------------------------------------------
 #   sed [--sandbox] [-E] [-n] [-s] [-z] [-b] [-i[SUFFIX]] [EXTRA OPTIONS]
+#       [CR prelude: -e s/<CR>$// -e t__tsd_cr -e :__tsd_cr]
 #       [-e EXPR] [-e X ...] [-f FILE] [-- PATH...]
 #
 #  * sed compiles each `-e` WHEN IT READS IT, with the flags known so far:
@@ -80,6 +81,12 @@ declare -g __TSD_SEQ=0
 #    (owner Q5): in text mode sed rewrites CRLF to LF ON DISK under `-i` (even
 #    the identity) and strips a CR inside a NUL record under `-z`. The derivation
 #    lives here only; the `binary` property is never written;
+#  * without that `-b` the build is TEXT mode: the line-end CR of a CRLF input
+#    never reaches the SCRIPT, on any platform — cygwin/msys sed drops it
+#    itself; elsewhere the build puts the prelude `-e 's/<CR>$//' -e
+#    't__tsd_cr' -e ':__tsd_cr'` after the extras, before the first script word
+#    (plus `-n` for a `#n` first line). The label `__tsd_cr` is reserved. No
+#    output strip: a CR the script writes is kept (tutil README §3, DL11);
 #  * `-i` takes its suffix ATTACHED (`-i.bak`); `*` in the suffix is replaced
 #    by the OPERAND AS GIVEN, directory part included (`bak_*` on `d/f` is
 #    `bak_d/f`), `/` makes it a directory (`bk/*`); a missing directory is the
@@ -394,6 +401,38 @@ TSed.buildArgv() {
         _nulDerived=0
     fi
 
+    # ---- the CR contract (tutil README §3, owner DL11) ---------------------
+    # Text mode = no `-b` (binary, inPlace and nullData all off). cygwin/msys
+    # sed drops the line-end CR on input itself; elsewhere (`tutil._keepsCr`)
+    # the SCRIPT is preceded by a prelude, so it never sees that CR either:
+    #
+    #     -e 's/<CR>$//' -e 't__tsd_cr' -e ':__tsd_cr'
+    #
+    # The `t` jump resets sed's "a substitution was made" flag that the prelude
+    # `s` just set — without it the script's own first `t` would branch on our
+    # substitution. The label `__tsd_cr` is reserved (README §5). A script whose
+    # first line is exactly `#n` (from `expr`, else the first `addExpr`, else
+    # line 1 of `scriptFile`) means `-n` to sed only when it is the script's
+    # FIRST line, which the prelude takes away — so the build adds `-n` itself.
+    # Nothing goes to TUtil's output strip: a CR the script writes on purpose
+    # (`s/$/\r/`) is kept on every platform. `_textMode` stays 0 for TSed.
+    _textMode=0
+    local __tsd_pre=0 __tsd_hn=0 __tsd_first='' __tsd_nl=''
+    if [[ "$binary" != 1 && "$inPlace" != 1 && "$nullData" != 1 ]] && tutil._keepsCr; then
+        __tsd_pre=1
+        printf -v __tsd_nl '\n'
+        if [[ -n "$expr" ]]; then
+            __tsd_first="${expr%%"$__tsd_nl"*}"
+        elif (( ${#__tsd_x[@]} > 0 )); then
+            __tsd_first="${__tsd_x[0]%%"$__tsd_nl"*}"
+        elif [[ -n "$scriptFile" && -r "$scriptFile" ]]; then
+            IFS= read -r __tsd_first < "$scriptFile" || true
+        fi
+        if [[ "$__tsd_first" == "#n" && "$quiet" != 1 ]]; then
+            __tsd_hn=1
+        fi
+    fi
+
     # ---- the argv, in the pinned order: every option before the first -e --
     __tsd_v=( "$cmd" )
     # `sandbox` FAILS CLOSED — the one deliberate exception to the family
@@ -402,15 +441,19 @@ TSed.buildArgv() {
     # ONLY for the exact string `0`; '', `yes`, `2`, ` 0`, `00` all keep it.
     if [[ "$sandbox" != "0" ]]; then __tsd_v+=( --sandbox ); fi
     if [[ "$extended" == 1 ]]; then __tsd_v+=( -E ); fi
-    if [[ "$quiet"    == 1 ]]; then __tsd_v+=( -n ); fi
+    if [[ "$quiet"    == 1 || "$__tsd_hn" == 1 ]]; then __tsd_v+=( -n ); fi
     if [[ "$separate" == 1 ]]; then __tsd_v+=( -s ); fi
     if [[ "$nullData" == 1 ]]; then __tsd_v+=( -z ); fi
-    # Owner Q5: the derived -b. Nothing is written back to `binary`.
+    # Owner Q5: the derived -b. Nothing is written back to `binary`. Without
+    # it the build is TEXT mode (the CR contract above).
     if [[ "$binary" == 1 || "$inPlace" == 1 || "$nullData" == 1 ]]; then
         __tsd_v+=( -b )
     fi
     if [[ "$inPlace" == 1 ]]; then __tsd_v+=( "-i$backupSuffix" ); fi
     if (( ${#__tsd_a[@]} > 0 )); then __tsd_v+=( "${__tsd_a[@]}" ); fi
+    if [[ "$__tsd_pre" == 1 ]]; then
+        __tsd_v+=( -e "$__TUTIL_CR_SED" -e 't__tsd_cr' -e ':__tsd_cr' )
+    fi
     if [[ -n "$expr" ]]; then __tsd_v+=( -e "$expr" ); fi
     for __tsd_s in "${__tsd_x[@]}"; do
         __tsd_v+=( -e "$__tsd_s" )

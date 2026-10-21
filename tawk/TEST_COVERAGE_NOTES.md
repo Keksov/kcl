@@ -114,7 +114,7 @@ instance's lists intact.
 
 ---
 
-## 004_Argv.sh — typed options to argv, nothing executed (P0) — 396 cases
+## 004_Argv.sh — typed options to argv, nothing executed (P0; §CR added at L2.7-C) — 404 cases
 
 **gawk is never started in this file.** Every case either compares the array
 `a.argv GOT` handed over, or asserts a refusal. A refusal (`check_rc2`) asserts
@@ -301,7 +301,20 @@ Class `contract`, basis **A2**, §2.2.
 
 ---
 
-## 005_Run.sh — TAwk against GNU Awk on a real tree (P0) — 105 cases
+### CR. the CR contract's argv where gawk keeps the CR (L2.7-C) (8)
+
+The file pins `__TUTIL_TOOLS_STRIP_CR=1` at the top (every other pinned argv is the cygwin/msys one); this section flips it.
+
+| ID | Case | Class | Basis |
+|---|---|---|---|
+| 004.cr-text | text mode: the CR-optional RS before the extras and the setVar words (a user `RS` comes later) | contract | DL11 |
+| 004.cr-binary / -nulldata / -inplace ×3 | no CR RS with `binary`, `nullData` (the NUL RS), `inPlace` | contract | DL11 |
+| 004.cr-back | back to text mode: the RS again | contract | DL11 |
+| 004.cr-posix | `--posix`, `-P`, `-W posix`, `--trad`, `-c`, `--po`: no RS, `_textMode = 1` | contract | DL11 |
+| 004.cr-textmode | `_textMode`: 0 in text mode on both paths, 1 only for the `--posix` fallback | contract | DL11 |
+| 004.cr-native | the cygwin/msys path: no RS | contract | DL11 |
+
+## 005_Run.sh — TAwk against GNU Awk on a real tree (P0; §E extended at L2.7-C) — 114 cases
 
 Oracle = the bare tool on the same fixture. Records are compared as arrays
 (newline framed, the unterminated tail kept; NUL framed under `nullData`),
@@ -375,15 +388,24 @@ Class `security`, basis **A8**, **Q1** throughout.
 | 005.d-failclosed ×5 | `sandbox` = `''`, `yes`, `2`, `' 0'`, `00` stays SANDBOXED — `system()` refused, rc 1, `lastRc` 2, no marker | **Q1** |
 | 005.d-include | `@include "FILE"` is ALLOWED under the sandbox (`(inc)`, rc 0), and a `system()` inside an included file is still refused (rc 1, no marker) | §1.1 |
 
-### E. A9 — the CR (5)
+### E. A9 — the CR (14; the kbool contract since L2.7-C, tutil README §3)
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 005.e-text-strips | text mode STRIPS the CR — `('a 1' 'b 2')`, bytes == bare, no `\r` in the stream (`crlf` a no-op) | representation | **A9** |
+| 005.e-text-strips | text mode delivers NO line-end CR on every platform — `('a 1' 'b 2')`, the stream is the literal `a 1\nb 2\n` (the oracle is the bytes, not bare gawk: text mode is the kbool contract, owner DL11) | contract | **A9**, DL11 |
 | 005.e-binary-keeps | `binary = 1` KEEPS the CR — `('a 1\r' 'b 2\r')`, the stream == the file | representation | **A9** |
 | 005.e-binary-crlf | `binary = 1` + `crlf = 1` strips EXACTLY one CR (`c 3\r\r` → `c 3\r`) | representation | **A9** |
-| 005.e-inplace-crlf | `inPlace = 1` on a CRLF file keeps EVERY CR on disk (`A 1\r\nb 2\r\n`, the derived BINMODE) with stdout empty; bare `-i inplace` on a copy writes `A 1\nb 2\n` — why Q4 derives BINMODE | tool-behaviour | **A9**, **Q4** |
-| 005.e-nulldata-cr | `nullData = 1` keeps a CR embedded in a NUL record (`x\r\ny`); the bare RS/ORS NUL run without BINMODE gives `x\ny` | tool-behaviour | **A9**, §2.4 |
+| 005.e-inplace-crlf | `inPlace = 1` on a CRLF file keeps EVERY CR on disk (`A 1\r\nb 2\r\n`, the derived BINMODE) with stdout empty, on every platform (the bare `-i inplace` oracle was cygwin/msys-specific and is gone) | contract | **A9**, **Q4**, DL11 |
+| 005.e-nulldata-cr | `nullData = 1` keeps a CR embedded in a NUL record (`x\r\ny`), == the bare RS/ORS NUL run WITH `BINMODE=3` (the same on every platform) | contract | **A9**, §2.4, DL11 |
+| 005.e-contract-rs | the RS path forced (`__TUTIL_TOOLS_STRIP_CR=0`, real gawk, any host): `-v RS='\r?\n'` in the argv; all five sinks `('a 1' 'b 2')`, `length` (3 3), `run` LF-only; `binary = 1` keeps the CR | contract | DL11 |
+| 005.e-contract-userrs | the RS path forced: a user `setVar RS ';'` wins — `(x y)`; a deliberate CRLF `ORS` survives | contract | DL11 |
+| 005.e-contract-posix | the `--posix` fallback with a CR-keeping stand-in: no RS, TUtil's output strip `('a 1' 'b 2')`; without `--posix` the stand-in's CRs reach the sinks (no output strip for TAwk) | contract | DL11 |
+| 005.e-contract-native | the cygwin/msys path (`=1`): the wrapper adds nothing — no RS, the stand-in's own CRs reach `toArray` and `run` | contract | DL11 |
+| 005.e-owner-cmp | owner example: `$2 == "1"` on CRLF selects `a 1` (red on Linux before round 2) | contract | DL11 |
+| 005.e-owner-length | owner example: `length($0)` is (3 3) (red before round 2) | contract | DL11 |
+| 005.e-owner-nf | owner example: `NF` drops the blank CRLF line (red before round 2) | contract | DL11 |
+| 005.e-owner-ors | a deliberate CRLF `ORS` keeps its CR in the sinks and `run`, every platform (red before round 2: the output strip ate it) | contract | DL11, critic B1 |
+| 005.e-owner-printf | a deliberate `printf "%s\r\n"` keeps its CR (red before round 2) | contract | DL11, critic B1 |
 
 ### F. A10 — NUL records (2)
 

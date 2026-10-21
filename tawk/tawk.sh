@@ -73,7 +73,7 @@ declare -g __TAW_SEQ=0
 #     a.delete
 #
 # ---- The pinned argv (PLAN §1.2) ------------------------------------------
-#   gawk [--sandbox] [-F FS] [-v RS=\0 -v ORS=\0] [-v BINMODE=3]
+#   gawk [--sandbox] [-F FS] [-v RS=\0 -v ORS=\0] [-v BINMODE=3 | the CR RS]
 #        [-i /usr/share/awk/inplace.awk [-v inplace::suffix=enc(SFX)]]
 #        [EXTRA OPTIONS] [-v NAME=enc(VALUE) ...] [-e program] [-e chunk ...]
 #        [-f FILE] [-- PATH...]
@@ -88,6 +88,12 @@ declare -g __TAW_SEQ=0
 #    text mode gawk strips the CR on input, so `-i inplace` would rewrite CRLF
 #    to LF on disk and a NUL record would lose an embedded CR. The derivation
 #    lives here only; the `binary` property is never written;
+#  * without that BINMODE the build is TEXT mode: the line-end CR of a CRLF
+#    input never reaches the PROGRAM, on any platform — cygwin/msys gawk drops
+#    it itself; elsewhere the build emits the CR-optional RS in the BINMODE
+#    slot, before the extras and the setVar words, so a user's RS wins. No
+#    output strip (a CR the program writes is kept), except the `--posix` /
+#    `--traditional` fallback (tutil README §3, owner DL11);
 #  * the inplace extension is included by its ABSOLUTE path: `-i inplace` is
 #    resolved through AWKPATH, which starts with `.`, so a planted
 #    `./inplace.awk` would load instead — with the sandbox off (critic major 6);
@@ -608,6 +614,45 @@ TAwk.buildArgv() {
         return 2
     fi
 
+    # ---- the CR contract (tutil README §3, owner DL11) ---------------------
+    # Text mode = no BINMODE (binary, inPlace and nullData all off).
+    # cygwin/msys gawk drops the line-end CR on input itself; elsewhere
+    # (`tutil._keepsCr`) the build emits `-v RS='\r?\n'` BEFORE the extras and
+    # the setVar words, so the PROGRAM never sees that CR either (`$NF`,
+    # `length`, `NF` on a blank CRLF line) — and a user's RS (setVar, an extra
+    # `-v RS=`, `BEGIN{RS=…}`, `RS=""`) still wins, being later. Nothing goes to
+    # TUtil's output strip: a CR the program writes on purpose (`ORS="\r\n"`,
+    # `printf "x\r\n"`) is kept on every platform.
+    #
+    # The one exception: `--posix` / `--traditional` (`-P` / `-c`, any prefix,
+    # `-W posix`) among the extras make gawk use only RS's FIRST character —
+    # the CR — which would wreck every record. Then no RS is emitted and the
+    # build falls back to TUtil's output strip (`_textMode = 1`, one
+    # `kk.debug` line): the records lose the CR, the program still sees it.
+    # The scan is `tawk._scanExtras` with BIN = 1, whose only extra refusals
+    # are exactly those two options (the BIN = 0 scan above already passed).
+    # `_textMode` is derived the same way on every platform.
+    _textMode=0
+    local __taw_rs=0
+    if [[ "$__taw_bin" != 1 ]]; then
+        local __taw_px=0
+        if (( ${#__taw_a[@]} > 0 )); then
+            local __taw_msg2="$__taw_msg"
+            if ! tawk._scanExtras 1 "${__taw_a[@]}"; then
+                __taw_px=1
+            fi
+            __taw_msg="$__taw_msg2"
+        fi
+        if [[ "$__taw_px" == 1 ]]; then
+            _textMode=1
+            if tutil._keepsCr; then
+                kk.debug "Warning: TAwk.buildArgv: --posix/--traditional among the extras: gawk would split records on the CR alone, so no RS is set — the records lose the line-end CR, but the program sees it"
+            fi
+        elif tutil._keepsCr; then
+            __taw_rs=1
+        fi
+    fi
+
     # ---- the nullData -> -0 derivation (PLAN §2.4, tgrep's P3-F1 guard) ----
     # `_nulDerived` records that WE set `nul`: turning `nullData` back off takes
     # the `-0` off again, while a `nul = 1` the CALLER set is never touched.
@@ -627,9 +672,14 @@ TAwk.buildArgv() {
     if [[ "$sandbox" != "0" ]]; then __taw_v+=( --sandbox ); fi
     if [[ -n "$fieldSep" ]]; then __taw_v+=( -F "$fieldSep" ); fi
     if [[ "$nullData" == 1 ]]; then __taw_v+=( -v 'RS=\0' -v 'ORS=\0' ); fi
-    # The derived BINMODE. Nothing is written back to `binary`.
+    # The derived BINMODE. Nothing is written back to `binary`. Without it the
+    # build is TEXT mode, and on a platform whose gawk keeps the CR the RS of
+    # the CR contract (above) takes this slot — before the extras and setVar.
     if [[ "$binary" == 1 || "$inPlace" == 1 || "$nullData" == 1 ]]; then
         __taw_v+=( -v BINMODE=3 )
+    fi
+    if [[ "$__taw_rs" == 1 ]]; then
+        __taw_v+=( -v 'RS=\r?\n' )
     fi
     # `-v` escape-processes its value, so the suffix goes through the same
     # enc() as setVar (reviewer ruling on P0, question 6): `.b\k` names the

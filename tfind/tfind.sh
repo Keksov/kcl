@@ -140,8 +140,8 @@ declare -g __TFD_SEQ=0
 #    under `set -u`, and `.new` over a still-live instance does not clear
 #    `_data`.
 #  * No `var` here may be named like a TUtil member (`cmd crlf nul _lastRc
-#    subshellOk buildArgv addArg clearArgs argv run each toArray toList first
-#    count lastRc mapRc`) or a kklass one (`property call parent delete`): the
+#    subshellOk _textMode buildArgv addArg clearArgs argv run each toArray toList
+#    first count lastRc mapRc`) or a kklass one (`property call parent delete`): the
 #    method wrapper is generated after the property wrapper and wins silently.
 #    `type` is safe — it is a VARIABLE name and the `type` builtin lives in a
 #    different namespace (verified on both bashes).

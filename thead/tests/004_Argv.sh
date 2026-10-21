@@ -150,7 +150,7 @@ kt_test_section "A. lifecycle — Create assigns every var, the arrays are right
 
 # THead's own six (PLAN §1.2) plus the five TUtil hands down.
 TH_VARS=( lines bytes quiet verbose zeroTerminated _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
 
 kt_test_start "every declared var is present in \`\${inst}_data\` right after \`new\` (§2.1)"
 THead.new hA 2 f1

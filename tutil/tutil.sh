@@ -50,6 +50,13 @@ kk.uses tpipe || return
 #   var  subshellOk 1 -> every sink passes `-s` to TPipe, i.e. "the subshell
 #                   scope is intended", which silences TPipe's D6 subshell
 #                   warning for this instance's calls (D6 final Q9); default 0
+#   var  _textMode  1 -> the OUTPUT needs TUtil's line-end CR strip (the CR
+#                   contract, README §3, owner DL11): where the platform's tool
+#                   keeps the CR, the sinks strip one trailing CR per line
+#                   record and `run` filters its stdout. Set by a DESCENDANT's
+#                   buildArgv: TGrep in text mode with file operands; TAwk only
+#                   in its `--posix` fallback; TSed never (TSed and TAwk strip
+#                   the CR on the INPUT side). 0 by default and for the base
 #   Create [CMD [ARG...]]   assigns EVERY var; ARGs become ${inst}_args
 #   Destroy                 frees ${inst}_args and ${inst}_argv (§1.9)
 #   buildArgv               virtual; fills ${inst}_argv; RESULT = count
@@ -67,9 +74,9 @@ kk.uses tpipe || return
 #   mapRc RAW               virtual; RESULT = the normalised rc
 #
 # ---- Reserved member names (PLAN §1.2) -------------------------------------
-# TUtil owns `cmd crlf nul _lastRc subshellOk buildArgv addArg clearArgs argv
-# run each toArray toList first count lastRc mapRc`; kklass owns `property call parent
-# delete` on every instance. A DESCENDANT must never declare a `var` with any of
+# TUtil owns `cmd crlf nul _lastRc subshellOk _textMode buildArgv addArg
+# clearArgs argv run each toArray toList first count lastRc mapRc`; kklass
+# owns `property call parent delete` on every instance. A DESCENDANT must never declare a `var` with any of
 # those names: the method wrapper is generated after the property wrapper and
 # wins silently (kklass.sh:911), so `obj.count = 5` would be accepted and
 # discarded. The §7 wrappers use `lines`/`bytes`, never `count`/`first`.
@@ -135,6 +142,7 @@ class TUtil
         var  nul
         var  _lastRc
         var  subshellOk
+        var  _textMode
         constructor Create
         destructor  Destroy
         func buildArgv
@@ -186,6 +194,92 @@ fi
 if [[ -z ${TUTIL_OUT_SUFFIXES+x} || ${TUTIL_OUT_SUFFIXES@a} != *a* ]]; then
     declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )
 fi
+
+# The CR contract (README §3 "CRLF: one result on every platform", owner
+# DL11, launch L2.7-C). In TEXT mode TGrep/TSed/TAwk deliver records WITHOUT
+# the line-end CR on every platform, and the TOOL does not see that CR either
+# where it can be arranged. The cygwin/msys builds of grep, sed and gawk open
+# their input in text mode and drop that CR themselves (measured on MSYS2 and
+# Git-bash; the cygwin arm of the test below is assumed from them — there is
+# no Cygwin host in the lab); the Linux, BSD and macOS builds (GNU or not)
+# keep it. `__TUTIL_TOOLS_STRIP_CR` says which kind this platform has:
+# 1 = the tool already did it, so the wrappers add NOTHING (no flag, no
+# filter, no extra argv word — the Windows hot path is unchanged); 0 = the
+# wrappers remove the CR themselves:
+#   * TSed: a prelude `s/<CR>$//` before the script (the script never sees it);
+#   * TAwk: `-v RS='\r?\n'` (the program never sees it);
+#   * TGrep with no path operand: stdin goes through `tutil._crStdin` first;
+#   * TGrep with file operands (grep has no input-side switch): the OUTPUT is
+#     cleaned — `_textMode = 1`, the sinks' `TPipe -c` and `run`'s filter.
+# Decided once at load from `$OSTYPE` (no fork); a value set before the first
+# load is kept, and the tests flip it per case to drive the other path.
+if [[ -z ${__TUTIL_TOOLS_STRIP_CR+x} ]]; then
+    case "${OSTYPE:-}" in
+        cygwin*|msys*) declare -g __TUTIL_TOOLS_STRIP_CR=1 ;;
+        *)             declare -g __TUTIL_TOOLS_STRIP_CR=0 ;;
+    esac
+fi
+# The filter script, `s/<CR>$//`, built here with a RAW carriage return: an
+# ANSI-C quoted CR inside a member body does not survive `build` (trap 12), and
+# BSD sed does not know the backslash-r escape. Under `LC_ALL=C` it strips
+# exactly one CR at the end of every line — the same rule as `TPipe -c` per
+# record (an unterminated last line included, and left unterminated). TSed
+# uses the same global as the first expression of its prelude.
+declare -g __TUTIL_CR_SED
+printf -v __TUTIL_CR_SED 's/\r$//'
+
+# tutil._keepsCr — rc 0 when this platform's grep/sed/gawk KEEP the line-end
+# CR in text mode, i.e. when a wrapper has to act. Descendants call it from
+# buildArgv.
+tutil._keepsCr() {
+    [[ "$__TUTIL_TOOLS_STRIP_CR" != 1 ]]
+}
+
+# tutil._textCr — rc 0 when THIS build's OUTPUT needs TUtil's CR strip: the
+# descendant asked for it (`_textMode == 1`), the records are lines
+# (`nul != 1` — a NUL record is not a line, and its CRs stay the tool's), and
+# this platform's tool keeps the CR. Reads the member frame's `_textMode` and
+# `nul` through dynamic scoping, as `tutil._prep` reads `crlf`.
+tutil._textCr() {
+    [[ "$_textMode" == 1 && "$nul" != 1 && "$__TUTIL_TOOLS_STRIP_CR" != 1 ]]
+}
+
+# tutil._sedOpts — fills the global `__TUTIL_SED_OPTS` once per process: `-u`
+# (unbuffered) when this platform's sed takes it (GNU and FreeBSD do), so a
+# filter in the middle of `tail -f … | g.run` still streams line by line;
+# empty otherwise (then the filter adds block-buffering latency). One probe
+# fork, on first use of a filter only — never at load, never on cygwin/msys.
+tutil._sedOpts() {
+    if [[ -n ${__TUTIL_SED_OPTS_DONE+x} ]]; then
+        return 0
+    fi
+    declare -ga __TUTIL_SED_OPTS=()
+    if LC_ALL=C command sed -u -e '' </dev/null >/dev/null 2>&1; then
+        __TUTIL_SED_OPTS=( -u )
+    fi
+    declare -g __TUTIL_SED_OPTS_DONE=1
+    return 0
+}
+
+# tutil._crStdin CMD [ARG...] — run CMD with the caller's stdin passed through
+# the CR filter first (`sed s/<CR>$// | CMD …`), so the tool reads LF lines as
+# on cygwin/msys. TGrep puts it in front of its argv when it reads stdin on a
+# platform whose grep keeps the CR. rc = CMD's status (PIPESTATUS[1]); a filter
+# that failed for any reason other than SIGPIPE (141, CMD stopped reading) is
+# one `kk.debug` line, and rc 2 when CMD itself succeeded.
+tutil._crStdin() {
+    local -a __tu_ps=()
+    tutil._sedOpts
+    LC_ALL=C command sed "${__TUTIL_SED_OPTS[@]}" -e "$__TUTIL_CR_SED" | "$@" \
+        && __tu_ps=( "${PIPESTATUS[@]}" ) || __tu_ps=( "${PIPESTATUS[@]}" )
+    if [[ "${__tu_ps[0]}" != 0 && "${__tu_ps[0]}" != 141 ]]; then
+        kk.debug "Error: tutil._crStdin: the CR filter (sed) exited ${__tu_ps[0]}"
+        if [[ "${__tu_ps[1]}" == 0 ]]; then
+            return 2
+        fi
+    fi
+    return "${__tu_ps[1]}"
+}
 
 # tutil._badOut NAME — rc 0 when NAME must NOT be used as an output array,
 # rc 1 when it is usable. The shape is `TQueueStack._outName`
@@ -269,8 +363,12 @@ tutil._badOut() {
 #      argv); TUtil owns `cmd`, so it can. `_lastRc` IS updated here: the call
 #      was well formed, it simply could not be executed.
 #   3. the TPipe flag words, from the three properties: `nul == 1` -> `-0`,
-#      `crlf == 1` -> `-c`, `subshellOk == 1` -> `-s`. They go into the caller's
-#      `__tu_fl` ARRAY, never into an expansion-built option word (`${nul:+-0}`
+#      `crlf == 1` -> `-c`, `subshellOk == 1` -> `-s`. `-c` is ALSO added for
+#      the CR contract (`tutil._textCr`: the descendant asked for the output
+#      strip, the records are lines — `nul != 1` — and this platform's tool
+#      keeps the CR; README §3). One `-c` covers both reasons: TPipe strips
+#      exactly one CR either way. The words go into
+#      the caller's `__tu_fl` ARRAY, never into an expansion-built option word (`${nul:+-0}`
 #      is re-split by the caller's IFS — the bug tpipe PLAN §2.3 records).
 #      Booleans are compared as strings: `(( nul ))` on a non-numeric property
 #      is 0 in silence, or an arithmetic injection.
@@ -307,6 +405,8 @@ tutil._prep() {
     fi
     if [[ "$crlf" == 1 ]]; then
         __tu_fl+=( -c )
+    elif tutil._textCr; then
+        __tu_fl+=( -c )
     fi
     if [[ "$subshellOk" == 1 ]]; then
         __tu_fl+=( -s )
@@ -331,6 +431,7 @@ TUtil.Create() {
     nul=0
     _lastRc=-1
     subshellOk=0
+    _textMode=0
     declare -ga "${__inst__}_args=()"
     declare -ga "${__inst__}_argv=()"
     local -n __tu_a="${__inst__}_args"
@@ -423,6 +524,18 @@ TUtil.argv() {
 #   4. the raw status into the PER-INSTANCE `_lastRc` (two wrappers may
 #      interleave), then `mapRc` (virtual, silent) decides the member's own rc.
 #
+# The CR contract (`tutil._textCr`, README §3): when the descendant asked for
+# the OUTPUT strip (`_textMode == 1`, today TGrep with file operands and TAwk's
+# `--posix` fallback) on a platform whose tool keeps the line-end CR, the
+# tool's stdout goes through `LC_ALL=C sed [-u] 's/<CR>$//'` — one CR off the
+# end of every line, nothing else touched — and the tool's OWN status is taken
+# from `PIPESTATUS[0]`. A filter that failed for any reason other than SIGPIPE
+# (141: the caller stopped reading) is not silent: one `kk.debug` line, and the
+# raw status becomes 2 when the tool itself succeeded (then `mapRc` decides).
+# The `&& … || …` list keeps a failing pipeline out of a `set -e` caller's
+# reach exactly as the `|| rc=$?` form does. On cygwin/msys, and for every
+# other build, the argv runs directly as before.
+#
 # `run` is a `proc`: it has no return channel, and its stdout is the tool's.
 TUtil.run() {
     local __tu_rc=0
@@ -437,7 +550,21 @@ TUtil.run() {
     fi
     local -n __tu_v="${__inst__}_argv"
     __tu_rc=0
-    "${__tu_v[@]}" || __tu_rc=$?
+    if tutil._textCr; then
+        local -a __tu_ps=()
+        tutil._sedOpts
+        "${__tu_v[@]}" | LC_ALL=C command sed "${__TUTIL_SED_OPTS[@]}" -e "$__TUTIL_CR_SED" \
+            && __tu_ps=( "${PIPESTATUS[@]}" ) || __tu_ps=( "${PIPESTATUS[@]}" )
+        __tu_rc="${__tu_ps[0]}"
+        if [[ "${__tu_ps[1]}" != 0 && "${__tu_ps[1]}" != 141 ]]; then
+            kk.debug "Error: TUtil.run: the CR filter (sed) exited ${__tu_ps[1]}"
+            if [[ "$__tu_rc" == 0 ]]; then
+                __tu_rc=2
+            fi
+        fi
+    else
+        "${__tu_v[@]}" || __tu_rc=$?
+    fi
     _lastRc="$__tu_rc"
     kk.call_silent "$__inst__" mapRc "$_lastRc"
     return "$RESULT"

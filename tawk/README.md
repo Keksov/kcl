@@ -126,7 +126,7 @@ are off) — **except `sandbox`**, which is off only for the exact string **`0`*
 ### The argv, pinned
 
 ```
-gawk [--sandbox] [-F FS] [-v RS=\0 -v ORS=\0] [-v BINMODE=3]
+gawk [--sandbox] [-F FS] [-v RS=\0 -v ORS=\0] [-v BINMODE=3 | the CR RS of §5]
      [-i /usr/share/awk/inplace.awk [-v inplace::suffix=enc(SFX)]]
      [EXTRA OPTIONS from addArg] [-v NAME=enc(VALUE) ...]
      [-e program] [-e chunk ...] [-f FILE] [-- PATH...]
@@ -375,16 +375,32 @@ onLine() { local sandbox program; …; }   # right: the names are the callback's
 
 ## 5. CR, `binary`, NUL records, and the derived `BINMODE=3`
 
-gawk opens its input in **text mode**: it strips the CR before the LF on file
-and stdin input, and never writes CRLF. So `crlf` is a no-op for the stream, and:
+**The CR contract is TUtil's** — the tables, the delivery paths and the
+residuals are in [tutil `README.md` §3 "CRLF: one result on every
+platform"](../tutil/README.md#crlf-one-result-on-every-platform) (owner DL11).
+For this wrapper text mode means no `BINMODE=3` (`binary`, `inPlace` and
+`nullData` all `0`), and in text mode the PROGRAM never sees the line-end CR, on
+every platform: cygwin/msys gawk opens its input in text mode and strips the CR
+before the LF itself; on Linux/BSD/macOS `buildArgv` emits `-v RS='\r?\n'` in
+the BINMODE slot — before the extras and the setVar words — so `$2 == "1"`,
+`length($0)` and `NF` on a blank CRLF line behave as on Windows, also for
+`getline`. A user's RS (setVar, an extra `-v RS=`, `BEGIN{RS=…}`, `RS = ""`)
+comes later and wins; the program then sees the CR again. There is **no output
+strip**: a CR the program writes on purpose (`ORS = "\r\n"`,
+`printf "x\r\n"`) is kept on every platform. The one exception:
+`--posix`/`--traditional` (`-P`, `-c`, any prefix, `-W posix`) among the
+extras make gawk use only RS's first character — the CR — so the build emits no
+RS and falls back to TUtil's output strip (one `kk.debug` line; the records lose
+the CR, the program sees it). So `crlf` is a no-op for the stream in text
+mode, and:
 
 | shape | what happens |
 |---|---|
-| default | `a 1\r\n` arrives as the record `a 1` |
+| default | `a 1\r\n` arrives as the record `a 1`, on every platform |
 | `binary = 1` | `-v BINMODE=3`: the CR is kept (`a 1\r`) |
 | `binary = 1` + `crlf = 1` | exactly one trailing CR stripped per record |
-| `inPlace = 1` | **derives `BINMODE=3`**: in text mode the in-place rewrite would turn every CRLF into LF on disk |
-| `nullData = 1` | **derives `BINMODE=3`** and the sinks' `-0`: in text mode a CR *inside* a NUL record is lost (`x\r\ny` → `x\ny`) |
+| `inPlace = 1` | **derives `BINMODE=3`**: on cygwin/msys a text-mode in-place rewrite would turn every CRLF into LF on disk; with BINMODE the file keeps every CR on every platform |
+| `nullData = 1` | **derives `BINMODE=3`** and the sinks' `-0`: on cygwin/msys a text-mode run loses a CR *inside* a NUL record (`x\r\ny` → `x\ny`) |
 
 The derivation lives in `buildArgv` only; the `binary` property is never
 written, so turning `inPlace`/`nullData` off takes `BINMODE` away again and a
@@ -487,14 +503,14 @@ bash kcl/tawk/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tawk/tests/tests.sh
 ```
 
-**592 checks, green on bash 5.2.37 (gawk 5.0.0) and on bash 5.3.9 (gawk
+**609 checks, green on bash 5.2.37 (gawk 5.0.0) and on bash 5.3.9 (gawk
 5.4.0)**, in the default threaded mode and (5.2.37) under `--mode single`. Case
 by case: [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | runs gawk? |
 |---|---|---|---|
-| `004_Argv.sh` | 396 | A1–A4 by array comparison: lifecycle and both registries; every option singly and combined; chunks (empty never emitted); setVar order, in-place replacement and the encoding; the boolean rule and the fail-closed sandbox; the rc 2 list incl. every deny-list spelling (short, attached, bundled, long, any prefix, `-W` in four shapes), the BINMODE-disabling options while derived, `--`, non-option words, dangling options, the extras that pass; every illegal `setVar` name; the `-0` four-state sequence and the derived BINMODE | **no** |
-| `005_Run.sh` | 105 | A5–A12 against bare gawk on a fixture tree behind the banner gate, stdin closed: every sink, chunks in order, `-f` after `-e`, `-F` (escape, regex), the terminated last line, stdin, `./k=v` / `a::b=v` files; the setVar byte matrix (`od -c`, `run` and a sink); the fatal missing file per sink, syntax error, `exit N`, the directory warning; the sandbox with marker files; CR and NUL bytes; in-place on copies (the planted `./inplace.awk`, `.bak`, a backslash suffix (encoded, both versions), a missing middle file, `exit` truncation, END to stdout, every sink refused); `TAwk.apply` in three positions, nested, composed | yes (GNU banner gate first) |
+| `004_Argv.sh` | 404 | A1–A4 by array comparison: lifecycle and both registries; every option singly and combined; chunks (empty never emitted); setVar order, in-place replacement and the encoding; the boolean rule and the fail-closed sandbox; the rc 2 list incl. every deny-list spelling (short, attached, bundled, long, any prefix, `-W` in four shapes), the BINMODE-disabling options while derived, `--`, non-option words, dangling options, the extras that pass; every illegal `setVar` name; the `-0` four-state sequence and the derived BINMODE | **no** |
+| `005_Run.sh` | 114 | A5–A12 against bare gawk on a fixture tree behind the banner gate, stdin closed: every sink, chunks in order, `-f` after `-e`, `-F` (escape, regex), the terminated last line, stdin, `./k=v` / `a::b=v` files; the setVar byte matrix (`od -c`, `run` and a sink); the fatal missing file per sink, syntax error, `exit N`, the directory warning; the sandbox with marker files; CR and NUL bytes; in-place on copies (the planted `./inplace.awk`, `.bak`, a backslash suffix (encoded, both versions), a missing middle file, `exit` truncation, END to stdout, every sink refused); `TAwk.apply` in three positions, nested, composed | yes (GNU banner gate first) |
 | `006_Contract.sh` | 79 | A13: source integrity (rc-preserving overrides, the absolute include, no env route), `set -eu` children through `a.each` and both TPipe forms with every sink call guarded, one debug line per rc 2 / gawk-error path and silence on rc 0 and on an `exit N` status, D6 + `subshellOk`, the unguarded-sink rule | yes (gated) |
 | `007_Bench.sh` | 12 | the §10 gate as assertions with a **10×** ceiling behind the same banner gate: `TAwk.apply` vs bare `gawk --sandbox -e … --` over a 200-line and a one-line file (interleaved, medians, byte-identical outputs asserted), the `apply` delta under 50 ms, `a.count` vs `gawk … \| wc -l`; 200 builds invoke the `cmd` zero times, fork nothing and do not accumulate; a refused (`-W` deny-list) build is the cheap path too; the 1 KiB `setVar` encoding is fork-free; zero forks for every property, every builder member, `run`, `apply`, the five sinks' callback and `.Add`, and five rc 2 paths | yes (gated) |
 

@@ -40,6 +40,12 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tawk.sh"
 source "$UNIT"
+# The CR contract (tutil README §3, L2.7-C) adds argv words on a platform whose
+# tools keep the line-end CR (TSed's prelude, TAwk's RS, TGrep's stdin filter).
+# Every pinned argv in this file is the cygwin/msys one, so the file pins that
+# platform path; the words of the other path are pinned in section CR at the
+# end, which flips `__TUTIL_TOOLS_STRIP_CR` per case.
+__TUTIL_TOOLS_STRIP_CR=1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -146,7 +152,7 @@ kt_test_section "A. A3 lifecycle — Create assigns every var, the arrays are ri
 # ===========================================================================
 
 TA_VARS=( program programFile fieldSep nullData binary sandbox inPlace backupSuffix _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
 
 kt_test_start "A3: every declared var is present in \`\${inst}_data\` right after \`new\`"
 TAwk.new aA "$P" f.txt
@@ -170,7 +176,7 @@ for v in programFile fieldSep backupSuffix; do
     got="$(aA."$v")"
     [[ "$got" == "" ]] || bad+=" $v='$got'"
 done
-for v in nullData binary inPlace _nulDerived crlf nul subshellOk; do
+for v in nullData binary inPlace _nulDerived crlf nul subshellOk _textMode; do
     got="$(aA."$v")"
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
 done
@@ -1214,3 +1220,75 @@ fi
 for d in aA a1 a2 a3 a4 aE aV aZ aB; do
     "$d".delete 2>/dev/null || :
 done
+
+# ===========================================================================
+kt_test_section "CR. the CR contract's argv where the tool keeps the CR (L2.7-C)"
+# ===========================================================================
+# `__TUTIL_TOOLS_STRIP_CR = 0` is the Linux/BSD/macOS path: a TEXT-mode build
+# gets `-v RS='\r?\n'` in the BINMODE slot — before the extras and the setVar
+# words, so a user's RS wins. `--posix`/`--traditional` among the extras: no
+# RS (gawk would use its first character only) and `_textMode = 1` instead
+# (TUtil's output strip). Nothing runs.
+CRRS='RS=\r?\n'
+
+cr_case() {   # TITLE INST WANT...
+    local t="$1" i="$2"; shift 2
+    kt_test_start "$t"
+    GOT=()
+    "$i".argv GOT >/dev/null 2>&1 || :
+    if arr_is GOT "$@"; then
+        kt_test_pass "$(arr_show GOT)"
+    else
+        kt_test_fail "got $(arr_show GOT)"
+    fi
+}
+
+__TUTIL_TOOLS_STRIP_CR=0
+TAwk.new aCR '{print}' f1
+aCR.addArg --lint
+aCR.setVar RS ';'
+cr_case "CR: text mode — the CR-optional RS comes BEFORE the extras and the setVar words (a user RS wins)" aCR \
+    gawk --sandbox -v "$CRRS" --lint -v 'RS=;' -e '{print}' -- f1
+aCR.clearVars
+aCR.clearArgs
+aCR.binary = 1
+cr_case "CR: \`binary = 1\` — no RS" aCR gawk --sandbox -v BINMODE=3 -e '{print}' -- f1
+aCR.binary = 0
+aCR.nullData = 1
+cr_case "CR: \`nullData = 1\` — no CR RS (the NUL RS)" aCR gawk --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- f1
+aCR.nullData = 0
+aCR.sandbox = 0
+aCR.inPlace = 1
+cr_case "CR: \`inPlace = 1\` — no RS" aCR gawk -v BINMODE=3 -i /usr/share/awk/inplace.awk -e '{print}' -- f1
+aCR.inPlace = 0
+aCR.sandbox = 1
+cr_case "CR: back to text mode — the RS again" aCR gawk --sandbox -v "$CRRS" -e '{print}' -- f1
+
+kt_test_start "CR: \`--posix\` / \`-P\` / \`-W posix\` / \`--trad\` / \`-c\` among the extras — no RS, \`_textMode = 1\` (the output-strip fallback)"
+bad=""
+for x in --posix -P '-W posix' --trad -c --po; do
+    aCR.clearArgs
+    # shellcheck disable=SC2086
+    aCR.addArg $x
+    GOT=(); aCR.argv GOT >/dev/null 2>&1 || :
+    tm="$(aCR._textMode)"
+    w=" ${GOT[*]} "
+    if [[ "$w" == *"$CRRS"* || "$tm" != "1" ]]; then
+        bad+=" [$x: tm=$tm argv=$(arr_show GOT)]"
+    fi
+done
+aCR.clearArgs
+if [[ -z "$bad" ]]; then kt_test_pass "six spellings, no RS, _textMode 1"; else kt_test_fail "$bad"; fi
+
+kt_test_start "CR: \`_textMode\` — 0 in text mode on BOTH paths (the program's own CRs survive), 1 only for the --posix fallback"
+tm=""
+__TUTIL_TOOLS_STRIP_CR=0; aCR.argv GOT >/dev/null; tm+="$(aCR._textMode)"
+__TUTIL_TOOLS_STRIP_CR=1; aCR.argv GOT >/dev/null; tm+="$(aCR._textMode)"
+aCR.addArg --posix
+__TUTIL_TOOLS_STRIP_CR=1; aCR.argv GOT >/dev/null; tm+="$(aCR._textMode)"
+aCR.clearArgs
+if [[ "$tm" == "001" ]]; then kt_test_pass "001"; else kt_test_fail "got $tm"; fi
+
+__TUTIL_TOOLS_STRIP_CR=1
+cr_case "CR: the cygwin/msys path — no RS" aCR gawk --sandbox -e '{print}' -- f1
+aCR.delete

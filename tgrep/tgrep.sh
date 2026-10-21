@@ -73,11 +73,16 @@ declare -g __TG_SEQ=0
 # sinks then keep every record that arrived and RESULT is the REAL count, the one
 # place in this family where rc 1 does not imply an empty RESULT (§2.4, README).
 #
-# ---- Text mode and the CR (PLAN §2.6) -------------------------------------
-# GNU grep opens input in TEXT mode on this platform and strips the CR itself,
-# so `crlf` has nothing left to do for this wrapper; `binary` (-U) is the only
-# way to see the CR, and `binary = 1` with `crlf = 1` is the byte-faithful pass
-# over a CRLF corpus.
+# ---- Text mode and the CR (PLAN §2.6; tutil README §3, owner DL11) --------
+# In text mode (`binary = 0`, `nullData = 0`) a line record NEVER carries the
+# line-end CR, on every platform: cygwin/msys grep strips it itself; on
+# Linux/BSD/macOS grep reading STDIN gets a filtered stdin (`tutil._crStdin`,
+# so `$`, `-x`, `^$` behave as on Windows), and grep reading FILES has its
+# output cleaned (`_textMode = 1`: the sinks add `-c`, `run` filters) — its
+# matching still sees the CR there (README §5). `-l`/`-L` output is names and
+# is never touched. So `crlf` has nothing left to do in text mode; `binary`
+# (-U) is the way to see the CR, and `binary = 1` with `crlf = 1` is the
+# byte-faithful pass over a CRLF corpus.
 #
 # ---- Binary files (PLAN §1.4) ---------------------------------------------
 # `Binary file X matches` goes to grep's STDOUT, so it arrives as a RECORD
@@ -272,7 +277,8 @@ TGrep.buildArgv() {
     # `_nulDerived` records that WE set it, which is what makes the derivation
     # idempotent: turning `filesOnly` back off takes the `-0` off again, while a
     # `nul = 1` the CALLER set (for `-z`, or for a shape this wrapper does not
-    # model) is never touched. buildArgv mutates no other state.
+    # model) is never touched. Besides `nul`/`_nulDerived` buildArgv writes only
+    # TUtil's `_textMode` (the CR contract, below).
     #
     # The inner guard is P3-F1: claiming ownership whenever the CONDITION held —
     # even when `nul` was already 1 because the caller set it — made the undo one
@@ -288,6 +294,33 @@ TGrep.buildArgv() {
     elif [[ "$_nulDerived" == 1 ]]; then
         nul=0
         _nulDerived=0
+    fi
+
+    # ---- the CR contract (tutil README §3, owner DL11) ---------------------
+    # Text mode = neither `-U` nor `-z`: grep then reads lines, and the
+    # line-end CR of a CRLF input must not reach the caller on any platform.
+    # cygwin/msys grep has already dropped it; elsewhere (`tutil._keepsCr`):
+    #   * no path operand and no `-r` (grep reads STDIN): stdin goes through
+    #     `tutil._crStdin` first, so `$`, `-x` and `^$` see no CR either — the
+    #     argv starts with that helper, and the output needs nothing more;
+    #   * file operands (grep has no input-side switch): `_textMode = 1`, so
+    #     TUtil cleans the OUTPUT (the sinks' `-c`, `run`'s filter); grep's
+    #     matching still sees the CR there — the documented residual.
+    # `-z` counts as binary because grep -z keeps the CR on Windows too, and
+    # `-l`/`-L` print NAMES, not lines, so they get no strip at all.
+    # `_textMode` is derived the same way on every platform; TUtil reads it
+    # only where the tool keeps the CR.
+    local __tg_in=0
+    local -n __tg_p="${__inst__}_paths"
+    if [[ "$binary" == 1 || "$nullData" == 1 || "$filesOnly" == 1 || "$filesWithoutMatch" == 1 ]]; then
+        _textMode=0
+    elif (( ${#__tg_p[@]} == 0 )) && [[ "$recursive" != 1 ]]; then
+        _textMode=0
+        if tutil._keepsCr; then
+            __tg_in=1
+        fi
+    else
+        _textMode=1
     fi
 
     # ---- the argv, in the pinned order ------------------------------------
@@ -328,9 +361,14 @@ TGrep.buildArgv() {
     # `--` only when there IS an operand: with none, grep reads stdin, and a
     # trailing `--` alone would make grep read stdin anyway but says something
     # the caller did not.
-    local -n __tg_p="${__inst__}_paths"
     if (( ${#__tg_p[@]} > 0 )); then
         __tg_v+=( -- "${__tg_p[@]}" )
+    fi
+
+    # The stdin CR filter (above) goes IN FRONT of the whole command line:
+    # `tutil._crStdin grep …` is what `run` and every sink execute.
+    if [[ "$__tg_in" == 1 ]]; then
+        __tg_v=( tutil._crStdin "${__tg_v[@]}" )
     fi
 
     kk._return "${#__tg_v[@]}"

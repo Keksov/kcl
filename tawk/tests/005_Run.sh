@@ -34,9 +34,11 @@
 #   D  A8    the sandbox: system(), `print > f`, `> "/dev/stderr"`, a pipe to
 #            getline, `getline < f`, `|&` refused (marker files); `sandbox = 0`
 #            runs them; '', yes, 2 stay sandboxed; `@include` allowed
-#   E  A9    CR: text mode strips, `binary` keeps, `binary` + `crlf` strips
-#            one, `inPlace` keeps every CR on disk, `nullData` keeps an
-#            embedded CR
+#   E  A9    CR (the kbool contract, tutil README §3): text mode delivers no
+#            line-end CR on EVERY platform, `binary` keeps, `binary` + `crlf`
+#            strips one, `inPlace` keeps every CR on disk, `nullData` keeps an
+#            embedded CR; the contract cases drive both platform paths
+#            (`__TUTIL_TOOLS_STRIP_CR` 0/1, a CR-keeping stand-in tool)
 #   F  A10   NUL records through the derived `-0`; the last record terminated
 #   G  A11   in-place: sandbox refused; `run` edits; END to stdout; a planted
 #            `./inplace.awk` is NOT loaded; `.bak`; a missing middle file;
@@ -841,14 +843,20 @@ fi
 kt_test_section "E. A9 — the CR"
 # ===========================================================================
 
-if tcase "A9: text mode STRIPS the CR — records ('a 1' 'b 2'), bytes == bare gawk, no \\r in the stream"; then
+# The CR rows below pin the KBOOL contract (owner DL11, tutil README §3), not
+# the bare tool's: in text mode the records carry no line-end CR on every
+# platform. cygwin/msys gawk drops it itself; Linux/BSD/macOS gawk keeps it and
+# TUtil removes it. The "== bare gawk" oracle rule therefore does not apply to
+# these rows: the oracle is the literal bytes, or the bare tool in BINARY mode
+# (which is the same everywhere).
+if tcase "A9: text mode delivers NO line-end CR on every platform — records ('a 1' 'b 2'), \`run\` streams LF-only lines"; then
     TAwk.new aC '{print}' "$FX/crlf.txt"
     SGOT=()
     rc=0; aC.toArray SGOT || rc=$?
     got="$(aC.run | od -c)"
-    want="$(timeout 20 gawk --sandbox -e '{print}' -- "$FX/crlf.txt" | od -c)"
+    want="$(printf 'a 1\nb 2\n' | od -c)"
     if [[ $rc -eq 0 && "$got" == "$want" && "$got" != *'\r'* ]] && arr_is SGOT 'a 1' 'b 2'; then
-        kt_test_pass "('a 1' 'b 2'); gawk ate the CR itself (crlf is a no-op here)"
+        kt_test_pass "('a 1' 'b 2'); the stream is LF-only (the tool or TUtil removed the CR)"
     else
         kt_test_fail "rc=$rc got=$(arr_show SGOT) od='${got//$'\n'/|}'"
     fi
@@ -884,38 +892,201 @@ if tcase "A9: \`binary = 1\` + \`crlf = 1\` strips EXACTLY one CR (\`c 3\\r\\r\`
     aC.delete
 fi
 
-if tcase "A9: \`inPlace = 1\` on a CRLF file keeps EVERY CR on disk (derived BINMODE=3); bare \`-i inplace\` does not"; then
+# Why Q4 derives BINMODE for inPlace: cygwin/msys gawk in text mode would
+# rewrite CRLF to LF on disk (a bare `-i inplace` does), while Linux/BSD/macOS
+# gawk keeps the CR anyway. The wrapper's result is the uniform one, so the
+# platform-specific bare oracle is not part of this row any more.
+if tcase "A9: \`inPlace = 1\` on a CRLF file keeps EVERY CR on disk (derived BINMODE=3), on every platform"; then
     cp "$FX/crlf.txt" "$FX/ip_crlf.txt"
-    cp "$FX/crlf.txt" "$FX/ip_bare.txt"
     TAwk.new aC '{sub(/a/, "A"); print}' "$FX/ip_crlf.txt"
     aC.sandbox = 0
     aC.inPlace = 1
     rc=0; aC.run > "$TMP/ip.out" 2>/dev/null || rc=$?
-    timeout 20 gawk -i "$IPA" -e '{sub(/a/, "A"); print}' -- "$FX/ip_bare.txt" </dev/null
     got="$(odf "$FX/ip_crlf.txt")"
     wantc="$(printf 'A 1\r\nb 2\r\n' | od -c)"
-    bare="$(odf "$FX/ip_bare.txt")"
-    bwant="$(printf 'A 1\nb 2\n' | od -c)"
-    if [[ $rc -eq 0 && "$got" == "$wantc" && "$bare" == "$bwant" && ! -s "$TMP/ip.out" ]]; then
-        kt_test_pass "wrapper: A 1\\r\\nb 2\\r\\n on disk; bare: A 1\\nb 2\\n (why Q4 derives BINMODE)"
+    if [[ $rc -eq 0 && "$got" == "$wantc" && ! -s "$TMP/ip.out" ]]; then
+        kt_test_pass "A 1\\r\\nb 2\\r\\n on disk, nothing on stdout"
     else
-        kt_test_fail "rc=$rc got='${got//$'\n'/|}' bare='${bare//$'\n'/|}'"
+        kt_test_fail "rc=$rc got='${got//$'\n'/|}'"
     fi
     aC.delete
 fi
 
-if tcase "A9: \`nullData = 1\` keeps a CR embedded in a NUL record (bare RS/ORS NUL without BINMODE strips it)"; then
+# The oracle is the bare tool in BINARY mode (`BINMODE=3`), which keeps the
+# embedded CR on every platform; a bare text-mode run would strip it on
+# cygwin/msys only.
+if tcase "A9: \`nullData = 1\` keeps a CR embedded in a NUL record, on every platform (== bare gawk with BINMODE=3)"; then
     TAwk.new aC '{print}' "$FX/nul.bin"
     aC.nullData = 1
     SGOT=()
     rc=0; aC.toArray SGOT || rc=$?
-    oracle0 SWANT gawk -v 'RS=\0' -v 'ORS=\0' -e '{print}' -- "$FX/nul.bin"
-    if [[ $rc -eq 0 ]] && arr_is SGOT a "x$CR"$'\n'"y" last && arr_is SWANT a $'x\ny' last; then
-        kt_test_pass "(a 'x\\r\\ny' last); the bare text-mode run gives 'x\\ny'"
+    oracle0 SWANT gawk -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- "$FX/nul.bin"
+    if [[ $rc -eq 0 ]] && arr_is SGOT a "x$CR"$'\n'"y" last && arr_is SWANT a "x$CR"$'\n'"y" last; then
+        kt_test_pass "(a 'x\\r\\ny' last), == the bare binary-mode run"
     else
         kt_test_fail "rc=$rc got=$(arr_show SGOT) bare=$(arr_show SWANT)"
     fi
     aC.delete
+fi
+
+# ---- A9 contract: both platform paths on any host (tutil README §3) --------
+# `__TUTIL_TOOLS_STRIP_CR` is flipped per case: 0 drives the Linux/BSD/macOS
+# path (TAwk emits `-v RS='\r?\n'`; the program never sees the CR), 1 the
+# cygwin/msys path where gawk has already stripped and the wrapper adds
+# nothing. With real gawk the 0 path runs on any host (on Windows the RS is
+# then simply redundant). `a9_tool` stands in for "a tool that KEEPS the CR"
+# where the output strip itself is the subject (the `--posix` fallback).
+A9_NAT="$__TUTIL_TOOLS_STRIP_CR"
+a9_tool() { printf 'a 1\r\nb 2\r\n'; return 0; }
+A9_LF="$(printf 'a 1\nb 2\n' | od -c)"
+A9_CRLF="$(printf 'a 1\r\nb 2\r\n' | od -c)"
+
+if tcase "A9 contract, the RS path forced (real gawk): all five sinks and \`run\` see and deliver ('a 1' 'b 2'), length 3; \`binary = 1\` keeps the CR"; then
+    TAwk.new aT '{print}' "$FX/crlf.txt"
+    __TUTIL_TOOLS_STRIP_CR=0
+    declare -a W=(); aT.argv W
+    SGOT=(); arc=0; aT.toArray SGOT || arc=$?
+    CB_RECS=(); erc=0; aT.each cb_collect || erc=$?
+    TATestList.new aTL; lrc=0; aT.toList aTL || lrc=$?; ln="$(aTL.N)"; aTL.delete
+    frc=0; aT.first || frc=$?; fv="$RESULT"
+    crc=0; aT.count || crc=$?; cn="$RESULT"
+    rrc=0; aT.run > "$TMP/a9s.out" || rrc=$?
+    got="$(od -c < "$TMP/a9s.out")"
+    aT.program = '{print length($0)}'
+    LGOT=(); aT.toArray LGOT
+    aT.program = '{print}'
+    aT.binary = 1
+    SWANT=(); aT.toArray SWANT
+    bgot="$(aT.run | od -c)"
+    __TUTIL_TOOLS_STRIP_CR="$A9_NAT"
+    if [[ "$arc$erc$lrc$frc$crc$rrc" == "000000" && "$ln" == "2" && "$fv" == "a 1" && "$cn" == "2" \
+          && "${W[3]}" == 'RS=\r?\n' && "$got" == "$A9_LF" && "$bgot" == "$A9_CRLF" ]] \
+       && arr_is SGOT 'a 1' 'b 2' && arr_is CB_RECS 'a 1' 'b 2' && arr_is LGOT 3 3 \
+       && arr_is SWANT "a 1$CR" "b 2$CR"; then
+        kt_test_pass "RS in the argv; ('a 1' 'b 2') from every sink, (3 3), run LF-only; binary: the CRs"
+    else
+        kt_test_fail "rc=$arc$erc$lrc$frc$crc$rrc argv=$(arr_show W) got=$(arr_show SGOT) each=$(arr_show CB_RECS) first='$fv' count=$cn list=$ln len=$(arr_show LGOT) run='${got//$'\n'/|}' binary=$(arr_show SWANT) brun='${bgot//$'\n'/|}'"
+    fi
+    aT.delete
+fi
+
+if tcase "A9 contract, the RS path forced: a user RS wins (\`setVar RS ';'\`), and a deliberate CRLF \`ORS\` survives"; then
+    printf 'x;y;' > "$FX/semi.txt"
+    printf 'a 1\nb 2\n' > "$FX/lf.txt"
+    TAwk.new aT '{print}' "$FX/semi.txt"
+    aT.setVar RS ';'
+    __TUTIL_TOOLS_STRIP_CR=0
+    SGOT=(); arc=0; aT.toArray SGOT || arc=$?
+    TAwk.new aT2 'BEGIN{ORS="\r\n"} {print}' "$FX/lf.txt"
+    OGOT=(); orc=0; aT2.toArray OGOT || orc=$?
+    __TUTIL_TOOLS_STRIP_CR="$A9_NAT"
+    if [[ $arc -eq 0 && $orc -eq 0 ]] && arr_is SGOT x y && arr_is OGOT "a 1$CR" "b 2$CR"; then
+        kt_test_pass "(x y); ORS: the program's CRs"
+    else
+        kt_test_fail "rc=$arc got=$(arr_show SGOT) orc=$orc ors=$(arr_show OGOT)"
+    fi
+    aT.delete
+    aT2.delete
+fi
+
+if tcase "A9 contract, the \`--posix\` fallback (a tool that KEEPS the CR): no RS, TUtil strips the OUTPUT — and without --posix nothing strips the output"; then
+    TAwk.new aT '{print}' "$FX/crlf.txt"
+    aT.cmd = a9_tool
+    __TUTIL_TOOLS_STRIP_CR=0
+    SWANT=(); aT.toArray SWANT
+    aT.addArg --posix
+    declare -a W=(); aT.argv W
+    SGOT=(); arc=0; aT.toArray SGOT || arc=$?
+    got="$(aT.run | od -c)"
+    __TUTIL_TOOLS_STRIP_CR="$A9_NAT"
+    if [[ $arc -eq 0 && " ${W[*]} " != *'RS=\r?\n'* && "$got" == "$A9_LF" ]] \
+       && arr_is SGOT 'a 1' 'b 2' && arr_is SWANT "a 1$CR" "b 2$CR"; then
+        kt_test_pass "--posix: ('a 1' 'b 2'), run LF-only; plain text mode: the stand-in's CRs reach the sinks"
+    else
+        kt_test_fail "rc=$arc argv=$(arr_show W) got=$(arr_show SGOT) run='${got//$'\n'/|}' plain=$(arr_show SWANT)"
+    fi
+    aT.delete
+fi
+
+if tcase "A9 contract, the cygwin/msys path (the tool already stripped): the wrapper adds nothing — no RS, a CR the tool wrote reaches the sinks and \`run\`"; then
+    TAwk.new aT '{print}' "$FX/crlf.txt"
+    aT.cmd = a9_tool
+    __TUTIL_TOOLS_STRIP_CR=1
+    declare -a W=(); aT.argv W
+    SGOT=(); arc=0; aT.toArray SGOT || arc=$?
+    got="$(aT.run | od -c)"
+    __TUTIL_TOOLS_STRIP_CR="$A9_NAT"
+    if [[ $arc -eq 0 && "$got" == "$A9_CRLF" && " ${W[*]} " != *'RS='* ]] && arr_is SGOT "a 1$CR" "b 2$CR"; then
+        kt_test_pass "no RS, no -c, no filter: the tool's bytes"
+    else
+        kt_test_fail "rc=$arc argv=$(arr_show W) got=$(arr_show SGOT) run='${got//$'\n'/|}'"
+    fi
+    aT.delete
+fi
+
+# ---- A9 the owner's examples (DL11, L2.7-C round 2): the PROGRAM never sees
+# the line-end CR in text mode, on any platform, and a CR the program writes on
+# purpose is kept on every platform. Real gawk; no stand-in. Before round 2 the
+# first three failed on Linux (gawk read `1\r`, `length` 4, a CR-only line has
+# NF 1) and the last two lost their CR there (the output strip ate it).
+printf 'a 1\nb 2\n'             > "$FX/lf.txt"
+printf 'a 1\r\n\r\nb 2\r\n'     > "$FX/crlf_blank.txt"
+
+if tcase "A9 owner: \`\$2 == \"1\"\` on a CRLF file selects 'a 1' — the program compares '1', not '1\\r'"; then
+    TAwk.new aO '$2 == "1"' "$FX/crlf.txt"
+    SGOT=(); rc=0; aO.toArray SGOT || rc=$?
+    got="$(aO.run | od -c)"
+    if [[ $rc -eq 0 && "$got" == "$(printf 'a 1\n' | od -c)" ]] && arr_is SGOT 'a 1'; then
+        kt_test_pass "('a 1'), run 'a 1' + LF"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT) run='${got//$'\n'/|}'"
+    fi
+    aO.delete
+fi
+
+if tcase "A9 owner: \`{print length(\$0)}\` on a CRLF file is (3 3)"; then
+    TAwk.new aO '{print length($0)}' "$FX/crlf.txt"
+    SGOT=(); rc=0; aO.toArray SGOT || rc=$?
+    if [[ $rc -eq 0 ]] && arr_is SGOT 3 3; then
+        kt_test_pass "(3 3)"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT)"
+    fi
+    aO.delete
+fi
+
+if tcase "A9 owner: \`NF\` drops the empty CRLF line — ('a 1' 'b 2')"; then
+    TAwk.new aO 'NF' "$FX/crlf_blank.txt"
+    SGOT=(); rc=0; aO.toArray SGOT || rc=$?
+    if [[ $rc -eq 0 ]] && arr_is SGOT 'a 1' 'b 2'; then
+        kt_test_pass "('a 1' 'b 2')"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT)"
+    fi
+    aO.delete
+fi
+
+if tcase "A9 owner: a deliberate CRLF \`ORS\` keeps its CR on every platform — records and run end in CR LF"; then
+    TAwk.new aO 'BEGIN{ORS="\r\n"} {print}' "$FX/lf.txt"
+    SGOT=(); rc=0; aO.toArray SGOT || rc=$?
+    got="$(aO.run | od -c)"
+    if [[ $rc -eq 0 && "$got" == "$(printf 'a 1\r\nb 2\r\n' | od -c)" ]] && arr_is SGOT "a 1$CR" "b 2$CR"; then
+        kt_test_pass "the program's CRs, untouched"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT) run='${got//$'\n'/|}'"
+    fi
+    aO.delete
+fi
+
+if tcase "A9 owner: a deliberate CR LF from \`printf\` keeps its CR on every platform"; then
+    TAwk.new aO '{printf "%s\r\n", $1}' "$FX/lf.txt"
+    SGOT=(); rc=0; aO.toArray SGOT || rc=$?
+    if [[ $rc -eq 0 ]] && arr_is SGOT "a$CR" "b$CR"; then
+        kt_test_pass "the program's CRs, untouched"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT)"
+    fi
+    aO.delete
 fi
 
 # ===========================================================================
@@ -1342,8 +1513,11 @@ if tcase "A12: a nested \`apply\` inside an outer \`each\` — both complete, th
     for x in "${NEST_IN[@]}"; do
         [[ "$x" == $'d\ne' ]] || inner_ok=0
     done
+    # the CR contract's RS where gawk keeps the CR (tutil README §3)
+    A12W=( gawk --sandbox ); if tutil._keepsCr; then A12W+=( -v 'RS=\r?\n' ); fi
+    A12W+=( -e '{print $2}' -- "$FX/f3.txt" )
     if [[ $rc -eq 0 && ${#NEST_IN[@]} -eq 3 && "$inner_ok" == "1" && $arc -eq 0 && "$lr" == "0" ]] \
-       && arr_is NEST_OUT 1 2 3 && arr_is SGOT gawk --sandbox -e '{print $2}' -- "$FX/f3.txt"; then
+       && arr_is NEST_OUT 1 2 3 && arr_is SGOT "${A12W[@]}"; then
         kt_test_pass "3 outer records, 3 nested applies, the outer argv untouched"
     else
         kt_test_fail "rc=$rc outer=$(arr_show NEST_OUT) inner=${#NEST_IN[@]} ok=$inner_ok argvRc=$arc lastRc='$lr' argv=$(arr_show SGOT)"

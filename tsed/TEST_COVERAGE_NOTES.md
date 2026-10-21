@@ -106,7 +106,7 @@ is recorded here rather than edited.
 
 ---
 
-## 004_Argv.sh — typed options to argv, nothing executed (P0) — 146 cases
+## 004_Argv.sh — typed options to argv, nothing executed (P0; §CR added at L2.7-C) — 160 cases
 
 **sed is never started in this file.** Every case either compares the array
 `s.argv GOT` handed over, or asserts a refusal.
@@ -330,7 +330,20 @@ scan).
 
 ---
 
-## 005_Run.sh — TSed against GNU sed on a real tree (P0) — 70 cases
+### CR. the CR contract's argv where sed keeps the CR (L2.7-C) (14)
+
+The file pins `__TUTIL_TOOLS_STRIP_CR=1` at the top (every other pinned argv is the cygwin/msys one); this section flips it.
+
+| ID | Case | Class | Basis |
+|---|---|---|---|
+| 004.cr-text | text mode: the prelude after the extras, before the first script `-e` | contract | DL11 |
+| 004.cr-binary / -nulldata / -inplace ×3 | no prelude with `binary`, `nullData`, `inPlace` | contract | DL11 |
+| 004.cr-back | back to text mode: the prelude again | contract | DL11 |
+| 004.cr-hashn ×6 | `#n` → `-n`: as `expr`, as the first line of a multi-line `expr`, not for `#np`, one `-n` with `quiet`, as the first `addExpr`, as line 1 of `scriptFile`; none for a plain `scriptFile` | contract | DL11 |
+| 004.cr-native | the cygwin/msys path: no prelude, `#n` left to sed | contract | DL11 |
+| 004.cr-textmode | `_textMode` stays 0 on both paths | contract | DL11 |
+
+## 005_Run.sh — TSed against GNU sed on a real tree (P0; §E extended at L2.7-C) — 78 cases
 
 Oracle = the bare tool on the same fixture. Records are compared as arrays
 (newline framed, the unterminated tail kept; NUL framed under `-z`), streams
@@ -402,15 +415,23 @@ throughout.
 | 005.d-open | `sandbox = 0` RUNS `s///e`, `e`, `w` and the `-f` script — rc 0 each, every marker appears (`m_w` holding `a1`) | |
 | 005.d-open-w-stdout | `sandbox = 0` + `s/a/X/w /dev/stdout` doubles the line — `(X1 X1 b2 c3)`, exactly like the bare tool | **C9** |
 
-### E. S9 — the CR (5)
+### E. S9 — the CR (13; the kbool contract since L2.7-C, tutil README §3)
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 005.e-text-strips | text mode STRIPS the CR — records `(a1 b2)`, `run` bytes == bare sed, no `\r` in the stream (`crlf` is a no-op here) | representation | **S9**, §2.5 |
+| 005.e-text-strips | text mode delivers NO line-end CR on every platform — records `(a1 b2)`, the stream is the literal `a1\nb2\n` (the oracle is the bytes, not bare sed: text mode is the kbool contract, owner DL11) | contract | **S9**, §2.5, DL11 |
 | 005.e-binary-keeps | `binary = 1` KEEPS the CR — records `(a1\r b2\r)`, `run` == the file's own bytes | representation | **S9**, §2.5 |
 | 005.e-binary-crlf | `binary = 1` + `crlf = 1` strips EXACTLY one CR (`c3\r\r` → `c3\r`) | representation | **S9**, **C17** |
-| 005.e-inplace-crlf | `inPlace = 1` on a CRLF file keeps EVERY CR on disk (`A1\r\nb2\r\n`, the derived `-b`); the bare `sed -i` on a copy writes `A1\nb2\n` — why Q5 derives `-b` | tool-behaviour | **S9**, **Q5**, **C1** (major) |
-| 005.e-nulldata-cr | `nullData = 1` keeps a CR embedded in a NUL record (`x\r\ny`); the bare text-mode `sed -z` gives `x\ny` | tool-behaviour | **S9**, **Q5**, **C10** |
+| 005.e-inplace-crlf | `inPlace = 1` on a CRLF file keeps EVERY CR on disk (`A1\r\nb2\r\n`, the derived `-b`), on every platform (the bare `sed -i` oracle was cygwin/msys-specific and is gone) | contract | **S9**, **Q5**, **C1** (major), DL11 |
+| 005.e-nulldata-cr | `nullData = 1` keeps a CR embedded in a NUL record (`x\r\ny`), == the bare `sed -z -b` (the same on every platform) | contract | **S9**, **Q5**, **C10**, DL11 |
+| 005.e-contract-prelude | the prelude path forced (`__TUTIL_TOOLS_STRIP_CR=0`, real sed, any host): the prelude in the argv; all five sinks `(a1 b2)`, `run` LF-only; `binary = 1` keeps the CR | contract | DL11 |
+| 005.e-contract-tflag | the prelude path forced: the script's own `t` is not triggered by the prelude (`A1 b2`), `#n` (expr and scriptFile) still means `-n`, `s/$/\r/` keeps its CR | contract | DL11 |
+| 005.e-contract-nostrip | no output strip on either path: a CR-keeping stand-in's CRs reach `toArray` and `run` | contract | DL11, critic B1 |
+| 005.e-owner-alice | owner example: `s/Alice$/Bob/` on CRLF gives `name=Bob` (red on Linux before round 2) | contract | DL11 |
+| 005.e-owner-blank | owner example: `/^$/d` deletes the blank CRLF line (red before round 2) | contract | DL11 |
+| 005.e-owner-cr | a deliberate `s/$/\r/` keeps its CR in the sinks and `run`, every platform (red before round 2) | contract | DL11, critic B1 |
+| 005.e-owner-t | the script's own `t` (real path of the platform) | contract | DL11 |
+| 005.e-owner-hashn | `#n` via `expr` and via line 1 of `scriptFile` (real path of the platform) | contract | DL11 |
 
 ### F. S10 — `-z` NUL records (2)
 

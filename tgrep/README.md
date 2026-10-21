@@ -287,25 +287,44 @@ if [[ "$nul" != 1 ]]; then nul=1; _nulDerived=1; fi
 The sequence now reads `nul=1 _nulDerived=0` throughout, and it is pinned by
 `tests/004_Argv.sh` §G alongside the six ordinary shapes.
 
-`buildArgv` mutates no other state.
+Besides `nul`/`_nulDerived`, `buildArgv` writes only TUtil's private
+`_textMode` (the CR contract, §5).
 
 ---
 
 ## 5. CRLF — grep opens input in text mode
 
-Measured on this platform, both bashes, on a `x\r\ny\r\n` file: **GNU grep, sed
-and gawk strip the CR themselves**; `cat`, `head` and bash's `read` keep it; a
-pattern containing a literal `\r` never matches.
+**The CR contract is TUtil's** — the tables, the delivery paths and the
+residuals are in [tutil `README.md` §3 "CRLF: one result on every
+platform"](../tutil/README.md#crlf-one-result-on-every-platform) (owner DL11).
+For this wrapper: text mode means `binary = 0` **and** `nullData = 0`, and in
+text mode a line record never carries the line-end CR, on every platform —
+cygwin/msys grep strips it itself. grep has no input-side switch, so on
+Linux/BSD/macOS:
+
+* with **no path operand and no `recursive`** grep reads stdin, and the argv
+  starts with `tutil._crStdin`: stdin goes through `sed [-u] 's/<CR>$//'`
+  first, so `$`, `-x` and `^$` match exactly as on Windows (grep's rc is still
+  grep's);
+* with **file operands** the OUTPUT is cleaned (`_textMode = 1`: the sinks'
+  `-c`, `run`'s `sed [-u]` filter) — grep's matching still sees the CR there,
+  so `needle$`, `-x`, `-Fx` and `^$` do not match a CRLF line (the residual;
+  use `binary = 1` and `\r?$`, or feed stdin);
+* `filesOnly`/`filesWithoutMatch` (`-l`/`-L`) print names, not lines, and are
+  never touched.
 
 | setting | the record for `needle\r\n` |
 |---|---|
-| default | `needle` — grep already stripped it |
-| `binary = 1` (`-U`) | `needle\r` — byte fidelity restored |
+| default | `needle` — on every platform |
+| `binary = 1` (`-U`) | `needle\r` — byte fidelity restored, everywhere |
 | `binary = 1` + `crlf = 1` | `needle` — the sink's `-c` takes it back off |
+| `nullData = 1` (`-z`) | not text mode: grep `-z` keeps the CR on Windows too, so nothing is stripped anywhere |
 
-So `crlf` is a **no-op for this wrapper** on its own; it exists for the
+So `crlf` is a **no-op for this wrapper** in text mode; it exists for the
 coreutils wrappers (`thead`/`ttail`) and for bash-function producers, and here it
-is only useful **together with** `binary`.
+is only useful **together with** `binary`. On Windows grep never sees the
+line-end CR (a pattern containing a literal `\r` never matches); off Windows
+the same holds for stdin, while file operands keep the residual above.
 
 ---
 
@@ -501,7 +520,7 @@ bash kcl/tgrep/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tgrep/tests/tests.sh
 ```
 
-**185 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+**197 cases, green on bash 5.2.37 and on bash 5.3.9** (launch L2.7-C), in the default threaded
 mode and under `--mode single`, against GNU grep 3.0. Case-by-case:
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). The behavioural files all open
 with the **GNU banner gate**: this box carries a non-GNU `grep` (Embarcadero)
@@ -510,7 +529,7 @@ every behavioural case is a loud SKIP and the case count is unchanged.
 
 | File | Cases | What it pins |
 |---|---|---|
-| `004_Argv.sh` | 74 | **grep is never executed.** The lifecycle (all 23 declared vars plus TUtil's five — `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk` — present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions, including P3-F1 (a deriving build never CLAIMS a `nul` the caller already set) |
-| `005_Search.sh` | 53 | The GNU banner gate first, then a fixture tree (names with a space, a newline and a leading `-`, UTF-8, CRLF, a NUL-bearing file, a subdir, and **real** NTFS symlinks through `kt_make_symlink`) with the bare tool as the oracle: G5 no match on all five runners; G6 the `-E` dialect and the literal `(` without it; G7 the `-Z` framing in both directions; G8 a directory operand without `recursive`, `search` implying `-r`, and `search` refusing zero paths or an empty pattern; G9 the three forms; G10 the partial-failure deviation; G11 a nested `search` from inside a callback, in both shapes; G12 `-r` versus a real directory symlink (and `-R` as the counter-oracle); the CRLF table of §5; every remaining typed option against bare grep; and the binary-file record with its two escape hatches |
+| `004_Argv.sh` | 79 | **grep is never executed.** The lifecycle (all 23 declared vars plus TUtil's five — `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk` — present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions, including P3-F1 (a deriving build never CLAIMS a `nul` the caller already set) |
+| `005_Search.sh` | 60 | The GNU banner gate first, then a fixture tree (names with a space, a newline and a leading `-`, UTF-8, CRLF, a NUL-bearing file, a subdir, and **real** NTFS symlinks through `kt_make_symlink`) with the bare tool as the oracle: G5 no match on all five runners; G6 the `-E` dialect and the literal `(` without it; G7 the `-Z` framing in both directions; G8 a directory operand without `recursive`, `search` implying `-r`, and `search` refusing zero paths or an empty pattern; G9 the three forms; G10 the partial-failure deviation; G11 a nested `search` from inside a callback, in both shapes; G12 `-r` versus a real directory symlink (and `-R` as the counter-oracle); the CRLF table of §5; every remaining typed option against bare grep; and the binary-file record with its two escape hatches |
 | `006_Contract.sh` | 49 | `bash -n`, the open-quote and inline-`$'\r'` greps, no `$this.` call, `parent.constructor` in the constructor and `inherited` in the destructor, no `var` shadowing an inherited member; every shape from a child script under `set -eu` (an instance, both `TPipe` forms, `search` as a producer, a hit, no match, a grep error, a partial failure, a refused build, a refused `search`, the stdin form, `run` streaming, `delete`); and the debug switch — exactly one line on each of the 9 rc 2 paths and the 3 grep-error paths, **none** on any rc 0 or no-match path, with complete silence from us when the switch is off while grep's own lines pass through; and one **D6-final** case: `g.subshellOk = 1` silences TPipe's subshell warning through two frames of wrapper (the child's stderr must be empty), while without it `$(g2.toArray A2)` carries the verbatim `Warning: TPipe.toArray: …` line |
 | `007_Bench.sh` | 9 | The PLAN §5 P3.1 gates as assertions, behind the same banner gate and with a 10× ceiling: `TGrep.search` against a bare `grep -r` over a 2000-line corpus (interleaved, medians, both sides asserted to find the same 21 hits), `TGrep.new` + `.delete` under 50 ms, `g.count` and the `countOnly` shortcut against `grep -c` (with grep's own per-file numbers compared as a set); that 200 `buildArgv` + `argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback and `.Add` run in this process, and the seven builder members plus `run` and `search` leave `$BASHPID` untouched |

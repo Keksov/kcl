@@ -77,7 +77,7 @@ before/after measurement is in
 
 ---
 
-## 004_Argv.sh — typed options to argv, nothing executed (P2) — 74 cases
+## 004_Argv.sh — typed options to argv, nothing executed (P2; §CR added at L2.7-C) — 79 cases
 
 **grep is never started in this file.** Every case either compares the array
 `g.argv GOT` handed over, or asserts a refusal.
@@ -199,7 +199,19 @@ exactly ONE `kk.debug` line naming the reason. Class `contract`, basis **G2**.
 
 ---
 
-## 005_Search.sh — TGrep against GNU grep on a real tree (P2) — 53 cases
+### CR. the CR contract's argv and `_textMode` (L2.7-C) (5)
+
+The file pins `__TUTIL_TOOLS_STRIP_CR=1` at the top; this section flips it.
+
+| ID | Case | Class | Basis |
+|---|---|---|---|
+| 004.cr-stdin | no operand, no `-r`: the argv starts with `tutil._crStdin` | contract | DL11 |
+| 004.cr-recursive | no operand with `-r`: no stdin filter | contract | DL11 |
+| 004.cr-files | a file operand: no extra word | contract | DL11 |
+| 004.cr-native | the cygwin/msys path, stdin: no filter | contract | DL11 |
+| 004.cr-textmode | `_textMode` per shape (files 1, stdin 0, `-r` 1, `-U` `-z` `-l` `-L` 0), identical on both paths | contract | DL11, critic B2 |
+
+## 005_Search.sh — TGrep against GNU grep on a real tree (P2; §I extended at L2.7-C) — 60 cases
 
 ### Z. the gate and the tree (2)
 
@@ -278,13 +290,20 @@ exactly ONE `kk.debug` line naming the reason. Class `contract`, basis **G2**.
 | 005.g12-named-dir | a directory symlink NAMED on the command line IS followed even under `-r` | tool-behaviour | **G12** |
 | 005.g12-named-file | a FILE symlink named on the command line is read through | tool-behaviour | **G12** |
 
-### I. CRLF (3)
+### I. CRLF (10; the kbool contract since L2.7-C, tutil README §3)
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 005.crlf-stripped | a record from a CRLF file carries NO CR — grep stripped it, not us | tool-behaviour | **C8**, §2.6 |
+| 005.crlf-stripped | a record from a CRLF file carries NO CR on every platform, and `run` streams `needle crlf\n` (text mode is the kbool contract, owner DL11 — not the bare tool's) | contract | **C8**, §2.6, DL11 |
 | 005.crlf-binary | `binary = 1` (`-U`) shows the CR | representation | **C8** |
 | 005.crlf-both | `binary = 1` + `crlf = 1` is the byte-faithful pass that still trims | representation | §2.6 |
+| 005.crlf-contract-derive | `_textMode` derived per build: 1 text, 0 with `binary` (-U) / `nullData` (-z), 1 again after | contract | DL11 |
+| 005.crlf-contract-strip | the strip path (`__TUTIL_TOOLS_STRIP_CR=0`, a CR-keeping stand-in tool): all five sinks `(n1 n2)`, `run` LF-only, rc 0; `binary = 1` keeps the CR in the sinks and in `run` | contract | DL11 |
+| 005.crlf-contract-native | the cygwin/msys path (`=1`): the wrapper adds nothing — the stand-in's own CRs reach `toArray` and `run` | contract | DL11 |
+| 005.crlf-contract-stdin | the stdin filter forced (real grep): the argv starts with `tutil._crStdin`, `-x` matches `needle\r`, no match is rc 1 / count 0 / `lastRc` 1, `-l` gets `_textMode = 0` | contract | DL11, critic B2 |
+| 005.crlf-owner-x | owner example on stdin: `lineRegexp` (`-x`) matches `needle\r`, `run` LF-only (red on Linux before round 2) | contract | DL11 |
+| 005.crlf-owner-dollar | `needle$` on stdin matches the CRLF line (red before round 2) | contract | DL11 |
+| 005.crlf-owner-blank | `^$` on stdin counts the blank CRLF line (red before round 2) | contract | DL11 |
 
 ### J. every remaining typed option, against the bare tool (15)
 

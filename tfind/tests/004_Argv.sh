@@ -156,7 +156,7 @@ kt_test_section "A. F4 lifecycle — Create assigns every var, the arrays are ri
 
 # TFind's own nine (PLAN §1.2) plus the five TUtil hands down.
 TF_VARS=( name iname type maxDepth minDepth newer followSymlinks print0 _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
 
 kt_test_start "F4: every declared var is present in \`\${inst}_data\` right after \`new\`"
 TFind.new fA /tmp/tree

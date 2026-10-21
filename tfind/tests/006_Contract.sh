@@ -147,7 +147,7 @@ fi
 kt_test_start "no \`var\` shadows a TUtil or kklass member name (tutil PLAN §1.2 reserved set)"
 # A method wrapper is generated after the property wrapper and wins silently, so
 # `obj.count = 5` on a shadowing var would be accepted and discarded.
-RESERVED=" cmd crlf nul _lastRc subshellOk buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
+RESERVED=" cmd crlf nul _lastRc subshellOk _textMode buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
 clash=""
 declared=""
 while IFS= read -r line; do

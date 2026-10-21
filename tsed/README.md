@@ -122,6 +122,7 @@ default (owner Q1, §4): a typo must not open it.
 
 ```
 sed [--sandbox] [-E] [-n] [-s] [-z] [-b] [-i[SUFFIX]] [EXTRA OPTIONS from addArg]
+    [CR prelude, §5: -e 's/<CR>$//' -e t__tsd_cr -e :__tsd_cr]
     [-e EXPR] [-e X ...] [-f FILE] [-- PATH...]
 ```
 
@@ -322,16 +323,38 @@ onLine() { local sandbox expr; …; }    # right: the names are the callback's o
 
 ## 5. CR, `binary`, `-z`, and the derived `-b` (owner Q5)
 
-sed opens files in **text mode**: it strips the CR before the LF on input and
-writes LF. So `crlf` is a no-op for the stream (as for tgrep), and:
+**The CR contract is TUtil's** — the tables, the delivery paths and the
+residuals are in [tutil `README.md` §3 "CRLF: one result on every
+platform"](../tutil/README.md#crlf-one-result-on-every-platform) (owner DL11).
+For this wrapper text mode means no `-b` (`binary`, `inPlace` and `nullData`
+all `0`), and in text mode the SCRIPT never sees the line-end CR, on every
+platform: cygwin/msys sed opens its input in text mode and strips the CR before
+the LF itself; on Linux/BSD/macOS `buildArgv` puts a **prelude** after the
+extras, before the first script word:
+
+```
+sed … -e 's/<CR>$//' -e 't__tsd_cr' -e ':__tsd_cr' -e EXPR … -- PATH…
+```
+
+so `s/Alice$/Bob/` and `/^$/d` behave as on Windows. The `t` jump resets
+sed's substitution flag that the prelude's `s` sets — without it the script's
+own first `t` would branch. **The label `__tsd_cr` is reserved.** A script
+whose first line is exactly `#n` (from `expr`, else the first `addExpr`, else
+line 1 of `scriptFile`) means `-n` only on the script's first line, which the
+prelude takes — so the build adds `-n` itself. There is **no output strip**: a
+CR the script writes on purpose (`s/$/\r/`) is kept on every platform.
+Residuals off Windows: a line pulled in inside the script (`N`, `n`, `R`)
+keeps its CR (the prelude runs once per cycle), and sed's own error messages
+number the caller's expressions from #4. So `crlf` is a no-op for the stream in
+text mode, and:
 
 | shape | what happens |
 |---|---|
-| default | `a1\r\n` arrives as the record `a1` |
+| default | `a1\r\n` arrives as the record `a1`, on every platform |
 | `binary = 1` | `-b`: the CR is kept (`a1\r`) |
 | `binary = 1` + `crlf = 1` | exactly one trailing CR stripped per record (unless the script appends after `$`) |
-| `inPlace = 1` | **derives `-b`**: in text mode `sed -i` would rewrite every CRLF to LF on disk, even with the identity script |
-| `nullData = 1` | **derives `-b`** and the sinks' `-0`: in text mode `-z` strips a CR *inside* a NUL record (`x\r\ny` → `x\ny`) |
+| `inPlace = 1` | **derives `-b`**: on cygwin/msys a text-mode `sed -i` would rewrite every CRLF to LF on disk, even with the identity script; with `-b` the file keeps every CR on every platform |
+| `nullData = 1` | **derives `-b`** and the sinks' `-0`: on cygwin/msys a text-mode `-z` strips a CR *inside* a NUL record (`x\r\ny` → `x\ny`) |
 
 The derivation lives in `buildArgv` only — the `binary` property is never
 written, so turning `inPlace`/`nullData` back off takes the `-b` away on the
@@ -435,14 +458,14 @@ bash kcl/tsed/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tsed/tests/tests.sh
 ```
 
-**293 checks, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+**315 checks, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
 mode and (5.2.37) under `--mode single`, against GNU sed 4.9. Case by case:
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | runs sed? |
 |---|---|---|---|
-| `004_Argv.sh` | 146 | S1–S5 by array comparison, sed never runs: lifecycle and both registries; every option singly and combined; the boolean-is-exactly-`1` rule and the fail-closed `sandbox` (eleven values); the rc 2 list incl. every deny-list spelling (short, bundled, attached, long, abbreviated, `=VALUE`), `--` in three positions, and the extras that pass; the `-0` four-state sequence and the derived `-b`; every option before the first `-e` | **no** |
-| `005_Run.sh` | 70 | S5–S12 against bare sed on a fixture tree behind the banner gate: every sink, multi-`-e`, `-f`, `-n`, `-s`, the unterminated line, the identity, stdin, exotic names; partial / rc 4 / `q N`; the sandbox with marker files; CR and `-z` byte assertions (`od -c`); in-place on copies (backups, `bak_*` both shapes, the truncation trap, every sink refused, `--debug`); `TSed.edit` in three positions, nested, composed | yes (GNU banner gate first) |
+| `004_Argv.sh` | 160 | S1–S5 by array comparison, sed never runs: lifecycle and both registries; every option singly and combined; the boolean-is-exactly-`1` rule and the fail-closed `sandbox` (eleven values); the rc 2 list incl. every deny-list spelling (short, bundled, attached, long, abbreviated, `=VALUE`), `--` in three positions, and the extras that pass; the `-0` four-state sequence and the derived `-b`; every option before the first `-e` | **no** |
+| `005_Run.sh` | 78 | S5–S12 against bare sed on a fixture tree behind the banner gate: every sink, multi-`-e`, `-f`, `-n`, `-s`, the unterminated line, the identity, stdin, exotic names; partial / rc 4 / `q N`; the sandbox with marker files; CR and `-z` byte assertions (`od -c`); in-place on copies (backups, `bak_*` both shapes, the truncation trap, every sink refused, `--debug`); `TSed.edit` in three positions, nested, composed | yes (GNU banner gate first) |
 | `006_Contract.sh` | 66 | S13: source integrity (incl. the rc-preserving overrides and no `-b` bookkeeping var), `set -eu` children through `s.each` and both TPipe forms with every sink call guarded, one debug line per rc 2 / sed-error path and silence on rc 0 and on a `q N` status, D6 + `subshellOk`, the unguarded-sink rule | yes (gated) |
 | `007_Bench.sh` | 11 | the §10 gate as assertions with a **10×** ceiling behind the same banner gate: `TSed.edit` vs bare `sed --sandbox -e … --` over a 200-line and a one-line file (interleaved, medians, byte-identical outputs asserted), the edit delta under 50 ms, `s.count` vs `sed … \| wc -l`; 200 builds invoke the `cmd` zero times, fork nothing and do not accumulate; a refused (deny-list) build is the cheap path too; zero forks for every property, every builder member, `run`, `edit`, the five sinks' callback and `.Add`, and four rc 2 paths | yes (gated) |
 

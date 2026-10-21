@@ -38,6 +38,12 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tsed.sh"
 source "$UNIT"
+# The CR contract (tutil README §3, L2.7-C) adds argv words on a platform whose
+# tools keep the line-end CR (TSed's prelude, TAwk's RS, TGrep's stdin filter).
+# Every pinned argv in this file is the cygwin/msys one, so the file pins that
+# platform path; the words of the other path are pinned in section CR at the
+# end, which flips `__TUTIL_TOOLS_STRIP_CR` per case.
+__TUTIL_TOOLS_STRIP_CR=1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -141,7 +147,7 @@ kt_test_section "A. S3 lifecycle — Create assigns every var, the arrays are ri
 # ===========================================================================
 
 TS_VARS=( expr scriptFile extended quiet separate nullData binary sandbox inPlace backupSuffix _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
 
 kt_test_start "S3: every declared var is present in \`\${inst}_data\` right after \`new\`"
 TSed.new sA 's/a/A/' f.txt
@@ -165,7 +171,7 @@ for v in scriptFile backupSuffix; do
     got="$(sA."$v")"
     [[ "$got" == "" ]] || bad+=" $v='$got'"
 done
-for v in extended quiet separate nullData binary inPlace _nulDerived crlf nul subshellOk; do
+for v in extended quiet separate nullData binary inPlace _nulDerived crlf nul subshellOk _textMode; do
     got="$(sA."$v")"
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
 done
@@ -898,3 +904,85 @@ sE.delete
 sZ.delete
 sB.delete
 sF.delete
+
+# ===========================================================================
+kt_test_section "CR. the CR contract's argv where the tool keeps the CR (L2.7-C)"
+# ===========================================================================
+# `__TUTIL_TOOLS_STRIP_CR = 0` is the Linux/BSD/macOS path: a TEXT-mode build
+# gets the prelude `-e 's/<CR>$//' -e 't__tsd_cr' -e ':__tsd_cr'` after the
+# extras and before the first script word; a `#n` first script line becomes
+# `-n` (the prelude would otherwise take it off line 1). Nothing runs.
+printf -v CRSED 's/\r$//'
+printf '#n\np\n' > "$TMP/hashn.sed"
+printf 'p\n'     > "$TMP/plain.sed"
+
+cr_case() {   # TITLE INST WANT...
+    local t="$1" i="$2"; shift 2
+    kt_test_start "$t"
+    GOT=()
+    "$i".argv GOT >/dev/null 2>&1 || :
+    if arr_is GOT "$@"; then
+        kt_test_pass "$(arr_show GOT)"
+    else
+        kt_test_fail "got $(arr_show GOT)"
+    fi
+}
+
+__TUTIL_TOOLS_STRIP_CR=0
+TSed.new sCR 's/a/A/' f1
+sCR.addArg -u
+cr_case "CR: text mode — the prelude follows the extras and precedes the first -e of the script" sCR \
+    sed --sandbox -u -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e s/a/A/ -- f1
+sCR.clearArgs
+sCR.binary = 1
+cr_case "CR: \`binary = 1\` — no prelude" sCR sed --sandbox -b -e s/a/A/ -- f1
+sCR.binary = 0
+sCR.nullData = 1
+cr_case "CR: \`nullData = 1\` — no prelude" sCR sed --sandbox -z -b -e s/a/A/ -- f1
+sCR.nullData = 0
+sCR.inPlace = 1
+cr_case "CR: \`inPlace = 1\` — no prelude" sCR sed --sandbox -b -i -e s/a/A/ -- f1
+sCR.inPlace = 0
+cr_case "CR: back to text mode — the prelude again" sCR \
+    sed --sandbox -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e s/a/A/ -- f1
+sCR.delete
+
+TSed.new sCR '#n' f1
+sCR.addExpr p
+cr_case "CR: \`expr\` = '#n' — the build adds -n" sCR \
+    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#n' -e p -- f1
+sCR.expr = $'#n\np'
+sCR.clearExprs
+cr_case "CR: a multi-line \`expr\` whose FIRST line is '#n' — -n" sCR \
+    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e $'#n\np' -- f1
+sCR.expr = '#np'
+cr_case "CR: '#np' is not '#n' — no -n" sCR \
+    sed --sandbox -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#np' -- f1
+sCR.expr = '#n'
+sCR.quiet = 1
+cr_case "CR: \`quiet = 1\` + '#n' — one -n, not two" sCR \
+    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#n' -- f1
+sCR.delete
+
+TSed.new sCR '' f1
+sCR.addExpr '#n'
+sCR.addExpr p
+cr_case "CR: the FIRST \`addExpr\` is '#n' (expr empty) — -n" sCR \
+    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#n' -e p -- f1
+sCR.clearExprs
+sCR.scriptFile = "$TMP/hashn.sed"
+cr_case "CR: line 1 of \`scriptFile\` is '#n' — -n" sCR \
+    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -f "$TMP/hashn.sed" -- f1
+sCR.scriptFile = "$TMP/plain.sed"
+cr_case "CR: a \`scriptFile\` without '#n' — no -n" sCR \
+    sed --sandbox -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -f "$TMP/plain.sed" -- f1
+__TUTIL_TOOLS_STRIP_CR=1
+sCR.scriptFile = "$TMP/hashn.sed"
+cr_case "CR: the cygwin/msys path — no prelude, and '#n' is left to sed itself" sCR \
+    sed --sandbox -f "$TMP/hashn.sed" -- f1
+kt_test_start "CR: \`_textMode\` stays 0 for TSed on both paths (no output strip: the script's own CRs survive)"
+tm=""
+__TUTIL_TOOLS_STRIP_CR=0; sCR.argv GOT >/dev/null; tm+="$(sCR._textMode)"
+__TUTIL_TOOLS_STRIP_CR=1; sCR.argv GOT >/dev/null; tm+="$(sCR._textMode)"
+if [[ "$tm" == "00" ]]; then kt_test_pass "00"; else kt_test_fail "got $tm"; fi
+sCR.delete

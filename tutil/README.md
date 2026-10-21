@@ -74,6 +74,7 @@ TUtil.new INST [CMD [ARG...]]    # cmd + the initial extra args
 | `nul` | var | `1` → records are NUL-terminated (`TPipe -0`) | — |
 | `_lastRc` | var | raw rc of the last `run`/sink; `-1` until one ran | — |
 | `subshellOk` | var | `1` → every sink passes `-s` to `TPipe`, i.e. "the subshell scope is **intended**"; silences TPipe's subshell warning for this instance (§3). Default `0` | — |
+| `_textMode` | var | **private.** `1` → the OUTPUT needs the line-end CR strip (§3, the CR contract): where the platform's tool keeps the CR, the sinks add `-c` and `run` filters its stdout. Set by a descendant's `buildArgv` — TGrep with file operands, TAwk only in its `--posix` fallback, TSed never (TSed and TAwk strip on the input side); `0` by default | — |
 | `buildArgv` | func | **virtual.** Fills `${inst}_argv`. Base: `cmd` + the extras | word count |
 | `addArg ARG...` | proc | append to `${inst}_args` — the un-modelled-option hatch | — |
 | `clearArgs` | proc | empty `${inst}_args` | — |
@@ -150,7 +151,10 @@ od -c < <(u.run)            # a process substitution
 u.run | wc -l               # the left-hand side of a pipe
 ```
 
-— with **no** leaked framework bytes. That is why every internal call inside a
+— with **no** leaked framework bytes. (The one transformation: where the
+platform's tool keeps the line-end CR, a TGrep build with file operands — and
+TAwk's `--posix` fallback — sends the stream through a CR filter; the CR
+contract, §3.) That is why every internal call inside a
 member body is `kk.call_silent "$__inst__" NAME …` and never `$this.NAME`:
 `$this.NAME` does not set the silent flag, so the callee's `kk._return` would
 *print* whenever the outer member runs under `$( )`, `|` or `<( )`, and
@@ -221,7 +225,7 @@ in a subshell and the mutations are lost. `tests/002_Sinks.sh` §L and
 | property | `TPipe` flag | meaning |
 |---|---|---|
 | `nul = 1` | `-0` | records are NUL-terminated (`find -print0`, `grep -lZ`) |
-| `crlf = 1` | `-c` | strip **one** trailing CR per record |
+| `crlf = 1` | `-c` | strip **one** trailing CR per record (also added for the CR contract below) |
 | `subshellOk = 1` | `-s` | "the subshell scope is intended" — silences TPipe's subshell warning (below) |
 
 All three default to `0`, and the caller never spells a flag: `u.each -c cb` is not
@@ -229,22 +233,90 @@ the surface. The words are built into an array and passed as `"${__tu_fl[@]}"`,
 never as an expansion-built option word — `${nul:+-0}` is re-split by the
 caller's `IFS`.
 
-### CRLF: which tools keep the CR, and which have already eaten it
+### CRLF: one result on every platform
 
-Measured on this platform, both bashes, on a `x\r\ny\r\n` file:
+**The contract** (owner decision DL11, 2026-10-21; launch L2.7-C): in **text
+mode** — `binary = 0`, and for TSed/TAwk also `inPlace = 0` and
+`nullData = 0`, for TGrep also `nullData = 0` — [`TGrep`](../tgrep/README.md),
+[`TSed`](../tsed/README.md) and [`TAwk`](../tawk/README.md) deliver every line
+**without its line-end CR, on every platform**, and wherever the tool allows it
+the script itself **never sees** that CR either: `s/Alice$/Bob/`,
+`$2 == "1"`, `/^$/d`, `NF`, `grep -x` on stdin behave as on Windows. A CR the
+script or program **writes on purpose** (`s/$/\r/`, `ORS = "\r\n"`,
+`printf "x\r\n"`) is kept on every platform. `binary = 1` keeps the bytes,
+identically everywhere. One script, one result: a CRLF input (a Windows-made
+config or CSV, HTTP text) must not yield `Alice\r` on Linux and `Alice` on
+Windows.
 
-| producer | the record for `x\r\n` | `crlf = 1` does |
-|---|---|---|
-| GNU **grep**, **sed**, **gawk** | `x` — the tool opened the input in **text mode** and stripped the CR itself | nothing; it is a no-op here |
-| GNU grep with `binary = 1` (`-U`) | `x\r` — byte fidelity restored | strips it again, which is the byte-faithful pass |
-| `cat`, `head`, `tail`, coreutils generally | `x\r` | **strips it** — this is what `crlf` is for |
-| a bash **function** producer (`read`/`printf`) | `x\r` | strips it |
+Why the wrappers have to act at all: the cygwin/msys builds of grep, sed and
+gawk open their input in text mode and drop the CR before the LF themselves —
+measured on MSYS2 and Git-bash; the `cygwin*` arm is assumed from those
+measurements (no Cygwin host in the lab). The Linux, BSD and macOS builds (GNU
+or not, brew included) keep it. `__TUTIL_TOOLS_STRIP_CR` is decided once at
+load from `$OSTYPE` (`1` on `cygwin*`/`msys*`, else `0`, no fork); on `1`
+nothing is added anywhere — no argv word, no flag, no filter — so the Windows
+result and hot path are exactly what they were. On `0` each wrapper uses the
+strongest mechanism its tool allows:
 
-So `crlf` is a **no-op for the grep/sed/awk wrappers** and matters for the
-coreutils ones (`thead`, `ttail`) and for bash-function producers. A pattern
-containing a literal `\r` never matches through a text-mode tool, and `-U` is the
-only way back; `binary = 1` **plus** `crlf = 1` is the documented combination for
-a byte-faithful pass over a CRLF corpus ([tgrep `README.md` §5](../tgrep/README.md#5-crlf--grep-opens-input-in-text-mode)).
+| wrapper | text mode on Linux/BSD/macOS | what the tool sees | deliberate CRs |
+|---|---|---|---|
+| **TSed** | a prelude before the script: `-e 's/<CR>$//' -e 't__tsd_cr' -e ':__tsd_cr'` (raw CR); a `#n` first script line becomes `-n` | no line-end CR on the lines sed reads into the pattern space at cycle start | kept — no output strip |
+| **TAwk** | `-v RS='\r?\n'` before the extras and the setVar words | no line-end CR in `$0`, `$NF`, `length`, `NF`; also for `getline` | kept — no output strip |
+| **TAwk** + `--posix` / `--traditional` (`-P`, `-c`, any prefix, `-W posix`) | no RS (gawk would split on the CR alone); TUtil's OUTPUT strip instead, one `kk.debug` line | the CR (residual) | a trailing one is removed |
+| **TGrep**, no path operand, no `-r` (stdin) | the argv starts with `tutil._crStdin`: stdin goes through `sed [-u] 's/<CR>$//'` first; grep's rc is still grep's | no line-end CR — `$`, `-x`, `^$` as on Windows | grep writes none |
+| **TGrep** with file operands | TUtil's OUTPUT strip (`_textMode = 1`): the sinks' `TPipe -c`, `run`'s `sed [-u]` filter | the CR (residual: `needle$`, `-x`, `-Fx`, `^$`) | grep writes none |
+| **TGrep** `-l` / `-L` | nothing — the output is names, not lines | — | — |
+
+and on every platform:
+
+| delivery path | `binary = 1` (and TSed/TAwk `inPlace`, `nullData`; TGrep `nullData`) |
+|---|---|
+| sinks, `run` | the tool's bytes: nothing is stripped, no RS, no prelude, no filter |
+| … with `crlf = 1` | exactly one trailing CR stripped per record (`x\r\r` → `x\r`) — the byte-faithful pass that still trims |
+| `inPlace = 1` (TSed, TAwk) | derives binary: the file keeps **every** CR on disk |
+| `nullData = 1` | TSed/TAwk derive binary, TGrep's `-z` keeps the CR on Windows too: an embedded CR (`x\r\ny`) is kept everywhere |
+| sinks with `nul = 1` (a caller's `-0`, TGrep's `-lZ`) | never stripped: a NUL record is not a line |
+
+The output strip and both filters are TUtil's: `_textMode` (private) asks for
+the output strip, `tutil._textCr` decides it (`_textMode == 1`, `nul != 1`,
+the platform's tool keeps the CR), `tutil._crStdin` is the stdin filter, and
+`tutil._sedOpts` gives every filter `sed -u` when this sed takes it (GNU and
+FreeBSD do; probed once, on first use), so `tail -f log | g.run` still streams
+— the remaining latency is grep's own output buffering into the filter's pipe.
+A filter that fails for any reason other than SIGPIPE is not silent: one
+`kk.debug` line, and the raw status becomes 2 when the tool itself succeeded.
+
+**Residuals** — platform-specific by design, documented rather than hidden:
+
+* TGrep with **file operands**: grep still reads the CR, so `needle$`, `-x`,
+  `-Fx` and `^$` do not match a CRLF line on Linux (they do on Windows, and
+  they do on stdin everywhere). Use `binary = 1` and `\r?$`, or feed stdin.
+* TSed: a line pulled in **inside** the script (`N`, `n`, `R`) keeps its CR
+  off Windows — the prelude runs once per cycle; sed's own error messages
+  number the caller's expressions from **#4** (the prelude is #1–#3); the
+  label `__tsd_cr` is reserved.
+* TAwk: a user `RS` (setVar, an extra `-v RS=`, `BEGIN{RS=…}`, paragraph mode
+  `RS = ""`) replaces the CR-optional RS and the program sees the CR again; an
+  unterminated last line that ends in a CR keeps it (Windows gawk drops it);
+  `RT` is `\r\n` on such lines.
+* Windows grep removes **every** CR of a line in a CRLF file (`c\rd\r\n` →
+  `cd`); the wrappers elsewhere remove only the line-end one.
+* An unterminated last line ending in a CR: Windows sed keeps it (`e\r`), the
+  TGrep output strip removes it; `binary = 0` + `crlf = 1` on `x\r\r\n` gives
+  `x` on Windows and `x\r` elsewhere.
+* Binary mode asked for behind the wrapper's back (`addArg -U`, `setVar
+  BINMODE 3`, `BEGIN{BINMODE=3}`) is not seen: the decision reads the
+  properties only. `argv` shows the platform's real command line, so it
+  differs between Windows and Linux by exactly the words above.
+
+When the matching itself must be byte-identical everywhere, use `binary = 1`
+and spell the CR in the pattern or program (`\r?$`, `sub(/\r$/, "")`), then
+trim with `crlf = 1`.
+
+**Other producers.** `cat`, `head`, `tail` (coreutils generally) and a bash
+**function** producer keep the CR on every platform, and `crlf = 1` is what
+strips it there — `thead`/`ttail`/`tfind` and the generic `TUtil` do not take
+part in the text-mode contract (`_textMode` stays `0`).
 
 ### `each` answers with its rc alone
 
@@ -374,7 +446,7 @@ call**, so setting the property back to `0` re-arms the warning immediately.
 `TUtil` owns
 
 ```
-cmd  crlf  nul  _lastRc  subshellOk
+cmd  crlf  nul  _lastRc  subshellOk  _textMode
 buildArgv  addArg  clearArgs  argv  run
 each  toArray  toList  first  count  lastRc  mapRc
 ```
@@ -579,13 +651,14 @@ bash kcl/tutil/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tutil/tests/tests.sh
 ```
 
-**184 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+**226 cases, green on bash 5.2.37 and on bash 5.3.9** (launch L2.7-C), in the default threaded
 mode and under `--mode single`. Case-by-case:
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
 | File | Cases | What it pins |
 |---|---|---|
-| `001_Core.sh` | 61 | source integrity; the lifecycle (every var present in `${inst}_data` with its default, both arrays created and freed, every var readable under `set -u`); the argv model (`--format=%H` verbatim, `addArg`/`clearArgs`, `argv` is a copy and runs nothing, rebuild without accumulation); `argv`'s out-name validation (11 refusals, each rc 2 with `RESULT=''` and storage intact); `run` (cmd `''` runs nothing and leaves a here-string unread; a missing command is rc 1 + `lastRc` 127 + exactly one stderr line under the switch and none without; a tool exiting 3 is rc 1 + `lastRc` 3 and silent; two instances keep separate `_lastRc`); byte-identity of the stream in all three positions, including a producer emitting `-n`, a backslash, a glob, a CR and an unterminated tail; `mapRc`'s base table; the `set -eu` contract including a failing and a missing tool; and that the P0 sink stubs are **gone** (no member answers `__TUTIL_PENDING__`, the string is absent from the source, all 17 members of the surface are bound, `subshellOk` among them with its `0` default) |
+| `001_Core.sh` | 86 | source integrity; the lifecycle (every var present in `${inst}_data` with its default, both arrays created and freed, every var readable under `set -u`); the argv model (`--format=%H` verbatim, `addArg`/`clearArgs`, `argv` is a copy and runs nothing, rebuild without accumulation); `argv`'s out-name validation (11 refusals, each rc 2 with `RESULT=''` and storage intact); `run` (cmd `''` runs nothing and leaves a here-string unread; a missing command is rc 1 + `lastRc` 127 + exactly one stderr line under the switch and none without; a tool exiting 3 is rc 1 + `lastRc` 3 and silent; two instances keep separate `_lastRc`); byte-identity of the stream in all three positions, including a producer emitting `-n`, a backslash, a glob, a CR and an unterminated tail; `mapRc`'s base table; the `set -eu` contract including a failing and a missing tool; and that the P0 sink stubs are **gone** (no member answers `__TUTIL_PENDING__`, the string is absent from the source, all 18 members of the surface are bound, `subshellOk` among them with its `0` default and `_textMode` since L2.7-C) |
 | `002_Sinks.sh` | 64 | U1 (`each` delivers, a plain function and an instance member both keep their state, `each` is rc-only); U8 (each `func` sink's RESULT **and** mapped rc, direct, under `$( )` and on the LHS of a pipe, with the value printed exactly once); every sink compared with `TPipe` called directly on the argv `u.argv` handed over, byte-exact over a producer emitting `-n`, `-neE`, a backslash, a glob, a space, UTF-8, a bare CR and an unterminated tail; `nul`→`-0` and `crlf`→`-c` (and off by default); three-frame dispatch `g.each → TPipe.each → r.onLine` and a nested sink inside a callback; zero forks per record (`$BASHPID`); a rejecting `.Add` (THashSet duplicates: 5 offered, 3 kept); the rc 1 + count-kept deviation for all five; `first` answering rc 1 with RESULT '' whenever there was no record, including a producer that SUCCEEDED silently, and staying quiet while doing it; U6 (`TPipe.stop` and `first` on `yes`, in a child under `timeout`, `lastRc` 141/143); every malformed shape (`cmd=''`, a missing command, a non-function CB, an INST without `.Add`, ten refused out-names) with rc, `RESULT`, an untouched `lastRc` and a flag file proving nothing ran; separate `_lastRc` per instance; and the three forms (`u.run \| TPipe.each cb` under `lastpipe` == the `--` form == `u.each cb`); and the **D6-final** matrix as it reaches a caller through a wrapper — `$(u.toArray NAME)` and `$(u.toList INST)` each warn ONCE with the `TPipe` line verbatim, `subshellOk = 1` silences every sink of that instance and is read per call (setting it back re-arms), `KK_SUBSHELL_OK=1 u.toArray …` silences through two wrapper frames, `VERBOSE_KKLASS=quiet` silences it, `$(u.count)` / `$(u.first)` never warn, and `$(u.each r.onLine)` warns while `$(u.each fn)` does not |
 | `003_Contract.sh` | 51 | `bash -n` + the open-quote and inline-`$'\r'` greps; every sink from a child script under `set -eu` — a succeeding tool, a tool exiting 3 (the child must die of the member's rc 1, never the tool's 3), a callback answering rc 1 on every record, a `TPipe.stop` where `wait` returns 141/143 while the member answers 0, a rejecting `.Add`, `cmd=''`, a missing command, a malformed CB/out-name/list, and the sinks under `$( )`; the zero-fork probe under `set -eu`; exactly ONE `kk.debug` line on each of the 15 rc 2 / `127` paths and **none** on any rc 0 or plain rc 1 path, with complete silence when the switch is off; and the **D6-final** rules at contract level — `$(u.count)`/`$(u.first)` never warn (switch on or off), `$(u.toArray NAME)` warns ONCE with the debug switch **off** and the same single line under `debug`, `subshellOk = 1` / `KK_SUBSHELL_OK=1` / `VERBOSE_KKLASS=quiet` each silence it with `RESULT` unchanged, and a DIRECT sink call warns about nothing |
 | `004_Bench.sh` | 8 | the PLAN §5 P3.1 gates as assertions with a 5× ceiling (`u.each` and `u.toArray` against `TPipe` called directly on the same argv, N = 2000, both shapes warmed first); that 200 `buildArgv` + `argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback, `.Add` and the `cmd` that `run` executes all report this process's `$BASHPID`, and the only extra pid in a sink call is the one producer |
+| `005_TextMode.sh` | 17 | the CR contract at the base (§3, owner DL11), both platform paths driven on any host by flipping `__TUTIL_TOOLS_STRIP_CR` and using a CR-writing function as the tool: `_textMode` is a var with default `0` and the global is `1` exactly on cygwin/msys; with `_textMode = 0` every CR survives every sink and `run` on both paths; the output-strip path drops ONE trailing CR per record in all five sinks (a CR inside a record and the second of two stay, an unterminated `c\r` becomes `c`), `run` streams LF-only lines, keeps a CR inside a line and an unterminated tail unterminated, still hands the caller's stdin to the tool, and reports the TOOL's raw rc (3 → rc 1, `lastRc` 3); the native path adds nothing (the tool's own CRs reach every sink, `run` is byte-identical and executes the tool in this shell); `nul = 1` is never stripped, by the sinks or by `run`; `crlf = 1` + text mode strips one CR, not two; `run` on the strip path under `set -euo pipefail` in a child; a FAILING filter (a fake `sed` exiting 4: `lastRc` 2, rc 1, one debug line; a tool rc 3 wins; `tutil._crStdin` answers 2); `tutil._crStdin` (LF lines reach the tool, its rc comes back, SIGPIPE is not an error); and `sed -u` exactly when this sed accepts it, probed once |

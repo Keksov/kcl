@@ -39,6 +39,12 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tgrep.sh"
 source "$UNIT"
+# The CR contract (tutil README §3, L2.7-C) adds argv words on a platform whose
+# tools keep the line-end CR (TSed's prelude, TAwk's RS, TGrep's stdin filter).
+# Every pinned argv in this file is the cygwin/msys one, so the file pins that
+# platform path; the words of the other path are pinned in section CR at the
+# end, which flips `__TUTIL_TOOLS_STRIP_CR` per case.
+__TUTIL_TOOLS_STRIP_CR=1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -154,7 +160,7 @@ TG_VARS=( pattern ignoreCase invert wordRegexp lineRegexp fixed extended
 # `subshellOk` is TUtil's (D6 final Q9): TGrep inherits it and must NOT
 # redeclare it — a descendant `var` with an ancestor member's name is silently
 # overridden by the method wrapper (kklass.sh:911).
-TU_VARS=( cmd crlf nul _lastRc subshellOk )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
 
 kt_test_start "every declared var is present in \`\${inst}_data\` right after \`new\` (§2.1)"
 TGrep.new gA needle f1
@@ -176,7 +182,7 @@ bad=""
 for v in ignoreCase invert wordRegexp lineRegexp fixed extended recursive \
          lineNumber filesOnly filesWithoutMatch countOnly onlyMatching \
          noFilename withFilename binary nullData nullOut _nulDerived crlf nul \
-         subshellOk; do
+         subshellOk _textMode; do
     got="$(gA."$v")"
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
 done
@@ -710,3 +716,57 @@ gE.delete
 gF.delete
 gG.delete
 gZ.delete
+
+# ===========================================================================
+kt_test_section "CR. the CR contract's argv and \`_textMode\` (L2.7-C)"
+# ===========================================================================
+# `__TUTIL_TOOLS_STRIP_CR = 0` is the Linux/BSD/macOS path. grep has no
+# input-side switch: with file operands the OUTPUT is cleaned (`_textMode = 1`);
+# with NO operand and no `-r` grep reads stdin, and the argv starts with
+# `tutil._crStdin` (stdin is filtered first, `_textMode = 0`). `-U`, `-z`,
+# `-l`, `-L`: `_textMode = 0`. `_textMode` is the same on both paths. Nothing
+# runs.
+cr_case() {   # TITLE INST WANT...
+    local t="$1" i="$2"; shift 2
+    kt_test_start "$t"
+    GOT=()
+    "$i".argv GOT >/dev/null 2>&1 || :
+    if arr_is GOT "$@"; then
+        kt_test_pass "$(arr_show GOT) _textMode=$("$i"._textMode)"
+    else
+        kt_test_fail "got $(arr_show GOT)"
+    fi
+}
+
+__TUTIL_TOOLS_STRIP_CR=0
+TGrep.new gCR needle
+cr_case "CR: no operand, no -r (stdin) — the argv starts with \`tutil._crStdin\`" gCR \
+    tutil._crStdin grep -e needle
+gCR.recursive = 1
+cr_case "CR: no operand WITH -r (grep walks .) — no stdin filter" gCR grep -r -e needle
+gCR.recursive = 0
+gCR.paths f1
+cr_case "CR: a file operand — no extra word (the output is cleaned instead)" gCR grep -e needle -- f1
+__TUTIL_TOOLS_STRIP_CR=1
+gCR.paths
+cr_case "CR: the cygwin/msys path, stdin — no stdin filter" gCR grep -e needle
+__TUTIL_TOOLS_STRIP_CR=0
+
+kt_test_start "CR: \`_textMode\` per shape — files 1; stdin 0; -r 1; -U, -z, -l, -L 0 — identical on both paths"
+tmall=""
+for nat in 0 1; do
+    __TUTIL_TOOLS_STRIP_CR=$nat
+    tm=""
+    gCR.paths f1;  gCR.argv GOT >/dev/null; tm+="$(gCR._textMode)"
+    gCR.paths;     gCR.argv GOT >/dev/null; tm+="$(gCR._textMode)"
+    gCR.recursive = 1; gCR.argv GOT >/dev/null; tm+="$(gCR._textMode)"; gCR.recursive = 0
+    gCR.paths f1
+    gCR.binary = 1;            gCR.argv GOT >/dev/null; tm+="$(gCR._textMode)"; gCR.binary = 0
+    gCR.nullData = 1;          gCR.argv GOT >/dev/null; tm+="$(gCR._textMode)"; gCR.nullData = 0
+    gCR.filesOnly = 1;         gCR.argv GOT >/dev/null; tm+="$(gCR._textMode)"; gCR.filesOnly = 0
+    gCR.filesWithoutMatch = 1; gCR.argv GOT >/dev/null; tm+="$(gCR._textMode)"; gCR.filesWithoutMatch = 0
+    tmall+="$tm/"
+done
+__TUTIL_TOOLS_STRIP_CR=1
+if [[ "$tmall" == "1010000/1010000/" ]]; then kt_test_pass "$tmall"; else kt_test_fail "got $tmall"; fi
+gCR.delete

@@ -28,7 +28,10 @@
 #   G  G11   a nested `search` from inside an outer sink's callback
 #   H  G12   `-r` does not descend a real directory symlink; one named on the
 #            command line IS followed
-#   I        CRLF: grep strips the CR in text mode, `binary = 1` (-U) shows it
+#   I        CRLF (the kbool contract, tutil README §3): no line-end CR in text
+#            mode on EVERY platform, `binary = 1` (-U) shows it; the contract
+#            cases drive both platform paths (`__TUTIL_TOOLS_STRIP_CR` 0/1, a
+#            CR-keeping stand-in tool)
 #   J        every remaining typed option, each against the bare tool
 #   K        binary files: `Binary file X matches` is a stdout RECORD, and
 #            `addArg -a` turns it back into text
@@ -744,13 +747,19 @@ fi
 kt_test_section "I. CRLF — grep opens input in TEXT mode; \`binary\` (-U) is the way back"
 # ===========================================================================
 
-if tcase "§2.6: a record from a CRLF file carries NO CR (grep stripped it, not us)"; then
+# The CR rows below pin the KBOOL contract (owner DL11, tutil README §3), not
+# the bare tool's: in text mode a record carries no line-end CR on every
+# platform. cygwin/msys grep drops it itself; Linux/BSD/macOS grep keeps it and
+# TUtil removes it. The "== bare grep" oracle rule does not apply to these rows.
+if tcase "§2.6: a record from a CRLF file carries NO CR, on every platform; \`run\` streams no CR either"; then
     TGrep.new gI needle "$FX/crlf.txt"
     SGOT=()
     rc=0; gI.toArray SGOT 2>/dev/null || rc=$?
     rec="${SGOT[0]:-}"
-    if [[ $rc -eq 0 && "$rec" == "needle crlf" && ${#rec} -eq 11 ]]; then
-        kt_test_pass "'needle crlf', 11 characters — \`crlf = 1\` would have nothing to strip"
+    got="$(gI.run | od -c)"
+    want="$(printf 'needle crlf\n' | od -c)"
+    if [[ $rc -eq 0 && "$rec" == "needle crlf" && ${#rec} -eq 11 && "$got" == "$want" ]]; then
+        kt_test_pass "'needle crlf', 11 characters; the stream is LF-only (the tool or TUtil removed the CR)"
     else
         kt_test_fail "rc=$rc len=${#rec} SGOT=$(arr_show SGOT)"
     fi
@@ -783,6 +792,150 @@ if tcase "§2.6: \`binary = 1\` + \`crlf = 1\` is the byte-faithful pass that st
         kt_test_fail "rc=$rc SGOT=$(arr_show SGOT)"
     fi
     gI.delete
+fi
+
+# ---- §2.6 contract: both platform paths on any host (tutil README §3) ------
+# `g26_tool` stands in for "a grep that KEEPS the CR" (Linux/BSD/macOS): a
+# function cmd writing CRLF lines. `__TUTIL_TOOLS_STRIP_CR` is flipped per case:
+# 0 drives TUtil's strip path, 1 the cygwin/msys path where the tool has
+# already stripped and the wrapper must add nothing.
+G26_NAT="$__TUTIL_TOOLS_STRIP_CR"
+g26_tool() { printf 'n1\r\nn2\r\n'; return 0; }
+G26_LF="$(printf 'n1\nn2\n' | od -c)"
+G26_CRLF="$(printf 'n1\r\nn2\r\n' | od -c)"
+
+class TGCrList
+    public
+        var         N
+        constructor Create
+        proc        Add
+end
+TGCrList.Create() { N=0; return 0; }
+TGCrList.Add()    { N=$(( N + 1 )); return 0; }
+build TGCrList
+
+if tcase "§2.6 contract: \`_textMode\` is derived per build — 1 in text mode, 0 with binary (-U) or nullData (-z), 1 again after"; then
+    TGrep.new gT needle "$FX/crlf.txt"
+    declare -a W=()
+    tm=""
+    gT.argv W; tm+="$(gT._textMode)"
+    gT.binary = 1; gT.argv W; tm+="$(gT._textMode)"; gT.binary = 0
+    gT.nullData = 1; gT.argv W; tm+="$(gT._textMode)"; gT.nullData = 0
+    gT.argv W; tm+="$(gT._textMode)"
+    if [[ "$tm" == "1001" ]]; then
+        kt_test_pass "text, binary, nullData, text -> $tm"
+    else
+        kt_test_fail "got $tm, want 1001"
+    fi
+    gT.delete
+fi
+
+if tcase "§2.6 contract, the strip path (the tool KEEPS the CR): all five sinks and \`run\` carry no CR; \`binary = 1\` keeps it"; then
+    TGrep.new gT needle "$FX/crlf.txt"
+    gT.cmd = g26_tool
+    __TUTIL_TOOLS_STRIP_CR=0
+    SGOT=(); arc=0; gT.toArray SGOT || arc=$?
+    CB_RECS=(); erc=0; gT.each cb_collect || erc=$?
+    TGCrList.new gTL; lrc=0; gT.toList gTL || lrc=$?; ln="$(gTL.N)"; gTL.delete
+    frc=0; gT.first || frc=$?; fv="$RESULT"
+    crc=0; gT.count || crc=$?; cn="$RESULT"
+    rrc=0; gT.run > "$TMP/g26s.out" || rrc=$?
+    got="$(od -c < "$TMP/g26s.out")"
+    gT.binary = 1
+    SWANT=(); gT.toArray SWANT
+    bgot="$(gT.run | od -c)"
+    __TUTIL_TOOLS_STRIP_CR="$G26_NAT"
+    if [[ "$arc$erc$lrc$frc$crc$rrc" == "000000" && "$ln" == "2" && "$fv" == "n1" && "$cn" == "2" \
+          && "$got" == "$G26_LF" && "$bgot" == "$G26_CRLF" ]] \
+       && arr_is SGOT n1 n2 && arr_is CB_RECS n1 n2 && arr_is SWANT "n1$CR" "n2$CR"; then
+        kt_test_pass "(n1 n2) from every sink, run LF-only; binary: (n1\\r n2\\r) and the CRLF bytes"
+    else
+        kt_test_fail "rc=$arc$erc$lrc$frc$crc$rrc got=$(arr_show SGOT) each=$(arr_show CB_RECS) first='$fv' count=$cn list=$ln run='${got//$'\n'/|}' binary=$(arr_show SWANT) brun='${bgot//$'\n'/|}'"
+    fi
+    gT.delete
+fi
+
+if tcase "§2.6 contract, the cygwin/msys path (the tool already stripped): the wrapper adds nothing — a CR the tool wrote reaches the sinks and \`run\`"; then
+    TGrep.new gT needle "$FX/crlf.txt"
+    gT.cmd = g26_tool
+    __TUTIL_TOOLS_STRIP_CR=1
+    SGOT=(); arc=0; gT.toArray SGOT || arc=$?
+    got="$(gT.run | od -c)"
+    __TUTIL_TOOLS_STRIP_CR="$G26_NAT"
+    if [[ $arc -eq 0 && "$got" == "$G26_CRLF" ]] && arr_is SGOT "n1$CR" "n2$CR"; then
+        kt_test_pass "no -c, no filter: the tool's bytes"
+    else
+        kt_test_fail "rc=$arc got=$(arr_show SGOT) run='${got//$'\n'/|}'"
+    fi
+    gT.delete
+fi
+
+if tcase "§2.6 contract, the stdin filter forced (real grep): \`-x\` matches \`needle\\r\`, no match is rc 1 / lastRc 1, \`-l\` output gets no strip"; then
+    printf 'needle\r\nother\r\n' > "$FX/stdin_c.txt"
+    __TUTIL_TOOLS_STRIP_CR=0
+    TGrep.new gT needle
+    gT.lineRegexp = 1
+    declare -a W=(); gT.argv W; w0="${W[0]:-}"
+    SGOT=(); arc=0; gT.toArray SGOT < "$FX/stdin_c.txt" || arc=$?
+    gT.pattern = absent
+    nrc=0; gT.count < "$FX/stdin_c.txt" || nrc=$?; nn="$RESULT"
+    gT.lastRc; nlr="$RESULT"
+    gT.delete
+    TGrep.new gT needle "$FX/crlf.txt"
+    gT.filesOnly = 1
+    gT.argv W; ftm="$(gT._textMode)"
+    __TUTIL_TOOLS_STRIP_CR="$G26_NAT"
+    if [[ $arc -eq 0 && "$w0" == "tutil._crStdin" && "$ftm" == "0" && $nrc -eq 1 && "$nn" == "0" && "$nlr" == "1" ]] \
+       && arr_is SGOT needle; then
+        kt_test_pass "(needle); no match: rc 1, count 0, lastRc 1; -l: _textMode 0"
+    else
+        kt_test_fail "rc=$arc got=$(arr_show SGOT) nomatch rc=$nrc n='$nn' lastRc='$nlr' -l tm=$ftm argv0=$w0"
+    fi
+    gT.delete
+fi
+
+# ---- §2.6 the owner's examples on STDIN (DL11, L2.7-C round 2): with no path
+# operand grep reads a pre-filtered stdin off Windows, so `-x`, `$` and `^$` see
+# no line-end CR on any platform. Real grep; no stand-in. Before round 2 all
+# three failed on Linux (grep matched against `needle\r`).
+printf 'needle\r\nother\r\n'    > "$FX/stdin_crlf.txt"
+printf 'a\r\n\r\nb\r\n'         > "$FX/stdin_blank.txt"
+
+if tcase "§2.6 owner: \`lineRegexp\` (-x) on stdin \`needle\\r\` matches — (needle), run LF-only"; then
+    TGrep.new gS needle
+    gS.lineRegexp = 1
+    SGOT=(); rc=0; gS.toArray SGOT < "$FX/stdin_crlf.txt" || rc=$?
+    got="$(gS.run < "$FX/stdin_crlf.txt" | od -c)"
+    if [[ $rc -eq 0 && "$got" == "$(printf 'needle\n' | od -c)" ]] && arr_is SGOT needle; then
+        kt_test_pass "(needle), run 'needle' + LF"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT) run='${got//$'\n'/|}'"
+    fi
+    gS.delete
+fi
+
+if tcase "§2.6 owner: \`needle\$\` on stdin matches the CRLF line"; then
+    TGrep.new gS 'needle$'
+    rc=0; gS.count < "$FX/stdin_crlf.txt" || rc=$?
+    n="$RESULT"
+    if [[ $rc -eq 0 && "$n" == "1" ]]; then
+        kt_test_pass "count 1"
+    else
+        kt_test_fail "rc=$rc count='$n'"
+    fi
+    gS.delete
+fi
+
+if tcase "§2.6 owner: \`^\$\` on stdin counts the one empty CRLF line"; then
+    TGrep.new gS '^$'
+    rc=0; gS.count < "$FX/stdin_blank.txt" || rc=$?
+    n="$RESULT"
+    if [[ $rc -eq 0 && "$n" == "1" ]]; then
+        kt_test_pass "count 1"
+    else
+        kt_test_fail "rc=$rc count='$n'"
+    fi
+    gS.delete
 fi
 
 # ===========================================================================

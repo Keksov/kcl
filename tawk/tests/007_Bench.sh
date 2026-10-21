@@ -75,6 +75,12 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 
 TA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$TA_DIR/tawk.sh"
+# The argv shapes this file asserts (and the builds it times) are the
+# cygwin/msys ones, so the file pins that path of the CR contract (tutil
+# README §3, L2.7-C). The extra words of the other path are pinned in
+# 004_Argv.sh section CR; their runtime cost is the `-v RS` / prelude one,
+# measured for the launch report, far below this file's 10x ceilings.
+__TUTIL_TOOLS_STRIP_CR=1
 source "$TA_DIR/../tstopwatch/tstopwatch.sh"
 
 TEST_NAME="$(basename "$0" .sh)"

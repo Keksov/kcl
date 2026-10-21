@@ -29,8 +29,11 @@
 #   D  S8    the sandbox default: `s///e`, `e`, `w FILE`, `s///w /dev/stdout`,
 #            a later `-e`, a `-f` script with `w` — refused (rc 1, lastRc 1,
 #            marker files prove nothing ran); `sandbox = 0` runs them
-#   E  S9    CR: text mode strips, `binary` keeps, `binary` + `crlf` strips one,
-#            `inPlace` keeps every CR on disk, `nullData` keeps an embedded CR
+#   E  S9    CR (the kbool contract, tutil README §3): text mode delivers no
+#            line-end CR on EVERY platform, `binary` keeps, `binary` + `crlf`
+#            strips one, `inPlace` keeps every CR on disk, `nullData` keeps an
+#            embedded CR; the contract cases drive both platform paths
+#            (`__TUTIL_TOOLS_STRIP_CR` 0/1, a CR-keeping stand-in tool)
 #   F  S10   `-z`: NUL records through the derived `-0`; the unterminated last
 #            NUL record
 #   G  S11   in-place: `run` edits, stdout empty; `.bak`; `bak_*`; `*` rc 2; a
@@ -528,8 +531,11 @@ if tcase "S7: a BAD script (\`s/a\`) — rc 1, lastRc 1, zero records, one line 
     SGOT=( stale )
     ts_dbg sD.toArray SGOT
     sD.lastRc; lr="$RESULT"
+    # sed numbers the -e expressions: where the CR prelude's three come first
+    # (tutil README §3), the caller's first expression is #4.
+    s7n=1; if tutil._keepsCr; then s7n=4; fi
     if [[ "$TS_RC" == "1" && "$lr" == "1" && ${#SGOT[@]} -eq 0 && "$TS_N" == "1" \
-          && "$TS_1" == *"sed exited 1 (a sed error, or the script's q/Q 1)"* && "$TOOL_1" == "sed: -e expression #1"* ]]; then
+          && "$TS_1" == *"sed exited 1 (a sed error, or the script's q/Q 1)"* && "$TOOL_1" == "sed: -e expression #$s7n"* ]]; then
         kt_test_pass "rc 1, lastRc 1: ${TS_1:0:70}"
     else
         kt_test_fail "rc=$TS_RC lastRc='$lr' got=$(arr_show SGOT) ourLines=$TS_N first='$TS_1' tool='$TOOL_1'"
@@ -680,15 +686,21 @@ fi
 kt_test_section "E. S9 — the CR (owner Q5)"
 # ===========================================================================
 
-if tcase "S9: text mode STRIPS the CR — records (a1 b2), bytes == bare sed, no \\r in the stream"; then
+# The CR rows below pin the KBOOL contract (owner DL11, tutil README §3), not
+# the bare tool's: in text mode the records carry no line-end CR on every
+# platform. cygwin/msys sed drops it itself; Linux/BSD/macOS sed keeps it and
+# TUtil removes it. The "== bare sed" oracle rule therefore does not apply to
+# these rows: the oracle is the literal bytes, or the bare tool with `-b`
+# (which is the same everywhere).
+if tcase "S9: text mode delivers NO line-end CR on every platform — records (a1 b2), \`run\` streams LF-only lines"; then
     TSed.new sC '' "$FX/crlf.txt"
     sC.addExpr ''
     SGOT=()
     rc=0; sC.toArray SGOT || rc=$?
     got="$(sC.run | od -c)"
-    want="$(sed --sandbox -e '' -- "$FX/crlf.txt" | od -c)"
+    want="$(printf 'a1\nb2\n' | od -c)"
     if [[ $rc -eq 0 && "$got" == "$want" && "$got" != *'\r'* ]] && arr_is SGOT a1 b2; then
-        kt_test_pass "(a1 b2); the tool ate the CR itself (crlf is a no-op here)"
+        kt_test_pass "(a1 b2); the stream is LF-only (the tool or TUtil removed the CR)"
     else
         kt_test_fail "rc=$rc got=$(arr_show SGOT) od='${got//$'\n'/|}'"
     fi
@@ -726,38 +738,208 @@ if tcase "S9: \`binary = 1\` + \`crlf = 1\` strips EXACTLY one CR (\`c3\\r\\r\` 
     sC.delete
 fi
 
-if tcase "S9: \`inPlace = 1\` on a CRLF file keeps EVERY CR on disk (the derived -b); bare \`sed -i\` does not"; then
+# Why Q5 derives -b for inPlace: cygwin/msys sed in text mode would rewrite
+# CRLF to LF on disk (a bare `sed -i` does), while Linux/BSD/macOS sed keeps
+# the CR anyway. The wrapper's result is the uniform one, so the
+# platform-specific bare oracle is not part of this row any more.
+if tcase "S9: \`inPlace = 1\` on a CRLF file keeps EVERY CR on disk (the derived -b), on every platform"; then
     cp "$FX/crlf.txt" "$FX/ip_crlf.txt"
-    cp "$FX/crlf.txt" "$FX/ip_bare.txt"
     TSed.new sC 's/a/A/' "$FX/ip_crlf.txt"
     sC.inPlace = 1
     rc=0; sC.run > "$TMP/ip.out" 2>/dev/null || rc=$?
-    sed -i -e 's/a/A/' -- "$FX/ip_bare.txt"
     got="$(odf "$FX/ip_crlf.txt")"
     want="$(printf 'A1\r\nb2\r\n' | od -c)"
-    bare="$(odf "$FX/ip_bare.txt")"
-    bwant="$(printf 'A1\nb2\n' | od -c)"
-    if [[ $rc -eq 0 && "$got" == "$want" && "$bare" == "$bwant" && ! -s "$TMP/ip.out" ]]; then
-        kt_test_pass "wrapper: A1\\r\\nb2\\r\\n on disk; bare \`sed -i\`: A1\\nb2\\n (why Q5 derives -b)"
+    if [[ $rc -eq 0 && "$got" == "$want" && ! -s "$TMP/ip.out" ]]; then
+        kt_test_pass "A1\\r\\nb2\\r\\n on disk, nothing on stdout"
     else
-        kt_test_fail "rc=$rc got='${got//$'\n'/|}' bare='${bare//$'\n'/|}'"
+        kt_test_fail "rc=$rc got='${got//$'\n'/|}'"
     fi
     sC.delete
 fi
 
-if tcase "S9: \`nullData = 1\` keeps a CR embedded in a NUL record (bare \`sed -z\` strips it)"; then
+# The oracle is the bare tool with `-b`, which keeps the embedded CR on every
+# platform; a bare text-mode `sed -z` would strip it on cygwin/msys only.
+if tcase "S9: \`nullData = 1\` keeps a CR embedded in a NUL record, on every platform (== bare \`sed -z -b\`)"; then
     TSed.new sC '' "$FX/nul.bin"
     sC.addExpr ''
     sC.nullData = 1
     SGOT=()
     rc=0; sC.toArray SGOT || rc=$?
-    oracle0 SWANT sed -z -e '' -- "$FX/nul.bin"
-    if [[ $rc -eq 0 ]] && arr_is SGOT a "x$CR"$'\n'"y" last && arr_is SWANT a $'x\ny' last; then
-        kt_test_pass "(a 'x\\r\\ny' last); the bare text-mode -z gives 'x\\ny'"
+    oracle0 SWANT sed -z -b -e '' -- "$FX/nul.bin"
+    if [[ $rc -eq 0 ]] && arr_is SGOT a "x$CR"$'\n'"y" last && arr_is SWANT a "x$CR"$'\n'"y" last; then
+        kt_test_pass "(a 'x\\r\\ny' last), == the bare -b run"
     else
         kt_test_fail "rc=$rc got=$(arr_show SGOT) bare=$(arr_show SWANT)"
     fi
     sC.delete
+fi
+
+# ---- S9 contract: both platform paths on any host (tutil README §3) --------
+# `__TUTIL_TOOLS_STRIP_CR` is flipped per case: 0 drives the Linux/BSD/macOS
+# path (TSed's prelude `s/<CR>$//; t__tsd_cr; :__tsd_cr` before the script —
+# the script never sees the CR), 1 the cygwin/msys path where sed has already
+# stripped and the wrapper adds nothing. With real sed the 0 path runs on any
+# host (on Windows the prelude is then simply redundant), so the prelude's `t`
+# reset and the `#n` rule are exercised everywhere. `s9_tool` stands in for "a
+# tool that KEEPS the CR" where the absence of an output strip is the subject.
+S9_NAT="$__TUTIL_TOOLS_STRIP_CR"
+s9_tool() { printf 'a1\r\nb2\r\n'; return 0; }
+S9_LF="$(printf 'a1\nb2\n' | od -c)"
+S9_CRLF="$(printf 'a1\r\nb2\r\n' | od -c)"
+printf '#n\np\n' > "$FX/hashn_c.sed"
+printf 'a1\nb2\n' > "$FX/lf_c.txt"
+
+if tcase "S9 contract, the prelude path forced (real sed): all five sinks and \`run\` give (a1 b2); \`binary = 1\` keeps the CR"; then
+    TSed.new sT '' "$FX/crlf.txt"
+    sT.addExpr ''
+    __TUTIL_TOOLS_STRIP_CR=0
+    declare -a W=(); sT.argv W
+    SGOT=(); arc=0; sT.toArray SGOT || arc=$?
+    CB_RECS=(); erc=0; sT.each cb_collect || erc=$?
+    TSTestList.new sTL; lrc=0; sT.toList sTL || lrc=$?; ln="$(sTL.N)"; sTL.delete
+    frc=0; sT.first || frc=$?; fv="$RESULT"
+    crc=0; sT.count || crc=$?; cn="$RESULT"
+    rrc=0; sT.run > "$TMP/s9s.out" || rrc=$?
+    got="$(od -c < "$TMP/s9s.out")"
+    sT.binary = 1
+    SWANT=(); sT.toArray SWANT
+    bgot="$(sT.run | od -c)"
+    __TUTIL_TOOLS_STRIP_CR="$S9_NAT"
+    if [[ "$arc$erc$lrc$frc$crc$rrc" == "000000" && "$ln" == "2" && "$fv" == "a1" && "$cn" == "2" \
+          && "${W[3]}" == "$__TUTIL_CR_SED" && "$got" == "$S9_LF" && "$bgot" == "$S9_CRLF" ]] \
+       && arr_is SGOT a1 b2 && arr_is CB_RECS a1 b2 && arr_is SWANT "a1$CR" "b2$CR"; then
+        kt_test_pass "the prelude in the argv; (a1 b2) from every sink, run LF-only; binary: (a1\\r b2\\r) and the CRLF bytes"
+    else
+        kt_test_fail "rc=$arc$erc$lrc$frc$crc$rrc argv=$(arr_show W) got=$(arr_show SGOT) each=$(arr_show CB_RECS) first='$fv' count=$cn list=$ln run='${got//$'\n'/|}' binary=$(arr_show SWANT) brun='${bgot//$'\n'/|}'"
+    fi
+    sT.delete
+fi
+
+if tcase "S9 contract, the prelude path forced: the script's own \`t\` is not triggered by the prelude, \`#n\` still means -n, \`s/\$/\\r/\` keeps its CR"; then
+    __TUTIL_TOOLS_STRIP_CR=0
+    TSed.new sT '' "$FX/crlf.txt"
+    sT.addExpr 'tdone'
+    sT.addExpr 's/a/A/'
+    sT.addExpr ':done'
+    TGOT=(); trc=0; sT.toArray TGOT || trc=$?
+    TSed.new sN '#n' "$FX/crlf.txt"
+    sN.addExpr p
+    NGOT=(); nrc=0; sN.toArray NGOT || nrc=$?
+    TSed.new sF '' "$FX/crlf.txt"
+    sF.scriptFile = "$FX/hashn_c.sed"
+    FGOT=(); frc=0; sF.toArray FGOT || frc=$?
+    TSed.new sD 's/$/\r/' "$FX/lf_c.txt"
+    DGOT=(); drc=0; sD.toArray DGOT || drc=$?
+    __TUTIL_TOOLS_STRIP_CR="$S9_NAT"
+    if [[ "$trc$nrc$frc$drc" == "0000" ]] && arr_is TGOT A1 b2 && arr_is NGOT a1 b2 \
+       && arr_is FGOT a1 b2 && arr_is DGOT "a1$CR" "b2$CR"; then
+        kt_test_pass "t: (A1 b2); #n expr and file: (a1 b2) once; the script's CRs kept"
+    else
+        kt_test_fail "t=$trc$(arr_show TGOT) #n=$nrc$(arr_show NGOT) file=$frc$(arr_show FGOT) cr=$drc$(arr_show DGOT)"
+    fi
+    sT.delete
+    sN.delete
+    sF.delete
+    sD.delete
+fi
+
+if tcase "S9 contract, no output strip on either path: a CR the tool itself writes reaches the sinks and \`run\` (a CR-keeping stand-in)"; then
+    TSed.new sT '' "$FX/crlf.txt"
+    sT.addExpr ''
+    sT.cmd = s9_tool
+    out=""
+    for nat in 0 1; do
+        __TUTIL_TOOLS_STRIP_CR=$nat
+        SGOT=(); arc=0; sT.toArray SGOT || arc=$?
+        got="$(sT.run | od -c)"
+        if [[ $arc -eq 0 && "$got" == "$S9_CRLF" ]] && arr_is SGOT "a1$CR" "b2$CR"; then
+            out+="ok$nat "
+        else
+            out+="BAD$nat:rc=$arc,$(arr_show SGOT),${got//$'\n'/|} "
+        fi
+    done
+    __TUTIL_TOOLS_STRIP_CR="$S9_NAT"
+    if [[ "$out" == "ok0 ok1 " ]]; then
+        kt_test_pass "no -c, no filter on either path: the tool's bytes"
+    else
+        kt_test_fail "$out"
+    fi
+    sT.delete
+fi
+
+# ---- S9 the owner's examples (DL11, L2.7-C round 2): the SCRIPT never sees
+# the line-end CR in text mode, on any platform, and a CR the script writes on
+# purpose is kept on every platform. Real sed; no stand-in. Before round 2 the
+# first two failed on Linux (sed matched against `Alice\r`, a CR-only line is
+# not empty) and the deliberate CR was eaten by the output strip there.
+printf 'name=Alice\r\nname=Carol\r\n' > "$FX/names.txt"
+printf 'a\r\n\r\nb\r\n'              > "$FX/crlf_blank.txt"
+printf 'a1\nb2\n'                    > "$FX/lf.txt"
+printf '#n\np\n'                     > "$FX/hashn.sed"
+
+if tcase "S9 owner: \`s/Alice\$/Bob/\` on a CRLF file gives 'name=Bob' — the \`\$\` anchor sees no CR"; then
+    TSed.new sO 's/Alice$/Bob/' "$FX/names.txt"
+    SGOT=(); rc=0; sO.toArray SGOT || rc=$?
+    got="$(sO.run | od -c)"
+    if [[ $rc -eq 0 && "$got" == "$(printf 'name=Bob\nname=Carol\n' | od -c)" ]] && arr_is SGOT name=Bob name=Carol; then
+        kt_test_pass "(name=Bob name=Carol), run LF-only"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT) run='${got//$'\n'/|}'"
+    fi
+    sO.delete
+fi
+
+if tcase "S9 owner: \`/^\$/d\` deletes the empty CRLF line — (a b)"; then
+    TSed.new sO '/^$/d' "$FX/crlf_blank.txt"
+    SGOT=(); rc=0; sO.toArray SGOT || rc=$?
+    if [[ $rc -eq 0 ]] && arr_is SGOT a b; then
+        kt_test_pass "(a b)"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT)"
+    fi
+    sO.delete
+fi
+
+if tcase "S9 owner: a deliberate \`s/\$/\\r/\` keeps its CR on every platform — records and run end in CR LF"; then
+    TSed.new sO 's/$/\r/' "$FX/lf.txt"
+    SGOT=(); rc=0; sO.toArray SGOT || rc=$?
+    got="$(sO.run | od -c)"
+    if [[ $rc -eq 0 && "$got" == "$(printf 'a1\r\nb2\r\n' | od -c)" ]] && arr_is SGOT "a1$CR" "b2$CR"; then
+        kt_test_pass "the script's CRs, untouched"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT) run='${got//$'\n'/|}'"
+    fi
+    sO.delete
+fi
+
+if tcase "S9 owner: the script's own \`t\` is not triggered by the CR removal — \`tdone; s/a/A/; :done\` gives (A1 b2)"; then
+    TSed.new sO '' "$FX/crlf.txt"
+    sO.addExpr 'tdone'
+    sO.addExpr 's/a/A/'
+    sO.addExpr ':done'
+    SGOT=(); rc=0; sO.toArray SGOT || rc=$?
+    if [[ $rc -eq 0 ]] && arr_is SGOT A1 b2; then
+        kt_test_pass "(A1 b2)"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT)"
+    fi
+    sO.delete
+fi
+
+if tcase "S9 owner: a script starting with \`#n\` (expr, and line 1 of scriptFile) still means -n — (a1 b2) once"; then
+    TSed.new sO '#n' "$FX/crlf.txt"
+    sO.addExpr 'p'
+    SGOT=(); rc=0; sO.toArray SGOT || rc=$?
+    TSed.new sF '' "$FX/crlf.txt"
+    sF.scriptFile = "$FX/hashn.sed"
+    FGOT=(); frc=0; sF.toArray FGOT || frc=$?
+    if [[ $rc -eq 0 && $frc -eq 0 ]] && arr_is SGOT a1 b2 && arr_is FGOT a1 b2; then
+        kt_test_pass "expr: (a1 b2); scriptFile: (a1 b2)"
+    else
+        kt_test_fail "rc=$rc got=$(arr_show SGOT) frc=$frc file=$(arr_show FGOT)"
+    fi
+    sO.delete
+    sF.delete
 fi
 
 # ===========================================================================
@@ -1151,8 +1333,12 @@ if tcase "S12: a nested \`edit\` inside an outer \`each\` — both complete, the
     for x in "${NEST_IN[@]}"; do
         [[ "$x" == $'d4\ne5' ]] || inner_ok=0
     done
+    # the CR contract's prelude where sed keeps the CR (tutil README §3)
+    S12W=( sed --sandbox )
+    if tutil._keepsCr; then S12W+=( -e "$__TUTIL_CR_SED" -e t__tsd_cr -e :__tsd_cr ); fi
+    S12W+=( -e 's/a/A/' -- "$FX/f3.txt" )
     if [[ $rc -eq 0 && ${#NEST_IN[@]} -eq 3 && "$inner_ok" == "1" && $arc -eq 0 && "$lr" == "0" ]] \
-       && arr_is NEST_OUT A1 b2 c3 && arr_is SGOT sed --sandbox -e 's/a/A/' -- "$FX/f3.txt"; then
+       && arr_is NEST_OUT A1 b2 c3 && arr_is SGOT "${S12W[@]}"; then
         kt_test_pass "3 outer records, 3 nested edits, the outer argv untouched"
     else
         kt_test_fail "rc=$rc outer=$(arr_show NEST_OUT) inner=${#NEST_IN[@]} ok=$inner_ok argvRc=$arc lastRc='$lr' argv=$(arr_show SGOT)"

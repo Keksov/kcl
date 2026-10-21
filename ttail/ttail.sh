@@ -144,8 +144,8 @@ declare -g __TT_SEQ=0
 #    The three sink overrides therefore capture the rc, save RESULT, and re-raise
 #    both: `inherited X "$@" || rc=$?; n="$RESULT"; kk._return "$n"; return "$rc"`.
 #  * No `var` here may be named like a TUtil member (`cmd crlf nul _lastRc
-#    subshellOk buildArgv addArg clearArgs argv run each toArray toList first
-#    count lastRc mapRc`) or a kklass one (`property call parent delete`).
+#    subshellOk _textMode buildArgv addArg clearArgs argv run each toArray toList
+#    first count lastRc mapRc`) or a kklass one (`property call parent delete`).
 #  * Booleans are compared as strings (`[[ "$x" == 1 ]]`).
 #  * The count regex lives in a VARIABLE and is applied with `[[ =~ $re ]]`.
 #  * `${inst}_argv` is rebuilt through a nameref, never with `unset "…[…]"`.

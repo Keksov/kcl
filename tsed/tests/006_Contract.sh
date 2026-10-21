@@ -140,7 +140,7 @@ else
 fi
 
 kt_test_start "no \`var\` shadows a TUtil or kklass member name; eleven vars declared"
-RESERVED=" cmd crlf nul _lastRc subshellOk buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
+RESERVED=" cmd crlf nul _lastRc _textMode subshellOk buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
 clash=""
 declared=""
 while IFS= read -r line; do
@@ -258,7 +258,8 @@ TSed.new s "s/a/A/" "$FX/f3.txt"
 declare -a W=()
 rc=0
 s.argv W || rc=$?
-[[ "$rc" == "0" && "$RESULT" == "6" ]] || { printf "words=%s rc=%s\n" "$RESULT" "$rc" >&2; exit 9; }
+nw=6; if tutil._keepsCr; then nw=12; fi   # + the CR prelude (tutil README §3)
+[[ "$rc" == "0" && "$RESULT" == "$nw" ]] || { printf "words=%s rc=%s\n" "$RESULT" "$rc" >&2; exit 9; }
 TPipe.each cb -- "${W[@]}" || rc=$?
 [[ "$N" == "3" ]] || { printf "N=%s\n" "$N" >&2; exit 8; }
 s.delete'
