@@ -196,6 +196,12 @@ TRegEx._match1() {
     # X-SETE (T1, D7): the match STATUS is the answer here, so a bare test would
     # abort the caller under `set -e` on every no-match. Capture it instead.
     __tre_rc=0
+    # S2 on every engine: glibc accepts '' (match-all), newlib/cygwin refuses it
+    if [[ -z $__re ]]; then
+        __tre_rc=2; __tre_g=(); __tre_m=''
+        if (( __had )); then shopt -s nocasematch; else shopt -u nocasematch; fi
+        return 0
+    fi
     [[ "$1" =~ $__re ]] 2>/dev/null || __tre_rc=$?
     __tre_g=("${BASH_REMATCH[@]}")
     __tre_m="${BASH_REMATCH[0]:-}"   # X-SETU (D7): unset when the match failed

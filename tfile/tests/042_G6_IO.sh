@@ -199,27 +199,32 @@ if command -v openssl >/dev/null 2>&1; then
     # addressed with a BACKSLASH separator (which the MSYS runtime resolves)
     # produced dir="." and the temp file was written into $PWD instead of next
     # to the file. Run it from a directory we can inspect afterwards.
-    kt_test_start "encrypt of a backslash-addressed path keeps its temp file next to the file [G6-26]"
-    bsdir="$W/bs sub"
-    mkdir -p "$bsdir"
-    printf 'secret2\n' > "$bsdir/bs.txt"
-    win_style="${bsdir}\\bs.txt"
-    cwd_probe="$W/cwd probe"
-    mkdir -p "$cwd_probe"
-    cd "$cwd_probe" || exit 1
-    rc=0
-    tfile.encrypt "$win_style" "pw123" >/dev/null 2>&1 || rc=$?
-    cwd_left="$(ls -A . | wc -l)"
-    cd "$SCRIPT_DIR" || exit 1
-    if (( rc == 0 )) && [[ "$(cat "$bsdir/bs.txt")" != "secret2" ]] && (( cwd_left == 0 )); then
-        tfile.decrypt "$win_style" "pw123" || :
-        if [[ "$(cat "$bsdir/bs.txt")" == "secret2" ]]; then
-            kt_test_pass "round trip, nothing left in \$PWD"
+    if [[ $OSTYPE == msys* || $OSTYPE == cygwin* ]]; then
+        kt_test_start "encrypt of a backslash-addressed path keeps its temp file next to the file [G6-26]"
+        bsdir="$W/bs sub"
+        mkdir -p "$bsdir"
+        printf 'secret2\n' > "$bsdir/bs.txt"
+        win_style="${bsdir}\\bs.txt"
+        cwd_probe="$W/cwd probe"
+        mkdir -p "$cwd_probe"
+        cd "$cwd_probe" || exit 1
+        rc=0
+        tfile.encrypt "$win_style" "pw123" >/dev/null 2>&1 || rc=$?
+        cwd_left="$(ls -A . | wc -l)"
+        cd "$SCRIPT_DIR" || exit 1
+        if (( rc == 0 )) && [[ "$(cat "$bsdir/bs.txt")" != "secret2" ]] && (( cwd_left == 0 )); then
+            tfile.decrypt "$win_style" "pw123" || :
+            if [[ "$(cat "$bsdir/bs.txt")" == "secret2" ]]; then
+                kt_test_pass "round trip, nothing left in \$PWD"
+            else
+                kt_test_fail "decrypt did not restore the text"
+            fi
         else
-            kt_test_fail "decrypt did not restore the text"
+            kt_test_fail "rc=$rc cwd_left=$cwd_left text='$(cat "$bsdir/bs.txt")'"
         fi
     else
-        kt_test_fail "rc=$rc cwd_left=$cwd_left text='$(cat "$bsdir/bs.txt")'"
+        kt_test_start "encrypt of a backslash-addressed path keeps its temp file next to the file [G6-26]"
+        kt_test_pass "N/A off MSYS2/Cygwin: '\\' is a filename character here"
     fi
 else
     kt_test_start "openssl is available for the crypt tests [G6-26]"

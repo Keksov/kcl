@@ -137,6 +137,10 @@ The three most likely to bite when porting Delphi code (full list in
 | Replacement group refs | `$1` and `\1`, `\{1}` | `$`-form only (`\1` is literal) |
 | Match objects | `TMatch`/`TMatchCollection`/`NextMatch` | `RESULT*` globals + nameref arrays |
 
+The engine is the C library's ERE (`regcomp`): glibc accepts some patterns
+newlib/cygwin rejects (`a|`, `()`), so their rc can differ by platform; the empty
+pattern is rc 2 everywhere (S2).
+
 ### Match offsets, and the zero-length anchor delta
 
 Offsets are recovered by prefix-strip (`${text%%"$matched"*}`), which is
