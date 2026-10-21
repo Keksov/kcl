@@ -89,6 +89,14 @@ tcase() {
 
 printf -v CR '\r'
 BS='\'
+# BS_SEP: 1 where a backslash in a path is a directory separator (MSYS2/Cygwin), 0 where it is
+# an ordinary filename character (Linux, BSD) — probed, in a dir of its own.
+BS_SEP=0
+_bsp="$(cd "$(kt_fixture_tmpdir_create bsprobe)" && pwd)"
+mkdir -p "$_bsp/q"
+: > "$_bsp/q${BS}f" 2>/dev/null
+[[ -e "$_bsp/q/f" ]] && BS_SEP=1
+unset _bsp
 IPA=/usr/share/awk/inplace.awk
 
 FX="$(cd "$(kt_fixture_tmpdir_create tree)" && pwd)"
@@ -596,11 +604,13 @@ if tcase "A7: missing middle file — \`each\` rc 1, three callbacks, RESULT UNT
     fi
 fi
 
+# The consumer-stop TERM can hit sed/gawk between its last write and its exit; lastRc 2 itself
+# is pinned by the S7/A7 count/toArray cases.
 if tcase "A7: missing middle file — \`first\` rc 0, the first record, lastRc 2, NO line of ours"; then
     ta_dbg aP.first
     fv="$RESULT"
     aP.lastRc; lr="$RESULT"
-    if [[ "$TA_RC" == "0" && "$TA_N" == "0" && "$fv" == "a 1" && "$lr" == "2" ]]; then
+    if [[ "$TA_RC" == "0" && "$TA_N" == "0" && "$fv" == "a 1" && "$lr" =~ ^(2|141|143)$ ]]; then
         kt_test_pass "rc 0, RESULT 'a 1', lastRc 2 (TUtil's consumer-stop contract)"
     else
         kt_test_fail "rc=$TA_RC ourLines=$TA_N first='$TA_1' RESULT='$fv' lastRc='$lr'"
@@ -1053,7 +1063,11 @@ if tcase "A11: \`backupSuffix\` with a BACKSLASH (\`.b\\k\`) names the backup ex
     rc=0; aI.run 2>"$ERRF" || rc=$?
     err="$(<"$ERRF")"
     timeout 20 gawk -v BINMODE=3 -i "$IPA" -v "inplace::suffix=.b${BS}k" -e '{print toupper($0)}' -- "$FX/ipraw.txt" >/dev/null 2>&1 </dev/null
-    if [[ $rc -eq 0 && -z "$err" && -f "$FX/ipbs.txt.b${BS}k" && -f "$FX/ipbs.txt.b/k" \
+    # BS_SEP=1 (MSYS2/Cygwin): the backslash is a separator, the backup is ipbs.txt.b/k;
+    # BS_SEP=0: it is a filename character and ipbs.txt.b stays the empty directory.
+    if (( BS_SEP )); then bs_k_ok=0; [[ -f "$FX/ipbs.txt.b/k" ]] && bs_k_ok=1
+    else bs_k_ok=0; [[ ! -e "$FX/ipbs.txt.b/k" ]] && bs_k_ok=1; fi
+    if [[ $rc -eq 0 && -z "$err" && -f "$FX/ipbs.txt.b${BS}k" && $bs_k_ok -eq 1 \
           && "$(odf "$FX/ipbs.txt.b${BS}k")" == "$F3_OD" && "$(odf "$FX/ipbs.txt")" == "$UP_OD" \
           && ! -e "$FX/ipbs.txt.bk" && -f "$FX/ipraw.txt.bk" ]]; then
         kt_test_pass "ipbs.txt.b\\k holds the original, no warning; the unencoded bare -v wrote ipraw.txt.bk"
@@ -1063,7 +1077,7 @@ if tcase "A11: \`backupSuffix\` with a BACKSLASH (\`.b\\k\`) names the backup ex
     aI.delete
 fi
 
-if tcase "A11: \`backupSuffix = '.b\\k'\` with NO \`FILE.b\` directory — gawk's fatal link(): rc 1, lastRc 2, the file untouched"; then
+if tcase "A11: \`backupSuffix = '.b\\k'\` with NO \`FILE.b\` directory — gawk's fatal link(): rc 1, lastRc 2, the file untouched (MSYS2/Cygwin; elsewhere \`\\\` is a filename character and the backup \`FILE.b\\k\` is written)"; then
     cp "$FX/f3.txt" "$FX/ipbn.txt"
     TAwk.new aI '{print toupper($0)}' "$FX/ipbn.txt"
     aI.sandbox = 0
@@ -1072,9 +1086,20 @@ if tcase "A11: \`backupSuffix = '.b\\k'\` with NO \`FILE.b\` directory — gawk'
     rc=0; aI.run 2>"$ERRF" || rc=$?
     err="$(<"$ERRF")"
     aI.lastRc; lr="$RESULT"
-    if [[ $rc -eq 1 && "$lr" == "2" && "$err" == "gawk: "*"ipbn.txt.b${BS}k"* && "$(odf "$FX/ipbn.txt")" == "$F3_OD" \
-          && ! -e "$FX/ipbn.txt.bk" ]]; then
-        kt_test_pass "rc 1, lastRc 2, untouched; gawk names 'ipbn.txt.b\\k'"
+    if (( BS_SEP )); then
+        if [[ $rc -eq 1 && "$lr" == "2" && "$err" == "gawk: "*"ipbn.txt.b${BS}k"* && "$(odf "$FX/ipbn.txt")" == "$F3_OD" \
+              && ! -e "$FX/ipbn.txt.bk" ]]; then
+            bs_n_ok="rc 1, lastRc 2, untouched; gawk names 'ipbn.txt.b\\k'"
+        else bs_n_ok=""; fi
+    elif [[ $rc -eq 0 && "$lr" == "0" && -z "$err" && "$(odf "$FX/ipbn.txt")" == "$UP_OD" \
+            && -f "$FX/ipbn.txt.b${BS}k" && "$(odf "$FX/ipbn.txt.b${BS}k")" == "$F3_OD" \
+            && ! -e "$FX/ipbn.txt.bk" ]]; then
+        bs_n_ok="rc 0, lastRc 0, edited; the backup is the plain file 'ipbn.txt.b\\k'"
+    else
+        bs_n_ok=""
+    fi
+    if [[ -n "$bs_n_ok" ]]; then
+        kt_test_pass "$bs_n_ok"
     else
         kt_test_fail "rc=$rc lastRc='$lr' err='$err' ipbn='$(odf "$FX/ipbn.txt" | tr '\n' '|')'"
     fi

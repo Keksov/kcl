@@ -197,7 +197,7 @@ know its caller), so the split lives in **three overridden sinks**:
 | member | with `follow = 1` |
 |---|---|
 | `run` | streams until the **caller** kills it (Ctrl-C, `timeout`, a kill from elsewhere) |
-| `each` | streams until the callback calls `TPipe.stop`; the tpipe stop path (close → `kill -TERM` → wait) then ends tail with raw rc **143** → member **rc 0**, `lastRc` 143. **Blocks forever** with a callback that never stops — there is no timeout and no cancellation from outside |
+| `each` | streams until the callback calls `TPipe.stop`; the tpipe stop path (close → `kill -TERM` → wait) then ends tail with raw rc **143 (141 on Linux, where `tail -f` notices the closed pipe itself)** → member **rc 0**, `lastRc` 143. **Blocks forever** with a callback that never stops — there is no timeout and no cancellation from outside |
 | `first` | one record, then the same stop path — the "wait for the next line" idiom; blocks until a record arrives |
 | `toArray`, `count`, `toList` | **rc 2 in the overriding member, nothing runs.** The first two can only finish at EOF, which never comes; `toList` could only finish if `.Add` called `TPipe.stop`, and no kcl list does (`TStringList` / `TList` / `THashSet.Add` never stop) |
 
@@ -207,7 +207,7 @@ t.follow = 1
 
 onLine() { printf '%s\n' "$1"; [[ "$1" == *ERROR* ]] && TPipe.stop; return 0; }
 t.each onLine                         # rc 0 when the callback stops it
-t.lastRc                              # RESULT = 143
+t.lastRc                              # RESULT = 143 (141 on Linux, where `tail -f` notices the closed pipe itself)
 
 declare -a a=()
 rc=0; t.toArray a || rc=$?            # rc 2, RESULT '', `a` untouched, nothing ran
@@ -352,7 +352,7 @@ Reading the table:
   so every shape it appears in is timed by the consumer's stopping rule or by an
   external kill, not by the wrapper (§6). The bench starts **no** follower, so it
   can leak none. For the record, measured at P0: the TPipe stop path ends
-  `tail -f` in ~45 ms with raw rc 143 on both bashes; there is no inotify on
+  `tail -f` in ~45 ms with raw rc 143 (141 on Linux, where `tail -f` notices the closed pipe itself) on both bashes; there is no inotify on
   msys, so an appended line reaches `each` after ~2 s (poll interval ~1 s).
 - **`count` is not `wc -l`, and the 13–16× row is why.** The sink reads every
   record into bash at ~136 µs a record; `wc` counts in a second process at

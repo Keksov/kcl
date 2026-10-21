@@ -924,12 +924,20 @@ fi
 kt_test_section "K. binary files — \`Binary file X matches\` is a stdout RECORD"
 # ===========================================================================
 
-if tcase "K: a file with a NUL yields the \`Binary file … matches\` RECORD, rc 0"; then
+if tcase "K: a file with a NUL: the bare grep's answer (grep < 3.5: one \`Binary file … matches\` RECORD; >= 3.5: no record, note on stderr), rc 0"; then
+    # The oracle first: grep < 3.5 prints the note on stdout, >= 3.5 on stderr.
+    TG_BIN="$(timeout -k 5 20 grep -e needle -- "$FX/bin.dat" 2>/dev/null </dev/null)"
     TGrep.new gK needle "$FX/bin.dat"
     SGOT=()
     rc=0; gK.toArray SGOT 2>/dev/null || rc=$?
-    if [[ $rc -eq 0 && ${#SGOT[@]} -eq 1 && "${SGOT[0]}" == "Binary file "*" matches" ]]; then
-        kt_test_pass "one record: ${SGOT[0]}"
+    if [[ "$TG_BIN" == "Binary file "*" matches" ]]; then
+        if [[ $rc -eq 0 && ${#SGOT[@]} -eq 1 && "${SGOT[0]}" == "Binary file "*" matches" ]]; then
+            kt_test_pass "one record: ${SGOT[0]}"
+        else
+            kt_test_fail "rc=$rc SGOT=$(arr_show SGOT)"
+        fi
+    elif [[ $rc -eq 0 && ${#SGOT[@]} -eq 0 ]]; then
+        kt_test_pass "grep >= 3.5: no record (the note is on stderr), rc 0"
     else
         kt_test_fail "rc=$rc SGOT=$(arr_show SGOT)"
     fi

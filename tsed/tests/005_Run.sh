@@ -469,11 +469,13 @@ if tcase "S7: missing file among good ones — \`each\` rc 1, three callbacks, R
     fi
 fi
 
+# The consumer-stop TERM can hit sed/gawk between its last write and its exit; lastRc 2 itself
+# is pinned by the S7/A7 count/toArray cases.
 if tcase "S7: missing file among good ones — \`first\` rc 0, the first record, lastRc 2, NO line of ours"; then
     ts_dbg sP.first
     fv="$RESULT"
     sP.lastRc; lr="$RESULT"
-    if [[ "$TS_RC" == "0" && "$TS_N" == "0" && "$fv" == "A1" && "$lr" == "2" ]]; then
+    if [[ "$TS_RC" == "0" && "$TS_N" == "0" && "$fv" == "A1" && "$lr" =~ ^(2|141|143)$ ]]; then
         kt_test_pass "rc 0, RESULT 'A1', lastRc 2, no diagnostic of ours (TUtil's consumer-stop contract)"
     else
         kt_test_fail "rc=$TS_RC ourLines=$TS_N first='$TS_1' RESULT='$fv' lastRc='$lr'"

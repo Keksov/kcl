@@ -664,17 +664,30 @@ if tcase "H3: \`bytes = -3\` is 'all but the last 3 bytes'"; then
     hS.delete
 fi
 
-if tcase "H3: a 19-digit \`bytes = -9999999999999999999\` reaches head and is its OWN rc 1"; then
+if tcase "H3: a 19-digit \`bytes = -9999999999999999999\` reaches head unchanged and gets head's own answer (coreutils < 9.5: rc 1 'invalid number'; >= 9.5: rc 0, no output) — never rc 2"; then
     # It passes the regex and the 19-digit guard, so the wrapper builds it; the
-    # TOOL then refuses it ('Value too large'). That is an ordinary rc 1 with
-    # head's own message on stderr, never a rc 2 (§2.5).
+    # TOOL then answers. coreutils < 9.5 refuses it ('Value too large'): an
+    # ordinary rc 1 with head's own message on stderr; >= 9.5 accepts it (rc 0,
+    # nothing printed). Never a rc 2 (§2.5). The oracle first:
+    head -c -9999999999999999999 -- "$FX/f5.txt" >/dev/null 2>&1 </dev/null; th_w=$?
     THead.new hS '' "$FX/f5.txt"
     hS.bytes = -9999999999999999999
     th_dbg hS.count
     hS.lastRc; lr="$RESULT"
-    if [[ "$TH_RC" == "1" && "$TH_N" == "1" && "$TOOL_N" -ge 1 && "$lr" == "1" \
-          && "$TOOL_1" == "head: invalid number of bytes"* ]]; then
-        kt_test_pass "rc 1, lastRc 1, one line of ours, head's: '${TOOL_1:0:56}…'"
+    if [[ "$th_w" == "1" ]]; then
+        if [[ "$TH_RC" == "1" && "$TH_N" == "1" && "$TOOL_N" -ge 1 && "$lr" == "1" \
+              && "$TOOL_1" == "head: invalid number of bytes"* ]]; then
+            th_ok="rc 1, lastRc 1, one line of ours, head's: '${TOOL_1:0:56}…'"
+        else
+            th_ok=""
+        fi
+    elif [[ "$TH_RC" == "0" && "$TH_N" == "0" && "$TOOL_N" == "0" && "$lr" == "0" ]]; then
+        th_ok="head accepts it (rc 0, no output): rc 0, lastRc 0, no lines"
+    else
+        th_ok=""
+    fi
+    if [[ -n "$th_ok" ]]; then
+        kt_test_pass "$th_ok"
     else
         kt_test_fail "rc=$TH_RC ourLines=$TH_N toolLines=$TOOL_N lastRc='$lr' toolFirst='$TOOL_1'"
     fi

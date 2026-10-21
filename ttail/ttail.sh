@@ -94,7 +94,8 @@ declare -g __TT_SEQ=0
 #   run           streams until the caller kills it (Ctrl-C, `timeout`, a kill)
 #   each          streams until the callback calls `TPipe.stop`; the tpipe stop
 #                 path (close -> kill -TERM -> wait) then ends tail with raw rc
-#                 143 -> member rc 0, `lastRc` 143. BLOCKS FOREVER with a
+#                 143 (141 on Linux, where `tail -f` notices the closed pipe
+#                 itself) -> member rc 0, `lastRc` 143. BLOCKS FOREVER with a
 #                 callback that never stops: there is no timeout and no
 #                 cancellation from outside
 #   first         one record, then the same stop path — the "wait for the next

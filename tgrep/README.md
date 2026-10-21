@@ -207,6 +207,8 @@ g.addArg -a        # or --binary-files=text — the documented escape hatch
 g.toArray a        # a = ('needle bin')
 ```
 
+grep 3.5 and later write `grep: FILE: binary file matches` to stderr instead: no record, rc 0.
+
 `-a` / `-I` are not modelled as properties yet.
 
 ### `$( )` loses the instance's state

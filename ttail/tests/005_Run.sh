@@ -927,9 +927,11 @@ fi
 # --- T2: `each` + a stopping callback, and `first` --------------------------
 # Both run in a CHILD under `timeout 180` (hang guard). `tail -f -n 1` prints the last line at
 # once, the callback stops, and TPipe's stop path (close -> kill -TERM -> wait)
-# ends tail with raw rc 143 in ~45 ms. No follower survives the case.
+# ends tail with raw rc 143 in ~45 ms (141 on Linux). No follower survives the case.
+# Linux `tail -f` notices the closed pipe and dies of SIGPIPE (141) before the TERM lands;
+# cygwin's cannot (143).
 
-if tcase "T2: \`each\` + a stopping callback — rc 0, lastRc 143, exactly one record"; then
+if tcase "T2: \`each\` + a stopping callback — rc 0, lastRc 141 or 143, exactly one record"; then
     out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c '
 set -u
 source "$UNIT"
@@ -943,14 +945,14 @@ t.each cb || rc=$?
 t.lastRc
 printf "rc=%s lastRc=%s N=%s rec=%s" "$rc" "$RESULT" "$N" "$REC"
 t.delete' 2>/dev/null </dev/null)"; crc=$?
-    if [[ $crc -eq 0 && "$out" == "rc=0 lastRc=143 N=1 rec=fol2" ]]; then
+    if [[ $crc -eq 0 && "$out" == "rc=0 lastRc=14"[13]" N=1 rec=fol2" ]]; then
         kt_test_pass "$out — the tpipe stop path ended \`tail -f\`"
     else
         kt_test_fail "child rc=$crc out='$out'"
     fi
 fi
 
-if tcase "T2: \`first\` on a follow stream returns the last line and stops"; then
+if tcase "T2: \`first\` on a follow stream returns the last line and stops (lastRc 141 or 143)"; then
     out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c '
 set -u
 source "$UNIT"
@@ -962,7 +964,7 @@ v="$RESULT"
 t.lastRc
 printf "rc=%s first=%s lastRc=%s" "$rc" "$v" "$RESULT"
 t.delete' 2>/dev/null </dev/null)"; crc=$?
-    if [[ $crc -eq 0 && "$out" == "rc=0 first=fol2 lastRc=143" ]]; then
+    if [[ $crc -eq 0 && "$out" == "rc=0 first=fol2 lastRc=14"[13] ]]; then
         kt_test_pass "$out — 'wait for the next line' is \`first\` on a follow stream"
     else
         kt_test_fail "child rc=$crc out='$out'"
@@ -1032,8 +1034,18 @@ fi
 if tcase "T2: no follower of ours survived the section"; then
     # Only OUR followers matter; older leaked `tail` processes from earlier
     # sessions predate this suite and are reported, not killed.
-    mine="$(ps 2>/dev/null | awk -v me="$$" 'NR > 1 && $2 == me && $NF ~ /tail/ { print $1 }' | tr '\n' ' ')"
-    if [[ -z "${mine// /}" ]]; then
+    # ktests' process table (kt_proc_*, every platform): a snapshot with the command
+    # lines, then the children of THIS shell whose argv[0] is `tail`.
+    mine=""; tt_ok=1
+    kt_proc_snapshot --cmd || tt_ok=0
+    for tt_p in "${!KT_PROC_PP[@]}"; do
+        [[ "${KT_PROC_PP[$tt_p]}" == "$$" ]] || continue
+        tt_w="${KT_PROC_CMD[$tt_p]%% *}"; tt_w="${tt_w##*/}"
+        [[ "$tt_w" == tail || "$tt_w" == tail.exe ]] && mine+="$tt_p "
+    done
+    if (( ! tt_ok )); then
+        kt_test_fail "no process table on this platform (KT_PROC_WHY='$KT_PROC_WHY'): the check cannot run"
+    elif [[ -z "${mine// /}" ]]; then
         kt_test_pass "no \`tail\` process has this test (pid $$) as its parent"
     else
         kt_test_fail "leaked follower pid(s) under $$: $mine"
