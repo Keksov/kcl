@@ -7,15 +7,31 @@
 #       Now: a flat dispatch, `gawk` preferred when present, any other awk
 #       started with `-W interactive` first (then without it), NaN-guarded
 #       compares, and MATH_FE_ERROR + a kk.debug line when no awk can run it.
-#   C1b mawk -W interactive never answers a request line of 4096+ characters
-#       (and blocks every call after it): math._fe refuses such a request
-#       (rc 1) under __MATH_FE_LINEMAX instead of hanging.
+#   C1b mawk 20240123 -W interactive never answers a request line of 4096+
+#       characters, the newline not counted (and blocks every call after
+#       it): math._fe refuses such a request (rc 1) under __MATH_FE_LINEMAX
+#       instead of hanging. mawk 20250131 answers it and gets no limit
+#       (L2.7-M2: the limit is set for a mawk dated before 20250131, or with
+#       a date that cannot be read).
 #   N1  gawk 5.0 orders NaN ABOVE every number, so `_ipow(b, nan)` looped
 #       forever (the host crash of 2026-10-22); `inf` looped on every gawk.
 #       futureValue/presentValue/payment pass `n` to it unchecked: a
 #       non-finite n now answers nan, promptly.
 #   N2  mawk 1.3.4 20250131 (Debian 13) reads the unit's `+nan` `-nan` `+inf`
 #       `-inf` operands as 0 and `-0` as +0: the engine rewrites them itself.
+#
+# L2.7-M2 (the L2.7-M critic's follow-up):
+#   P1  the co-process IS the awk (exec), so math._fe_drop kills a wedged awk.
+#   F4  the line limit applies to mawk only (`-W version`, cached), not to any
+#       awk that merely accepts -W — and only to a mawk dated before 20250131
+#       or of an unreadable date (owner decision).
+#   F1  the C1b row now goes red without the guard on mawk too: a long
+#       timeout, a short time bound and the same engine pid before and after.
+#   F6  the request is joined with a space whatever the caller's IFS.
+#   F8  a failed start is not retried by every Tier-B call; math.feStart
+#       retries, and a success clears MATH_FE_ERROR.
+#   F10 every spelling of -0 reaches the engine as a negative zero.
+#   ldexp: a huge |p| is clamped (gawk 5.2.1 never returned for p = INT64_MIN).
 #
 # The awk is forced with small wrapper SCRIPTS in a private PATH directory
 # (that hides `gawk`), or with `awk`/`gawk` FUNCTIONS; each child that may
@@ -38,6 +54,13 @@ HAVE_GAWK=""; command -v gawk >/dev/null 2>&1 && HAVE_GAWK=1
 # a line-wise awk without any flag from the engine: gawk, else the system awk
 # with -W interactive (mawk) — what an awk that rejects -W must be to answer
 if [[ -n $HAVE_GAWK ]]; then LINEWISE="\"$(command -v gawk)\""; else LINEWISE="\"$REAL_AWK\" -W interactive"; fi
+# is the system awk a mawk older than 20250131 (or of an unreadable date)?
+# then an engine on it has the 4095-character limit
+REAL_LIMITED=""; real_id="$(LC_ALL=C "$REAL_AWK" -W version </dev/null 2>&1)"; real_id=${real_id%%$'\n'*}
+if [[ $real_id == mawk* ]]; then
+    re='^mawk [0-9.]+ ([0-9]{8})'
+    if [[ $real_id =~ $re ]] && (( 10#${BASH_REMATCH[1]} >= 20250131 )); then :; else REAL_LIMITED=1; fi
+fi
 
 # mkwrap DIR BODY — DIR/awk: logs its argv to DIR/argv, then runs BODY
 mkwrap() {
@@ -51,7 +74,20 @@ mkwrap() {
 mkwrap "$TMP/w_plain"  "exec \"$REAL_AWK\" \"\$@\""
 mkwrap "$TMP/w_noW"    "[ \"\$1\" = -W ] && exit 2; exec $LINEWISE \"\$@\""
 mkwrap "$TMP/w_dead"   "exit 3"
-mkwrap "$TMP/w_silent" "exec \"$CAT\" >/dev/null"
+# silent but ALIVE, like mawk without -W interactive: it keeps the answer pipe
+# open on fd 3 (the engine execs the awk, so no shell holds it open for it)
+mkwrap "$TMP/w_silent" "exec 3>&1; exec \"$CAT\" >/dev/null"
+# awks that accept -W and say who they are: an old mawk (the limit applies,
+# also where the awk underneath is gawk), a new mawk and a mawk of no
+# readable date (unknown -> limited), and some other awk (no limit)
+mkwrap "$TMP/w_fakemawk" "if [ \"\$1 \$2\" = \"-W version\" ]; then echo 'mawk 1.3.4 20240123 (kt019 wrapper)'; exit 0; fi
+[ \"\$1\" = -W ] && shift 2; exec $LINEWISE \"\$@\""
+mkwrap "$TMP/w_newmawk" "if [ \"\$1 \$2\" = \"-W version\" ]; then echo 'mawk 1.3.4 20250131 (kt019 wrapper)'; exit 0; fi
+[ \"\$1\" = -W ] && shift 2; exec $LINEWISE \"\$@\""
+mkwrap "$TMP/w_nodatemawk" "if [ \"\$1 \$2\" = \"-W version\" ]; then echo 'mawk 1.3.4 (kt019 wrapper)'; exit 0; fi
+[ \"\$1\" = -W ] && shift 2; exec $LINEWISE \"\$@\""
+mkwrap "$TMP/w_otherawk" "if [ \"\$1 \$2\" = \"-W version\" ]; then echo 'otherawk 1.0 (kt019 wrapper)'; exit 0; fi
+[ \"\$1\" = -W ] && shift 2; exec $LINEWISE \"\$@\""
 
 # child PRE_SOURCE POST_SOURCE — a bounded bash child that sources the unit
 child() {
@@ -90,10 +126,33 @@ out="$(child "" "PATH='$TMP/w_plain'
 math.sin 1 >/dev/null; printf '%s|%s|%s' \"\$RESULT\" \"\$MATH_FE_ERROR\" \"\${__MATH_FE_LINEMAX}\"
 math.feStop")"
 argv="$(head -n 1 "$TMP/w_plain/argv" 2>/dev/null)"
-if [[ $out == "0.8414709848078965||4095" && $argv == "-W interactive -f "* ]]; then
+want_lm=""; [[ -n $REAL_LIMITED ]] && want_lm=4095
+if [[ $out == "0.8414709848078965||$want_lm" && $argv == "-W interactive -f "* ]]; then
     kt_test_pass "first start: '$argv'"
 else
     kt_test_fail "out='$out' argv='$argv'"
+fi
+
+kt_test_start "the line limit is old mawk's: mawk 20240123 and an undated mawk get 4095; mawk 20250131 and another awk none; one -W version per PATH [L2.7-M2 F4]"
+out="$(child "" "PATH='$TMP/w_fakemawk'
+math.sin 1 >/dev/null; printf '%s|%s|' \"\$RESULT\" \"\${__MATH_FE_LINEMAX}\"
+math.feStop; math.feStart; printf '%s|' \"\${__MATH_FE_LINEMAX}\"
+math.feStop
+PATH='$TMP/w_newmawk'
+math.sin 1 >/dev/null; printf 'new:%s|%s|' \"\$RESULT\" \"\${__MATH_FE_LINEMAX}\"
+math.feStop
+PATH='$TMP/w_nodatemawk'
+math.sin 1 >/dev/null; printf 'nodate:%s|%s|' \"\$RESULT\" \"\${__MATH_FE_LINEMAX}\"
+math.feStop
+PATH='$TMP/w_otherawk'
+math.sin 1 >/dev/null; printf 'other:%s|%s' \"\$RESULT\" \"\${__MATH_FE_LINEMAX}\"
+math.feStop")"
+nv_m=$(grep -c '^-W version' "$TMP/w_fakemawk/argv"); nv_o=$(grep -c '^-W version' "$TMP/w_otherawk/argv")
+want="0.8414709848078965|4095|4095|new:0.8414709848078965||nodate:0.8414709848078965|4095|other:0.8414709848078965|"
+if [[ $out == "$want" && $nv_m == 1 && $nv_o == 1 ]]; then
+    kt_test_pass "$out (-W version: $nv_m + $nv_o)"
+else
+    kt_test_fail "out='$out' -W version calls: fakemawk=$nv_m otherawk=$nv_o"
 fi
 
 kt_test_start "an awk that rejects -W is restarted without it [L2.7-M A3]"
@@ -165,16 +224,21 @@ fi
 # ---------------------------------------------------------------------------
 long=(); for ((i=0;i<300;i++)); do long+=(1.123456789012345); done      # ~5.4 KB
 short=(); for ((i=0;i<200;i++)); do short+=(1.123456789012345); done    # ~3.6 KB
-kt_test_start "-W interactive engine: a 5.4 KB request is rc 1 at once, a 3.6 KB one answers, the engine stays in step [L2.7-M C1b]"
+# The awk is a "mawk" (on Debian/Ubuntu the real one underneath). The timeout
+# is long and the time bound short, and the engine must be the SAME process
+# before and after (L2.7-M2 F1): without the guard, real mawk blocks on the
+# long line until the 30 s timeout, gawk underneath answers it — both red.
+kt_test_start "mawk engine: a 5.4 KB request is rc 1 at once, a 3.6 KB one answers, the engine stays in step [L2.7-M C1b, L2.7-M2 F1]"
 t0=$SECONDS
-out="$(child "" "PATH='$TMP/w_plain'
-math.feStart
+out="$(KT019_TO=30 child "" "PATH='$TMP/w_fakemawk'
+math.feStart; p0=\$__MATH_FE_PID
 math.mean ${long[*]} >/dev/null; printf 'long=%s:%s|' \"\$?\" \"\$RESULT\"
 math.mean ${short[*]} >/dev/null; printf 'short=%s:%s|' \"\$?\" \"\$RESULT\"
-math.cos 0 >/dev/null; printf 'cos=%s' \"\$RESULT\"
+math.cos 0 >/dev/null; printf 'cos=%s|' \"\$RESULT\"
+[[ -n \$p0 && \$p0 == \"\$__MATH_FE_PID\" ]] && printf 'same' || printf 'pid %s -> %s' \"\$p0\" \"\$__MATH_FE_PID\"
 math.feStop")"
 dt=$(( SECONDS - t0 ))
-if [[ $out == "long=1:|short=0:1.12345678901234"*"|cos=1" ]] && (( dt <= 8 )); then
+if [[ $out == "long=1:|short=0:1.12345678901234"*"|cos=1|same" ]] && (( dt <= 3 )); then
     kt_test_pass "$out (${dt}s)"
 else
     kt_test_fail "got '$out' in ${dt}s"
@@ -224,6 +288,14 @@ r -1  math.compareValue 1 2 nan
 r 1   math.compareValue nan 1 0.5
 r 1   math.compareValue 1 nan 0.5
 r 3.1415926535897931 math.arcTan2 0 -0
+r 3.1415926535897931 math.arcTan2 0 -0.0
+r 3.1415926535897931 math.arcTan2 0 -.0
+r 3.1415926535897931 math.arcTan2 0 -0.
+r 3.1415926535897931 math.arcTan2 0 -0e0
+r 3.1415926535897931 math.arcTan2 0 -00
+r 0   math.ldexp 1 -9223372036854775808
+r inf math.ldexp 1 9223372036854775807
+r -inf math.ldexp -1 9223372036854775807
 math.feActive >/dev/null || printf "[engine down at the end]"
 math.feStop'
 _nan_row() {   # TITLE PRE
@@ -233,10 +305,54 @@ _nan_row() {   # TITLE PRE
 $NAN_ROWS")"
     dt=$(( SECONDS - t0 ))
     if [[ -z $out ]] && (( dt <= 20 )); then
-        kt_test_pass "25 rows (${dt}s)"
+        kt_test_pass "33 rows (${dt}s)"
     else
         kt_test_fail "${out:0:600} (${dt}s)"
     fi
 }
 _nan_row "the default engine" "" ""
 _nan_row "an engine reached as plain awk (-W interactive first)" "" "PATH='$TMP/w_plain'"
+_nan_row "a mawk engine (fakemawk wrapper)" "" "PATH='$TMP/w_fakemawk'"
+
+# ---------------------------------------------------------------------------
+# 6. L2.7-M2 — the co-process is the awk; IFS; no retry after a failed start
+# ---------------------------------------------------------------------------
+kt_test_start "the engine pid is the awk itself, and feStop leaves no awk behind [L2.7-M2 P1]"
+out="$(child "" "math.feStart; p=\$__MATH_FE_PID
+if [[ -r /proc/\$p/cmdline ]]; then
+    IFS= read -r -d '' a0 < /proc/\$p/cmdline; printf 'argv0=%s|' \"\${a0##*/}\"
+else
+    printf 'argv0=N/A|'
+fi
+math.feStop
+kill -0 \"\$p\" 2>/dev/null && printf 'alive' || printf 'gone'")"
+case $out in
+    "argv0=N/A|gone")                    kt_test_pass "N/A: no /proc here; the pid is gone after feStop" ;;
+    argv0=*awk"|gone"|argv0=*awk.exe"|gone") kt_test_pass "$out" ;;
+    *)                                   kt_test_fail "got '$out'" ;;
+esac
+
+kt_test_start "the request is joined with a space whatever IFS the caller has [L2.7-M2 F6]"
+out="$(child "" "IFS=,
+math.hypot 3 4 >/dev/null; printf '%s|' \"\$RESULT\"
+math.mean 1 2 3 >/dev/null; printf '%s' \"\$RESULT\"
+math.feStop")"
+if [[ $out == "5|2" ]]; then kt_test_pass "$out"; else kt_test_fail "got '$out'"; fi
+
+kt_test_start "after a failed start a Tier-B call does not retry; math.feStart does and clears MATH_FE_ERROR [L2.7-M2 F8/F10]"
+t0=$SECONDS
+out="$(child "" "op=\$PATH; PATH=
+math.feStart; printf 'start=%s|' \"\$?\"
+PATH=\$op
+math.sin 1 >/dev/null; printf 'sin=%s:%s|' \"\$?\" \"\$RESULT\"
+math.feActive >/dev/null; printf 'active=%s|err=%s|' \"\$RESULT\" \"\$MATH_FE_ERROR\"
+math.feStart; printf 'start=%s|err=%s|' \"\$?\" \"\$MATH_FE_ERROR\"
+math.sin 1 >/dev/null; printf 'sin=%s:%s' \"\$?\" \"\$RESULT\"
+math.feStop")"
+dt=$(( SECONDS - t0 ))
+want="start=1|sin=1:|active=false|err=no awk: neither gawk nor awk is on PATH|start=0|err=|sin=0:0.8414709848078965"
+if [[ $out == "$want" ]] && (( dt <= 8 )); then
+    kt_test_pass "$out (${dt}s)"
+else
+    kt_test_fail "got '$out' in ${dt}s; want '$want'"
+fi

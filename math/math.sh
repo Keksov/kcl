@@ -171,13 +171,25 @@ math._fe_own() {
     __MATH_FE_STRICT="${__MATH_FE_STRICT:-}"
     # Why the last engine start failed ("" when it did not): "no awk: ..." or
     # "<awk> (<path>, <its -W version line>) cannot run the engine: ...".
+    # While it is set, a Tier-B call does not start the engine again (each
+    # failed start can cost two start timeouts); math.feStart does (L2.7-M2,
+    # Finding 8).
     MATH_FE_ERROR=""
-    # The longest request line the running engine reads ("" = no limit). mawk
-    # under `-W interactive` reads stdin through a 4096-byte line buffer: a
-    # line of 4096+ characters is never answered - the engine blocks, and the
-    # calls after it too (probed on kb-ubuntu, mawk 1.3.4 20240123: 4095
-    # answers, 4096 hangs). math._fe refuses a longer request (rc 1) instead.
+    # The longest request line the running engine reads, in characters
+    # WITHOUT the newline ("" = no limit). mawk 1.3.4 20240123 (kb-ubuntu)
+    # under `-W interactive` reads stdin through a 4096-byte buffer: a request
+    # of 4095 characters (4096 bytes with its newline) is answered, one of
+    # 4096 is never - the engine blocks, and the calls after it too (probed
+    # 2026-10-22: 4093..4095 answer, 4096 and 4097 do not). math._fe refuses
+    # a longer request (rc 1) instead. mawk 1.3.4 20250131 (kb-debian) has no
+    # such limit (a 360005-character request answered). So math._fe_spawn
+    # sets 4095 only for a mawk whose `-W version` date is before 20250131,
+    # or cannot be read; none for 20250131 and later, nor for a non-mawk awk.
     __MATH_FE_LINEMAX=""
+    # The first line of `<awk> -W version` (math._fe_awk_id), cached for the
+    # awk name + PATH it was taken under (__MATH_FE_AWKID_KEY).
+    __MATH_FE_AWKID=""
+    __MATH_FE_AWKID_KEY=""
     return 1
 }
 math._fe_own || :
@@ -209,9 +221,13 @@ math._fe_own || :
 # true), so a helper that compares a raw $N coerces it first (`x+=0`). (4) The
 # unit sends non-finite operands as `+nan` `-nan` `+inf` `-inf`; gawk and mawk
 # 1.3.4 20240123 parse them, mawk 1.3.4 20250131 (Debian 13) reads all four as
-# 0, and `-0` as +0 (atan2 0 -0 must be pi) — so the dispatch rewrites such a
-# field to the BEGIN-built value first (only when the line holds "nan", "inf"
-# or " -0" at all; no op name contains any of them).
+# 0, and `-0` as +0 (atan2 0 -0 must be pi; `-0.0` `-.0` `-0.` `-0e0` `-00`
+# it reads as -0, probed 2026-10-22) — so the dispatch rewrites such a field
+# to the BEGIN-built value first (only when the line holds "nan", "inf" or
+# " -0" at all; no op name contains any of them). The operands are validated
+# tokens (math._is_num: an unsigned or "-" decimal, or +nan -nan +inf -inf),
+# so the field test looks at the first two characters instead of matching
+# regexes (L2.7-M2, Finding 5): an unsigned number costs one substr.
 if [[ -z ${__MATH_AWK_PROG+x} || ${__MATH_AWK_PROG@a} != *r* ]]; then
     __MATH_AWK_PROG='
 function _dv(a,b) { if (b == 0 && !_isnan(b)) { if (_isnan(a) || a == 0) return _NAN; return (a < 0 ? _NINF : _INF) } return a/b }
@@ -252,7 +268,7 @@ function _irate(n,pmt,pv,fv,pt,  r1,r2,dr,f1,f2,it){ it=0; r1=0.05; do{ r2=r1+0.
 BEGIN { srand(); _INF=1e308*10; _NINF=-_INF; _NAN=_INF-_INF; _NZ=_dv(-1,_INF); _P32=2^32; _M32=2^-32; _P256=2^256; _M256=2^-256 }
 {
   op=$1
-  if (index($0,"nan") || index($0,"inf") || index($0," -0")) for (i=2;i<=NF;i++) { if ($i ~ "^[+-]?nan$") $i=_NAN; else if ($i ~ "^[+]?inf$") $i=_INF; else if ($i ~ "^-inf$") $i=_NINF; else if (substr($i,1,2)=="-0" && $i+0==0) $i=_NZ }
+  if (index($0,"nan") || index($0,"inf") || index($0," -0")) for (i=2;i<=NF;i++) { c=substr($i,1,1); if (c=="-") { c=substr($i,2,1); if (c=="n") $i=_NAN; else if (c=="i") $i=_NINF; else if (c=="0" && $i+0==0) $i=_NZ } else if (c=="+") { if (substr($i,2,1)=="n") $i=_NAN; else $i=_INF } }
   if (op=="sin") { _pn(sin($2)); fflush(); next }
   if (op=="cos") { _pn(cos($2)); fflush(); next }
   if (op=="tan") { _pn(_tan($2)); fflush(); next }
@@ -786,10 +802,32 @@ math._fe_spawn() {
     shift 2
     # LC_ALL=C (M15): gawk honours LC_NUMERIC under POSIXLY_CORRECT and would
     # print `2,5` in a comma locale.
+    # `exec` (L2.7-M2, P1): the co-process IS the awk, so $MATH_FE_PID — what
+    # math._fe_drop kills — is the awk itself. Without it the pid was the
+    # coproc's bash subshell with awk as its child: the kill ended the
+    # subshell, and a healthy awk then exited on EOF, but a WEDGED one (busy,
+    # never reading) was left running. A test's `awk`/`gawk` FUNCTION cannot be
+    # exec'd: it runs in the subshell as before (tests only). On the process-
+    # substitution path the `printf` child becomes the awk's child and stays a
+    # zombie until the awk exits (it is reaped with it).
     if [[ $__m_src == - ]]; then
-        coproc MATH_FE { LC_ALL=C "$__m_awk" "$@" -f <(printf '%s\n' "$__MATH_AWK_PROG") 2>/dev/null; }
+        coproc MATH_FE {
+            export LC_ALL=C
+            if declare -F -- "$__m_awk" >/dev/null; then
+                "$__m_awk" "$@" -f <(printf '%s\n' "$__MATH_AWK_PROG") 2>/dev/null
+            else
+                exec "$__m_awk" "$@" -f <(printf '%s\n' "$__MATH_AWK_PROG") 2>/dev/null
+            fi
+        }
     else
-        coproc MATH_FE { LC_ALL=C "$__m_awk" "$@" -f "$__m_src" 2>/dev/null; }
+        coproc MATH_FE {
+            export LC_ALL=C
+            if declare -F -- "$__m_awk" >/dev/null; then
+                "$__m_awk" "$@" -f "$__m_src" 2>/dev/null
+            else
+                exec "$__m_awk" "$@" -f "$__m_src" 2>/dev/null
+            fi
+        }
     fi
     __MATH_FE_IN=${MATH_FE[1]}; __MATH_FE_OUT=${MATH_FE[0]}; __MATH_FE_PID=$MATH_FE_PID
     __MATH_FE_OWN[pid]=$__MATH_FE_PID __MATH_FE_OWN[in]=$__MATH_FE_IN __MATH_FE_OWN[out]=$__MATH_FE_OUT
@@ -798,13 +836,41 @@ math._fe_spawn() {
         if (( __m_rc == 0 )) && [[ -n $__m_probe ]]; then
             __MATH_FE_UP=1
             __MATH_FE_LINEMAX=""
-            [[ ${1:-} == -W ]] && __MATH_FE_LINEMAX=4095
+            # the line limit is mawk's (Finding 4): an awk that merely accepts
+            # -W (busybox, a gawk named awk) is not held to it
+            # — and only mawk older than 20250131 has it: the YYYYMMDD after
+            # "mawk 1.3.4" decides; a date that cannot be read counts as old
+            # (unknown -> safe). Owner decision 2026-10-22 (L2.7-M2).
+            if [[ ${1:-} == -W ]]; then
+                math._fe_awk_id "$__m_awk"
+                if [[ $__MATH_FE_AWKID == mawk* ]]; then
+                    local __m_re='^mawk [0-9.]+ ([0-9]{8})' __m_dt=""
+                    [[ $__MATH_FE_AWKID =~ $__m_re ]] && __m_dt=${BASH_REMATCH[1]}
+                    if [[ -z $__m_dt ]] || (( 10#$__m_dt < 20250131 )); then
+                        __MATH_FE_LINEMAX=4095
+                    fi
+                fi
+            fi
             return 0
         fi
     fi
     math._fe_drop
     (( __m_rc > 128 )) && return 2      # `read -t` timed out: alive, silent
     return 1
+}
+
+# math._fe_awk_id AWK — __MATH_FE_AWKID = the first line of `AWK -W version`
+# (gawk/mawk print their name, busybox 1.37 `awk: warning: option -W is
+# ignored`; stdin is /dev/null, so an awk that takes `version` for a program
+# still ends at once). One fork per awk name + PATH and process: the answer
+# is cached under that key.
+math._fe_awk_id() {
+    local __m_k="$1|$PATH"
+    [[ -n $__MATH_FE_AWKID_KEY && $__MATH_FE_AWKID_KEY == "$__m_k" ]] && return 0
+    __MATH_FE_AWKID=$(LC_ALL=C "$1" -W version </dev/null 2>&1) || :
+    __MATH_FE_AWKID=${__MATH_FE_AWKID%%$'\n'*}
+    __MATH_FE_AWKID_KEY=$__m_k
+    return 0
 }
 
 # math._fe_try SRC — one program source, every awk flag variant still in
@@ -843,9 +909,16 @@ math._fe_try() {
 # Debian/Ubuntu) is first started with `-W interactive`: mawk reads a pipe in
 # blocks and answers nothing until its buffer fills, `-W interactive` makes it
 # read line by line. An awk that rejects the flag exits at once and is started
-# again without it, so no identity fork (`awk -W version`) is spent on the
-# path that works; that fork happens only to NAME a failed awk in
-# MATH_FE_ERROR. gawk is never given the flag (it ignores it with a warning).
+# again without it. gawk is never given the flag (it ignores it with a
+# warning). One identity fork (`awk -W version`, math._fe_awk_id, cached) is
+# spent when `awk -W interactive` answers — to learn whether it is mawk and
+# its line limit applies (L2.7-M2, Finding 4) — and to NAME a failed awk in
+# MATH_FE_ERROR; never on the gawk path that works.
+#
+# `math._fe_start implicit` (math._fe, every Tier-B call) does not try again
+# while MATH_FE_ERROR is set — a failed start costs up to two start timeouts,
+# and it would be paid on every call (L2.7-M2, Finding 8). math.feStart (no
+# argument) always tries; so does any call after MATH_FE_ERROR is cleared.
 math._fe_start() {
     # up = this process's engine (R1): the scalars still name what
     # __MATH_FE_OWN recorded, and the awk is alive
@@ -854,6 +927,7 @@ math._fe_start() {
        && kill -0 "$__MATH_FE_PID" 2>/dev/null; then
         return 0
     fi
+    [[ ${1:-} == implicit && -n ${MATH_FE_ERROR:-} ]] && return 1
     math._fe_drop
     MATH_FE_ERROR=""
     local __m_awk __m_d __m_path __m_id
@@ -894,11 +968,10 @@ math._fe_start() {
     done
     __MATH_FE_UP=""
     # name the awk that failed: where it is, and its own first line of
-    # `-W version` (gawk/mawk/busybox print their name; stdin is /dev/null so
-    # an awk that takes `version` for a program still ends at once)
+    # `-W version` (math._fe_awk_id)
     __m_path=$(command -v "$__m_awk" 2>/dev/null)
-    __m_id=$(LC_ALL=C "$__m_awk" -W version </dev/null 2>&1) || :
-    __m_id=${__m_id%%$'\n'*}
+    math._fe_awk_id "$__m_awk"
+    __m_id=$__MATH_FE_AWKID
     MATH_FE_ERROR="$__m_awk (${__m_path:-?}${__m_id:+, $__m_id}) cannot run the engine:"
     if [[ $__m_awk == gawk ]]; then
         MATH_FE_ERROR+=" ${__m_why[-]:-no answer}"
@@ -936,13 +1009,17 @@ math._fe_norm() {
 # belt to that brace, because ONE stray newline desynchronises the pipe for the
 # rest of the process (M3).
 math._fe() {
-    math._fe_start || { REPLY=""; return 1; }
+    math._fe_start implicit || { REPLY=""; return 1; }
+    # the request is "$*": joined with a space whatever IFS the caller has
+    # (L2.7-M2, Finding 6)
+    local IFS=' '
     local __m_req="$*"
     case $__m_req in
         *$'\n'*) REPLY=""; return 1 ;;
     esac
-    # mawk -W interactive never answers a line of 4096+ characters (see
-    # __MATH_FE_LINEMAX): refuse it here rather than block the caller forever
+    # mawk before 20250131 -W interactive never answers a request of 4096+
+    # characters, newline not counted (see __MATH_FE_LINEMAX): refuse it here
+    # rather than block the caller forever
     if [[ -n ${__MATH_FE_LINEMAX:-} ]] && (( ${#__m_req} > __MATH_FE_LINEMAX )); then
         kk.debug "math: request of ${#__m_req} characters exceeds this awk's line buffer ($__MATH_FE_LINEMAX)"
         REPLY=""; return 1
@@ -1414,6 +1491,11 @@ math.ldexp() {                                        # x * 2^p, p an integer
     local __m_x
     math._is_num "${1:-}" || { RESULT=""; return 1; }; __m_x="$__m_num"
     kk.isInt "${2:-}" || { RESULT=""; return 1; }
+    # |p| > 2100 is clamped: 2^p is inf / 0 in a double long before that, so
+    # the answer is the same — but gawk 5.2.1 never returns from
+    # 2^-9223372036854775808 (probed 2026-10-22: killed by a 10 s timeout), so
+    # `ldexp 1 -9223372036854775808` stalled the engine (L2.7-M2)
+    if (( __KK_INT > 2100 )); then __KK_INT=2100; elif (( __KK_INT < -2100 )); then __KK_INT=-2100; fi
     math._fe ldexp "$__m_x" "$__KK_INT" || { RESULT=""; return 1; }
     math._ret "$REPLY"
 }

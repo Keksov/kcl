@@ -69,14 +69,24 @@ IEEE-754 binary64 FPC uses for `Double` on the x86-64 targets.
 
   ```
   no awk: neither gawk nor awk is on PATH
-  awk (awk, mawk 1.3.4 20240123) cannot run the engine: with -W interactive no answer within 10 s; without it no answer within 10 s
+  awk (/usr/bin/awk, mawk 1.3.4 20240123) cannot run the engine: with -W interactive no answer within 10 s; without it no answer within 10 s
   awk (/usr/bin/awk, …) cannot run the engine: with -W interactive exited before answering; without it exited before answering
   ```
 
-  The second form names the awk (its path and the first line of its
+  The second form names the awk (where `command -v` finds it — a path, or
+  just the name when `awk` is a shell function — and the first line of its
   `-W version`) and says, per start, whether it *exited* (it rejected a flag,
   could not read or parse the program) or stayed *silent* (block-buffered
   input, or wedged) — a silent try costs the start timeout (10 s).
+- **A failed start is not retried by every call.** While `MATH_FE_ERROR` is
+  set, a Tier-B member answers rc 1 at once instead of starting the engine
+  again (each failed start can cost two start timeouts). **`math.feStart`**
+  always tries again — after installing an awk or fixing `PATH`, call it once;
+  a successful start clears `MATH_FE_ERROR` (so does clearing it yourself).
+- **The co-process is the awk itself** (`exec`): `math.feStop`, and a call
+  that times out under `__MATH_FE_STRICT`, kill the awk, also a wedged one
+  that no longer reads its input. (An `awk`/`gawk` shell *function* — a test
+  shim — cannot be exec'd and runs in the co-process's subshell as before.)
 - The program reaches awk through **process substitution** (`awk -f <(…)`), so
   nothing is written to disk. Both bashes here were probed and keep the
   substitution alive for the co-process's lifetime; if it ever fails, the code
@@ -95,11 +105,17 @@ IEEE-754 binary64 FPC uses for `Double` on the x86-64 targets.
 | awk | status |
 |---|---|
 | **gawk** | preferred: when `command -v gawk` finds one, the engine runs on it (no extra flags) — the awk it was developed against (Windows Git-bash/MSYS2, Fedora; installable everywhere) |
-| **mawk** (`awk` on Debian/Ubuntu) | supported when there is no gawk: started as `awk -W interactive` (mawk reads a pipe in blocks and answers nothing without it). One limit: mawk then reads a request through a 4096-byte line buffer and never answers a longer line, so a request of more than **4095 characters** is refused with rc 1 at once instead of hanging (`__MATH_FE_LINEMAX`); in practice a statistics call (`mean`, `stdDev`, …) over more than ~200 full-precision values. mawk 1.3.4 20250131 (Debian 13) reads `nan`/`inf` operands as 0 and `-0` as +0; the engine rewrites those operands itself, so the answers do not change. Probed on mawk 1.3.4 20240123 (Ubuntu 24.04) and 20250131 (Debian 13) |
-| any other `awk` | started with `-W interactive` first; one that rejects the flag exits at once and is restarted without it. BWK awk (macOS, FreeBSD) and busybox awk: unverified until the L3 lab runs — busybox awk on Debian/Ubuntu is built **without math** (`Math support is not compiled in`) and cannot run the engine |
+| **mawk** (`awk` on Debian/Ubuntu) | supported when there is no gawk: started as `awk -W interactive` (mawk reads a pipe in blocks and answers nothing without it). One limit: mawk 1.3.4 20240123 (Ubuntu 24.04) then reads a request through a 4096-byte buffer and never answers a request of 4096 characters or more — the newline not counted: 4095 characters plus the newline (4096 bytes) is the longest that answers. So on such a mawk a request of more than **4095 characters** is refused with rc 1 at once instead of hanging (`__MATH_FE_LINEMAX`); in practice a statistics call (`mean`, `stdDev`, …) over more than ~200 full-precision values. mawk 1.3.4 20250131 (Debian 13) has no such limit (a 360005-character request answered) and gets none. mawk 20250131 reads the operands `+nan` `-nan` `+inf` `-inf` as 0 and `-0` (that spelling only; `-0.0` `-.0` `-0.` `-0e0` `-00` read as -0) as +0; the engine rewrites those operands itself, so the answers do not change. Probed on mawk 1.3.4 20240123 (Ubuntu 24.04) and 20250131 (Debian 13) |
+| any other `awk` | started with `-W interactive` first; one that rejects the flag exits at once and is restarted without it. **busybox awk** with math (Alpine 3.24, BusyBox v1.37.0, the `awk` of the `clean` system): runs the engine — it ignores `-W` with a warning, answers line by line, has no line limit (a 360005-character request answered) and gets none; `tests/` 197 rows: 195 pass, the 2 rows of `018` fail only because busybox `touch -d '10 minutes ago'` is not supported (probed 2026-10-22). busybox awk on Debian/Ubuntu is built **without math** (`Math support is not compiled in`) and cannot run the engine. BWK awk (macOS, FreeBSD): unverified until the L3 lab runs |
 
-An awk reached as plain `awk` that accepts `-W interactive` is held to the
-4095-character limit even if it is a gawk under another name.
+The 4095-character limit is applied only to a mawk that has it: when plain
+`awk` answers under `-W interactive`, its `-W version` is read once (one
+fork per awk name + `PATH` and process, cached; never when gawk starts). The
+limit is set when that line starts with `mawk` **and** the date after the
+version (`mawk 1.3.4 20240123`) is before **20250131**, or cannot be read
+(unknown counts as limited, the safe side); mawk 20250131 and later get no
+limit. Another awk that merely accepts the flag (busybox, a gawk installed
+as `awk`) gets none either.
 
 The prelude does not rely on how an awk orders NaN: mawk says `nan == 0`
 is true, gawk 5.0 orders NaN above every number, gawk 5.2+ follows IEEE. Every
@@ -108,7 +124,18 @@ the `%g` spelling), and every loop whose bound comes from an argument checks
 that it is finite first. The answers are therefore the same on every awk
 (probed across a 2280-request nan/inf/±0 matrix: mawk 20240123 and 20250131,
 gawk 5.2 and 5.3 give identical answers; gawk 5.0 of Git-bash/MSYS2 through the
-non-finite rows of `tests/019`), and IEEE:
+non-finite rows of `tests/019`), and IEEE — except where the formula the
+engine computes has no IEEE special case for the operand (probed on gawk
+5.2.1 and mawk 1.3.4 20250131, kb-debian):
+
+| call | answer | IEEE / C libm | why |
+|---|---|---|---|
+| `expM1 inf` | `nan` | `inf` | the accurate form `(u-1)·x/ln(u)` is `inf/inf` |
+| `hypot inf inf` | `nan` | `inf` | the overflow-safe form `x·sqrt(1+(y/x)²)` has `y/x = inf/inf` |
+| `hypot inf nan`, `hypot nan inf` | `nan` | `inf` | a NaN operand answers `nan` first |
+| `csc -0`, `cotan -0` | `inf` | `-inf` | a division by zero takes its sign from the numerator only (`_dv`), not from the zero's sign |
+
+Otherwise:
 
 ```bash
 math.futureValue 0.05 inf -100 0   # nan — a non-finite n (also presentValue,
