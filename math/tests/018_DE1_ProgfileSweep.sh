@@ -11,7 +11,7 @@
 # all-digit pid that is not this process and not alive (R14: a live process's
 # file, another name shape and a symlink are left alone).
 #
-# The fallback is forced with an `awk` function that refuses /dev/fd programs.
+# The fallback is forced with `awk`/`gawk` functions that refuse /dev/fd programs.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_mathtest.sh"
@@ -24,8 +24,13 @@ TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
 P="$TMP/progdir"
 mkdir -p "$P"
 
-# the children force the fallback path
-SHIM='awk() { case "$2" in /dev/fd/*|/proc/*) return 1 ;; esac; command awk "$@"; }'
+# the children force the fallback path. The engine prefers `gawk` and gives
+# another awk `-W interactive` first (L2.7-M), so both names are shadowed and
+# every argument is checked, not only $2. `gawk` only where one exists: the
+# function alone would make `command -v gawk` succeed on a mawk-only system.
+SHIM='_kt018_awk() { local a; for a in "${@:2}"; do case "$a" in /dev/fd/*|/proc/*) return 1 ;; esac; done; command "$@"; }
+awk() { _kt018_awk awk "$@"; }
+if command -v gawk >/dev/null 2>&1; then gawk() { _kt018_awk gawk "$@"; }; fi'
 
 dead="$(bash -c 'echo $$')"          # a pid that has just exited
 fresh="$(bash -c 'echo $$')"         # another one, its file just written

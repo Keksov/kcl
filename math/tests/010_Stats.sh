@@ -95,13 +95,24 @@ $ok && kt_test_pass "sumInt: exact integer sum, zero forks (empty PATH)" || kt_t
 kt_test_start "randG: empirical mean/stddev of N(10,2) samples in tolerance"
 samples=()
 for ((i=0;i<400;i++)); do samples+=("$(math.randG 10 2)"); done
-emean=$(math.mean "${samples[@]}")
-estd=$(math.stdDev "${samples[@]}")
+if [[ -z ${__MATH_FE_LINEMAX:-} ]]; then
+    emean=$(math.mean "${samples[@]}")
+    estd=$(math.stdDev "${samples[@]}")
+    how=""
+else
+    # mawk -W interactive (L2.7-M): 400 samples are a ~7.6 KB request, longer
+    # than the engine's 4095-character line buffer, so math.mean refuses it
+    # (rc 1; 019 checks that). The distribution of randG is what this case is
+    # about: take the mean and the sample stddev with a plain awk here.
+    read -r emean estd < <(printf '%s\n' "${samples[@]}" | awk '{ n++; s+=$1; q+=$1*$1 }
+        END { if (n > 1) { m=s/n; v=(q-n*m*m)/(n-1); printf "%.17g %.17g\n", m, sqrt(v<0?0:v) } }')
+    how=" [stats by a test-side awk: request > engine line buffer $__MATH_FE_LINEMAX]"
+fi
 # 400 samples: SE(mean)=2/20=0.1, so ±0.6 is >5sigma; stddev within ±0.5
 if awk -v m="$emean" -v s="$estd" 'BEGIN{exit !(m>9.4 && m<10.6 && s>1.5 && s<2.5)}'; then
-    kt_test_pass "randG: empirical mean/stddev of N(10,2) samples in tolerance (mean=$emean sd=$estd)"
+    kt_test_pass "randG: empirical mean/stddev of N(10,2) samples in tolerance (mean=$emean sd=$estd)$how"
 else
-    kt_test_fail "randG distribution off: mean=$emean stddev=$estd (want ~10, ~2)"
+    kt_test_fail "randG distribution off: mean=$emean stddev=$estd (want ~10, ~2)$how"
 fi
 
 math._fe_stop 2>/dev/null

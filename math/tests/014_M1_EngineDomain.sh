@@ -25,7 +25,7 @@ kt_test_init "M1EngineDomain" "$SCRIPT_DIR" "$@"
 MATH_DIR="$SCRIPT_DIR/.."
 source "$MATH_DIR/math.sh"
 
-math.feStart || { kt_test_start "engine available"; kt_test_fail "no awk on PATH"; return 1 2>/dev/null || exit 1; }
+math.feStart || { kt_test_start "engine available"; kt_test_fail "engine did not start: ${MATH_FE_ERROR:-?}"; return 1 2>/dev/null || exit 1; }
 
 # ---------------------------------------------------------------------------
 # Helpers

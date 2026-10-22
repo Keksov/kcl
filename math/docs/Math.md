@@ -39,8 +39,8 @@ The port is a **hybrid** of three tiers:
   persistent `awk` co-process (spawned lazily on the first Tier-B call). awk
   computes in C `double` = IEEE-754 binary64 = FPC `Double` on the x86-64
   targets, so results match FPC to **~1–2 ulp**; values are formatted `%.17g`.
-  With no `awk` on `PATH` the engine degrades gracefully (returns 1); the Tier-A
-  core is unaffected.
+  With no usable `awk` the engine degrades gracefully (returns 1, the reason in
+  `MATH_FE_ERROR`); the Tier-A core is unaffected.
 - **Tier C — wontfix.** FPU/precision control has no bash analogue (see the last
   section).
 
@@ -92,7 +92,7 @@ the ledger `out_of_scope`).
 
 ```text
 { kcl extension — not part of FPC Math. Controls the Tier-B awk co-process. }
-math.feStart      { start the shared engine now; 0 if up, 1 if no awk }
+math.feStart      { start the shared engine now; 0 if up, 1 if no awk can run it (why: MATH_FE_ERROR) }
 math.feStop       { shut the engine down }
 math.feActive     { rc 0/1, RESULT=true/false }
 ```
@@ -102,7 +102,10 @@ Explicit control of the persistent `awk` float engine. The engine is spawned
 touches these. Call `math.feStart` once (e.g. at script top) when your first
 engine call happens inside a `$( … )` subshell and you want a single shared
 co-process rather than a per-substitution one. `feStop` kills it (it also dies
-with the shell); `feActive` reports whether it is currently running.
+with the shell); `feActive` reports whether it is currently running. The engine
+runs on `gawk` when one is on `PATH`, else on `awk` (mawk: `-W interactive`);
+after a failed start `MATH_FE_ERROR` says which awk failed and how (README,
+"Which awk").
 
 **kcl:** `math.feStart` — no output, status 0/1 · `math.feStop` — no output · `math.feActive` — `true`/`false` · engine control
 

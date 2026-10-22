@@ -61,8 +61,22 @@ IEEE-754 binary64 FPC uses for `Double` on the x86-64 targets.
   (e.g. at the top of a script) to guarantee a single shared engine.
 - **`math.feActive`** → rc 0/1 (`RESULT` = `true`/`false`); **`math.feStop`**
   shuts it down and removes anything it left behind.
-- **No `awk`?** A Tier-B member is **rc 1 + `RESULT=""` + silence** (a debug
-  message under `VERBOSE_KKLASS=debug`); the entire Tier-A core still works.
+- **No usable `awk`?** A Tier-B member is **rc 1 + `RESULT=""` + silence**;
+  the entire Tier-A core still works. The reason of the last failed start is
+  in **`MATH_FE_ERROR`** (`""` after a successful start) and, under
+  `VERBOSE_KKLASS=debug`, on stderr as one line
+  `math: float engine not started: <reason>`:
+
+  ```
+  no awk: neither gawk nor awk is on PATH
+  awk (awk, mawk 1.3.4 20240123) cannot run the engine: with -W interactive no answer within 10 s; without it no answer within 10 s
+  awk (/usr/bin/awk, …) cannot run the engine: with -W interactive exited before answering; without it exited before answering
+  ```
+
+  The second form names the awk (its path and the first line of its
+  `-W version`) and says, per start, whether it *exited* (it rejected a flag,
+  could not read or parse the program) or stayed *silent* (block-buffered
+  input, or wedged) — a silent try costs the start timeout (10 s).
 - The program reaches awk through **process substitution** (`awk -f <(…)`), so
   nothing is written to disk. Both bashes here were probed and keep the
   substitution alive for the co-process's lifetime; if it ever fails, the code
@@ -75,6 +89,35 @@ IEEE-754 binary64 FPC uses for `Double` on the x86-64 targets.
   than 5 minutes — a younger one may be another MSYS runtime's engine starting
   right now; ktests round 5, DE1 / review R3). A drive-letter folder (`C:/…`,
   `C:\…`) is swept like any absolute one (review round 2, N2).
+
+### Which awk (engine requirements)
+
+| awk | status |
+|---|---|
+| **gawk** | preferred: when `command -v gawk` finds one, the engine runs on it (no extra flags) — the awk it was developed against (Windows Git-bash/MSYS2, Fedora; installable everywhere) |
+| **mawk** (`awk` on Debian/Ubuntu) | supported when there is no gawk: started as `awk -W interactive` (mawk reads a pipe in blocks and answers nothing without it). One limit: mawk then reads a request through a 4096-byte line buffer and never answers a longer line, so a request of more than **4095 characters** is refused with rc 1 at once instead of hanging (`__MATH_FE_LINEMAX`); in practice a statistics call (`mean`, `stdDev`, …) over more than ~200 full-precision values. mawk 1.3.4 20250131 (Debian 13) reads `nan`/`inf` operands as 0 and `-0` as +0; the engine rewrites those operands itself, so the answers do not change. Probed on mawk 1.3.4 20240123 (Ubuntu 24.04) and 20250131 (Debian 13) |
+| any other `awk` | started with `-W interactive` first; one that rejects the flag exits at once and is restarted without it. BWK awk (macOS, FreeBSD) and busybox awk: unverified until the L3 lab runs — busybox awk on Debian/Ubuntu is built **without math** (`Math support is not compiled in`) and cannot run the engine |
+
+An awk reached as plain `awk` that accepts `-W interactive` is held to the
+4095-character limit even if it is a gawk under another name.
+
+The prelude does not rely on how an awk orders NaN: mawk says `nan == 0`
+is true, gawk 5.0 orders NaN above every number, gawk 5.2+ follows IEEE. Every
+compare that can see a NaN is guarded with `_isnan()`/`_nf()` (they look at
+the `%g` spelling), and every loop whose bound comes from an argument checks
+that it is finite first. The answers are therefore the same on every awk
+(probed across a 2280-request nan/inf/±0 matrix: mawk 20240123 and 20250131,
+gawk 5.2 and 5.3 give identical answers; gawk 5.0 of Git-bash/MSYS2 through the
+non-finite rows of `tests/019`), and IEEE:
+
+```bash
+math.futureValue 0.05 inf -100 0   # nan — a non-finite n (also presentValue,
+math.payment 0.05 nan 1000 0       # nan    payment, interestRate) used to
+math.tanh nan                      # nan    loop forever in the integer power
+math.hypot 0 nan                   # nan
+math.logN 1 -1                     # nan  (NaN/0 is NaN, not inf)
+math.compareValue 1 2 nan          # -1   (|a-b| <= NaN is false, as in FPC)
+```
 
 ### The engine never dies
 

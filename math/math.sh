@@ -169,6 +169,15 @@ math._fe_own() {
     # default: `read -t` costs ~410 us a call on this platform).
     __MATH_FE_TIMEOUT=10
     __MATH_FE_STRICT="${__MATH_FE_STRICT:-}"
+    # Why the last engine start failed ("" when it did not): "no awk: ..." or
+    # "<awk> (<path>, <its -W version line>) cannot run the engine: ...".
+    MATH_FE_ERROR=""
+    # The longest request line the running engine reads ("" = no limit). mawk
+    # under `-W interactive` reads stdin through a 4096-byte line buffer: a
+    # line of 4096+ characters is never answered - the engine blocks, and the
+    # calls after it too (probed on kb-ubuntu, mawk 1.3.4 20240123: 4095
+    # answers, 4096 hangs). math._fe refuses a longer request (rc 1) instead.
+    __MATH_FE_LINEMAX=""
     return 1
 }
 math._fe_own || :
@@ -185,30 +194,48 @@ math._fe_own || :
 # The non-finite values themselves are built in BEGIN (1e308*10 overflows to
 # +inf; inf-inf is nan) rather than written as literals, because gawk parses a
 # bare `inf` token as 0.
+#
+# PORTABLE AWK (L2.7-M). (1) The dispatch is FLAT — one `if (op==X) { S;
+# fflush(); next }` per op, ERR last: mawk's parser overflowed on the old
+# 81-link `else if` chain. (2) No answer may depend on how the awk orders NaN:
+# mawk says nan == 0 (and <=, >=) is TRUE, gawk 5.0 orders NaN ABOVE every
+# number (nan > 0), gawk 5.2+ is IEEE. So every compare that can see a NaN is
+# preceded by _isnan()/_nf() (the %g spelling — `x != x` is false in mawk),
+# and every loop whose bound comes from an argument (_ipow's exponent, via
+# _fv/_pvf/_pmtf too) is entered only for a finite value: `_ipow(b, nan|inf)`
+# looped forever on gawk (2026-10-22). _frexp's loops run only after its
+# x==0/_nf(x) exit; _irate's loop is capped at 20; the N-ary loops run to NF.
+# (3) mawk keeps a field such as `+inf` a STRING in a compare (`"+inf" < 0` is
+# true), so a helper that compares a raw $N coerces it first (`x+=0`). (4) The
+# unit sends non-finite operands as `+nan` `-nan` `+inf` `-inf`; gawk and mawk
+# 1.3.4 20240123 parse them, mawk 1.3.4 20250131 (Debian 13) reads all four as
+# 0, and `-0` as +0 (atan2 0 -0 must be pi) — so the dispatch rewrites such a
+# field to the BEGIN-built value first (only when the line holds "nan", "inf"
+# or " -0" at all; no op name contains any of them).
 if [[ -z ${__MATH_AWK_PROG+x} || ${__MATH_AWK_PROG@a} != *r* ]]; then
     __MATH_AWK_PROG='
-function _dv(a,b) { if (b == 0) { if (a == 0) return _NAN; return (a < 0 ? _NINF : _INF) } return a/b }
+function _dv(a,b) { if (b == 0 && !_isnan(b)) { if (_isnan(a) || a == 0) return _NAN; return (a < 0 ? _NINF : _INF) } return a/b }
 function _isnan(x,  s){ s=sprintf("%g",x); return (index(s,"nan") > 0) }
 function _nf(x,     s){ s=sprintf("%g",x); return (index(s,"nan") > 0 || index(s,"inf") > 0) }
-function _pn(x)     { if (x == 0) x = 0; printf "%.17g\n", x }
+function _pn(x)     { if (x == 0 && !_isnan(x)) x = 0; printf "%.17g\n", x }
 function _pd(x,  ax){ if (_isnan(x)) { print "nan"; return } ax=(x<0?-x:x); if (ax >= 9.2233720368547758e18) { printf "%.17g\n", x; return } if (x == 0) x = 0; printf "%d\n", x }
 function _pi(       ) { return 4*atan2(1,1) }
 function _tan(x     ) { return _dv(sin(x),cos(x)) }
-function _hypot(x,y, t,r){ x=(x<0?-x:x); y=(y<0?-y:y); if(x<y){t=x;x=y;y=t} if(x==0)return 0; r=_dv(y,x); return x*sqrt(1+r*r) }
+function _hypot(x,y, t,r){ x+=0; y+=0; if(_isnan(x) || _isnan(y)) return _NAN; x=(x<0?-x:x); y=(y<0?-y:y); if(x<y){t=x;x=y;y=t} if(x==0)return 0; r=_dv(y,x); return x*sqrt(1+r*r) }
 function _log10(x   ) { return _dv(log(x),log(10)) }
 function _log2(x    ) { return _dv(log(x),log(2)) }
-function _ipow(b,e,  r){ if(e<0){b=_dv(1.0,b);e=-e} r=1.0; while(e>0){ if(e%2==1) r=r*b; e=int(_dv(e,2)); b=b*b } return r }
+function _ipow(b,e,  r){ if(_nf(e)) return _NAN; if(e<0){b=_dv(1.0,b);e=-e} r=1.0; while(e>0){ if(e%2==1) r=r*b; e=int(_dv(e,2)); b=b*b } return r }
 function _cosh(x)   { return _dv(exp(x)+exp(-x),2) }
 function _sinh(x)   { return _dv(exp(x)-exp(-x),2) }
-function _tnh(x,  t){ if(x>10)return 1; if(x<-10)return -1; if(x<0){t=exp(2*x);return _dv(t-1,1+t)} t=exp(-2*x); return _dv(1-t,1+t) }
+function _tnh(x,  t){ x+=0; if(_isnan(x)) return x; if(x>10)return 1; if(x<-10)return -1; if(x<0){t=exp(2*x);return _dv(t-1,1+t)} t=exp(-2*x); return _dv(1-t,1+t) }
 function _asin(x)   { return atan2(x, sqrt((1-x)*(1+x))) }
 function _acos(x)   { return atan2(sqrt((1-x)*(1+x)), x) }
-function _arsinh(x) { return (x<0?-1:1)*log((x<0?-x:x)+sqrt(1+x*x)) }
+function _arsinh(x) { x+=0; return (x<0?-1:1)*log((x<0?-x:x)+sqrt(1+x*x)) }
 function _arcosh(x) { return log(x+sqrt((x-1)*(x+1))) }
 function _artanh(x) { return 0.5*log(_dv(1+x,1-x)) }
-function _lnxp1(x,  y,r){ if(x>=4) return log(1+x); y=1+x; if(y==1) return x; r=log(y); if(y>0) r+=_dv(x-(y-1),y); return r }
-function _expm1(x,  u){ u=exp(x); if(u==1) return x; if(u-1==-1) return -1; return _dv((u-1)*x,log(u)) }
-function _power(b,e){ if(e==0) return 1; if(b==0 && e>0) return 0; if(e==int(e) && e<=2147483647 && e>=-2147483647) return _ipow(b,int(e)); return exp(e*log(b)) }
+function _lnxp1(x,  y,r){ x+=0; if(_isnan(x)) return x; if(x>=4) return log(1+x); y=1+x; if(y==1) return x; r=log(y); if(y>0) r+=_dv(x-(y-1),y); return r }
+function _expm1(x,  u){ x+=0; if(_isnan(x)) return x; u=exp(x); if(u==1) return x; if(u-1==-1) return -1; return _dv((u-1)*x,log(u)) }
+function _power(b,e){ b+=0; e+=0; if(_isnan(e)) return _NAN; if(e==0) return 1; if(b==0 && !_isnan(b) && e>0) return 0; if(!_nf(e) && e==int(e) && e<=2147483647 && e>=-2147483647) return _ipow(b,int(e)); return exp(e*log(b)) }
 function _frexp(x,  a){ if(x==0 || _nf(x)){ _fr_m=x; _fr_e=0; return }
   _fr_m=x; _fr_e=0; a=(x<0?-x:x)
   while(a>=1){ if(a>=_P256){_fr_m=_fr_m*_M256;_fr_e+=256} else if(a>=_P32){_fr_m=_fr_m*_M32;_fr_e+=32} else {_fr_m=_fr_m*0.5;_fr_e+=1} a=(_fr_m<0?-_fr_m:_fr_m) }
@@ -217,96 +244,97 @@ function _asum(    i,s){ s=0; for(i=2;i<=NF;i++) s+=$i; return s }
 function _amean(      ){ return _dv(_asum(),NF-1) }
 function _asumsq(  i,s){ s=0; for(i=2;i<=NF;i++) s+=$i*$i; return s }
 function _atotvar(i,mu,s){ if(NF<2) return _NAN; mu=_amean(); s=0; for(i=2;i<=NF;i++) s+=($i-mu)*($i-mu); return s }
-function _sgn(x){ return (x>0)-(x<0) }
-function _fv(rate,n,pmt,pv,pt,   q,qn,f){ if(rate==0)return -pv-pmt*n; q=1+rate; qn=_ipow(q,int(n)); f=_dv(qn-1,q-1); if(pt==1)f=f*q; return -(pv*qn+pmt*f) }
-function _pvf(rate,n,pmt,fv,pt,  q,qn,f){ if(rate==0)return -fv-pmt*n; q=1+rate; qn=_ipow(q,int(n)); f=_dv(qn-1,q-1); if(pt==1)f=f*q; return _dv(-(fv+pmt*f),qn) }
-function _pmtf(rate,n,pv,fv,pt,  q,qn,f){ if(rate==0)return _dv(-(fv+pv),n); q=1+rate; qn=_ipow(q,int(n)); f=_dv(qn-1,q-1); if(pt==1)f=f*q; return _dv(-(fv+pv*qn),f) }
+function _sgn(x){ if(_isnan(x)) return 0; return (x>0)-(x<0) }
+function _fv(rate,n,pmt,pv,pt,   q,qn,f){ rate+=0; n+=0; if(rate==0 && !_isnan(rate))return -pv-pmt*n; if(_nf(n)) return _NAN; q=1+rate; qn=_ipow(q,int(n)); f=_dv(qn-1,q-1); if(pt==1)f=f*q; return -(pv*qn+pmt*f) }
+function _pvf(rate,n,pmt,fv,pt,  q,qn,f){ rate+=0; n+=0; if(rate==0 && !_isnan(rate))return -fv-pmt*n; if(_nf(n)) return _NAN; q=1+rate; qn=_ipow(q,int(n)); f=_dv(qn-1,q-1); if(pt==1)f=f*q; return _dv(-(fv+pmt*f),qn) }
+function _pmtf(rate,n,pv,fv,pt,  q,qn,f){ rate+=0; n+=0; if(rate==0 && !_isnan(rate))return _dv(-(fv+pv),n); if(_nf(n)) return _NAN; q=1+rate; qn=_ipow(q,int(n)); f=_dv(qn-1,q-1); if(pt==1)f=f*q; return _dv(-(fv+pv*qn),f) }
 function _irate(n,pmt,pv,fv,pt,  r1,r2,dr,f1,f2,it){ it=0; r1=0.05; do{ r2=r1+0.001; f1=_fv(r1,n,pmt,pv,pt); f2=_fv(r2,n,pmt,pv,pt); dr=_dv(fv-f1,f2-f1)*0.001; r1=r1+dr; it++ }while(!((dr<0?-dr:dr)<1e-9||it>=20)); return r1 }
-BEGIN { srand(); _INF=1e308*10; _NINF=-_INF; _NAN=_INF-_INF; _P32=2^32; _M32=2^-32; _P256=2^256; _M256=2^-256 }
+BEGIN { srand(); _INF=1e308*10; _NINF=-_INF; _NAN=_INF-_INF; _NZ=_dv(-1,_INF); _P32=2^32; _M32=2^-32; _P256=2^256; _M256=2^-256 }
 {
   op=$1
-  if      (op=="sin")    _pn(sin($2))
-  else if (op=="cos")    _pn(cos($2))
-  else if (op=="tan")    _pn(_tan($2))
-  else if (op=="sqrt")   _pn(sqrt($2))
-  else if (op=="exp")    _pn(exp($2))
-  else if (op=="ln")     _pn(log($2))
-  else if (op=="log10")  _pn(_log10($2))
-  else if (op=="log2")   _pn(_log2($2))
-  else if (op=="atan2")  _pn(atan2($2,$3))
-  else if (op=="pow")    _pn($2^$3)
-  else if (op=="hypot")  _pn(_hypot($2,$3))
-  else if (op=="pi")     _pn(_pi())
-  else if (op=="sincos") { printf "%.17g %.17g\n", sin($2), cos($2) }
-  else if (op=="cmp")    { a=$2+0; b=$3+0; if(_isnan(a)||_isnan(b)) print "2"; else printf "%d\n", (a<b?-1:(a>b?1:0)) }
-  else if (op=="cmpd")   { a=$2+0; b=$3+0; d=$4+0; e=a-b; if(e<0)e=-e; printf "%d\n", ((!_isnan(e) && e<=d)?0:(a<b?-1:1)) }
-  else if (op=="iszero") { a=$2+0; e=$3+0; if(e==0)e=1e-12; aa=(a<0?-a:a); printf "%s\n", ((!_isnan(aa) && aa<=e)?"true":"false") }
-  else if (op=="samev")  { a=$2+0; b=$3+0; e=$4+0; if(e==0){ma=(a<0?-a:a);mb=(b<0?-b:b);mn=(ma<mb?ma:mb);e=mn*1e-12; if(e<1e-12)e=1e-12} if(a>b) dd=a-b; else dd=b-a; printf "%s\n", ((!_isnan(dd) && dd<=e)?"true":"false") }
-  else if (op=="ceil")   { x=$2+0; if(_nf(x)) _pn(x); else { t=int(x); _pd(x>t?t+1:t) } }
-  else if (op=="floor")  { x=$2+0; if(_nf(x)) _pn(x); else { t=int(x); _pd(x<t?t-1:t) } }
-  else if (op=="roundto"){ v=$2+0; rv=_ipow(10,int($3)); q=_dv(v,rv); if(_nf(q)) _pn(q*rv); else _pn((sprintf("%.0f",q)+0)*rv) }
-  else if (op=="sround") { v=$2+0; d=(NF>=3?int($3):-2); rv=_ipow(10,-d); t=v*rv; if(_nf(t)) _pn(_dv(t,rv)); else { if(t<0) r=int(t-0.5); else r=int(t+0.5); _pn(_dv(r,rv)) } }
-  else if (op=="fmod")   { a=$2+0; b=$3+0; if(b==0) _pn(_NAN); else if(_nf(a)) _pn(_NAN); else _pn(a-b*int(_dv(a,b))) }
-  else if (op=="ipow")   _pn(_ipow($2+0, int($3)))
-  else if (op=="d2r")    _pn($2*_dv(_pi(),180.0))
-  else if (op=="r2d")    _pn($2*_dv(180.0,_pi()))
-  else if (op=="g2r")    _pn($2*_dv(_pi(),200.0))
-  else if (op=="r2g")    _pn($2*_dv(200.0,_pi()))
-  else if (op=="d2g")    _pn($2*_dv(200.0,180.0))
-  else if (op=="g2d")    _pn($2*_dv(180.0,200.0))
-  else if (op=="c2d")    _pn($2*360.0)
-  else if (op=="d2c")    _pn($2*_dv(1,360.0))
-  else if (op=="c2g")    _pn($2*400.0)
-  else if (op=="g2c")    _pn($2*_dv(1,400.0))
-  else if (op=="c2r")    _pn($2*2*_pi())
-  else if (op=="r2c")    _pn($2*_dv(1,2*_pi()))
-  else if (op=="dnorm")  { x=$2+0; if(_nf(x)) _pn(_NAN); else { r=x-int(_dv(x,360))*360; if(r<0)r+=360; _pn(r) } }
-  else if (op=="cotan")  _pn(_dv(cos($2),sin($2)))
-  else if (op=="sec")    _pn(_dv(1,cos($2)))
-  else if (op=="csc")    _pn(_dv(1,sin($2)))
-  else if (op=="asin")   _pn(_asin($2))
-  else if (op=="acos")   _pn(_acos($2))
-  else if (op=="atan")   _pn(atan2($2,1))
-  else if (op=="cosh")   _pn(_cosh($2))
-  else if (op=="sinh")   _pn(_sinh($2))
-  else if (op=="tanh")   _pn(_tnh($2))
-  else if (op=="sech")   _pn(_dv(1,_cosh($2)))
-  else if (op=="csch")   _pn(_dv(1,_sinh($2)))
-  else if (op=="coth")   _pn(_dv(_cosh($2),_sinh($2)))
-  else if (op=="arsinh") _pn(_arsinh($2))
-  else if (op=="arcosh") _pn(_arcosh($2))
-  else if (op=="artanh") _pn(_artanh($2))
-  else if (op=="arcsec") _pn(_acos(_dv(1,$2)))
-  else if (op=="arccsc") _pn(_asin(_dv(1,$2)))
-  else if (op=="arccot") { x=$2+0; _pn(x==0 ? 2*atan2(1,1) : atan2(_dv(1,x),1)) }
-  else if (op=="arcsech"){ x=$2+0; _pn(log(_dv(1+sqrt(1-x*x),x))) }
-  else if (op=="arccsch"){ x=$2+0; _pn(log(_dv(1,x)+sqrt(_dv(1,x*x)+1))) }
-  else if (op=="arccoth"){ x=$2+0; _pn(0.5*log(_dv(x+1,x-1))) }
-  else if (op=="logn")   _pn(_dv(log($3),log($2)))
-  else if (op=="lnxp1")  _pn(_lnxp1($2))
-  else if (op=="expm1")  _pn(_expm1($2))
-  else if (op=="power")  _pn(_power($2,$3))
-  else if (op=="frexp")  { _frexp($2+0); printf "%.17g %d\n", _fr_m, _fr_e }
-  else if (op=="ldexp")  _pn($2*(2^int($3)))
-  else if (op=="asum")      _pn(_asum())
-  else if (op=="amean")     _pn(_amean())
-  else if (op=="asumsq")    _pn(_asumsq())
-  else if (op=="asumsandsq"){ printf "%.17g %.17g\n", _asum(), _asumsq() }
-  else if (op=="atotvar")   _pn(_atotvar())
-  else if (op=="avariance") { n=NF-1; _pn(n<1 ? _NAN : (n==1?0:_dv(_atotvar(),n-1))) }
-  else if (op=="apopnvar")  { n=NF-1; _pn(n<1 ? _NAN : _dv(_atotvar(),n)) }
-  else if (op=="astddev")   { n=NF-1; _pn(n<1 ? _NAN : sqrt(n==1?0:_dv(_atotvar(),n-1))) }
-  else if (op=="apopnstddev"){ n=NF-1; _pn(n<1 ? _NAN : sqrt(_dv(_atotvar(),n))) }
-  else if (op=="ameanstddev"){ n=NF-1; printf "%.17g %.17g\n", _amean(), (n<1 ? _NAN : sqrt(n==1?0:_dv(_atotvar(),n-1))) }
-  else if (op=="anorm")     _pn(sqrt(_asumsq()))
-  else if (op=="amoments")  { n=NF-1; if(n<1){ printf "%.17g %.17g %.17g %.17g %.17g %.17g\n", _NAN,_NAN,_NAN,_NAN,_NAN,_NAN } else { mu=_amean(); tm2=0;tm3=0;tm4=0; for(i=2;i<=NF;i++){d=$i-mu;d2=d*d;tm2+=d2;tm3+=d2*d;tm4+=d2*d2} m2=_dv(tm2,n);m3=_dv(tm3,n);m4=_dv(tm4,n); printf "%.17g %.17g %.17g %.17g %.17g %.17g\n", mu,m2,m3,m4, _dv(m3,sqrt(m2)*m2), _dv(m4,m2*m2) } }
-  else if (op=="randg")     { do{u1=2*rand()-1;u2=2*rand()-1;s2=u1*u1+u2*u2}while(s2>=1||s2==0); _pn(sqrt(_dv(-2*log(s2),s2))*u1*$3+$2) }
-  else if (op=="fv")     _pn(_fv($2,$3,$4,$5,$6))
-  else if (op=="pv")     _pn(_pvf($2,$3,$4,$5,$6))
-  else if (op=="pmt")    _pn(_pmtf($2,$3,$4,$5,$6))
-  else if (op=="irate")  _pn(_irate($2,$3,$4,$5,$6))
-  else if (op=="nper")   { r=$2+0;pmt=$3+0;pv=$4+0;fv=$5+0;pt=$6+0; if(r==0){_pn(_dv(-(pv+fv),pmt))} else {q=1+r; if(pt==1)pmt=pmt*q; x1=pmt-fv*r; x2=pmt+pv*r; if(x2==0||_sgn(x1)*_sgn(x2)<0) _pn(_INF); else _pn(_dv(log(_dv(x1,x2)),log(q)))} }
-  else                   printf "ERR\n"
+  if (index($0,"nan") || index($0,"inf") || index($0," -0")) for (i=2;i<=NF;i++) { if ($i ~ "^[+-]?nan$") $i=_NAN; else if ($i ~ "^[+]?inf$") $i=_INF; else if ($i ~ "^-inf$") $i=_NINF; else if (substr($i,1,2)=="-0" && $i+0==0) $i=_NZ }
+  if (op=="sin") { _pn(sin($2)); fflush(); next }
+  if (op=="cos") { _pn(cos($2)); fflush(); next }
+  if (op=="tan") { _pn(_tan($2)); fflush(); next }
+  if (op=="sqrt") { _pn(sqrt($2)); fflush(); next }
+  if (op=="exp") { _pn(exp($2)); fflush(); next }
+  if (op=="ln") { _pn(log($2)); fflush(); next }
+  if (op=="log10") { _pn(_log10($2)); fflush(); next }
+  if (op=="log2") { _pn(_log2($2)); fflush(); next }
+  if (op=="atan2") { _pn(atan2($2,$3)); fflush(); next }
+  if (op=="pow") { _pn($2^$3); fflush(); next }
+  if (op=="hypot") { _pn(_hypot($2,$3)); fflush(); next }
+  if (op=="pi") { _pn(_pi()); fflush(); next }
+  if (op=="sincos") { { printf "%.17g %.17g\n", sin($2), cos($2) }; fflush(); next }
+  if (op=="cmp") { { a=$2+0; b=$3+0; if(_isnan(a)||_isnan(b)) print "2"; else printf "%d\n", (a<b?-1:(a>b?1:0)) }; fflush(); next }
+  if (op=="cmpd") { { a=$2+0; b=$3+0; d=$4+0; e=a-b; if(_isnan(e)) print "1"; else { if(e<0)e=-e; printf "%d\n", ((!_isnan(d) && e<=d)?0:(a<b?-1:1)) } }; fflush(); next }
+  if (op=="iszero") { { a=$2+0; e=$3+0; if(e==0 && !_isnan(e))e=1e-12; aa=(a<0?-a:a); printf "%s\n", ((!_isnan(aa) && !_isnan(e) && aa<=e)?"true":"false") }; fflush(); next }
+  if (op=="samev") { { a=$2+0; b=$3+0; e=$4+0; if(e==0 && !_isnan(e)){ma=(a<0?-a:a);mb=(b<0?-b:b);mn=(ma<mb?ma:mb);e=mn*1e-12; if(e<1e-12)e=1e-12} if(a>b) dd=a-b; else dd=b-a; printf "%s\n", ((!_isnan(dd) && !_isnan(e) && dd<=e)?"true":"false") }; fflush(); next }
+  if (op=="ceil") { { x=$2+0; if(_nf(x)) _pn(x); else { t=int(x); _pd(x>t?t+1:t) } }; fflush(); next }
+  if (op=="floor") { { x=$2+0; if(_nf(x)) _pn(x); else { t=int(x); _pd(x<t?t-1:t) } }; fflush(); next }
+  if (op=="roundto") { { v=$2+0; rv=_ipow(10,int($3)); q=_dv(v,rv); if(_nf(q)) _pn(q*rv); else _pn((sprintf("%.0f",q)+0)*rv) }; fflush(); next }
+  if (op=="sround") { { v=$2+0; d=(NF>=3?int($3):-2); rv=_ipow(10,-d); t=v*rv; if(_nf(t)) _pn(_dv(t,rv)); else { if(t<0) r=int(t-0.5); else r=int(t+0.5); _pn(_dv(r,rv)) } }; fflush(); next }
+  if (op=="fmod") { { a=$2+0; b=$3+0; if(_isnan(b) || b==0) _pn(_NAN); else if(_nf(a)) _pn(_NAN); else _pn(a-b*int(_dv(a,b))) }; fflush(); next }
+  if (op=="ipow") { _pn(_ipow($2+0, int($3))); fflush(); next }
+  if (op=="d2r") { _pn($2*_dv(_pi(),180.0)); fflush(); next }
+  if (op=="r2d") { _pn($2*_dv(180.0,_pi())); fflush(); next }
+  if (op=="g2r") { _pn($2*_dv(_pi(),200.0)); fflush(); next }
+  if (op=="r2g") { _pn($2*_dv(200.0,_pi())); fflush(); next }
+  if (op=="d2g") { _pn($2*_dv(200.0,180.0)); fflush(); next }
+  if (op=="g2d") { _pn($2*_dv(180.0,200.0)); fflush(); next }
+  if (op=="c2d") { _pn($2*360.0); fflush(); next }
+  if (op=="d2c") { _pn($2*_dv(1,360.0)); fflush(); next }
+  if (op=="c2g") { _pn($2*400.0); fflush(); next }
+  if (op=="g2c") { _pn($2*_dv(1,400.0)); fflush(); next }
+  if (op=="c2r") { _pn($2*2*_pi()); fflush(); next }
+  if (op=="r2c") { _pn($2*_dv(1,2*_pi())); fflush(); next }
+  if (op=="dnorm") { { x=$2+0; if(_nf(x)) _pn(_NAN); else { r=x-int(_dv(x,360))*360; if(r<0)r+=360; _pn(r) } }; fflush(); next }
+  if (op=="cotan") { _pn(_dv(cos($2),sin($2))); fflush(); next }
+  if (op=="sec") { _pn(_dv(1,cos($2))); fflush(); next }
+  if (op=="csc") { _pn(_dv(1,sin($2))); fflush(); next }
+  if (op=="asin") { _pn(_asin($2)); fflush(); next }
+  if (op=="acos") { _pn(_acos($2)); fflush(); next }
+  if (op=="atan") { _pn(atan2($2,1)); fflush(); next }
+  if (op=="cosh") { _pn(_cosh($2)); fflush(); next }
+  if (op=="sinh") { _pn(_sinh($2)); fflush(); next }
+  if (op=="tanh") { _pn(_tnh($2)); fflush(); next }
+  if (op=="sech") { _pn(_dv(1,_cosh($2))); fflush(); next }
+  if (op=="csch") { _pn(_dv(1,_sinh($2))); fflush(); next }
+  if (op=="coth") { _pn(_dv(_cosh($2),_sinh($2))); fflush(); next }
+  if (op=="arsinh") { _pn(_arsinh($2)); fflush(); next }
+  if (op=="arcosh") { _pn(_arcosh($2)); fflush(); next }
+  if (op=="artanh") { _pn(_artanh($2)); fflush(); next }
+  if (op=="arcsec") { _pn(_acos(_dv(1,$2))); fflush(); next }
+  if (op=="arccsc") { _pn(_asin(_dv(1,$2))); fflush(); next }
+  if (op=="arccot") { { x=$2+0; _pn((x==0 && !_isnan(x)) ? 2*atan2(1,1) : atan2(_dv(1,x),1)) }; fflush(); next }
+  if (op=="arcsech") { { x=$2+0; _pn(log(_dv(1+sqrt(1-x*x),x))) }; fflush(); next }
+  if (op=="arccsch") { { x=$2+0; _pn(log(_dv(1,x)+sqrt(_dv(1,x*x)+1))) }; fflush(); next }
+  if (op=="arccoth") { { x=$2+0; _pn(0.5*log(_dv(x+1,x-1))) }; fflush(); next }
+  if (op=="logn") { _pn(_dv(log($3),log($2))); fflush(); next }
+  if (op=="lnxp1") { _pn(_lnxp1($2)); fflush(); next }
+  if (op=="expm1") { _pn(_expm1($2)); fflush(); next }
+  if (op=="power") { _pn(_power($2,$3)); fflush(); next }
+  if (op=="frexp") { { _frexp($2+0); printf "%.17g %d\n", _fr_m, _fr_e }; fflush(); next }
+  if (op=="ldexp") { _pn($2*(2^int($3))); fflush(); next }
+  if (op=="asum") { _pn(_asum()); fflush(); next }
+  if (op=="amean") { _pn(_amean()); fflush(); next }
+  if (op=="asumsq") { _pn(_asumsq()); fflush(); next }
+  if (op=="asumsandsq") { { printf "%.17g %.17g\n", _asum(), _asumsq() }; fflush(); next }
+  if (op=="atotvar") { _pn(_atotvar()); fflush(); next }
+  if (op=="avariance") { { n=NF-1; _pn(n<1 ? _NAN : (n==1?0:_dv(_atotvar(),n-1))) }; fflush(); next }
+  if (op=="apopnvar") { { n=NF-1; _pn(n<1 ? _NAN : _dv(_atotvar(),n)) }; fflush(); next }
+  if (op=="astddev") { { n=NF-1; _pn(n<1 ? _NAN : sqrt(n==1?0:_dv(_atotvar(),n-1))) }; fflush(); next }
+  if (op=="apopnstddev") { { n=NF-1; _pn(n<1 ? _NAN : sqrt(_dv(_atotvar(),n))) }; fflush(); next }
+  if (op=="ameanstddev") { { n=NF-1; printf "%.17g %.17g\n", _amean(), (n<1 ? _NAN : sqrt(n==1?0:_dv(_atotvar(),n-1))) }; fflush(); next }
+  if (op=="anorm") { _pn(sqrt(_asumsq())); fflush(); next }
+  if (op=="amoments") { { n=NF-1; if(n<1){ printf "%.17g %.17g %.17g %.17g %.17g %.17g\n", _NAN,_NAN,_NAN,_NAN,_NAN,_NAN } else { mu=_amean(); tm2=0;tm3=0;tm4=0; for(i=2;i<=NF;i++){d=$i-mu;d2=d*d;tm2+=d2;tm3+=d2*d;tm4+=d2*d2} m2=_dv(tm2,n);m3=_dv(tm3,n);m4=_dv(tm4,n); printf "%.17g %.17g %.17g %.17g %.17g %.17g\n", mu,m2,m3,m4, _dv(m3,sqrt(m2)*m2), _dv(m4,m2*m2) } }; fflush(); next }
+  if (op=="randg") { { do{u1=2*rand()-1;u2=2*rand()-1;s2=u1*u1+u2*u2}while(s2>=1||s2==0); _pn(sqrt(_dv(-2*log(s2),s2))*u1*$3+$2) }; fflush(); next }
+  if (op=="fv") { _pn(_fv($2,$3,$4,$5,$6)); fflush(); next }
+  if (op=="pv") { _pn(_pvf($2,$3,$4,$5,$6)); fflush(); next }
+  if (op=="pmt") { _pn(_pmtf($2,$3,$4,$5,$6)); fflush(); next }
+  if (op=="irate") { _pn(_irate($2,$3,$4,$5,$6)); fflush(); next }
+  if (op=="nper") { { r=$2+0;pmt=$3+0;pv=$4+0;fv=$5+0;pt=$6+0; if(r==0 && !_isnan(r)){_pn(_dv(-(pv+fv),pmt))} else {q=1+r; if(pt==1)pmt=pmt*q; x1=pmt-fv*r; x2=pmt+pv*r; if((x2==0 && !_isnan(x2))||_sgn(x1)*_sgn(x2)<0) _pn(_INF); else _pn(_dv(log(_dv(x1,x2)),log(q)))} }; fflush(); next }
+  printf "ERR\n"
   fflush()
 }'
     readonly __MATH_AWK_PROG
@@ -678,7 +706,7 @@ math._fe_drop() {
         if [[ -n $__m_o && $__m_o != *[!0-9]* ]]; then eval "exec $__m_o<&-" 2>/dev/null || :; fi
         __MATH_FE_OWN[pid]="" __MATH_FE_OWN[in]="" __MATH_FE_OWN[out]=""
     fi
-    __MATH_FE_UP=""; __MATH_FE_IN=""; __MATH_FE_OUT=""; __MATH_FE_PID=""
+    __MATH_FE_UP=""; __MATH_FE_IN=""; __MATH_FE_OUT=""; __MATH_FE_PID=""; __MATH_FE_LINEMAX=""
     return 0
 }
 
@@ -744,9 +772,80 @@ math._fe_arm_trap() {
     return 0
 }
 
+# math._fe_spawn AWK SRC [FLAG...] — start AWK on the engine program and send
+# it the start probe (`pi`). SRC `-` hands the program through process
+# substitution, anything else is the path of the fallback file. rc 0: the
+# engine answered and is up; rc 1: it exited (or never read its input) before
+# answering — awk rejected a flag, could not read the program, or could not
+# parse it; rc 2: it is alive but gave no answer within $__MATH_FE_TIMEOUT s —
+# its input is block-buffered (mawk without `-W interactive`) or it is wedged.
+# On rc 1/2 the co-process is already dropped. AWK is called by NAME (no
+# `command`), so a test's `awk`/`gawk` function shadows it.
+math._fe_spawn() {
+    local __m_awk=$1 __m_src=$2 __m_probe="" __m_rc=0
+    shift 2
+    # LC_ALL=C (M15): gawk honours LC_NUMERIC under POSIXLY_CORRECT and would
+    # print `2,5` in a comma locale.
+    if [[ $__m_src == - ]]; then
+        coproc MATH_FE { LC_ALL=C "$__m_awk" "$@" -f <(printf '%s\n' "$__MATH_AWK_PROG") 2>/dev/null; }
+    else
+        coproc MATH_FE { LC_ALL=C "$__m_awk" "$@" -f "$__m_src" 2>/dev/null; }
+    fi
+    __MATH_FE_IN=${MATH_FE[1]}; __MATH_FE_OUT=${MATH_FE[0]}; __MATH_FE_PID=$MATH_FE_PID
+    __MATH_FE_OWN[pid]=$__MATH_FE_PID __MATH_FE_OWN[in]=$__MATH_FE_IN __MATH_FE_OWN[out]=$__MATH_FE_OUT
+    if printf 'pi\n' >&"$__MATH_FE_IN" 2>/dev/null; then
+        IFS= read -r -t "$__MATH_FE_TIMEOUT" -u "$__MATH_FE_OUT" __m_probe 2>/dev/null || __m_rc=$?
+        if (( __m_rc == 0 )) && [[ -n $__m_probe ]]; then
+            __MATH_FE_UP=1
+            __MATH_FE_LINEMAX=""
+            [[ ${1:-} == -W ]] && __MATH_FE_LINEMAX=4095
+            return 0
+        fi
+    fi
+    math._fe_drop
+    (( __m_rc > 128 )) && return 2      # `read -t` timed out: alive, silent
+    return 1
+}
+
+# math._fe_try SRC — one program source, every awk flag variant still in
+# __m_vs (math._fe_start's locals, seen here by bash's dynamic scope). A
+# variant that stayed SILENT is dropped from __m_vs: another source of the
+# same program would be just as silent, and each silence costs the timeout.
+math._fe_try() {
+    local __m_src=$1 __m_v __m_rc
+    local -a __m_keep=()
+    for __m_v in "${__m_vs[@]}"; do
+        __m_rc=0
+        if [[ $__m_v == W ]]; then
+            math._fe_spawn "$__m_awk" "$__m_src" -W interactive || __m_rc=$?
+        else
+            math._fe_spawn "$__m_awk" "$__m_src" || __m_rc=$?
+        fi
+        (( __m_rc == 0 )) && return 0
+        if (( __m_rc == 2 )); then
+            __m_why[$__m_v]="no answer within ${__MATH_FE_TIMEOUT} s"
+        else
+            __m_keep+=("$__m_v")
+            __m_why[$__m_v]="exited before answering"
+        fi
+    done
+    __m_vs=("${__m_keep[@]}")
+    return 1
+}
+
 # Start the awk co-process if not already running. Reuses an inherited,
 # still-alive co-process (so a $() subshell doesn't spawn a second one).
-# Returns 1 (no spawn) when awk is unavailable.
+# Returns 1 (no spawn) when no awk can run the engine; MATH_FE_ERROR then says
+# why (one kk.debug line too), and it is "" after every successful start.
+#
+# Which awk (L2.7-M): `gawk` when `command -v gawk` finds one — the awk the
+# engine was developed against — else `awk`. Any other awk (mawk on
+# Debian/Ubuntu) is first started with `-W interactive`: mawk reads a pipe in
+# blocks and answers nothing until its buffer fills, `-W interactive` makes it
+# read line by line. An awk that rejects the flag exits at once and is started
+# again without it, so no identity fork (`awk -W version`) is spent on the
+# path that works; that fork happens only to NAME a failed awk in
+# MATH_FE_ERROR. gawk is never given the flag (it ignores it with a warning).
 math._fe_start() {
     # up = this process's engine (R1): the scalars still name what
     # __MATH_FE_OWN recorded, and the awk is alive
@@ -756,32 +855,33 @@ math._fe_start() {
         return 0
     fi
     math._fe_drop
-    command -v awk >/dev/null 2>&1 || { __MATH_FE_UP=""; return 1; }
+    MATH_FE_ERROR=""
+    local __m_awk __m_d __m_path __m_id
+    local -a __m_vs
+    local -A __m_why=()
+    if command -v gawk >/dev/null 2>&1; then
+        __m_awk=gawk; __m_vs=(-)
+    elif command -v awk >/dev/null 2>&1; then
+        __m_awk=awk; __m_vs=(W -)
+    else
+        __MATH_FE_UP=""
+        MATH_FE_ERROR="no awk: neither gawk nor awk is on PATH"
+        kk.debug "math: float engine not started: $MATH_FE_ERROR"
+        return 1
+    fi
 
     # Preferred: hand the program to awk through PROCESS SUBSTITUTION. Nothing
     # is written to disk (M6), and a large program cannot be truncated the way
     # a command-line argument is on cygwin. Probed on bash 5.2.37 and 5.3.9 on
     # this machine: awk reads /dev/fd/N to EOF at start-up and the co-process
     # then lives independently of the substitution.
-    # LC_ALL=C (M15): gawk honours LC_NUMERIC under POSIXLY_CORRECT and would
-    # print `2,5` in a comma locale.
-    coproc MATH_FE { LC_ALL=C awk -f <(printf '%s\n' "$__MATH_AWK_PROG") 2>/dev/null; }
-    __MATH_FE_IN=${MATH_FE[1]}; __MATH_FE_OUT=${MATH_FE[0]}; __MATH_FE_PID=$MATH_FE_PID
-    __MATH_FE_OWN[pid]=$__MATH_FE_PID __MATH_FE_OWN[in]=$__MATH_FE_IN __MATH_FE_OWN[out]=$__MATH_FE_OUT
-    local __m_probe
-    if printf 'pi\n' >&"$__MATH_FE_IN" 2>/dev/null \
-       && IFS= read -r -t "$__MATH_FE_TIMEOUT" -u "$__MATH_FE_OUT" __m_probe 2>/dev/null \
-       && [[ -n "$__m_probe" ]]; then
-        __MATH_FE_UP=1
-        return 0
-    fi
-    math._fe_drop
+    math._fe_try - && return 0
 
     # Fallback: a temp file plus an EXIT trap. Some setups resolve /tmp
     # differently for bash and for a native awk, so each candidate directory is
     # PROBED rather than assumed.
-    local __m_d
     for __m_d in "${TMPDIR:-/tmp}" "$MATH_DIR" /tmp; do
+        (( ${#__m_vs[@]} )) || break
         [[ -d "$__m_d" && -w "$__m_d" ]] || continue
         math._fe_sweep "$__m_d"
         __MATH_FE_PROGFILE="$__m_d/.math_fe_$$.awk"
@@ -789,19 +889,23 @@ math._fe_start() {
         printf '%s\n' "$__MATH_AWK_PROG" > "$__MATH_FE_PROGFILE" 2>/dev/null \
             || { math._fe_cleanup; continue; }
         math._fe_arm_trap
-        coproc MATH_FE { LC_ALL=C awk -f "$__MATH_FE_PROGFILE" 2>/dev/null; }
-        __MATH_FE_IN=${MATH_FE[1]}; __MATH_FE_OUT=${MATH_FE[0]}; __MATH_FE_PID=$MATH_FE_PID
-        __MATH_FE_OWN[pid]=$__MATH_FE_PID __MATH_FE_OWN[in]=$__MATH_FE_IN __MATH_FE_OWN[out]=$__MATH_FE_OUT
-        if printf 'pi\n' >&"$__MATH_FE_IN" 2>/dev/null \
-           && IFS= read -r -t "$__MATH_FE_TIMEOUT" -u "$__MATH_FE_OUT" __m_probe 2>/dev/null \
-           && [[ -n "$__m_probe" ]]; then
-            __MATH_FE_UP=1
-            return 0
-        fi
-        math._fe_drop
+        math._fe_try "$__MATH_FE_PROGFILE" && return 0
         math._fe_cleanup
     done
     __MATH_FE_UP=""
+    # name the awk that failed: where it is, and its own first line of
+    # `-W version` (gawk/mawk/busybox print their name; stdin is /dev/null so
+    # an awk that takes `version` for a program still ends at once)
+    __m_path=$(command -v "$__m_awk" 2>/dev/null)
+    __m_id=$(LC_ALL=C "$__m_awk" -W version </dev/null 2>&1) || :
+    __m_id=${__m_id%%$'\n'*}
+    MATH_FE_ERROR="$__m_awk (${__m_path:-?}${__m_id:+, $__m_id}) cannot run the engine:"
+    if [[ $__m_awk == gawk ]]; then
+        MATH_FE_ERROR+=" ${__m_why[-]:-no answer}"
+    else
+        MATH_FE_ERROR+=" with -W interactive ${__m_why[W]:-no answer}; without it ${__m_why[-]:-no answer}"
+    fi
+    kk.debug "math: float engine not started: $MATH_FE_ERROR"
     return 1
 }
 
@@ -837,6 +941,12 @@ math._fe() {
     case $__m_req in
         *$'\n'*) REPLY=""; return 1 ;;
     esac
+    # mawk -W interactive never answers a line of 4096+ characters (see
+    # __MATH_FE_LINEMAX): refuse it here rather than block the caller forever
+    if [[ -n ${__MATH_FE_LINEMAX:-} ]] && (( ${#__m_req} > __MATH_FE_LINEMAX )); then
+        kk.debug "math: request of ${#__m_req} characters exceeds this awk's line buffer ($__MATH_FE_LINEMAX)"
+        REPLY=""; return 1
+    fi
     printf '%s\n' "$__m_req" >&"$__MATH_FE_IN" 2>/dev/null || {
         math._fe_drop; REPLY=""; return 1
     }
