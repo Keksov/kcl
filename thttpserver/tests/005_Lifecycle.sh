@@ -37,14 +37,12 @@ kt_test_section "005: lifecycle — leaks, traps, port release, TERM (P2)"
 # The child-side probe: `chk TAG` appends TAG_traps / _fds / _children /
 # _dirs / _left to the result file. Fork-free except the one $(trap -p).
 CHK='
+source "$THS_LIB"
 chk() {
-    local t p pp n=0 d dirs="" v left=""
+    local t n d dirs="" v left=""
     t="$(trap -p INT TERM PIPE)"
-    local -a f=(/proc/$BASHPID/fd/*)
-    for p in /proc/[0-9]*; do
-        pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue
-        if [[ "$pp" == "$BASHPID" ]]; then n=$(( n + 1 )); fi
-    done
+    ths_fdcount
+    ths_children_of $BASHPID; n=$THS_NCHILD
     for d in "$TMPDIR"/thttpserver.*; do if [[ -e "$d" ]]; then dirs+=" $d"; fi; done
     for v in S_req_data S_req_class S_req_hdr S_req_hdrn S_req_qf S_req_rp S_resp_data S_resp_class S_resp_hdr S_resp_hdrn S_tr_data S_tr_class; do
         if declare -p "$v" >/dev/null 2>&1; then left+=" $v"; fi
@@ -52,7 +50,7 @@ chk() {
     if declare -F S_req.Method >/dev/null; then left+=" S_req.Method"; fi
     if declare -F S_tr.Accept >/dev/null; then left+=" S_tr.Accept"; fi
     printf "%s_traps=%s\n%s_fds=%s\n%s_children=%s\n%s_dirs=[%s]\n%s_left=[%s]\n" \
-        "$1" "${t//$'"'"'\n'"'"'/|}" "$1" "${#f[@]}" "$1" "$n" "$1" "$dirs" "$1" "$left" >> "$SRV_DIR/result"
+        "$1" "${t//$'"'"'\n'"'"'/|}" "$1" "$THS_NFD" "$1" "$n" "$1" "$dirs" "$1" "$left" >> "$SRV_DIR/result"
 }
 '
 
@@ -228,7 +226,8 @@ else
 
     kt_test_start "${L2_TITLES[5]}"
     "$THS_NC" -l -n -vv -w 1 -s 127.0.0.1 -p "$THS_PORT" >/dev/null 2>"$TMP/probe.err" </dev/null
-    if grep -q '^Listening on' "$TMP/probe.err"; then kt_test_pass "bound"; else kt_test_fail "probe: $(tr '\n' ' ' < "$TMP/probe.err")"; fi
+    ths_mark
+    if grep -Eq "$THS_RE_BOUND" "$TMP/probe.err"; then kt_test_pass "bound"; else kt_test_fail "probe: $(tr '\n' ' ' < "$TMP/probe.err")"; fi
 
     kt_test_start "${L2_TITLES[6]}"
     e="$(<"$THS_DIR/err")"
@@ -244,8 +243,9 @@ L3_TITLES=(
     "no child process and no temp dir left; stderr empty"
 )
 SNIP_L3='
+source "$THS_LIB"
 S.AcceptIdleTimeout = 0
-l3_after() { local p pp n=0 d dirs=""; for p in /proc/[0-9]*; do pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue; [[ "$pp" == "$BASHPID" ]] && n=$(( n + 1 )); done
+l3_after() { local n d dirs=""; ths_children_of $BASHPID; n=$THS_NCHILD
     for d in "$TMPDIR"/thttpserver.*; do [[ -e "$d" ]] && dirs+=" $d"; done
     printf "children=%s\ndirs=[%s]\n" "$n" "$dirs" >> "$SRV_DIR/result"; }
 AFTER_HOOK=l3_after
@@ -280,6 +280,7 @@ L4_TITLES=(
     "Shutdown of a transport whose only slot is listening: well under CloseTimeout (< 1.5 s of 5 s), listener reaped, dir removed"
 )
 SNIP_L4='
+source "$THS_LIB"
 NO_SERVE=1
 TNetcatTransport.new T
 T.Port = "$PORT"
@@ -289,8 +290,7 @@ t0=${EPOCHREALTIME//[!0-9]/}
 T.Shutdown
 t1=${EPOCHREALTIME//[!0-9]/}
 T.LastError
-l4_n=0
-for p in /proc/[0-9]*; do pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue; [[ "$pp" == "$BASHPID" ]] && l4_n=$(( l4_n + 1 )); done
+ths_children_of $BASHPID; l4_n=$THS_NCHILD
 l4_d=""; for d in "$TMPDIR"/thttpserver.*; do [[ -e "$d" ]] && l4_d+=" $d"; done
 printf "accept=%s\nshutdown_us=%s\nle=%s\nchildren=%s\ndirs=[%s]\n" "$r" "$(( t1 - t0 ))" "$RESULT" "$l4_n" "$l4_d" >> "$SRV_DIR/result"
 T.delete

@@ -427,6 +427,7 @@ kt_test_section "1. real sockets: one long-lived server (facts 1, 2, 3, 6, 7, 8,
 # ===========================================================================
 
 SNIP_A='
+source "$THS_LIB"
 printf -v A_BIG "%s" x
 while (( ${#A_BIG} < 50000 )); do A_BIG+="$A_BIG"; done
 A_BIG="${A_BIG:0:50000}"
@@ -449,12 +450,8 @@ a_hold()  {
     $2.Write "hold-done"
 }
 a_tick() {
-    local p pp s=""
-    for p in /proc/[0-9]*; do
-        pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue
-        if [[ "$pp" == "$BASHPID" ]]; then s+=" ${p#/proc/}"; fi
-    done
-    printf "%s\n" "${s# }" >> "$SRV_DIR/tick.log"
+    ths_children_pids $BASHPID
+    printf "%s\n" "$THS_CPIDS" >> "$SRV_DIR/tick.log"
 }
 TICK_HOOK=a_tick
 THttpRouter.new RT
@@ -471,7 +468,7 @@ RT.RegisterRoute /k/:key GET a_key
 RT.RegisterRoute /hold  GET  a_hold
 S.Router = RT
 S.OnRequestError = a_err
-a_after() { local p pp n=0; for p in /proc/[0-9]*; do pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue; [[ "$pp" == "$BASHPID" ]] && n=$(( n + 1 )); done; printf "children=%s\n" "$n" >> "$SRV_DIR/result"; }
+a_after() { ths_children_of $BASHPID; printf "children=%s\n" "$THS_NCHILD" >> "$SRV_DIR/result"; }
 AFTER_HOOK=a_after
 '
 
@@ -652,6 +649,13 @@ else
         if [[ "$r $code" == "0 200" ]]; then ok=$(( ok + 1 )); fi
         resets=$(( resets + nr ))
     done
+    # the access line is written after the response: wait until all 8 are logged
+    par_logged() {
+        local n=0 l
+        while IFS= read -r l; do [[ "$l" == *" GET /par 200 "* ]] && n=$(( n + 1 )); done < "$A_DIR/access.log"
+        (( n >= 8 ))
+    }
+    ths_poll 5 par_logged || :
     handled=0; while IFS= read -r l; do [[ "$l" == *" GET /par 200 "* ]] && handled=$(( handled + 1 )); done < "$A_DIR/access.log"
     if [[ $ok -eq 8 && $handled -eq 8 ]]; then kt_test_pass "8/8, handled exactly 8 (backlog resets retried: $resets)"; else kt_test_fail "$ok/8 handled=$handled: $o"; fi
 
@@ -682,16 +686,18 @@ if ! ths_have_nc; then
 else
     kt_test_start "$B_TITLE"
     BL=""; bport=""
+    ths_mark
     for try in 1 2 3 4 5; do
         ths_nport; bport="$THS_PORT"
         "$THS_NC" -l -n -vv -w 170 -s 127.0.0.1 -p "$bport" >/dev/null 2>"$TMP/blocker.err" </dev/null &
         BL=$!
-        if ths_poll 30 grep -q '^Listening on' "$TMP/blocker.err"; then break; fi
+        if ths_poll 30 grep -Eq "$THS_RE_BOUND" "$TMP/blocker.err"; then break; fi
         kill "$BL" 2>/dev/null; wait "$BL" 2>/dev/null; BL=""
     done
     B_DIR="$TMP/b"; rm -rf "$B_DIR"; mkdir -p "$B_DIR/tmp"
     ths_server_script "$B_DIR/srv.sh" '
-b_after() { local p pp n=0; for p in /proc/[0-9]*; do pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue; [[ "$pp" == "$BASHPID" ]] && n=$(( n + 1 )); done; printf "children=%s\n" "$n" >> "$SRV_DIR/result"; }
+source "$THS_LIB"
+b_after() { ths_children_of $BASHPID; printf "children=%s\n" "$THS_NCHILD" >> "$SRV_DIR/result"; }
 AFTER_HOOK=b_after'
     if (( THS_NC_ENV )); then export KCL_NC="$THS_NC"; fi
     UNIT="$UNIT" SRV_DIR="$B_DIR" PORT="$bport" TMPDIR="$B_DIR/tmp" timeout 180 "$BASH" "$B_DIR/srv.sh" >"$B_DIR/out" 2>"$B_DIR/err" </dev/null
@@ -727,8 +733,9 @@ else
 exec </dev/null
 cd "$SRV_DIR" || exit 90
 source "$UNIT" || exit 91
+source "$THS_LIB"
 unset -v KCL_NC
-kids() { local p pp n=0; for p in /proc/[0-9]*; do pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue; [[ "$pp" == "$BASHPID" ]] && n=$(( n + 1 )); done; KIDS=$n; }
+kids() { ths_children_of $BASHPID; KIDS=$THS_NCHILD; }
 one() {   # TAG NCBINARY [PATH]
     local rc=0 t0 ms le dirs d
     TNetcatTransport.new T

@@ -443,19 +443,19 @@ R1.RegisterRoute /a GET fa
 "$SRV.MaxRequests" = 2
 trap ': custom int' INT; trap ': custom term' TERM; trap ': custom pipe' PIPE
 tb="$(trap -p INT TERM PIPE)"
-fb=(/proc/$BASHPID/fd/*)
+ths_fdcount; fb=$THS_NFD
 R1.Run
-fa2=(/proc/$BASHPID/fd/*)
+ths_fdcount; fa2=$THS_NFD
 ta="$(trap -p INT TERM PIPE)"
 trap - INT TERM PIPE
 left=""
 for v in R1_server_req_data R1_server_resp_data R1_server_req_class R1_server_resp_class; do declare -p "$v" >/dev/null 2>&1 && left+=" $v"; done
 declare -F R1_server_req.Method >/dev/null && left+=" R1_server_req.Method"
 "$SRV.Active"; ac="$RESULT"
-if [[ "$tb" == *"custom int"*"custom term"*"custom pipe"* && "$ta" == "$tb" && ${#fb[@]} -eq ${#fa2[@]} && -z "$left" && "$ac" == 0 ]]; then
-    kt_test_pass "traps restored, ${#fb[@]} fds, nothing left"
+if [[ "$tb" == *"custom int"*"custom term"*"custom pipe"* && "$ta" == "$tb" && $fb -eq $fa2 && -z "$left" && "$ac" == 0 ]]; then
+    kt_test_pass "traps restored, $fb fds, nothing left"
 else
-    kt_test_fail "traps '$tb' → '$ta' fds ${#fb[@]} → ${#fa2[@]} left:$left active=$ac"
+    kt_test_fail "traps '$tb' → '$ta' fds $fb → $fa2 left:$left active=$ac"
 fi
 
 kt_test_start "Run and DoRun before Initialize → rc 2 (DoRun also terminates), silent; one kk.debug line each under debug"
@@ -650,6 +650,7 @@ kt_test_section "2. real sockets: the application as a child script (facts 10, 1
 APP_HEAD='exec </dev/null
 cd "$SRV_DIR" || exit 90
 source "$UNIT_DIR/thttpapplication.sh" || exit 91
+source "$THS_LIB"
 printf "%s" "$BASHPID" > "$SRV_DIR/pid"
 __t_ticks=0
 __t_last=0
@@ -664,19 +665,16 @@ __t_idle() {
 }
 __t_log() { printf "%s\n" "$2" >> "$SRV_DIR/access.log"; }
 chk() {
-    local t p pp n=0 d dirs="" v left=""
+    local t n d dirs="" v left=""
     t="$(trap -p INT TERM PIPE)"
-    local -a f=(/proc/$BASHPID/fd/*)
-    for p in /proc/[0-9]*; do
-        pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue
-        if [[ "$pp" == "$BASHPID" ]]; then n=$(( n + 1 )); fi
-    done
+    ths_fdcount
+    ths_children_of $BASHPID; n=$THS_NCHILD
     for d in "$TMPDIR"/thttpserver.*; do if [[ -e "$d" ]]; then dirs+=" $d"; fi; done
     for v in "$2_req_data" "$2_resp_data" "$2_tr_data" "$2_req_hdr" "$2_resp_hdr"; do
         if declare -p "$v" >/dev/null 2>&1; then left+=" $v"; fi
     done
     printf "%s_traps=%s\n%s_fds=%s\n%s_children=%s\n%s_dirs=[%s]\n%s_left=[%s]\n" \
-        "$1" "${t//$'"'"'\n'"'"'/|}" "$1" "${#f[@]}" "$1" "$n" "$1" "$dirs" "$1" "$left" >> "$SRV_DIR/result"
+        "$1" "${t//$'"'"'\n'"'"'/|}" "$1" "$THS_NFD" "$1" "$n" "$1" "$dirs" "$1" "$left" >> "$SRV_DIR/result"
 }
 '
 # app_script FILE BODY — APP_HEAD + BODY into FILE (outside the child's dir).
@@ -779,7 +777,8 @@ else
     kt_test_start "${S1_TITLES[5]}"
     "$THS_NC" -l -n -vv -w 1 -s 127.0.0.1 -p "$THS_PORT" >/dev/null 2>"$TMP/s1probe.err" </dev/null
     e="$(<"$THS_DIR/err")"
-    if grep -q '^Listening on' "$TMP/s1probe.err" && [[ "${R[deleted_left]:-x}" == "[]" && -z "$e" ]]; then kt_test_pass "bound; nothing left; silent"; else kt_test_fail "probe: $(tr '\n' ' ' < "$TMP/s1probe.err") left=${R[deleted_left]:-?} stderr='${e:0:300}'"; fi
+    ths_mark
+    if grep -Eq "$THS_RE_BOUND" "$TMP/s1probe.err" && [[ "${R[deleted_left]:-x}" == "[]" && -z "$e" ]]; then kt_test_pass "bound; nothing left; silent"; else kt_test_fail "probe: $(tr '\n' ' ' < "$TMP/s1probe.err") left=${R[deleted_left]:-?} stderr='${e:0:300}'"; fi
 fi
 
 # ---------------------------------------------------------------------------

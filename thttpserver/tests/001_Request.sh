@@ -524,7 +524,7 @@ if [[ "$a" == "2" && -n "$G" ]]; then kt_test_pass "rc 2 '$G'"; else kt_test_fai
 
 mk r1.req "first request"; mk r2.req "second request"
 T.AddRequestFile "$TMP/r1.req"; T.AddRequestFile "$TMP/r2.req"
-fdcount() { local f=(/proc/$BASHPID/fd/*); FDN=${#f[@]}; }
+fdcount() { local d=/proc/$BASHPID/fd; [[ -d $d ]] || d=/dev/fd; local f=("$d"/*); FDN=${#f[@]}; }
 fdcount; fd0=$FDN
 
 kt_test_start "Accept #1: rc 0, InFd reads request 1, OutFd writes to ResponseFile 0; FirstLine '' TimedOut 0"

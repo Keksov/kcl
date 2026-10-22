@@ -23,6 +23,9 @@
 
 unset -v HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy NO_PROXY no_proxy FTP_PROXY ftp_proxy
 
+# the process table (kt_proc_snapshot) for ths_children_pids/_of/ths_child_of
+[[ -n ${_KT_PROC_SOURCED:-} ]] || source "${BASH_SOURCE[0]%/*}/../../../ktests/ktest_proc.sh"
+
 # ths._backend (the netcat identification) lives in the unit: 005 and 009 do
 # not load it themselves.
 if ! declare -F ths._backend >/dev/null; then
@@ -92,12 +95,27 @@ ths_poll() {
     return 1
 }
 
+# ths_mark — THS_RE_BOUND / THS_RE_BINDFAIL (ERE) from the backend
+# (__THS_BACKEND): the stderr line that says "listener bound" and the line of a
+# bind failure. Any backend but gnu: a pattern that never matches.
+ths_mark() {
+    case "${__THS_BACKEND:-}" in
+        gnu)
+            THS_RE_BOUND='^Listening on'
+            THS_RE_BINDFAIL="Couldn't setup listening socket" ;;
+        *)  # L2.7-N2: socat markers
+            THS_RE_BOUND='a^b'
+            THS_RE_BINDFAIL='a^b' ;;
+    esac
+}
+
 # ths_listening DIR [SLOT] — the server under DIR has a listener bound (its
 # slot's -vv stderr says `Listening on`).
 ths_listening() {
     local f
+    ths_mark
     for f in "$1"/tmp/thttpserver.*/err"${2:-0}"; do
-        if [[ -f "$f" ]] && grep -q '^Listening on' "$f" 2>/dev/null; then return 0; fi
+        if [[ -f "$f" ]] && grep -Eq "$THS_RE_BOUND" "$f" 2>/dev/null; then return 0; fi
     done
     return 1
 }
@@ -106,8 +124,9 @@ ths_listening() {
 # pre-spawned listener of D5, while a request is being handled).
 ths_prespawned() {
     local f
+    ths_mark
     for f in "$1"/tmp/thttpserver.*/err[01]; do
-        if [[ -f "$f" ]] && grep -q '^Listening on' "$f" 2>/dev/null && ! grep -q '^Connection from' "$f" 2>/dev/null; then
+        if [[ -f "$f" ]] && grep -Eq "$THS_RE_BOUND" "$f" 2>/dev/null && ! grep -q '^Connection from' "$f" 2>/dev/null; then
             return 0
         fi
     done
@@ -185,7 +204,8 @@ ths_start() {
         THS_PID=$!
         if ths_poll 170 ths_started; then
             if ths_listening "$THS_DIR"; then return 0; fi
-            if grep -q "Couldn't setup listening socket" "$THS_DIR/result" 2>/dev/null; then
+            ths_mark
+            if grep -Eq "$THS_RE_BINDFAIL" "$THS_DIR/result" 2>/dev/null; then
                 wait "$THS_PID" 2>/dev/null
                 continue
             fi
@@ -228,7 +248,8 @@ ths_launch() {
         THS_PID=$!
         if ths_poll 170 ths_started; then
             if ths_listening "$THS_DIR"; then return 0; fi
-            if grep -q "Couldn't setup listening socket" "$THS_DIR/result" "$THS_DIR/err" 2>/dev/null; then
+            ths_mark
+            if grep -Eq "$THS_RE_BINDFAIL" "$THS_DIR/result" "$THS_DIR/err" 2>/dev/null; then
                 wait "$THS_PID" 2>/dev/null
                 continue
             fi
@@ -238,16 +259,73 @@ ths_launch() {
     return 1
 }
 
-# ths_child_of PID — the pid of PID's child process (the bash that `timeout`
-# runs) into THS_CPID, fork-free through /proc/*/ppid; '' if none.
-ths_child_of() {
-    local p pp
-    THS_CPID=""
-    for p in /proc/[0-9]*; do
-        pp=""; { read -r pp < "$p/ppid"; } 2>/dev/null || continue
-        if [[ "$pp" == "$1" ]]; then THS_CPID="${p#/proc/}"; return 0; fi
+# Process helpers — ONE kt_proc_snapshot each (ktests/ktest_proc.sh: /proc on
+# cygwin and Linux, one `ps` elsewhere); the caller's REPLY is kept. On no
+# backend the result variable is empty and the rc is 1.
+#
+# ths_children_pids PID — THS_CPIDS = the pids whose parent is PID,
+# space-separated, numerically ascending.
+ths_children_pids() {
+    local __ths_reply=${REPLY-} __ths_p __ths_i
+    local -a __ths_a=()
+    THS_CPIDS=""
+    kt_proc_snapshot || { REPLY=$__ths_reply; return 1; }
+    for __ths_p in "${!KT_PROC_PP[@]}"; do
+        if [[ "${KT_PROC_PP[$__ths_p]}" == "$1" ]]; then
+            # insertion into the numerically ascending list (no fork, no sort)
+            __ths_i=${#__ths_a[@]}
+            while (( __ths_i > 0 )) && (( __ths_a[__ths_i - 1] > __ths_p )); do
+                __ths_a[__ths_i]=${__ths_a[__ths_i - 1]}; __ths_i=$(( __ths_i - 1 ))
+            done
+            __ths_a[__ths_i]=$__ths_p
+        fi
     done
-    return 1
+    THS_CPIDS="${__ths_a[*]}"
+    REPLY=$__ths_reply
+    return 0
+}
+
+# ths_children_of PID — THS_NCHILD = how many processes have PID as parent.
+ths_children_of() {
+    local __ths_reply=${REPLY-} __ths_p
+    THS_NCHILD=""
+    kt_proc_snapshot || { REPLY=$__ths_reply; return 1; }
+    THS_NCHILD=0
+    for __ths_p in "${!KT_PROC_PP[@]}"; do
+        if [[ "${KT_PROC_PP[$__ths_p]}" == "$1" ]]; then THS_NCHILD=$(( THS_NCHILD + 1 )); fi
+    done
+    REPLY=$__ths_reply
+    return 0
+}
+
+# ths_child_of PID — the pid of PID's child process (the bash that `timeout`
+# runs) into THS_CPID: the numerically lowest; '' (rc 1) if none.
+ths_child_of() {
+    local __ths_reply=${REPLY-} __ths_p
+    THS_CPID=""
+    kt_proc_snapshot || { REPLY=$__ths_reply; return 1; }
+    for __ths_p in "${!KT_PROC_PP[@]}"; do
+        if [[ "${KT_PROC_PP[$__ths_p]}" == "$1" ]]; then
+            if [[ -z "$THS_CPID" ]] || (( __ths_p < THS_CPID )); then THS_CPID=$__ths_p; fi
+        fi
+    done
+    REPLY=$__ths_reply
+    [[ -n "$THS_CPID" ]]
+}
+
+# ths_fdcount — THS_NFD = the open fds of this shell: /proc/$BASHPID/fd
+# (cygwin, Linux), else /dev/fd (FreeBSD fdescfs, macOS); '' and rc 1 if neither.
+ths_fdcount() {
+    local -a __ths_f
+    THS_NFD=""
+    if [[ -d /proc/$BASHPID/fd ]]; then
+        __ths_f=(/proc/$BASHPID/fd/*)
+    elif [[ -d /dev/fd ]]; then
+        __ths_f=(/dev/fd/*)
+    else
+        return 1
+    fi
+    THS_NFD=${#__ths_f[@]}
 }
 
 # ths_reap SECONDS — wait up to SECONDS for the child to end by itself; if it
