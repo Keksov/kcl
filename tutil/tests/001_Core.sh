@@ -556,12 +556,12 @@ else
 fi
 unset -v uV_exprs
 
-kt_test_start "sourcing tsed APPENDS \`_exprs\` (and \`__tsd_\` to the prefixes), once"
+kt_test_start "sourcing tsed APPENDS \`_exprs _rfrom _rto _rflags\` (and \`__tsd_\` to the prefixes), once"
 source "$TSED_UNIT"
 source "$TSED_UNIT"
 declare -a SREG1=( "${TUTIL_OUT_SUFFIXES[@]}" )
 declare -a PREG1=( "${TUTIL_OUT_PREFIXES[@]}" )
-if arr_is SREG1 _args _argv _paths _exprs && arr_is PREG1 __tu_ __tg_ __th_ __tt_ __tfd_ __tsd_; then
+if arr_is SREG1 _args _argv _paths _exprs _rfrom _rto _rflags && arr_is PREG1 __tu_ __tg_ __th_ __tt_ __tfd_ __tsd_; then
     kt_test_pass "suffixes (${TUTIL_OUT_SUFFIXES[*]}); prefixes (${TUTIL_OUT_PREFIXES[*]})"
 else
     kt_test_fail "suffixes (${TUTIL_OUT_SUFFIXES[*]}); prefixes (${TUTIL_OUT_PREFIXES[*]})"
@@ -588,8 +588,8 @@ RESULT="sentinel"
 uV.argv TUTIL_OUT_SUFFIXES >/dev/null 2>&1
 sreg_rc=$?
 declare -a SREG2=( "${TUTIL_OUT_SUFFIXES[@]}" )
-if [[ $sreg_rc -eq 2 && -z "$RESULT" ]] && arr_is SREG2 _args _argv _paths _exprs; then
-    kt_test_pass "rc 2, RESULT '', the four suffixes untouched"
+if [[ $sreg_rc -eq 2 && -z "$RESULT" ]] && arr_is SREG2 _args _argv _paths _exprs _rfrom _rto _rflags; then
+    kt_test_pass "rc 2, RESULT '', the seven suffixes untouched"
 else
     kt_test_fail "rc=$sreg_rc RESULT='$RESULT' registry=(${TUTIL_OUT_SUFFIXES[*]})"
 fi
@@ -658,8 +658,8 @@ for n in uV_args uV_argv uV_paths uV_exprs; do
     [[ $? -eq 2 ]] || sback_all=0
 done
 if [[ $sback_rc -eq 0 && "$sback_all" == "1" ]] && arr_is SPLAIN4 "printf" "hello" \
-   && arr_is SREG_SAVE _args _argv _paths _exprs; then
-    kt_test_pass "argv=(printf hello) again; all four suffixes refused again"
+   && arr_is SREG_SAVE _args _argv _paths _exprs _rfrom _rto _rflags; then
+    kt_test_pass "argv=(printf hello) again; the seven suffixes restored, the four instance arrays refused again"
 else
     kt_test_fail "rc=$sback_rc allRefused=$sback_all SPLAIN4=$(arr_show SPLAIN4) registry=(${TUTIL_OUT_SUFFIXES[*]})"
 fi

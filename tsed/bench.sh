@@ -10,7 +10,7 @@
 #       deny-list scan is this unit's own addition to the build and the refusal
 #       is the path a caller reaches by accident;
 #   (b) THE WRAPPER'S FIXED DELTA — exactly what `TSed.edit` does around the one
-#       fork, on its own line: `new` (ELEVEN properties assigned, two arrays
+#       fork, on its own line: `new` (ELEVEN properties assigned, five arrays
 #       declared, where tfind's constructor assigns nine and declares one),
 #       `addExpr`, `sandbox = 1`, the build (with the deny-list scan over the
 #       empty extras) and `delete`. It is a per-CALL cost and never a per-record
@@ -242,10 +242,45 @@ b_ctor=$(( t1 - t0 )); (( b_ctor > 0 )) || b_ctor=1
 report "new+addExpr+sandbox+argv+delete (edit delta)" "$b_ctor" "$ND" "call"
 per_ctor=$(( b_ctor / ND ))
 echo "  this is the WHOLE difference between \`TSed.edit\` and the bare tool below;"
-echo "  the constructor assigns ELEVEN properties and declares two arrays (tfind:"
+echo "  the constructor assigns ELEVEN properties and declares five arrays (tfind:"
 echo "  nine and one), the build scans the extras against the deny-list; it is paid"
 echo "  once per CALL, never per record, and it does not grow with the corpus —"
 echo "  the process start it is measured against does not either."
+
+# ===========================================================================
+# (b2) the H1 literal-replace statics (kcl/tutil/HELPERS_PLAN.md §2) —
+# published, NOT gated: the escapers are pure bash (no fork), `replace` /
+# `replaceInFile` are one instance build + one fork, like `edit` (tutil PLAN §6)
+# ===========================================================================
+echo
+echo "(b2) the H1 statics — one line each (published, not gated):"
+H_FROM='a.b*c[d]e^f$g\h/i+j?k|l(m){2}&'
+TStopwatch.getTimeStamp; t0=$RESULT
+for (( i = 0; i < ND; i++ )); do TSed.quoteRe "$H_FROM" ere; done
+TStopwatch.getTimeStamp; t1=$RESULT
+b_q=$(( t1 - t0 )); (( b_q > 0 )) || b_q=1
+report "TSed.quoteRe PROBE ere (no fork)" "$b_q" "$ND" "call"
+TStopwatch.getTimeStamp; t0=$RESULT
+for (( i = 0; i < ND; i++ )); do TSed.quoteRepl "$H_FROM"; done
+TStopwatch.getTimeStamp; t1=$RESULT
+b_q=$(( t1 - t0 )); (( b_q > 0 )) || b_q=1
+report "TSed.quoteRepl PROBE (no fork)" "$b_q" "$ND" "call"
+declare -a T_RP=() T_RF=()
+s_rp=0; s_rf=0
+cp "$ONE" "$BD/one_rf.txt"
+TSed.replace 'a' 'A' "$ONE" >/dev/null 2>&1 || :
+for (( i = 0; i < NR; i++ )); do
+    TStopwatch.getTimeStamp; t0=$RESULT
+    TSed.replace 'a' 'A' "$ONE" >/dev/null || :
+    TStopwatch.getTimeStamp; t1=$RESULT
+    T_RP+=( $(( t1 - t0 )) ); s_rp=$(( s_rp + t1 - t0 ))
+    TStopwatch.getTimeStamp; t0=$RESULT
+    TSed.replaceInFile 'A' 'a' "$BD/one_rf.txt" || :
+    TStopwatch.getTimeStamp; t1=$RESULT
+    T_RF+=( $(( t1 - t0 )) ); s_rf=$(( s_rf + t1 - t0 ))
+done
+median T_RP; report_med "TSed.replace a A one.txt (stream)" "$MED" "$s_rp" "$NR"
+median T_RF; report_med "TSed.replaceInFile A a one_rf.txt (in place)" "$MED" "$s_rf" "$NR"
 
 # ===========================================================================
 # (c) the gate: TSed.edit vs a bare `sed --sandbox -e … -- FILE`

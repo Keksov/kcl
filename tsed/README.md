@@ -1,13 +1,14 @@
 # tsed — `TSed`, the GNU `sed` wrapper
 
-> **Status: COMPLETE (P0 + P1).** `TSed : TUtil` is the whole unit — the class,
+> **Status: COMPLETE (P0 + P1, H1).** `TSed : TUtil` is the whole unit — the class,
 > the pinned argv, the rc 2 list with the owner's deny-list, the `mapRc`
 > override, the five overridden sinks, `paths` / `addExpr` / `clearExprs`, the
 > destructor, the static `TSed.edit`, the bench and the docs — plus the
 > `TUTIL_OUT_SUFFIXES` registry this unit introduced in
-> [`../tutil`](../tutil/README.md). Suite: `tests/004_Argv.sh` (146),
-> `tests/005_Run.sh` (70), `tests/006_Contract.sh` (66), `tests/007_Bench.sh`
-> (11) — **293 checks green on bash 5.2.37 and 293 on bash 5.3.9**, threaded and
+> [`../tutil`](../tutil/README.md). Suite: `tests/004_Argv.sh`,
+> `tests/005_Run.sh`, `tests/006_Contract.sh`, `tests/007_Bench.sh`,
+> `tests/008_Helpers.sh` (H1) — **every check green on bash 5.2.37 and on
+> bash 5.3.9** (the per-file counts and the total are in §9), threaded and
 > (5.2.37) under `--mode single`, against **GNU sed 4.9** (5.2.37 resolves Git
 > for Windows' `sed.exe`, 5.3.9 msys64's; both 4.9, byte-identical in every
 > probe). What the tests pin, case by case:
@@ -27,6 +28,13 @@
 > (`-i.bak`, `-es/a/b/`) are the same options and are refused too. One plan fact
 > was corrected: **`*` in the in-place suffix is the operand AS GIVEN**, directory
 > part included, not its base name (§6).
+>
+> **H1 (launch L2.7-H, 2026-10-22): literal replace.** Five members that take
+> **data, never sed syntax** — `addReplace FROM TO [FLAGS]`, the statics
+> `TSed.replace` / `TSed.replaceInFile`, and the escapers `TSed.quoteRe` /
+> `TSed.quoteRepl` (§7, §7a). Design and decisions:
+> [`../tutil/HELPERS_PLAN.md`](../tutil/HELPERS_PLAN.md) §2 and §5; tests:
+> `tests/008_Helpers.sh` (§9).
 
 `TSed` is a [`TUtil`](../tutil/README.md) descendant: typed properties instead
 of a hand-built command string, one rc convention, and the five `TPipe` sinks.
@@ -36,6 +44,7 @@ source /path/to/kbool/kbool.sh
 kk.uses tsed
 
 TSed.edit 's/foo/bar/' notes.txt       # the one-liner: `sed --sandbox -e EXPR -- notes.txt`
+TSed.replace 'C:\dir\a.txt' 'D:\x' notes.txt   # LITERAL text, no escaping by hand (§7a)
 
 TSed.new s 's/a/A/' in.txt             # or an instance, for options
 s.addExpr '/^#/d'                      # more expressions, emitted in call order
@@ -85,7 +94,8 @@ TSed.new INST [EXPR [PATH...]]         # EXPR -> expr, the rest are paths
 |---|---|---|---|
 | `expr` | var | `-e EXPR` | the **first** expression; `''` = none (the identity is `addExpr ''`) |
 | `addExpr EXPR...` | proc | `-e X` each | appended after `expr`, in call order; an **empty** argument is a real element (`-e ''`) |
-| `clearExprs` | proc | — | empties the list; `expr` is left alone |
+| `addReplace FROM TO [FLAGS]` | proc | `-e s/…/…/[g][I]` | a **literal** replacement, kept in call order with `addExpr`; escaped at build time (§7a) |
+| `clearExprs` | proc | — | empties the list (and the `addReplace` data); `expr` is left alone |
 | `scriptFile` | var | `-f FILE` | `''` = off; emitted **after** the expressions |
 | `extended` | var | `-E` | |
 | `quiet` | var | `-n` | |
@@ -100,6 +110,10 @@ TSed.new INST [EXPR [PATH...]]         # EXPR -> expr, the rest are paths
 | `mapRc RAW` | func | — | override; §2 |
 | `each` `toArray` `toList` `first` `count` | overrides | — | refuse `inPlace` / `--debug` (rc 2), else the base sink |
 | `TSed.edit EXPR PATH...` | static proc | — | §7 |
+| `TSed.replace FROM TO PATH...` | static proc | — | literal, every occurrence, a stream — §7, §7a |
+| `TSed.replaceInFile FROM TO PATH...` | static proc | — | the same **in place**, no backup — §7, §7a |
+| `TSed.quoteRe TEXT [ere]` | static proc | — | RESULT: TEXT as a literal regex — §7a |
+| `TSed.quoteRepl TEXT` | static proc | — | RESULT: TEXT as a literal replacement — §7a |
 
 Inherited from TUtil unchanged: `cmd` (`sed`), `crlf`, `nul`, `_lastRc`,
 **`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`, `lastRc`.
@@ -167,6 +181,13 @@ and `lastRc` stays `-1` on a fresh instance.
 | `backupSuffix = '*'` | the backup name would equal the file's: **no backup, silently** |
 | an extra on the **deny-list** (owner Q6, below) | it would duplicate a typed property or break the record stream |
 | **`--` among the extras** | it ends sed's options before the first `-e`, so every expression would become an operand (measured: `sed --sandbox -- -e s/a/A/ -- f`); the wrapper emits its own `--` before the paths |
+| an `addReplace` with an **empty FROM** | sed would reuse the previous regex |
+| an `addReplace` FROM holding a **newline** while `nullData` is not `1` | a line never contains one, so it could never match |
+| an `addReplace` **FLAGS word** that is not `rfReplaceAll` / `rfIgnoreCase` | the line names the word (§7a) |
+
+`addExpr` refuses one word of its own: **`addExpr '__tsd_r__'`** is rc 2 with one
+line and nothing of that call appended — the word is reserved (§3). `addReplace`
+refuses **more than three arguments** the same way, at the call (§7a).
 
 No expression text is validated by the wrapper — sed compiles it (a bad
 script is sed's rc 1). The five sinks add two refusals of their own (§6):
@@ -280,6 +301,17 @@ s.addExpr 's/b/J/' '}'                 # sed --sandbox -e '2{' -e 's/b/J/' -e '}
 
 `${inst}_exprs` is the unit's own storage: it is on the out-name registry (§8),
 so `s.toArray s_exprs` cannot turn the records into the next run's script.
+`addReplace` (§7a) shares that list, so the two kinds of element keep their call
+order.
+
+### Reserved words
+
+Two words belong to the wrapper and must not be used by a script:
+
+| word | what it is | if a caller uses it |
+|---|---|---|
+| `__tsd_cr` | the label of the CR prelude (§5) | a script's own `b __tsd_cr` / `:__tsd_cr` collides with the prelude's label off Windows |
+| `__tsd_r__` | the `addReplace` marker in `${inst}_exprs` (§7a) | `addExpr '__tsd_r__'` (and `TSed.edit '__tsd_r__' …`) is **rc 2**, one line, nothing appended |
 
 ---
 
@@ -408,7 +440,22 @@ is harmless):
 
 ---
 
-## 7. `TSed.edit EXPR PATH...` — the one-liner
+## 7. The one-liners
+
+| static | what it runs | output |
+|---|---|---|
+| `TSed.edit EXPR PATH...` | `sed --sandbox -e EXPR -- PATH...` — EXPR is sed syntax | a **stream** to stdout |
+| `TSed.replace FROM TO PATH...` | `sed --sandbox -e 's/<FROM>/<TO>/g' -- PATH...` — FROM and TO are **literal text**, escaped for you (§7a) | a **stream** to stdout; never in place |
+| `TSed.replaceInFile FROM TO PATH...` | the same with `-b -i` — **in place, no backup** | nothing; the files are rewritten |
+
+All three are `static proc`s built the same way — a throw-away instance
+`__tsd_e_${BASHPID}_${__TSD_SEQ}`, the sandbox forced, `run`, `delete` — so they
+are nested-safe, print nothing of their own, never call `kk._return`, and need
+**at least one path** (rc 2 with one line otherwise; with none sed would read the
+caller's stdin, which stays unread). For any option, or the stdin form, build
+an instance.
+
+### `TSed.edit EXPR PATH...`
 
 `sed --sandbox -e EXPR -- PATH...` as a **stream**, rc mapped. A `static proc`:
 it prints sed's stdout and has no return channel.
@@ -434,18 +481,125 @@ All three deliver bytes identical to `sed --sandbox -e 's/a/A/' -- f.txt`.
   nested `edit` from inside an outer sink's callback is safe (a unique name per
   call) and leaves the outer instance untouched.
 
+### `TSed.replace` / `TSed.replaceInFile FROM TO PATH...`
+
+```bash
+TSed.replace 'a.b*' 'x&y' f.txt                 # to the terminal
+TSed.replace 'a.b*' 'x&y' f.txt | TPipe.each cb # lastpipe
+TPipe.each cb -- TSed.replace 'a.b*' 'x&y' f.txt  # the safe `--` form
+TSed.replaceInFile 'v1.2' 'v1.3' a.txt b.txt    # in place, CRLF kept, no backup
+```
+
+* every occurrence of FROM, literally (FLAGS are an instance matter:
+  `addReplace`, §7a); FROM and TO may hold any byte sed passes;
+* `replace` never edits in place; `replaceInFile` sets `inPlace = 1`, so the
+  derived `-b` keeps every CR on disk (§5), and makes **no backup** (HELPERS_PLAN
+  D3 — `backupSuffix` is one instance line for those who want one);
+* **sed rewrites every file it edits in place even with zero matches** — the
+  bytes stay identical, the mtime changes;
+* an empty FROM, or a FROM holding a newline, is rc 2 (`buildArgv`'s line);
+  `replaceInFile … -` is the in-place rc 2 for the path `-`;
+* a missing file is rc 1 with one line (sed's raw 2, mapped), the other files
+  are still processed.
+
+---
+
+## 7a. Literal replace — `addReplace`, `quoteRe`, `quoteRepl`
+
+sed's `s///` takes **syntax**: a `.`, `*` or `/` in the text, an `&` or `\1` in
+the replacement, and sed silently does something else. These members take
+**data** and do the escaping ([HELPERS_PLAN](../tutil/HELPERS_PLAN.md) §2):
+
+```bash
+TSed.new s '' cfg.ini
+s.addReplace 'C:\old\path' 'D:\new & improved'     # every occurrence
+s.addReplace 'Debug=1' 'Debug=0' 'rfIgnoreCase'    # FLAGS given: only what it names
+s.addExpr '/^;/d'                                  # mixes with sed syntax, in call order
+s.toArray lines
+```
+
+**`addReplace FROM TO [FLAGS]`** appends `-e 's/<quoteRe FROM>/<quoteRepl TO>/<flags>'`
+at its place among the `addExpr` elements. It **stores the raw text**; the
+escaping happens in `buildArgv`, so the regex dialect is the one `extended`
+holds **when the argv is built** — `extended = 1` set before or after
+`addReplace` gives the same argv. FLAGS are TStringHelper's tokens and rule
+(`string.replace`):
+
+| FLAGS | flags emitted | meaning |
+|---|---|---|
+| *(no argument)* | `g` | every occurrence |
+| `''` (given, empty) | — | the first occurrence of each line |
+| `rfReplaceAll` | `g` | every occurrence |
+| `rfIgnoreCase` | `I` | the first occurrence, case-insensitively (GNU's `I`; BSD sed is out of scope, D4); non-ASCII letters fold only under a UTF-8 locale (below) |
+| `rfReplaceAll rfIgnoreCase` | `gI` | both, in any order |
+
+The tokens are separated by blanks (`[[:space:]]`) and are case-sensitive; any
+other word (`rfBogus`, a comma-joined `rfReplaceAll,rfIgnoreCase`) is **rc 2**
+at build time with a line naming it. A missing TO is `''` (the text is
+deleted), as in `string.replace`. **More than three arguments** is rc 2 **at
+the call**, one line, nothing appended: `addReplace a b rfReplaceAll
+rfIgnoreCase` (the flags unquoted) would otherwise silently lose a flag — quote
+several flags as one word.
+
+**The escapers** are public, for a caller who writes their own `addExpr`:
+
+| static | escapes | a newline becomes |
+|---|---|---|
+| `TSed.quoteRe TEXT` | `\ / . * [ ^ $` (BRE) | `\n` |
+| `TSed.quoteRe TEXT ere` | the BRE set plus `+ ? ( ) { } \|` (the second argument **exactly** `ere`) | `\n` |
+| `TSed.quoteRe TEXT WORD` | nothing — any other second word (`ERE`, `-E`, `1`, `''`) is **rc 2**, `RESULT ''`, one line: a BRE escape fed to `sed -E` would leave `( ) { } \| + ?` live, so it fails closed | — |
+| `TSed.quoteRepl TEXT` | `\ / &` | `\` + newline |
+
+Both answer in `RESULT` (kcl README §1.1): a direct call prints nothing,
+`v="$(TSed.quoteRe 'a.b')"` prints the value exactly once. The delimiter they
+escape for is `/`. A static has no instance, so the dialect is an argument;
+`addReplace` follows `extended` instead. Measured on GNU sed 4.9, both bashes,
+BRE and `-E`: FROM `a.b*c[d]e^f$g\h/i+j?k|l(m){2}&` and TO `X&Y\1/Z<newline>W`
+round-trip byte-exact (`tests/008_Helpers.sh` §A).
+
+**Edges** (all pinned in `tests/008_Helpers.sh`):
+
+* **CR in text mode** — the line-end CR is gone before the script sees the line
+  (§5, DL11), so a FROM **ending in CR never matches** in text mode (rc 0, the
+  bytes unchanged). `binary = 1` keeps the CR and the same FROM matches;
+* **newline in FROM** — rc 2 in line mode (a line never holds one); with
+  `nullData = 1` it is data, `\n` matches it;
+* **multibyte FROM** — plain matching is locale-independent: the same result
+  under `LC_CTYPE=C.UTF-8` and under `C`. **`rfIgnoreCase` is not**: sed's `I`
+  folds non-ASCII letters (`é`/`É`, Cyrillic `а`/`А`) only under a UTF-8
+  `LC_CTYPE`; under `C` it folds ASCII only. The unit's locale self-heal sets
+  `C.UTF-8` only when the environment names no locale at all, so a caller
+  running under `LC_ALL=C` gets the ASCII-only fold. A TAB is an ordinary
+  character;
+* **zero matches** — rc 0, the bytes identical; in place the file is still
+  rewritten (mtime);
+* `inPlace = 1` + `addReplace` keeps CRLF on disk (the derived `-b`).
+
+**A string in a variable** is not sed's job: use
+[`string.replace`](../tstringhelper/README.md) (TStringHelper, literal, the same
+FLAGS) or [`TRegEx.replace`](../tregex/README.md) (an ERE) — no process at all.
+
+**Storage.** `${inst}_exprs` holds the elements in call order; an `addReplace`
+element is the marker `__tsd_r__` there (a reserved word, §3), and its raw FROM,
+TO and FLAGS sit in `${inst}_rfrom`, `${inst}_rto`, `${inst}_rflags` at the
+same index (`''` in all three for an `addExpr` element; no FLAGS is stored as
+`rfReplaceAll`). `clearExprs` empties all four, `delete` frees them, and the
+three suffixes are on the out-name registry (§8).
+
 ---
 
 ## 8. The out-name registries
 
-`__tsd_` is appended to `TUTIL_OUT_PREFIXES` and `_exprs` to the
+`__tsd_` is appended to `TUTIL_OUT_PREFIXES`, and `_exprs`, `_rfrom`, `_rto`,
+`_rflags` (H1, §7a) to the
 `TUTIL_OUT_SUFFIXES` registry this unit introduced (tutil README §5): measured
 before the fix, `s.toArray s_exprs` filled the instance's own expression list,
 so the records became the **next** run's script (and with `sandbox = 0` a data
 line `e …` a command). `s.argv s_exprs`, `s.toArray s_exprs`, `s.argv __tsd_v`,
 `s.argv TUTIL_OUT_SUFFIXES` and `s.argv TUTIL_OUT_PREFIXES` are rc 2 with the
-expression list intact; both appends are idempotent (re-sourcing the unit adds
-nothing). The registry's own cases — its name refused, the fail-closed empty /
+expression list intact, and so are `s.argv` / `s.toArray` of `s_rfrom`,
+`s_rto`, `s_rflags`; every append is idempotent (re-sourcing the unit, also
+after `kk.unit --forget tsed`, adds nothing). The registry's own cases — its name refused, the fail-closed empty /
 unset / scalar registry — live in `tutil/tests/001_Core.sh` §C.
 
 ---
@@ -458,8 +612,9 @@ bash kcl/tsed/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tsed/tests/tests.sh
 ```
 
-**315 checks, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
-mode and (5.2.37) under `--mode single`, against GNU sed 4.9. Case by case:
+**402 checks, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+mode and (5.2.37) under `--mode single`, against GNU sed 4.9 (315 before H1;
+`008_Helpers.sh` adds 87). Case by case:
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | runs sed? |
@@ -468,6 +623,7 @@ mode and (5.2.37) under `--mode single`, against GNU sed 4.9. Case by case:
 | `005_Run.sh` | 78 | S5–S12 against bare sed on a fixture tree behind the banner gate: every sink, multi-`-e`, `-f`, `-n`, `-s`, the unterminated line, the identity, stdin, exotic names; partial / rc 4 / `q N`; the sandbox with marker files; CR and `-z` byte assertions (`od -c`); in-place on copies (backups, `bak_*` both shapes, the truncation trap, every sink refused, `--debug`); `TSed.edit` in three positions, nested, composed | yes (GNU banner gate first) |
 | `006_Contract.sh` | 66 | S13: source integrity (incl. the rc-preserving overrides and no `-b` bookkeeping var), `set -eu` children through `s.each` and both TPipe forms with every sink call guarded, one debug line per rc 2 / sed-error path and silence on rc 0 and on a `q N` status, D6 + `subshellOk`, the unguarded-sink rule | yes (gated) |
 | `007_Bench.sh` | 11 | the §10 gate as assertions with a **10×** ceiling behind the same banner gate: `TSed.edit` vs bare `sed --sandbox -e … --` over a 200-line and a one-line file (interleaved, medians, byte-identical outputs asserted), the edit delta under 50 ms, `s.count` vs `sed … \| wc -l`; 200 builds invoke the `cmd` zero times, fork nothing and do not accumulate; a refused (deny-list) build is the cheap path too; zero forks for every property, every builder member, `run`, `edit`, the five sinks' callback and `.Add`, and four rc 2 paths | yes (gated) |
+| `008_Helpers.sh` | 87 | H1 literal replace (§7, §7a): `quoteRe`/`quoteRepl` on the owner probe strings byte-exact (`od -c`), BRE and `ere`, direct call silent, `$( )` once, the round trip through real sed; `addReplace` argv by array comparison (the flags, call order with `addExpr`, `extended` before/after, the -E escapes, the storage shape); every sink and `run` against bare sed with a hand-written escape, zero matches, the metachar soup, `& \1 / newline` in TO, multibyte under C.UTF-8 and C (and `rfIgnoreCase` folding non-ASCII only under UTF-8), a TAB; `quoteRe` refusing any dialect word but `ere`; CR in text mode vs `binary`, `nullData` + a newline in FROM; in place with CRLF kept, `replaceInFile` without backup; the rc 2 list with storage intact and stdin unread, the `addReplace` arity refusal, no scratch global left behind; `TSed.replace` in three positions and nested; `delete`/`clearExprs` and the registries, also across `kk.unit --forget tsed` | yes (gated) |
 
 The behavioural files open with a **GNU banner gate**: if `sed --version` does
 not begin with `sed (GNU sed) `, every case below it is a loud `SKIP` rather
@@ -510,7 +666,8 @@ Reading the table:
   the medians moved by two points while the means moved by up to 17 ms.
 - **The delta is one throw-away instance.** The `new` + `addExpr` + `sandbox` +
   `argv` + `delete` row is what `edit` does around the fork: the constructor
-  assigns **eleven** properties and declares **two** arrays (tfind's: nine and
+  assigns **eleven** properties and declares **two** arrays — **five** since H1,
+  the table predates it — (tfind's: nine and
   one, ~4.7 ms), and the build scans the extras against the deny-list. The gate
   rows' measured delta (6.1–7.7 ms) is a little more than that row, the rest
   being `run`'s own bookkeeping — the `command -v` probe and the `mapRc`

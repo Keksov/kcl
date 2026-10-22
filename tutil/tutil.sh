@@ -185,9 +185,10 @@ fi
 # hard-coded `_args|_argv|_paths` case inside `tutil._badOut` until tsed added a
 # fourth, `${inst}_exprs`, and measured that `s.toArray s_exprs` turned the
 # records into the NEXT run's script. A descendant appends its own suffix at
-# load, only if absent:
+# load, only if absent (tsed adds `_exprs _rfrom _rto _rflags` — the last three
+# hold its raw `addReplace` data):
 #
-#     TUTIL_OUT_SUFFIXES+=( _exprs )     # tsed.sh
+#     TUTIL_OUT_SUFFIXES+=( _exprs )     # tsed.sh, likewise _rfrom _rto _rflags
 #
 # Declared once per process like the prefix registry, and the same two guards
 # in `tutil._badOut`.
@@ -311,7 +312,8 @@ tutil._crStdin() {
 #      wrappers share these member bodies by inheritance.
 #   2. the extra per-instance arrays this family keeps beyond the kklass three,
 #      read from the SECOND registry, `TUTIL_OUT_SUFFIXES` (`_args`, `_argv`,
-#      the descendants' `_paths`, tsed's `_exprs`): `${inst}${suffix}` is
+#      the descendants' `_paths`, tsed's `_exprs _rfrom _rto _rflags`):
+#      `${inst}${suffix}` is
 #      refused for every suffix. Filling one of those would hand the caller the
 #      instance's own storage and then let the next `buildArgv` overwrite it —
 #      or, for `_exprs`, turn the records into the next run's script.

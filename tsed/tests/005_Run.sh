@@ -1300,7 +1300,7 @@ if tcase "S12: \`edit\` deletes its throw-away instance and bumps \`__TSD_SEQ\`"
     left=""
     for s in "$(( before + 1 ))" "$after"; do
         nm="__tsd_e_${BASHPID}_${s}"
-        for a in _data _paths _exprs _args _argv; do
+        for a in _data _paths _exprs _rfrom _rto _rflags _args _argv; do
             declare -p "${nm}${a}" >/dev/null 2>&1 && left+=" ${nm}${a}"
         done
         declare -F "${nm}.delete" >/dev/null 2>&1 && left+=" ${nm}.delete"

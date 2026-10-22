@@ -23,11 +23,14 @@ kk.uses tutil || return
 #     array named `__tsd_v` would bind the scratch nameref a member body holds;
 #   * the suffix `_exprs` — `${inst}_exprs` is this unit's own storage, and
 #     measured, `s.toArray s_exprs` turned the records into the NEXT run's
-#     script (with `sandbox = 0` a data line `e …` became a command).
+#     script (with `sandbox = 0` a data line `e …` became a command);
+#   * the suffixes `_rfrom`, `_rto`, `_rflags` — the raw `addReplace` data kept
+#     next to `_exprs` (HELPERS_PLAN §2.2), the same storage for the same reason.
 # Each append is idempotent (only if absent), and the scratch globals are
 # released right after, so the unit leaves exactly `__TSD_SEQ` behind.
 declare -g __tsd_seen=0
 declare -g __tsd_p=''
+declare -g __tsd_sfx=''
 for __tsd_p in "${TUTIL_OUT_PREFIXES[@]}"; do
     if [[ "$__tsd_p" == "__tsd_" ]]; then
         __tsd_seen=1
@@ -36,16 +39,18 @@ done
 if [[ "$__tsd_seen" != "1" ]]; then
     TUTIL_OUT_PREFIXES+=( __tsd_ )
 fi
-__tsd_seen=0
-for __tsd_p in "${TUTIL_OUT_SUFFIXES[@]}"; do
-    if [[ "$__tsd_p" == "_exprs" ]]; then
-        __tsd_seen=1
+for __tsd_sfx in _exprs _rfrom _rto _rflags; do
+    __tsd_seen=0
+    for __tsd_p in "${TUTIL_OUT_SUFFIXES[@]}"; do
+        if [[ "$__tsd_p" == "$__tsd_sfx" ]]; then
+            __tsd_seen=1
+        fi
+    done
+    if [[ "$__tsd_seen" != "1" ]]; then
+        TUTIL_OUT_SUFFIXES+=( "$__tsd_sfx" )
     fi
 done
-if [[ "$__tsd_seen" != "1" ]]; then
-    TUTIL_OUT_SUFFIXES+=( _exprs )
-fi
-unset -v __tsd_seen __tsd_p
+unset -v __tsd_seen __tsd_p __tsd_sfx
 
 # Monotonic sequence for `TSed.edit`'s throw-away instance name (PLAN §2.7): a
 # FIXED name is deleted out from under an outer `edit` by a nested one, so the
@@ -105,7 +110,29 @@ declare -g __TSD_SEQ=0
 #     `tsed._denied`. `--posix`, `-u`, `-l N`, `--follow-symlinks`, `--debug`
 #     pass;
 #   * `--` among the extras: it ends sed's options, and every expression after
-#     it would become an operand (the wrapper emits its own `--`).
+#     it would become an operand (the wrapper emits its own `--`);
+#   * an `addReplace` element with an EMPTY FROM (sed would reuse the previous
+#     regex), with a newline in FROM while `nullData` is not `1` (a line never
+#     holds one), or with a FLAGS word that is not `rfReplaceAll`/`rfIgnoreCase`.
+#     (`addReplace` itself refuses only MORE than three arguments, at call time.)
+#
+# ---- Literal replace (kcl/tutil/HELPERS_PLAN.md §2, H1) --------------------
+# `addReplace FROM TO [FLAGS]` stores the RAW text; `buildArgv` escapes it, so
+# the dialect is the one `extended` holds at BUILD time:
+#     -e 's/<quoteRe FROM>/<quoteRepl TO>/[g][I]'
+# Storage: `${inst}_exprs` keeps call order for `addExpr` AND `addReplace`; an
+# `addReplace` element is the marker `__tsd_r__` there, its raw data sits in the
+# parallel arrays `${inst}_rfrom`, `${inst}_rto`, `${inst}_rflags` at the SAME
+# index (an `addExpr` element holds '' in all three). No FLAGS = every
+# occurrence and is stored as `rfReplaceAll`; a FLAGS argument (even '') means
+# only what it names (TStringHelper's rule). `rfIgnoreCase` (sed's `I`) folds
+# non-ASCII letters only under a UTF-8 LC_CTYPE; plain matching is the same in
+# every locale. `TSed.quoteRe` / `TSed.quoteRepl` are the same escapers as
+# statics (`quoteRe TEXT WORD` with WORD other than exactly `ere` is rc 2 — it
+# fails closed); `TSed.replace` / `TSed.replaceInFile` are the one-liners, built
+# like `TSed.edit`.
+# RESERVED WORDS: the label `__tsd_cr` (the CR prelude) and the marker
+# `__tsd_r__` (`addExpr '__tsd_r__'` is rc 2, nothing appended).
 #
 # ---- The five sinks (PLAN §2.4) --------------------------------------------
 # `inPlace = 1`, or `--debug` among the extras, makes every sink answer rc 2
@@ -145,9 +172,10 @@ class TSed : TUtil
         var backupSuffix    # -iSUFFIX (only with inPlace = 1)
         var _nulDerived     # private bookkeeping for the -z -> -0 derivation
         constructor Create  # [EXPR [PATH...]]
-        destructor  Destroy # frees ${inst}_paths and ${inst}_exprs, then inherited
+        destructor  Destroy # frees ${inst}_paths, _exprs, _rfrom, _rto, _rflags, then inherited
         proc paths          # PATH... — REPLACES the operand list
         proc addExpr        # EXPR... — appended after `expr`; '' is a real element
+        proc addReplace     # FROM TO [FLAGS] — a LITERAL s///, escaped at build time
         proc clearExprs     # empties the list (not `expr`)
         override func buildArgv
         override func mapRc
@@ -157,6 +185,10 @@ class TSed : TUtil
         override func first
         override func count
         static proc edit    # EXPR PATH... — `sed --sandbox -e EXPR -- PATH...`
+        static proc quoteRe       # TEXT [ere] — RESULT: TEXT as a literal regex
+        static proc quoteRepl     # TEXT — RESULT: TEXT as a literal replacement
+        static proc replace       # FROM TO PATH... — literal, every occurrence, to stdout
+        static proc replaceInFile # FROM TO PATH... — the same, in place, no backup
 end
 
 # ===========================================================================
@@ -265,14 +297,97 @@ tsed._sinkRefused() {
     return 1
 }
 
+# tsed._ret VALUE [RC] — kcl README §1.1's static-unit helper (the `tpath._ret`
+# shape): RESULT = VALUE, printed only inside a subshell, so a direct call is
+# silent and `$( )` prints the value exactly once.
+tsed._ret() {
+    RESULT="$1"
+    if (( BASH_SUBSHELL > 0 )); then
+        printf '%s' "$1"
+    fi
+    return "${2:-0}"
+}
+
+# tsed._qre TEXT ERE — TEXT as a literal regex for an `s/…/` with `/` as the
+# delimiter (HELPERS_PLAN §2.1). Sets the CALLER's `__tsd_q`. BRE escapes
+# `\ / . * [ ^ $`; ERE = the exact string `1` adds `+ ? ( ) { } |`; a newline
+# becomes `\n`. The BACKSLASH goes FIRST — every later step introduces
+# backslashes — and the newline LAST, for the same reason. One escape step is
+# `${s//"$c"/"$bs$c"}`: both sides quoted, so the pattern is literal and the
+# replacement is literal whatever `patsub_replacement` says. The newline is
+# made with `printf -v` (no `$'…'` control character in this unit).
+tsed._qre() {
+    local __tsd_t="${1:-}" __tsd_c='' __tsd_bs='\' __tsd_n=''
+    printf -v __tsd_n '\n'
+    __tsd_t="${__tsd_t//"$__tsd_bs"/"$__tsd_bs$__tsd_bs"}"
+    for __tsd_c in / . '*' '[' '^' '$'; do
+        __tsd_t="${__tsd_t//"$__tsd_c"/"$__tsd_bs$__tsd_c"}"
+    done
+    if [[ "${2:-}" == 1 ]]; then
+        for __tsd_c in '+' '?' '(' ')' '{' '}' '|'; do
+            __tsd_t="${__tsd_t//"$__tsd_c"/"$__tsd_bs$__tsd_c"}"
+        done
+    fi
+    __tsd_t="${__tsd_t//"$__tsd_n"/"${__tsd_bs}n"}"
+    __tsd_q="$__tsd_t"
+    return 0
+}
+
+# tsed._qrepl TEXT — TEXT as a literal `s///` replacement. Sets the CALLER's
+# `__tsd_q`: escapes `\ / &`, a newline becomes `\` + newline (sed's spelling
+# of a newline in the replacement). Backslash first, newline last.
+tsed._qrepl() {
+    local __tsd_t="${1:-}" __tsd_c='' __tsd_bs='\' __tsd_n=''
+    printf -v __tsd_n '\n'
+    __tsd_t="${__tsd_t//"$__tsd_bs"/"$__tsd_bs$__tsd_bs"}"
+    for __tsd_c in / '&'; do
+        __tsd_t="${__tsd_t//"$__tsd_c"/"$__tsd_bs$__tsd_c"}"
+    done
+    __tsd_t="${__tsd_t//"$__tsd_n"/"$__tsd_bs$__tsd_n"}"
+    __tsd_q="$__tsd_t"
+    return 0
+}
+
+# tsed._rflags FLAGS — the `s///` flags for an `addReplace` FLAGS string, the
+# TStringHelper tokens split on `[[:space:]]` (space, TAB, newline, …): `rfReplaceAll` ->
+# `g`, `rfIgnoreCase` -> `I` (GNU), in that order. Sets the CALLER's `__tsd_q`
+# (the flags) and `__tsd_fbad` (the first unknown word). rc 0, or rc 1 on an
+# unknown word. No `IFS` and no here-string: a pure prefix walk. `I` folds
+# non-ASCII (`é`/`É`, Cyrillic) only under a UTF-8 LC_CTYPE — under `C` it is
+# ASCII-only (README §7a; the unit's self-heal sets C.UTF-8 only when the
+# environment names no locale at all).
+tsed._rflags() {
+    local __tsd_r="${1:-}" __tsd_w='' __tsd_g='' __tsd_i=''
+    __tsd_q=''
+    while [[ -n "$__tsd_r" ]]; do
+        __tsd_r="${__tsd_r#"${__tsd_r%%[![:space:]]*}"}"
+        if [[ -z "$__tsd_r" ]]; then
+            break
+        fi
+        __tsd_w="${__tsd_r%%[[:space:]]*}"
+        __tsd_r="${__tsd_r#"$__tsd_w"}"
+        case "$__tsd_w" in
+            rfReplaceAll) __tsd_g=g ;;
+            rfIgnoreCase) __tsd_i=I ;;
+            *)
+                __tsd_fbad="$__tsd_w"
+                return 1
+                ;;
+        esac
+    done
+    __tsd_q="$__tsd_g$__tsd_i"
+    return 0
+}
+
 # ===========================================================================
 # Members
 # ===========================================================================
 
 # Create [EXPR [PATH...]] — PLAN §1.2, §2.1. EXPR becomes `expr`, every further
 # argument a path. `parent.constructor sed` is spelled out, EVERY declared var
-# is assigned (`sandbox` = 1, the owner's Q1 default), and the two per-instance
-# arrays are real globals next to `${inst}_data`, released by the destructor.
+# is assigned (`sandbox` = 1, the owner's Q1 default), and the five per-instance
+# arrays (`_paths`, `_exprs` and the three `addReplace` arrays) are real globals
+# next to `${inst}_data`, released by the destructor.
 TSed.Create() {
     parent.constructor sed
     expr="${1:-}"
@@ -288,14 +403,18 @@ TSed.Create() {
     _nulDerived=0
     declare -ga "${__inst__}_paths=()"
     declare -ga "${__inst__}_exprs=()"
+    declare -ga "${__inst__}_rfrom=()"
+    declare -ga "${__inst__}_rto=()"
+    declare -ga "${__inst__}_rflags=()"
     local -n __tsd_p="${__inst__}_paths"
     __tsd_p=( "${@:2}" )
     return 0
 }
 
-# Destroy — release this class's two arrays, then chain to TUtil.Destroy.
+# Destroy — release this class's five arrays, then chain to TUtil.Destroy.
 TSed.Destroy() {
-    unset -v "${__inst__}_paths" "${__inst__}_exprs"
+    unset -v "${__inst__}_paths" "${__inst__}_exprs" \
+             "${__inst__}_rfrom" "${__inst__}_rto" "${__inst__}_rflags"
     inherited
     return 0
 }
@@ -308,17 +427,73 @@ TSed.paths() {
 }
 
 # addExpr EXPR... — append to the expression list, emitted after `expr` in call
-# order. An EMPTY argument is a real element: `-e ''` is sed's identity.
+# order. An EMPTY argument is a real element: `-e ''` is sed's identity. Each
+# element also gets '' in the three `addReplace` arrays, so the index of an
+# element is the same in all four. The word `__tsd_r__` is RESERVED (the
+# `addReplace` marker): an argument equal to it is rc 2 with one kk.debug line,
+# and NOTHING of that call is appended.
 TSed.addExpr() {
     local -n __tsd_x="${__inst__}_exprs"
-    __tsd_x+=( "$@" )
+    local -n __tsd_rf="${__inst__}_rfrom"
+    local -n __tsd_rt="${__inst__}_rto"
+    local -n __tsd_rg="${__inst__}_rflags"
+    local __tsd_s
+    for __tsd_s in "$@"; do
+        if [[ "$__tsd_s" == "__tsd_r__" ]]; then
+            kk.debug "Error: TSed.addExpr: '__tsd_r__' is a reserved word (the addReplace marker in \${inst}_exprs); nothing was appended"
+            return 2
+        fi
+    done
+    for __tsd_s in "$@"; do
+        __tsd_x+=( "$__tsd_s" )
+        __tsd_rf+=( '' )
+        __tsd_rt+=( '' )
+        __tsd_rg+=( '' )
+    done
     return 0
 }
 
-# clearExprs — empty the list. `expr` is a property and is left alone.
+# addReplace FROM TO [FLAGS] — append a LITERAL replacement (HELPERS_PLAN §2.1):
+# the marker `__tsd_r__` in `_exprs`, FROM / TO / FLAGS RAW at the same index
+# in `_rfrom` / `_rto` / `_rflags`. Nothing is escaped or checked here:
+# `buildArgv` does both, because the escape depends on `extended`, which may be
+# set after this call. FLAGS follows TStringHelper: no FLAGS argument = every
+# occurrence, stored as `rfReplaceAll`; a FLAGS argument (even '') = only what
+# it names. A missing TO is '' (the text is deleted), as in TStringHelper.
+# The one check made HERE is the arity: MORE than three arguments is rc 2 with
+# one kk.debug line and nothing appended — `addReplace a b rfReplaceAll
+# rfIgnoreCase` (the flags unquoted) would otherwise lose `rfIgnoreCase`.
+TSed.addReplace() {
+    if (( $# > 3 )); then
+        kk.debug "Error: TSed.addReplace: usage: addReplace FROM TO [FLAGS] — got $# arguments; quote several flags as ONE word ('rfReplaceAll rfIgnoreCase'); nothing was appended"
+        return 2
+    fi
+    local -n __tsd_x="${__inst__}_exprs"
+    local -n __tsd_rf="${__inst__}_rfrom"
+    local -n __tsd_rt="${__inst__}_rto"
+    local -n __tsd_rg="${__inst__}_rflags"
+    local __tsd_f=rfReplaceAll
+    if (( $# >= 3 )); then
+        __tsd_f="$3"
+    fi
+    __tsd_x+=( __tsd_r__ )
+    __tsd_rf+=( "${1:-}" )
+    __tsd_rt+=( "${2:-}" )
+    __tsd_rg+=( "$__tsd_f" )
+    return 0
+}
+
+# clearExprs — empty the list and the three `addReplace` arrays. `expr` is a
+# property and is left alone.
 TSed.clearExprs() {
     local -n __tsd_x="${__inst__}_exprs"
+    local -n __tsd_rf="${__inst__}_rfrom"
+    local -n __tsd_rt="${__inst__}_rto"
+    local -n __tsd_rg="${__inst__}_rflags"
     __tsd_x=()
+    __tsd_rf=()
+    __tsd_rt=()
+    __tsd_rg=()
     return 0
 }
 
@@ -388,6 +563,47 @@ TSed.buildArgv() {
         fi
     done
 
+    # ---- the `addReplace` elements (HELPERS_PLAN §2.1-§2.2) ----------------
+    # Each element of `_exprs` becomes one `-e` word in `__tsd_ex`: an
+    # `addExpr` element verbatim, an `addReplace` element (the marker) built
+    # HERE from the raw data, so the dialect is the one `extended` holds NOW.
+    local -n __tsd_rf="${__inst__}_rfrom"
+    local -n __tsd_rt="${__inst__}_rto"
+    local -n __tsd_rg="${__inst__}_rflags"
+    local -a __tsd_ex=()
+    local __tsd_k=0 __tsd_q='' __tsd_fl='' __tsd_fbad='' __tsd_ere=0 __tsd_from='' __tsd_lf=''
+    if [[ "$extended" == 1 ]]; then
+        __tsd_ere=1
+    fi
+    printf -v __tsd_lf '\n'
+    for (( __tsd_k = 0; __tsd_k < ${#__tsd_x[@]}; __tsd_k++ )); do
+        if [[ "${__tsd_x[__tsd_k]}" != "__tsd_r__" ]]; then
+            __tsd_ex+=( "${__tsd_x[__tsd_k]}" )
+            continue
+        fi
+        __tsd_from="${__tsd_rf[__tsd_k]:-}"
+        if [[ -z "$__tsd_from" ]]; then
+            kk.debug "Error: TSed.buildArgv: addReplace with an empty FROM; sed would reuse the previous regex — give the text to replace"
+            kk._return ""
+            return 2
+        fi
+        if [[ "$__tsd_from" == *"$__tsd_lf"* && "$nullData" != 1 ]]; then
+            kk.debug "Error: TSed.buildArgv: addReplace FROM holds a newline while nullData is not 1; a line never contains one, so it could never match — set nullData = 1"
+            kk._return ""
+            return 2
+        fi
+        if ! tsed._rflags "${__tsd_rg[__tsd_k]:-}"; then
+            kk.debug "Error: TSed.buildArgv: addReplace flag '$__tsd_fbad' is not a known token — use rfReplaceAll, rfIgnoreCase (no FLAGS = every occurrence)"
+            kk._return ""
+            return 2
+        fi
+        __tsd_fl="$__tsd_q"
+        tsed._qre "$__tsd_from" "$__tsd_ere"
+        __tsd_s="s/$__tsd_q/"
+        tsed._qrepl "${__tsd_rt[__tsd_k]:-}"
+        __tsd_ex+=( "$__tsd_s$__tsd_q/$__tsd_fl" )
+    done
+
     # ---- the -z -> -0 derivation (PLAN §2.3, tgrep's P3-F1 guard) ----------
     # `_nulDerived` records that WE set `nul`: turning `nullData` back off takes
     # the `-0` off again, while a `nul = 1` the CALLER set is never touched.
@@ -423,8 +639,8 @@ TSed.buildArgv() {
         printf -v __tsd_nl '\n'
         if [[ -n "$expr" ]]; then
             __tsd_first="${expr%%"$__tsd_nl"*}"
-        elif (( ${#__tsd_x[@]} > 0 )); then
-            __tsd_first="${__tsd_x[0]%%"$__tsd_nl"*}"
+        elif (( ${#__tsd_ex[@]} > 0 )); then
+            __tsd_first="${__tsd_ex[0]%%"$__tsd_nl"*}"
         elif [[ -n "$scriptFile" && -r "$scriptFile" ]]; then
             IFS= read -r __tsd_first < "$scriptFile" || true
         fi
@@ -455,7 +671,7 @@ TSed.buildArgv() {
         __tsd_v+=( -e "$__TUTIL_CR_SED" -e 't__tsd_cr' -e ':__tsd_cr' )
     fi
     if [[ -n "$expr" ]]; then __tsd_v+=( -e "$expr" ); fi
-    for __tsd_s in "${__tsd_x[@]}"; do
+    for __tsd_s in "${__tsd_ex[@]}"; do
         __tsd_v+=( -e "$__tsd_s" )
     done
     if [[ -n "$scriptFile" ]]; then __tsd_v+=( -f "$scriptFile" ); fi
@@ -563,7 +779,8 @@ TSed.count() {
 # `addExpr "$EXPR"`, so an empty EXPR is a real `-e ''` — the identity — and not
 # "no script". The sandbox is forced on (the default, and there is no way to
 # turn it off from here). At least ONE path is required: with none sed would
-# read the caller's stdin — rc 2, nothing runs.
+# read the caller's stdin — rc 2, nothing runs. The reserved EXPR `__tsd_r__`
+# is `addExpr`'s rc 2 (its one line), passed straight back, nothing run.
 TSed.edit() {
     if (( $# < 2 )); then
         kk.debug "Error: TSed.edit: usage: TSed.edit EXPR PATH... — at least one path is required (with none sed would read the caller's stdin); build an instance for the stdin form"
@@ -572,8 +789,88 @@ TSed.edit() {
     __TSD_SEQ=$(( __TSD_SEQ + 1 ))
     local __tsd_i="__tsd_e_${BASHPID}_${__TSD_SEQ}"
     TSed.new "$__tsd_i" '' "${@:2}"
-    "$__tsd_i".addExpr "$1"
+    local __tsd_rc=0
+    "$__tsd_i".addExpr "$1" || __tsd_rc=$?
+    if [[ "$__tsd_rc" != 0 ]]; then
+        "$__tsd_i".delete
+        return "$__tsd_rc"
+    fi
     "$__tsd_i".sandbox = 1
+    "$__tsd_i".run || __tsd_rc=$?
+    "$__tsd_i".delete
+    return "$__tsd_rc"
+}
+
+# quoteRe TEXT [ere] — TEXT as a literal regex for `s/…/` (HELPERS_PLAN §2.1):
+# BRE escapes `\ / . * [ ^ $`; with the second argument EXACTLY `ere` also
+# `+ ? ( ) { } |`; a newline becomes `\n`. ANY other second argument (`ERE`,
+# `-E`, `1`, '' given) is rc 2 with one kk.debug line and RESULT '' — it fails
+# CLOSED: a BRE escape fed to `sed -E` would leave `( ) { } | + ?` live.
+# A `static proc` answering in RESULT (kcl README §1.1): a direct call prints
+# nothing, `$( )` prints the value exactly once. A static has no instance, so
+# the dialect is an argument; `addReplace` follows `extended` instead.
+TSed.quoteRe() {
+    local __tsd_q='' __tsd_e=0
+    if (( $# >= 2 )); then
+        if [[ "$2" != "ere" ]]; then
+            kk.debug "Error: TSed.quoteRe: usage: TSed.quoteRe TEXT [ere] — the dialect word is exactly 'ere' (or absent for BRE), got '$2'"
+            tsed._ret '' 2
+            return 2
+        fi
+        __tsd_e=1
+    fi
+    tsed._qre "${1:-}" "$__tsd_e"
+    tsed._ret "$__tsd_q"
+}
+
+# quoteRepl TEXT — TEXT as a literal `s///` replacement: escapes `\ / &`; a
+# newline becomes `\` + newline. RESULT, as `quoteRe`.
+TSed.quoteRepl() {
+    local __tsd_q=''
+    tsed._qrepl "${1:-}"
+    tsed._ret "$__tsd_q"
+}
+
+# replace FROM TO PATH... — replace the LITERAL text FROM by the literal TO,
+# every occurrence, and STREAM the result (HELPERS_PLAN §2.1). Built exactly
+# like `edit`: a throw-away instance `__tsd_e_${BASHPID}_${__TSD_SEQ}`, one
+# `addReplace FROM TO`, the sandbox forced, `run`, `delete`. It prints sed's
+# stdout and never calls `kk._return`; it never edits in place
+# (`replaceInFile` does). At least ONE path: with none sed would read the
+# caller's stdin — rc 2, nothing runs. An empty FROM, or a FROM holding a
+# newline, is `buildArgv`'s rc 2.
+TSed.replace() {
+    if (( $# < 3 )); then
+        kk.debug "Error: TSed.replace: usage: TSed.replace FROM TO PATH... — at least one path is required (with none sed would read the caller's stdin); build an instance with addReplace for the stdin form"
+        return 2
+    fi
+    __TSD_SEQ=$(( __TSD_SEQ + 1 ))
+    local __tsd_i="__tsd_e_${BASHPID}_${__TSD_SEQ}"
+    TSed.new "$__tsd_i" '' "${@:3}"
+    "$__tsd_i".addReplace "$1" "$2"
+    "$__tsd_i".sandbox = 1
+    local __tsd_rc=0
+    "$__tsd_i".run || __tsd_rc=$?
+    "$__tsd_i".delete
+    return "$__tsd_rc"
+}
+
+# replaceInFile FROM TO PATH... — `replace`, IN PLACE (`inPlace = 1`, the
+# derived `-b` keeps every CR on disk), NO backup (HELPERS_PLAN D3; build an
+# instance with `backupSuffix` for one). sed rewrites every file even with zero
+# matches (the mtime changes). Same guards as `replace`; the path `-` is
+# `buildArgv`'s in-place rc 2.
+TSed.replaceInFile() {
+    if (( $# < 3 )); then
+        kk.debug "Error: TSed.replaceInFile: usage: TSed.replaceInFile FROM TO PATH... — at least one path is required (sed -i has no stdin form)"
+        return 2
+    fi
+    __TSD_SEQ=$(( __TSD_SEQ + 1 ))
+    local __tsd_i="__tsd_e_${BASHPID}_${__TSD_SEQ}"
+    TSed.new "$__tsd_i" '' "${@:3}"
+    "$__tsd_i".addReplace "$1" "$2"
+    "$__tsd_i".sandbox = 1
+    "$__tsd_i".inPlace = 1
     local __tsd_rc=0
     "$__tsd_i".run || __tsd_rc=$?
     "$__tsd_i".delete

@@ -467,8 +467,8 @@ descendant extends at load (§5):
   __tt_` at load, plus `__tfd_` once tfind is sourced and `__tsd_` once tsed is;
   a name that starts with any of them is refused;
 * **`TUTIL_OUT_SUFFIXES`** — the per-instance arrays beyond kklass's three:
-  `_args _argv _paths` at load, plus `_exprs` once tsed is sourced;
-  `${inst}${suffix}` is refused for the receiving instance.
+  `_args _argv _paths` at load, plus `_exprs _rfrom _rto _rflags` once tsed is
+  sourced; `${inst}${suffix}` is refused for the receiving instance.
 
 Two guards apply to both: each registry's own **name** is refused as an
 out-name, and an empty, unset or non-indexed-array registry **fails closed** —
@@ -528,15 +528,17 @@ to the registry in the same commit; the family's prefixes are pinned in
 **A new wrapper that keeps its own per-instance array appends that array's
 suffix to the second registry, `TUTIL_OUT_SUFFIXES`.** Next to kklass's
 `_data`/`_class`/`_items`, this family keeps `${inst}_args` and `${inst}_argv`
-(TUtil), `${inst}_paths` (every path-taking descendant) and `${inst}_exprs`
-(tsed). Filling one of those as an output array hands the caller the
-instance's own storage — measured on tsed, `s.toArray s_exprs` turned the
-records into the NEXT run's script. `tutil.sh` declares the list at load and
-`tutil._badOut` refuses `${inst}${suffix}` for every entry:
+(TUtil), `${inst}_paths` (every path-taking descendant) and `${inst}_exprs`,
+`${inst}_rfrom`, `${inst}_rto`, `${inst}_rflags` (tsed; the last three hold the
+raw `addReplace` data). Filling one of those as an output array hands the
+caller the instance's own storage — measured on tsed, `s.toArray s_exprs`
+turned the records into the NEXT run's script. `tutil.sh` declares the list at
+load and `tutil._badOut` refuses `${inst}${suffix}` for every entry:
 
 ```bash
 declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )        # tutil.sh, at load
-TUTIL_OUT_SUFFIXES+=( _exprs )                               # tsed.sh, only if absent
+TUTIL_OUT_SUFFIXES+=( _exprs )                               # tsed.sh, each only if absent,
+TUTIL_OUT_SUFFIXES+=( _rfrom _rto _rflags )                  #   in one loop
 ```
 
 Two guards live in `tutil._badOut`, apply to **both** registries, and are not

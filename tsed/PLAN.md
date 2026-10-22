@@ -313,3 +313,16 @@ rc 1; guarded sinks under `set -eu`; the sandbox is compile-time and total (late
 multi-`-e`, rc 2 partial, `q N` mod 256, unterminated-line, `-z`/`-s`, `-i` stdout,
 CR/`-b` claims; nested `edit`; `__tsd_` registry append and refusal; the banner;
 in-place works on NTFS `/tmp`.
+
+---
+
+## H1. Literal replace (launch L2.7-H, 2026-10-22)
+
+Not a phase of this plan: the design, the decisions (D1-D7) and the deliverables
+live in [`../tutil/HELPERS_PLAN.md`](../tutil/HELPERS_PLAN.md) §2 and §5. What it
+added here: `addReplace FROM TO [FLAGS]` (escaped in `buildArgv`, so the dialect
+follows `extended` at build time), the statics `TSed.quoteRe`, `TSed.quoteRepl`,
+`TSed.replace`, `TSed.replaceInFile`; `${inst}_exprs` now also holds the marker
+`__tsd_r__` with the raw data in the parallel arrays `_rfrom` / `_rto` /
+`_rflags` (on the suffix registry); the second reserved word `__tsd_r__`.
+Docs: README §3 (reserved words), §7, §7a, §8; tests: `tests/008_Helpers.sh`.

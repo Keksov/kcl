@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/tsed — TSed : TUtil, GNU sed 4.9 wrapper (typed options before the expressions, expr + addExpr + scriptFile, sandbox on by default, in-place with run only, static one-liner TSed.edit).",
   "created": "2026-09-22",
-  "updated": "2026-09-23",
-  "status": "COMPLETE (P0–P1) 2026-09-23. P0 (eafa7f7): TSed : TUtil, tests 004/005/006, README first cut, TUTIL_OUT_SUFFIXES registry in tutil; review round 1 (sandbox fails closed, `--` on the deny-list). P1 (7ad4ca5): bench.sh + tests/007_Bench.sh (11 cases), README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (23 -> 24). Suite 293/293 on bash 5.2.37 and 5.3.9 (threaded) and --mode single on 5.2.37; bench gate 1.5x 2/2 PASS on both bashes. Master sweep: run by reviewer: 27/27 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-23, after killing a leaked worker 'python -' that had spun one core since 2026-09-15 and made unrelated timing assertions flaky: tinifile 011, tstringlist 013); suite reproduced 293/293 on both bashes. Plan: critic-hardened 2026-09-22 (18 findings, all folded into PLAN.md §8); six owner decisions Q1–Q6.",
+  "updated": "2026-10-22",
+  "status": "COMPLETE (P0–P1) 2026-09-23. P0 (eafa7f7): TSed : TUtil, tests 004/005/006, README first cut, TUTIL_OUT_SUFFIXES registry in tutil; review round 1 (sandbox fails closed, `--` on the deny-list). P1 (7ad4ca5): bench.sh + tests/007_Bench.sh (11 cases), README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (23 -> 24). Suite 293/293 on bash 5.2.37 and 5.3.9 (threaded) and --mode single on 5.2.37; bench gate 1.5x 2/2 PASS on both bashes. Master sweep: run by reviewer: 27/27 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-23, after killing a leaked worker 'python -' that had spun one core since 2026-09-15 and made unrelated timing assertions flaky: tinifile 011, tstringlist 013); suite reproduced 293/293 on both bashes. Plan: critic-hardened 2026-09-22 (18 findings, all folded into PLAN.md §8); six owner decisions Q1–Q6. H1 (2026-10-22, launch L2.7-H): literal-replace helpers, tests 402/402 both bashes; see phases[H1].",
   "decisions": {
     "Q1": "sandbox = 1 by default (e, s///e, r, R, w, W refused by sed); sandbox = 0 opts out",
     "Q2": "both var expr and proc addExpr/clearExprs over ${inst}_exprs; plus var scriptFile (-f)",
@@ -119,6 +119,72 @@
           "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes. MET (sweep pending, run by reviewer): README final — COMPLETE header with 293 per bash, the six owner decisions (§0), surface table, argv shape, the rc 2 list incl. the abbreviation-aware deny-list and `--`, the fail-closed sandbox as the one exception to the family boolean rule, the five named deviations, the in-place traps, the sandbox list incl. s///w /dev/stdout, the callback-`local` trap, edit semantics, subshellOk/D6, bench tables for both bashes, per-file test table with counts. TEST_COVERAGE_NOTES.md: 293 rows, every case, basis S1–S13 / Q1–Q6 / C1–C18 (each cited or named under deliberate gaps) / RR1 / P0-dev / P0-fact; the suffix-registry cases referenced in tutil/tests/001_Core.sh §C. kcl README §2: the tsed row between tregex and tstopwatch (streams; sandbox on by default and fail-closed; missing file keeps records with RESULT = count and rc 1, I/O error stops at the operand; tool stderr passes through; q N status rc 1 silent, raw in lastRc; inPlace/nullData derive -b; in-place is run only; the addArg deny-list), Twenty-three -> Twenty-four. PLAN.md status header -> COMPLETE plus a P1 DONE block under §5."
         }
       ]
+    },
+    {
+      "id": "H1",
+      "name": "Literal replace helpers (HELPERS_PLAN H1, launch L2.7-H)",
+      "goal": "TSed.quoteRe TEXT [ere], TSed.quoteRepl, addReplace FROM TO [FLAGS], TSed.replace, TSed.replaceInFile — data in, never sed syntax; spec kcl/tutil/HELPERS_PLAN.md §2.",
+      "status": "done",
+      "date": "2026-10-22",
+      "commit": "(this commit; recorded in kbool launch_ledger.json L2.7-H)",
+      "files": [
+        "kcl/tsed/tsed.sh (quoteRe/quoteRepl/addReplace/replace/replaceInFile; _exprs marker __tsd_r__ + _rfrom/_rto/_rflags; escaping in buildArgv by the dialect at build time; 3 new rc 2 refusals + addReplace arity + quoteRe dialect word fail closed)",
+        "kcl/tsed/tests/008_Helpers.sh (NEW, 87 cases)",
+        "kcl/tsed/tests/004_Argv.sh, 005_Run.sh (pins extended to five arrays / seven suffixes)",
+        "kcl/tsed/tests/007_Bench.sh (comment)",
+        "kcl/tsed/README.md (§7 one-liners table, NEW §7a Literal replace, §3 reserved words, §8 suffixes, §9 402)",
+        "kcl/tsed/PLAN.md (§H1 pointer)",
+        "kcl/tsed/bench.sh (4 lines)",
+        "kcl/tsed/TEST_COVERAGE_NOTES.md (008 section, 402)",
+        "kcl/tutil/tests/001_Core.sh + README.md + tutil.sh comments + TEST_COVERAGE_NOTES.md (registry = seven suffixes)",
+        "kcl/README.md (tsed row)"
+      ],
+      "gate": {
+        "out": "C:/Users/1/AppData/Local/Temp/kt-gate/20261022-084902-1021",
+        "argv": [
+          "--changed",
+          "--compare",
+          "C:/Users/1/AppData/Local/Temp/kt-gate/20261022-083528-1679"
+        ],
+        "repos": {
+          "kbool": {
+            "sha": "7f72ff8",
+            "dirty": true
+          },
+          "ktests": {
+            "sha": "7cb90ec",
+            "dirty": false
+          },
+          "kcl": {
+            "sha": "ef8da6f",
+            "dirty": true
+          },
+          "kklass": {
+            "sha": "a0421b4",
+            "dirty": false
+          },
+          "kkore": {
+            "sha": "3435446",
+            "dirty": false
+          }
+        },
+        "totals": {},
+        "machine": "__GATE__:PASS:16:16:0:0:0:0:0:4442:4442"
+      },
+      "gate_prev": {
+        "out": "C:/Users/1/AppData/Local/Temp/kt-gate/20261022-083528-1679",
+        "machine": "__GATE__:PASS:6:6:0:0:0:0:0:1612:1612",
+        "note": "round 2 state, before the critic fixes"
+      },
+      "review": "Opus worker, 3 rounds (R1 tutil pins option a, R2 addReplace >3 args rc 2, critic F1 locale note+test, F6 quoteRe dialect word fail closed, F2 docs outside tsed, F10 wording); independent Opus critic: no blocker, verdict ship after F1/F2",
+      "open": [
+        "bench fork pins for addReplace/quoteRe/quoteRepl and a build holding an addReplace element (007)",
+        "008 stdin-unread leg is only meaningful for the path-less statics",
+        "same-shell nesting of TSed.replace/quoteRe inside an each callback is probed correct but not pinned",
+        "buildArgv has no four-array length diagnostic (private storage; a direct write gives the 'empty FROM' line)",
+        "README: sed -i replaces a symlink with a regular file and breaks hard links (new inode)",
+        "README: rfIgnoreCase + extra --posix is sed rc 1 (unknown option to s)"
+      ]
     }
   ],
   "execution_log": [
@@ -142,6 +208,11 @@
       "date": "2026-09-22",
       "batch": "planning",
       "summary": "Owner: start tsed. GNU sed 4.9 measured under both bashes (byte-identical): each -e is compiled when read, so every option must precede the first -e (`-e 's/(/X/' -E` silently runs as BRE); `sed FILE` takes FILE as the script; rc 1 bad script, 2 missing input (partial output kept), 4 I/O, q/Q N any status; text mode strips CR, -b keeps it; -z NUL records; one stream across files unless -s; -i writes nothing to stdout, suffix attached; e/s///e/r/w/W execute or touch files, --sandbox refuses them. Owner decided four questions before the plan: sandbox on by default; both expr and addExpr; rc 1/2/4 with debug, q/Q status silent; inPlace + backupSuffix with run only. PLAN.md + this ledger written. No code."
+    },
+    {
+      "date": "2026-10-22",
+      "batch": "H1",
+      "summary": "Owner: TSed lacks a replace that hides sed syntax -> HELPERS_PLAN v2 (owner agreed to the cut). H1 built in a private tree copy while another gate ran, copied in, gate PASS 6 cells 1612/1612 (tsed 315->401), critic (no blocker, 10 findings: 4 fixed, 6 open), round 3, final gate PASS 16 cells 4442/4442 (tsed 402; tutil.sh comment change pulled every wrapper suite in). Measured: rfIgnoreCase folds non-ASCII only under a UTF-8 LC_CTYPE (C.UTF-8 'é. É. É.é' -> 'X X Xé', C -> 'X É. É.é')."
     }
   ]
 }

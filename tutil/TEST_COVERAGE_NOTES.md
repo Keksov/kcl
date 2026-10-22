@@ -138,12 +138,12 @@ stubs gone (3). Rows are in file order.
 | 001.reg-p-restored | argv | the registry RESTORED: `plain` fills again, all five prefixes are refused again | boundary | **REG-P** |
 | 001.reg-s-initial | *(load)* | the suffix registry is an indexed array holding exactly `_args _argv _paths` before any descendant adds one | contract | **REG-S** |
 | 001.reg-s-before | argv | `uV_exprs` is ACCEPTED (and filled) before tsed is sourced — the suffix is the descendant's to add | boundary | **REG-S** |
-| 001.reg-s-append | *(load)* | sourcing tsed TWICE appends `_exprs` to the suffixes and `__tsd_` to the prefixes exactly once each | contract | **REG-S**, **REG-P** |
+| 001.reg-s-append | *(load)* | sourcing tsed TWICE appends `_exprs _rfrom _rto _rflags` to the suffixes and `__tsd_` to the prefixes exactly once each | contract | **REG-S**, **REG-P** |
 | 001.reg-s-after | argv | `uV_exprs` is rc 2 once tsed has registered `_exprs` | contract | **TS-C3**, **REG-S** |
 | 001.reg-s-tsd | argv | `__tsd_x` is rc 2 once tsed has registered `__tsd_` (through the PREFIX registry — one of the two cases that were green before the suffix registry existed) | contract | **REG-P** |
 | 001.reg-s-toarray | toArray | `toArray uX_exprs` is rc 2 too, RESULT `''`, refused BEFORE the producer runs (flag file absent) and nothing created — the path by which the records became tsed's next script | contract | **TS-C3** (major) |
 | 001.reg-s-name | argv | suffix guard 1: `argv TUTIL_OUT_SUFFIXES` is rc 2, RESULT `''`, the four suffixes untouched | contract | **TS-C3**, **REG-S** |
-| 001.reg-s-still | argv | suffix guard 1: `_args _argv _paths _exprs` of the instance are all STILL refused after that attempt | contract | **REG-S** |
+| 001.reg-s-still | argv | suffix guard 1: `_args _argv _paths _exprs` of the instance are all STILL refused after that attempt (tsed appends `_exprs _rfrom _rto _rflags`; this loop checks the first four names) | contract | **REG-S** |
 | 001.reg-s-empty | argv | suffix guard 2 (fail closed): an EMPTIED suffix registry refuses `plain`, `uV_args`, `plainname`, `another_ok`; the caller's array untouched | contract | **REG-S** |
 | 001.reg-s-unset | argv | suffix guard 2: an UNSET suffix registry refuses `plain` | bash-convention | **REG-S** |
 | 001.reg-s-scalar | argv | suffix guard 2: a SCALAR in the suffix registry's place refuses `plain` | bash-convention | **REG-S** |

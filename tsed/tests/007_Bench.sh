@@ -193,7 +193,7 @@ if tcase "the edit delta IS one instance: new + addExpr + sandbox + argv + delet
     done
     TStopwatch.getTimeStamp; t1=$RESULT
     per=$(( (t1 - t0) / ND ))
-    # Idle: ~5 ms on both bashes — eleven properties assigned and two arrays
+    # Idle: ~5 ms on both bashes — eleven properties assigned and five arrays
     # declared by the constructor (tfind: nine and one, ~4.7 ms). The ceiling is
     # an order of magnitude above that, for the same reason as the ratios
     # above; what it catches is a construction that grew an ORDER of magnitude —

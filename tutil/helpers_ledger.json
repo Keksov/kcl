@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "project": "kcl/tutil/HELPERS_PLAN.md — convenience members for the TUtil wrapper family (data in, never tool syntax)",
+  "created": "2026-10-22",
+  "updated": "2026-10-22",
+  "status": "H1 DONE 2026-10-22 (launch L2.7-H); H2 planned as launch L6.0",
+  "phases": [
+    {
+      "id": "H1",
+      "unit": "tsed",
+      "launch_task": "L2.7-H",
+      "status": "done",
+      "date": "2026-10-22",
+      "gate": {
+        "out": "C:/Users/1/AppData/Local/Temp/kt-gate/20261022-084902-1021",
+        "argv": [
+          "--changed",
+          "--compare",
+          "C:/Users/1/AppData/Local/Temp/kt-gate/20261022-083528-1679"
+        ],
+        "repos": {
+          "kbool": {
+            "sha": "7f72ff8",
+            "dirty": true
+          },
+          "ktests": {
+            "sha": "7cb90ec",
+            "dirty": false
+          },
+          "kcl": {
+            "sha": "ef8da6f",
+            "dirty": true
+          },
+          "kklass": {
+            "sha": "a0421b4",
+            "dirty": false
+          },
+          "kkore": {
+            "sha": "3435446",
+            "dirty": false
+          }
+        },
+        "totals": {},
+        "machine": "__GATE__:PASS:16:16:0:0:0:0:0:4442:4442"
+      },
+      "detail": "see kcl/tsed/tsed_ledger.json phases[H1]"
+    },
+    {
+      "id": "H2",
+      "unit": "tgrep, tfind",
+      "launch_task": "L6.0",
+      "status": "planned",
+      "detail": "TGrep quiet var, TGrep.contains (rc 0/1; tool error = rc 1 + debug), TGrep.countMatching via the count sink, TFind.quoteGlob"
+    }
+  ],
+  "decisions": {
+    "D1": "scope = plan §2 + §3; §4 dropped (owner 2026-10-22)",
+    "D2": "H1 before the launch, H2 after L5 (owner)",
+    "D3": "replaceInFile makes no backup (SV)",
+    "D4": "predicates rc 0/1, tool error rc 1 + debug line, never rc 2 (owner, critique §2)",
+    "D5": "quoteRe dialect = explicit 'ere' word on the static (any other word rc 2 — critic F6), extended on the instance (SV)",
+    "D6": "FROM with a newline in line mode is rc 2 (SV)",
+    "D7": "flag tokens = TStringHelper's (SV)"
+  }
+}

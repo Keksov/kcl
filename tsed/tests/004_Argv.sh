@@ -15,7 +15,8 @@
 #   A  S3  lifecycle — every declared var in `${inst}_data` after `new` (incl.
 #          `sandbox=1` and the inherited `subshellOk`), `${s}_args` EMPTY after
 #          `TSed.new s EXPR PATH`, `_paths`/`_exprs` right, a reused name
-#          starting clean, `delete` freeing `_paths`/`_exprs`/`_args`/`_argv`,
+#          starting clean, `delete` freeing `_paths`/`_exprs`/`_args`/`_argv`
+#          and the three `addReplace` arrays `_rfrom`/`_rto`/`_rflags` (H1),
 #          `argv` running nothing, and both out-name registries: `__tsd_*`
 #          refused, `s_exprs` refused by `argv` AND `toArray` with the list
 #          intact, `TUTIL_OUT_SUFFIXES` refused as a NAME
@@ -233,18 +234,21 @@ clean=1
 [[ "$(sR.backupSuffix)" == "" ]]    || clean=0
 arr_is sR_paths x2                  || clean=0
 arr_is sR_exprs                     || clean=0
+arr_is sR_rfrom                     || clean=0
+arr_is sR_rto                       || clean=0
+arr_is sR_rflags                    || clean=0
 if [[ "$clean" == "1" ]]; then
     kt_test_pass "no state survived the second \`new\`"
 else
     kt_test_fail "expr='$(sR.expr)' quiet='$(sR.quiet)' sandbox='$(sR.sandbox)' inPlace='$(sR.inPlace)' exprs=$(arr_show sR_exprs)"
 fi
 
-kt_test_start "S3: \`delete\` removes \`_paths\`, \`_exprs\`, \`_args\`, \`_argv\` and \`_data\`"
+kt_test_start "S3: \`delete\` removes \`_paths\`, \`_exprs\`, \`_rfrom\`, \`_rto\`, \`_rflags\`, \`_args\`, \`_argv\` and \`_data\`"
 declare -a W=()
 sR.argv W >/dev/null 2>&1 || :
 sR.delete
 left=""
-for a in _paths _exprs _args _argv _data; do
+for a in _paths _exprs _rfrom _rto _rflags _args _argv _data; do
     declare -p "sR$a" >/dev/null 2>&1 && left+=" $a"
 done
 if [[ -z "$left" ]]; then
@@ -313,7 +317,7 @@ for q in "${TUTIL_OUT_PREFIXES[@]}"; do [[ "$q" == "__tsd_" ]] && n_p=$(( n_p + 
 for q in "${TUTIL_OUT_SUFFIXES[@]}"; do [[ "$q" == "_exprs" ]] && n_s=$(( n_s + 1 )); done
 if [[ "$n_p" == "1" && "$n_s" == "1" ]] \
    && arr_is TUTIL_OUT_PREFIXES __tu_ __tg_ __th_ __tt_ __tsd_ \
-   && arr_is TUTIL_OUT_SUFFIXES _args _argv _paths _exprs; then
+   && arr_is TUTIL_OUT_SUFFIXES _args _argv _paths _exprs _rfrom _rto _rflags; then
     kt_test_pass "prefixes = $(arr_show TUTIL_OUT_PREFIXES); suffixes = $(arr_show TUTIL_OUT_SUFFIXES)"
 else
     kt_test_fail "prefixes = $(arr_show TUTIL_OUT_PREFIXES); suffixes = $(arr_show TUTIL_OUT_SUFFIXES)"
@@ -323,8 +327,8 @@ kt_test_start "S3: sourcing tsed twice appends NOTHING (idempotent)"
 source "$UNIT"
 source "$UNIT"
 if arr_is TUTIL_OUT_PREFIXES __tu_ __tg_ __th_ __tt_ __tsd_ \
-   && arr_is TUTIL_OUT_SUFFIXES _args _argv _paths _exprs; then
-    kt_test_pass "five prefixes, four suffixes"
+   && arr_is TUTIL_OUT_SUFFIXES _args _argv _paths _exprs _rfrom _rto _rflags; then
+    kt_test_pass "five prefixes, seven suffixes"
 else
     kt_test_fail "prefixes = $(arr_show TUTIL_OUT_PREFIXES); suffixes = $(arr_show TUTIL_OUT_SUFFIXES)"
 fi

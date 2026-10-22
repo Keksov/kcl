@@ -1,11 +1,17 @@
 # tsed — test coverage notes
 
-**Status: FINALIZED at P1 (2026-09-23).** Suite `004`–`007` = **293 cases**,
+**Status: FINALIZED at P1 (2026-09-23); extended at L2.7-C and H1.** Suite
+`004`–`008` = **402 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single` (5.2.37), against **GNU sed 4.9**
 (5.2.37 resolves Git for Windows' `sed.exe`, 5.3.9 msys64's). The per-file row
-counts below sum to 293 — 146 + 70 + 66 + 11 — and **every case in the suite
-has a row**.
+counts below sum to **402** — 160 + 78 + 66 + 11 + 87 (`004`–`008`; 293 at
+P1, 315 after L2.7-C, 402 after H1) — and **every case in the suite has a
+row**.
+
+**H1 (launch L2.7-H, 2026-10-22):** `008_Helpers.sh` adds **87 cases** (the
+last section); the suite is now **402** — `004` 160, `005` 78, `006` 66, `007`
+11, `008` 87 — green on both bashes.
 
 **Protocol.** `TSed` has no FPC upstream: it is the fifth wrapper on
 [`TUtil`](../tutil/README.md), which is itself a kcl addition (see
@@ -120,8 +126,8 @@ is recorded here rather than edited.
 | 004.a-args-empty | Create | `${s}_args` is EMPTY after `TSed.new s EXPR PATH` — the `inherited`-in-a-constructor trap would have made EXPR the command | contract | **S1**, **S3**, §2.1 |
 | 004.a-paths-verbatim | Create | `${s}_paths` holds every argument after EXPR verbatim, once each (a space, `-dash`, a NEWLINE, `-`), and `${s}_exprs` is an EMPTY array | representation | **S3**, §2.1 |
 | 004.a-no-arg | Create | `TSed.new s` with no argument: `expr` `''`, no path, no expression, `cmd` `sed` | boundary | **S3** |
-| 004.a-reuse-clean | Create | a REUSED instance name starts clean — `expr`, `quiet`, `sandbox` (back to 1), `inPlace`, `backupSuffix`, both lists re-assigned (`.new` does NOT clear `_data`) | boundary | **S3**, §2.1 |
-| 004.a-delete | Destroy | `delete` removes `_paths`, `_exprs`, `_args`, `_argv` and `_data` (the descendant destructor chains with `inherited`) | contract | **S3**, §2.1 |
+| 004.a-reuse-clean | Create | a REUSED instance name starts clean — `expr`, `quiet`, `sandbox` (back to 1), `inPlace`, `backupSuffix`, both lists and the three `addReplace` arrays (H1) re-assigned (`.new` does NOT clear `_data`) | boundary | **S3**, §2.1 |
+| 004.a-delete | Destroy | `delete` removes `_paths`, `_exprs`, `_rfrom`, `_rto`, `_rflags` (H1), `_args`, `_argv` and `_data` (the descendant destructor chains with `inherited`) | contract | **S3**, §2.1 |
 | 004.a-argv-nothing | argv | `argv` RUNS NOTHING — with `cmd` pointed at a function that would touch a flag file, the flag stays absent and the 6-word argv is still built | contract | **S1**, §1.2 |
 | 004.a-badout-tsdv | argv | `s.argv __tsd_v` → rc 2, one line naming the bad name (TSed's own local prefix) | contract | **S3**, §2.1 |
 | 004.a-badout-tsdx | argv | `s.argv __tsd_x` → rc 2 | contract | **S3**, §2.1 |
@@ -134,7 +140,7 @@ is recorded here rather than edited.
 | 004.a-badout-sufreg-toarray | toArray | `s.toArray TUTIL_OUT_SUFFIXES` → rc 2 | contract | **S3**, **C3** |
 | 004.a-badout-prereg | argv | `s.argv TUTIL_OUT_PREFIXES` → rc 2 — the prefix registry's NAME too | contract | **S3**, §2.1 |
 | 004.a-exprs-intact | — | after every refusal above the expression list is still `(s/b/B/ p)` and `expr` still `s/a/A/` | contract | **S3**, **C3** |
-| 004.a-registries-once | *(load)* | both registries survived: `__tsd_` and `_exprs` registered exactly once; prefixes `(__tu_ __tg_ __th_ __tt_ __tsd_)`, suffixes `(_args _argv _paths _exprs)` | contract | **S3**, §2.1 |
+| 004.a-registries-once | *(load)* | both registries survived: `__tsd_` and `_exprs` registered exactly once; prefixes `(__tu_ __tg_ __th_ __tt_ __tsd_)`, suffixes `(_args _argv _paths _exprs _rfrom _rto _rflags)` (H1 added the last three) | contract | **S3**, §2.1 |
 | 004.a-registries-idempotent | *(load)* | sourcing `tsed.sh` twice more appends NOTHING | contract | **S3**, §2.1 |
 | 004.a-badout-recovers | argv | an ordinary out-name still fills after every refusal (`sed --sandbox -e s/a/A/ -e s/b/B/ -e p -- f.txt`) | contract | **S3** |
 
@@ -475,7 +481,7 @@ Every case works on a COPY and asserts its bytes afterwards.
 | 005.h-no-arg | `TSed.edit` with NO argument at all is rc 2, one line | contract | **S12** |
 | 005.h-sandbox-forced | `edit` with `s///e` is REFUSED (sandbox forced): rc 1, sed's *disabled in sandbox mode*, no marker | security | **S12**, **Q1** |
 | 005.h-missing | `edit` on a MISSING file is rc 1 with one line of ours (`sed exited 2`), sed's own by prefix | contract | **S12**, **Q3** |
-| 005.h-seq | `edit` deletes its throw-away instance (`_data`, `_paths`, `_exprs`, `_args`, `_argv`, the `.delete` wrapper) and bumps `__TSD_SEQ` by one per call | contract | **S12**, §2.7 |
+| 005.h-seq | `edit` deletes its throw-away instance (`_data`, `_paths`, `_exprs`, `_rfrom`, `_rto`, `_rflags`, `_args`, `_argv`, the `.delete` wrapper) and bumps `__TSD_SEQ` by one per call | contract | **S12**, §2.7 |
 | 005.h-nested | a nested `edit` inside an outer `each` — 3 outer records, 3 nested edits each `d4\ne5`, the OUTER instance's argv and `lastRc` untouched | boundary | **S12**, §2.7 |
 | 005.h-tpipe-both | `edit` composes with BOTH TPipe forms: `TPipe.each cb -- TSed.edit …` and, in a child with `shopt -s lastpipe`, a real pipe — 3 records each | contract | **S12** |
 
@@ -610,3 +616,108 @@ installs no `EXIT` trap of its own.
 | 007.d-sinks-fork | the five sinks: the callback and `.Add` run in THIS process, one record each (`first` = `A00001 xyz`) | **S13** |
 | 007.d-members-fork | the ONLY fork per call is sed: ten property writes, nine builder members (`paths`, `addExpr`, `clearExprs`, `addArg`, `clearArgs`, `buildArgv`, `argv`, `mapRc` twice — 4 → 1, 7 → 1 —, `lastRc`), `run` and `edit` leave `$BASHPID` untouched | **S13**, **Q3** |
 | 007.d-refused-fork | the rc 2 paths fork nothing: a deny-list hit (`--in=.bak`), an in-place sink, a `--debug` sink, a path-less `edit` — all rc 2, `lastRc` still -1 (sed never ran) | **S2**, **Q4**, **Q6**, **C11** |
+
+---
+
+## 008_Helpers.sh — H1 literal replace (launch L2.7-H, 2026-10-22) — 87 cases
+
+The five members of [`../tutil/HELPERS_PLAN.md`](../tutil/HELPERS_PLAN.md) §2.1
+(**HP** below): `TSed.quoteRe`, `TSed.quoteRepl`, `addReplace`, `TSed.replace`,
+`TSed.replaceInFile`. The oracle is the bare GNU tool with a **hand-written**
+escape — never the code under test's own escaper; the escaper cases compare
+against the reference sets written out by hand from the owner probe
+(`esc_probe.sh`: FROM `a.b*c[d]e^f$g\h/i+j?k|l(m){2}&`, TO `X&Y\1/Z<newline>W`).
+The GNU banner gate opens the file as in 005; the argv cases (B) pin the
+cygwin/msys argv (`__TUTIL_TOOLS_STRIP_CR = 1`, as 004) plus one case on the
+prelude path, and restore the platform value. D3 = `replaceInFile` makes no
+backup; DL11 = the CR contract (tutil README §3).
+
+| ID | Case | Basis |
+|---|---|---|
+| 008.z01 | the `sed` on PATH is GNU sed (D4 pins the DIALECT, not a binary) | **D4** |
+| 008.z02 | the fixture tree is in place | **D4** |
+| 008.a01 | quoteRe PROBE (BRE): `\ / . * [ ^ $` escaped, `+ ? \| ( ) { } &` left alone — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a02 | quoteRe PROBE ere: also `+ ? ( ) { } \|` — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a03 | quoteRepl PROBE: `\ / &` escaped, the newline -> backslash + newline — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a04 | quoteRe: a newline becomes `\n` (BRE and ere alike) — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a05 | quoteRe ere: a newline becomes `\n` too — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a06 | quoteRe: a dialect word other than exactly `ere` (`ERE`, `-E`, `1`, `''` given) is rc 2, RESULT '', one line, `$( )` prints nothing — it fails CLOSED (a BRE escape fed to `sed -E` would leave `( ) { } \| + ?` live) | HP §2.1, critic F6 |
+| 008.a07 | quoteRe: an empty TEXT is RESULT '', rc 0 — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a08 | quoteRe: a backslash already in TEXT is doubled ONCE (backslash escaped first) — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a09 | quoteRe: TAB, CR and multibyte pass through unescaped — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a10 | quoteRepl: `\1`, `&`, `/` and two newlines — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a11 | quoteRepl: an empty TEXT is RESULT '' — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
+| 008.a12 | `$( )` prints the value exactly ONCE (quoteRe, quoteRe ere, quoteRepl) | HP §2.1, §2.3 |
+| 008.a13 | the BRE escape of a string WITHOUT metacharacters is the string itself | HP §2.1, §2.3 |
+| 008.a14 | the probe round-trips through REAL sed (BRE): `s/<quoteRe FROM>/<quoteRepl TO>/g` — FROM replaced, `axb` and `a.b` untouched | HP §2.1, §2.3 |
+| 008.a15 | the probe round-trips through REAL sed -E: `quoteRe FROM ere` | HP §2.1, §2.3 |
+| 008.b01 | no FLAGS = every occurrence: `s/a\.b/x\&y/g` | HP §2.1, §2.2, §2.4 |
+| 008.b02 | FLAGS `rfIgnoreCase` = ONLY what it names: `I` (no `g` — TStringHelper's rule) | HP §2.1, §2.2, §2.4 |
+| 008.b03 | FLAGS `''` (given, empty): neither `g` nor `I` — the first occurrence | HP §2.1, §2.2, §2.4 |
+| 008.b04 | FLAGS `rfReplaceAll`: `g` | HP §2.1, §2.2, §2.4 |
+| 008.b05 | `rfReplaceAll rfIgnoreCase` in any order and with any blanks: `gI` | HP §2.1, §2.2, §2.4 |
+| 008.b06 | call order with interleaved addExpr (expr first; an empty addExpr keeps its slot) | HP §2.1, §2.2, §2.4 |
+| 008.b07 | -E: `+?(){}\|` escaped, and the SAME argv whether `extended = 1` came before or after addReplace | HP §2.1, §2.2, §2.4 |
+| 008.b08 | ... the `extended`-before build is identical word for word | HP §2.1, §2.2, §2.4 |
+| 008.b09 | the dialect is read at BUILD time: `extended` back to 0 -> the BRE escape again | HP §2.1, §2.2, §2.4 |
+| 008.b10 | the owner probe: FROM and TO escaped exactly like the hand-written reference | HP §2.1, §2.2, §2.4 |
+| 008.b11 | `nullData = 1`: a newline in FROM is legal and becomes `\n` (+ the derived -z -b) | HP §2.1, §2.2, §2.4 |
+| 008.b12 | a newline in TO is fine in line mode: backslash + newline, ONE word | HP §2.1, §2.2, §2.4 |
+| 008.b13 | a CR in FROM is passed through (text mode strips the line-end CR before the script — §D) | HP §2.1, §2.2, §2.4 |
+| 008.b14 | `inPlace = 1` + addReplace: -b -i, then the expression | HP §2.1, §2.2, §2.4 |
+| 008.b15 | the prelude path (__TUTIL_TOOLS_STRIP_CR = 0): the CR prelude first, then the literal s/// | HP §2.1, §2.2, §2.4 |
+| 008.b16 | storage: `_exprs` keeps call order with the marker, the raw data in three parallel arrays at the SAME index | HP §2.1, §2.2, §2.4 |
+| 008.b17 | addReplace stores RAW and builds nothing: a refused FROM/FLAGS is stored as given, rc 0 | HP §2.1, §2.2, §2.4 |
+| 008.b18 | `addReplace FROM` with NO TO: TO is '' — the text is deleted (`s/a\.b//g`) | HP §2.1, round-2 R2 |
+| 008.b19 | `buildArgv` (a success and a refused build) and both escapers leave NO `__tsd_` scratch variable behind (`compgen -v`) | HP §2.2, round-2 R4 |
+| 008.c01 | every sink and `run` agree with bare sed: `addReplace a.b Q` on (a.b xax 'a.b a.b') | HP §2.4 |
+| 008.c02 | zero matches: rc 0, lastRc 0, `run` byte-identical to the file | HP §2.4 |
+| 008.c03 | the metachar soup FROM is matched LITERALLY, TO with `& \1 / newline` is literal — == bare sed with the hand escape | HP §2.4 |
+| 008.c04 | the same under `extended = 1` (the -E escape set) — the same bytes | HP §2.4 |
+| 008.c05 | the flags against the text `A.B a.b a.b A.b`: default, `''`, rfIgnoreCase, both | HP §2.4 |
+| 008.c06 | a multibyte FROM under LC_CTYPE=C.UTF-8 AND under C — the same bytes as bare sed in each | HP §2.4 |
+| 008.c07 | a FROM with a TAB: `a<TAB>b` replaced, `a b` untouched | HP §2.4 |
+| 008.c08 | addReplace and addExpr in one script, in call order: `addExpr 2d` + `addReplace a.b Q` + `addExpr s/Q/R/` | HP §2.4 |
+| 008.c09 | `rfIgnoreCase` folds non-ASCII ONLY under a UTF-8 locale: on `é. É. É.é` / `а А`, `addReplace 'é.' X` and `addReplace 'а' Y` with `rfReplaceAll rfIgnoreCase` give `X X Xé` / `Y Y` under C.UTF-8 and `X É. É.é` / `Y А` under C, each == bare sed in that locale (LC_ALL exported inside the `$( )` around `run`) | HP §2.4, critic F1 |
+| 008.d01 | text mode: a FROM ending in CR NEVER matches (the line-end CR is gone before the script) — both platform paths | HP §2.4, DL11 |
+| 008.d02 | `binary = 1`: the same FROM MATCHES — records (Z b2\r), == bare `sed -b` | HP §2.4, DL11 |
+| 008.d03 | `nullData = 1`: a newline inside FROM is legal and matches across the line — records (Q z) | HP §2.4, DL11 |
+| 008.e01 | `inPlace = 1` + addReplace edits in place, CRLF KEPT on disk (the derived -b), stdout empty | HP §2.4, D3, **Q5** |
+| 008.e02 | `TSed.replaceInFile` on two copies: both edited literally, CRLF kept, stdout empty, NO backup file | HP §2.4, D3, **Q5** |
+| 008.e03 | `TSed.replaceInFile` with ZERO matches: rc 0, the bytes identical (sed still rewrites the file — mtime not asserted) | HP §2.4, D3, **Q5** |
+| 008.e04 | `TSed.replaceInFile` on a MISSING file among good ones: rc 1, one line (sed's 2), the good file still edited | HP §2.4, D3, **Q5** |
+| 008.f01 | an EMPTY FROM is rc 2 (sed would reuse the previous regex) — rc 2, RESULT '', one line, `${inst}_argv` empty, the four arrays intact, `run` rc 2 with stdin unread | HP §2.1, §2.2 |
+| 008.f02 | a FROM holding a newline with `nullData = 0` is rc 2 (it can never match a line) — rc 2, RESULT '', one line, `${inst}_argv` empty, the four arrays intact, `run` rc 2 with stdin unread | HP §2.1, §2.2 |
+| 008.f03 | ... and with `nullData = 2` (only the exact string 1 is on) — rc 2, RESULT '', one line, `${inst}_argv` empty, the four arrays intact, `run` rc 2 with stdin unread | HP §2.1, §2.2 |
+| 008.f04 | an unknown FLAGS word is rc 2 and the line names it — rc 2, RESULT '', one line, `${inst}_argv` empty, the four arrays intact, `run` rc 2 with stdin unread | HP §2.1, §2.2 |
+| 008.f05 | a comma-joined FLAGS string is ONE unknown word (blanks separate the tokens) — rc 2, RESULT '', one line, `${inst}_argv` empty, the four arrays intact, `run` rc 2 with stdin unread | HP §2.1, §2.2 |
+| 008.f06 | the tokens are case-sensitive: `rfreplaceall` is unknown — rc 2, RESULT '', one line, `${inst}_argv` empty, the four arrays intact, `run` rc 2 with stdin unread | HP §2.1, §2.2 |
+| 008.f07 | a refused build derives nothing: `nullData = 1` + a bad flag leaves `nul` at 0 | HP §2.1, §2.2 |
+| 008.f08 | `addExpr '__tsd_r__'` is rc 2 with one line naming the reserved word; NOTHING of that call is appended | HP §2.1, §2.2 |
+| 008.f09 | `TSed.edit '__tsd_r__' f` is rc 2 with ONE line, nothing printed | HP §2.1, §2.2 |
+| 008.f10 | `TSed.replace FROM TO` with NO path is rc 2 (sed would read the caller's stdin) — one line, nothing printed, stdin unread | HP §2.1, §2.2 |
+| 008.f11 | `TSed.replace` with no argument at all is rc 2 — one line, nothing printed, stdin unread | HP §2.1, §2.2 |
+| 008.f12 | `TSed.replaceInFile FROM TO` with NO path is rc 2 — one line, nothing printed, stdin unread | HP §2.1, §2.2 |
+| 008.f13 | `TSed.replaceInFile FROM TO -` is rc 2 (the in-place refusal of the path `-`) — one line, nothing printed, stdin unread | HP §2.1, §2.2 |
+| 008.f14 | `TSed.replace '' TO f` is rc 2 (an empty FROM, buildArgv's line) — one line, nothing printed, stdin unread | HP §2.1, §2.2 |
+| 008.f15 | `TSed.replace` with a newline in FROM is rc 2 — one line, nothing printed, stdin unread | HP §2.1, §2.2 |
+| 008.f16 | `TSed.replaceInFile '' TO f` is rc 2 and the file is byte-identical | HP §2.1, §2.2 |
+| 008.f17 | `addReplace` with MORE than three arguments (unquoted flags) is rc 2 AT THE CALL, one line naming the usage `addReplace FROM TO [FLAGS]`, the four arrays unchanged; the next build is unaffected | HP §2.1, round-2 R2 |
+| 008.g01 | `TSed.replace` DIRECT == bare sed with the hand escape (bytes), rc 0 | HP §2.1, §2.4 |
+| 008.g02 | `TSed.replace` never edits in place: the file is byte-identical afterwards | HP §2.1, §2.4 |
+| 008.g03 | `TSed.replace` through a PIPE (`\| od -c`) and through `< <( )` — byte-identical | HP §2.1, §2.4 |
+| 008.g04 | `TSed.replace` in the three positions: terminal (a file), lastpipe, the TPipe `--` form | HP §2.1, §2.4 |
+| 008.g05 | `TSed.replace` on a MISSING file is rc 1 with one line of ours (sed's 2, mapped) | HP §2.1, §2.4 |
+| 008.g06 | `replace` and `replaceInFile` delete their throw-away instance and bump `__TSD_SEQ` once each | HP §2.1, §2.4 |
+| 008.g07 | a nested `TSed.replace` inside an outer `each` — both complete, the outer instance survives | HP §2.1, §2.4 |
+| 008.h01 | `new` declares the three arrays EMPTY; a reused name starts clean | HP §2.2 |
+| 008.h02 | `clearExprs` empties ALL FOUR arrays (and keeps `expr`) | HP §2.2 |
+| 008.h03 | `delete` frees `_rfrom`, `_rto`, `_rflags` (and `_exprs`, `_paths`) | HP §2.2 |
+| 008.h04 | `s.argv s_rfrom` is rc 2 (the suffix registry) — one "bad output array name" line, storage intact | HP §2.2 |
+| 008.h05 | `s.toArray s_rfrom` is rc 2 — one "bad output array name" line, storage intact | HP §2.2 |
+| 008.h06 | `s.argv s_rto` is rc 2 — one "bad output array name" line, storage intact | HP §2.2 |
+| 008.h07 | `s.toArray s_rto` is rc 2 — one "bad output array name" line, storage intact | HP §2.2 |
+| 008.h08 | `s.argv s_rflags` is rc 2 — one "bad output array name" line, storage intact | HP §2.2 |
+| 008.h09 | `s.toArray s_rflags` is rc 2 — one "bad output array name" line, storage intact | HP §2.2 |
+| 008.h10 | each suffix is registered EXACTLY once (`_exprs _rfrom _rto _rflags`), `__tsd_` once | HP §2.2 |
+| 008.h11 | ... still exactly once after a re-source AND after `kk.unit --forget tsed` + a re-source (a child under set -eu) | HP §2.2 |
