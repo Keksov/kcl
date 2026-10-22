@@ -141,14 +141,14 @@ b="$(sed -n '/^THttpResponse.SendContent()/,/^}/p' "$MSG")"
 nw=0; while IFS= read -r l; do [[ "$l" == *'>&"$__ths_fd"'* ]] && nw=$(( nw + 1 )); done <<< "$b"
 if [[ $nw -eq 1 && "$b" == *"printf '%s' \"\$__ths_out\" 2>/dev/null >&\"\$__ths_fd\""* ]]; then kt_test_pass "one write"; else kt_test_fail "writes=$nw"; fi
 
-kt_test_start "scope: thttpserver.sh is a unit whose dependencies are \`kk.uses kklass_pascal || return\` and \`kk.uses thttpmessage thttprouter tstopwatch || return\`, with no \`source\` line (kklass/USES_PLAN.md U4 rule 3, amendment b); declares exactly the two transports + TNetcatTransport + THttpServer; the application is in its own file"
+kt_test_start "scope: thttpserver.sh is a unit whose dependencies are \`kk.uses kklass_pascal || return\` and \`kk.uses thttpmessage thttprouter tstopwatch || return\`, with no \`source\` line (kklass/USES_PLAN.md U4 rule 3, amendment b); declares exactly the two transports + TNetcatTransport + TSocatTransport (L2.7-N2) + THttpServer; the application is in its own file"
 srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$UNIT" || :)"
 uses="$(grep -E '^[[:space:]]*kk\.uses[[:space:]]' "$UNIT" || :)"
 cls="$(grep -E '^class ' "$UNIT" || :)"
 if [[ -z "$srcs" && "$uses" == $'kk.uses kklass_pascal || return\nkk.uses thttpmessage thttprouter tstopwatch || return' \
-      && "$cls" == $'class THttpTransport\nclass TReplayTransport : THttpTransport\nclass TNetcatTransport : THttpTransport\nclass THttpServer' ]] \
+      && "$cls" == $'class THttpTransport\nclass TReplayTransport : THttpTransport\nclass TNetcatTransport : THttpTransport\nclass TSocatTransport : TNetcatTransport\nclass THttpServer' ]] \
    && ! grep -nE '^class THttpApplication' "$UNIT" "$ROUTER" "$MSG" >/dev/null; then
-    kt_test_pass "two kk.uses lines, no source; four classes; no application here"
+    kt_test_pass "two kk.uses lines, no source; five classes; no application here"
 else
     kt_test_fail "source: ${srcs//$'\n'/ | }; kk.uses: ${uses//$'\n'/ | }; classes: ${cls//$'\n'/ | }"
 fi
@@ -711,7 +711,7 @@ if [[ $prc -eq 0 && $seen -eq 0 && $ctlseen -eq 1 ]]; then kt_test_pass "ServeOn
 FS.delete; FR.delete
 
 # ===========================================================================
-kt_test_section "4. the network backend: ths._backend identifies the nc, anything but GNU netcat is refused (L2.7-N1)"
+kt_test_section "4. the network backend: ths._backend identifies the nc, a netcat other than GNU is never run with GNU flags (L2.7-N1)"
 # ===========================================================================
 
 # mkfake DIR VERSION_TEXT HELP_TEXT — DIR/nc, a script that appends "$*" as one
@@ -752,7 +752,13 @@ nolog() {   # no line of DIR/log is an -l argument (token regex)
     done < "$1/log"
     return 0
 }
-why_for() { printf 'no usable network backend: %s at %s is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); install GNU netcat 0.7.1 (a socat backend follows in a later version)' "$1" "$2"; }
+# why_for FLAVOUR NC — the WHY of an automatic detection that found a non-GNU
+# nc and no socat (L2.7-N2 template; detect's PATH holds no socat).
+why_for() { printf 'no usable network backend: %s at %s is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); no socat on PATH — install socat (apt/dnf/apk/pkg install socat) or GNU netcat 0.7.1 (Homebrew netcat, FreeBSD net/gnetcat, Arch gnu-netcat, or from source)' "$1" "$2"; }
+
+# why_explicit FLAVOUR NC — the WHY of an explicit (NcBinary / KCL_NC / BuildArgv's
+# resolved) non-GNU nc: socat is not consulted.
+why_explicit() { printf 'no usable network backend: %s at %s is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); socat was not consulted because the netcat was set explicitly (NcBinary/KCL_NC)' "$1" "$2"; }
 
 BK="$TMP/backend"; rm -rf "$BK"; mkdir -p "$BK"
 
@@ -795,7 +801,7 @@ else
     kt_test_fail "backend='$__THS_BACKEND' bin='$__THS_BACKEND_BIN' why='$__THS_BACKEND_WHY'"
 fi
 
-kt_test_start "ths._backend: the result is cached per \$PATH|\$KCL_NC|\$1 — two calls, ONE --version probe; a changed PATH probes again"
+kt_test_start "ths._backend: the result is cached per \$PATH|\$KCL_NC|\$KCL_SOCAT|\$1|\$2 — two calls, ONE --version probe; a changed PATH probes again"
 mkfake "$BK/cache" "netcat (The GNU Netcat) 0.7.1" ""
 detect "$BK/cache"
 op="$PATH"; PATH="$BK/cache"
@@ -811,7 +817,7 @@ else
     kt_test_fail "r2='$r2' log1='$n1' log2='$(<"$BK/cache2/log")'"
 fi
 
-kt_test_start "TNetcatTransport.BuildArgv with an nc that is not GNU netcat: rc 2, LastError = WHY, the out array empty, no -l ever run"
+kt_test_start "TNetcatTransport.BuildArgv with an nc that is not GNU netcat: rc 2, LastError = the explicit-netcat WHY (socat not consulted), the out array empty, no -l ever run"
 mkfake "$BK/bargv" "nc: unknown option -- -" "OpenBSD netcat (Debian patchlevel 1.226-1ubuntu2)"
 TNetcatTransport.new BN
 BN.NcBinary = "$BK/bargv/nc"
@@ -819,7 +825,7 @@ __THS_BACKEND_KEY=""
 declare -a BA=()
 brc=0; BN.BuildArgv BA || brc=$?
 BN.LastError; ble="$RESULT"
-if [[ $brc -eq 2 && "$ble" == "$(why_for "OpenBSD netcat" "$BK/bargv/nc")" && "${#BA[@]}" -eq 0 ]] && nolog "$BK/bargv"; then
+if [[ $brc -eq 2 && "$ble" == "$(why_explicit "OpenBSD netcat" "$BK/bargv/nc")" && "${#BA[@]}" -eq 0 ]] && nolog "$BK/bargv"; then
     kt_test_pass "rc 2, argv empty"
 else
     kt_test_fail "rc=$brc le='${ble:0:120}' n=${#BA[@]} log='$(<"$BK/bargv/log")'"
@@ -843,3 +849,436 @@ else
     kt_test_fail "rc=$bsrc le='${bsle:0:100}' active='$bsact' BS_tr_class='$bstr' int='$t_int0'/'$t_int1' term='$t_term0'/'$t_term1'"
 fi
 BS.delete
+
+# ===========================================================================
+kt_test_section "5. the socat backend: the detection precedence, TSocatTransport, the server factory (L2.7-N2)"
+# ===========================================================================
+
+# The WHY templates of ths._backend, literally: why_for (auto, a non-GNU nc,
+# no socat) and why_explicit are above; these are the other two.
+why_nosocat() { printf 'no usable network backend: %s does not support accept-timeout (socat >= 1.7.4 needed)' "$1"; }
+WHY_MISSING='nc not found (NcBinary, KCL_NC, PATH); no socat on PATH either'
+
+# mksocat DIR OK — a fake socat in DIR: every call logged to DIR/slog; `-hhh`
+# lists accept-timeout only when OK is 1 (the probe); anything else exits 0.
+mksocat() {
+    local d="$1"
+    mkdir -p "$d"
+    rm -f "$d/slog"
+    cat > "$d/socat" <<EOS
+#!$BASH
+printf '%s\n' "\$*" >> "$d/slog"
+if [[ "\${1-}" == -hhh ]]; then
+    printf '%s\n' "      connect-timeout=<seconds>"
+    if [[ "$2" == 1 ]]; then printf '%s\n' "      accept-timeout=<seconds>"; fi
+fi
+exit 0
+EOS
+    chmod +x "$d/socat"
+}
+slog() { if [[ -f "$1/slog" ]]; then SLOG="$(<"$1/slog")"; else SLOG="<none>"; fi; }
+
+# sdetect PATH KCL_NC KCL_SOCAT [NCBIN] [SOCATBIN] — a fresh ths._backend with
+# that PATH and the two variables ('-' = unset), all restored afterwards; the
+# result copied at once into SB / SBIN / SWHY.
+sdetect() {
+    local op="$PATH" hk=0 kv="" hs=0 sv=""
+    if [[ -v KCL_NC ]]; then hk=1; kv="$KCL_NC"; fi
+    if [[ -v KCL_SOCAT ]]; then hs=1; sv="$KCL_SOCAT"; fi
+    unset -v KCL_NC KCL_SOCAT
+    if [[ "$2" != - ]]; then KCL_NC="$2"; fi
+    if [[ "$3" != - ]]; then KCL_SOCAT="$3"; fi
+    PATH="$1"
+    __THS_BACKEND_KEY=""
+    ths._backend "${4-}" "${5-}"
+    SB="$__THS_BACKEND"; SBIN="$__THS_BACKEND_BIN"; SWHY="$__THS_BACKEND_WHY"
+    PATH="$op"
+    unset -v KCL_NC KCL_SOCAT
+    if (( hk )); then KCL_NC="$kv"; fi
+    if (( hs )); then KCL_SOCAT="$sv"; fi
+}
+
+SK="$TMP/socat"; rm -rf "$SK"; mkdir -p "$SK/empty"
+mkfake "$SK/obsd" "nc: unknown option -- -" "OpenBSD netcat (Debian patchlevel 1.226-1ubuntu2)"
+mkfake "$SK/gnu" "netcat (The GNU Netcat) 0.7.1" ""
+
+kt_test_start "ths._backend auto: a non-GNU nc AND a socat on PATH (the Linux default) → socat, BIN = the socat, WHY ''; the nc only probed (never -l), the socat only -hhh"
+mkfake "$SK/a1" "nc: unknown option -- -" "OpenBSD netcat (Debian patchlevel 1.226-1ubuntu2)"
+mksocat "$SK/a1" 1
+sdetect "$SK/a1" - -
+slog "$SK/a1"
+if [[ "$SB" == socat && "$SBIN" == "$SK/a1/socat" && -z "$SWHY" && "$SLOG" == "-hhh" ]] && nolog "$SK/a1"; then
+    kt_test_pass "socat at $SBIN"
+else
+    kt_test_fail "backend='$SB' bin='$SBIN' why='${SWHY:0:120}' slog='$SLOG'"
+fi
+
+kt_test_start "ths._backend auto: only a socat on PATH (no nc) → socat"
+mksocat "$SK/a2" 1
+sdetect "$SK/a2" - -
+if [[ "$SB" == socat && "$SBIN" == "$SK/a2/socat" && -z "$SWHY" ]]; then kt_test_pass "socat"; else kt_test_fail "backend='$SB' bin='$SBIN' why='${SWHY:0:120}'"; fi
+
+kt_test_start "ths._backend auto: a GNU nc AND a socat on PATH → gnu, the socat never run"
+mkfake "$SK/a3" "netcat (The GNU Netcat) 0.7.1" ""
+mksocat "$SK/a3" 1
+sdetect "$SK/a3" - -
+slog "$SK/a3"
+if [[ "$SB" == gnu && "$SBIN" == "$SK/a3/nc" && -z "$SWHY" && "$SLOG" == "<none>" ]]; then kt_test_pass "gnu"; else kt_test_fail "backend='$SB' bin='$SBIN' slog='$SLOG'"; fi
+
+kt_test_start "ths._backend auto: a socat on PATH that fails the probe (older than 1.7.4) and no nc → none (not missing), BIN = the socat, WHY 'nc not found (NcBinary, KCL_NC, PATH); <socat> does not support accept-timeout (socat >= 1.7.4 needed)'"
+mksocat "$SK/a4" 0
+sdetect "$SK/a4" - -
+if [[ "$SB" == none && "$SBIN" == "$SK/a4/socat" && "$SWHY" == "nc not found (NcBinary, KCL_NC, PATH); $SK/a4/socat does not support accept-timeout (socat >= 1.7.4 needed)" ]]; then kt_test_pass "none: $SWHY"; else kt_test_fail "backend='$SB' bin='$SBIN' why='$SWHY'"; fi
+
+kt_test_start "ths._backend auto: a non-GNU nc AND a socat that fails the probe → none, BIN = the nc, WHY = the nc part + '; <socat> does not support accept-timeout (socat >= 1.7.4 needed)'"
+mkfake "$SK/a5" "nc: unknown option -- -" "OpenBSD netcat (Debian patchlevel 1.226-1ubuntu2)"
+mksocat "$SK/a5" 0
+sdetect "$SK/a5" - -
+want="no usable network backend: OpenBSD netcat at $SK/a5/nc is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); $SK/a5/socat does not support accept-timeout (socat >= 1.7.4 needed)"
+if [[ "$SB" == none && "$SBIN" == "$SK/a5/nc" && "$SWHY" == "$want" ]] && nolog "$SK/a5"; then kt_test_pass "none"; else kt_test_fail "backend='$SB' bin='$SBIN' why='$SWHY'"; fi
+
+kt_test_start "ths._backend: no nc and no socat → missing, BIN '', WHY exactly '$WHY_MISSING' (the 'nc not found (' prefix kept)"
+sdetect "$SK/empty" - -
+if [[ "$SB" == missing && -z "$SBIN" && "$SWHY" == "$WHY_MISSING" ]]; then kt_test_pass "$SWHY"; else kt_test_fail "backend='$SB' bin='$SBIN' why='$SWHY'"; fi
+
+kt_test_start "ths._backend b: an explicit KCL_SOCAT passing the probe wins over a GNU nc on PATH → socat (the GNU nc never probed)"
+mkfake "$SK/b1p" "netcat (The GNU Netcat) 0.7.1" ""
+mksocat "$SK/b1" 1
+sdetect "$SK/b1p" - "$SK/b1/socat"
+slog "$SK/b1"
+if [[ "$SB" == socat && "$SBIN" == "$SK/b1/socat" && -z "$SWHY" && "$SLOG" == "-hhh" && ! -s "$SK/b1p/log" ]]; then kt_test_pass "socat"; else kt_test_fail "backend='$SB' bin='$SBIN' slog='$SLOG' nclog='$(cat "$SK/b1p/log" 2>/dev/null)'"; fi
+
+kt_test_start "ths._backend b: an explicit KCL_SOCAT failing the probe → none, WHY exactly the 'does not support accept-timeout' template"
+mksocat "$SK/b2" 0
+sdetect "$SK/a2" - "$SK/b2/socat"
+if [[ "$SB" == none && "$SBIN" == "$SK/b2/socat" && "$SWHY" == "$(why_nosocat "$SK/b2/socat")" ]]; then kt_test_pass "none: ${SWHY:0:90}"; else kt_test_fail "backend='$SB' bin='$SBIN' why='$SWHY'"; fi
+
+kt_test_start "ths._backend b: SOCATBIN (\$2, a caller's SocatBinary) passing → socat; failing → none (the template)"
+sdetect "$SK/empty" - - "" "$SK/b1/socat"
+r1="$SB:$SBIN"
+sdetect "$SK/empty" - - "" "$SK/b2/socat"
+if [[ "$r1" == "socat:$SK/b1/socat" && "$SB" == none && "$SWHY" == "$(why_nosocat "$SK/b2/socat")" ]]; then kt_test_pass "socat / none"; else kt_test_fail "r1='$r1' backend='$SB' why='$SWHY'"; fi
+
+kt_test_start "ths._backend a: a GNU KCL_NC and a KCL_SOCAT → gnu (a before b), the socat never run"
+mksocat "$SK/p1" 1
+sdetect "$SK/empty" "$SK/gnu/nc" "$SK/p1/socat"
+slog "$SK/p1"
+if [[ "$SB" == gnu && "$SBIN" == "$SK/gnu/nc" && "$SLOG" == "<none>" ]]; then kt_test_pass "gnu"; else kt_test_fail "backend='$SB' bin='$SBIN' slog='$SLOG'"; fi
+
+kt_test_start "ths._backend a: an explicit non-GNU nc (KCL_NC) and a socat on PATH → none, WHY exactly the 'socat was not consulted' template, the socat never run"
+mksocat "$SK/p2" 1
+sdetect "$SK/p2" "$SK/obsd/nc" -
+slog "$SK/p2"
+if [[ "$SB" == none && "$SBIN" == "$SK/obsd/nc" && "$SWHY" == "$(why_explicit "OpenBSD netcat" "$SK/obsd/nc")" && "$SLOG" == "<none>" ]]; then kt_test_pass "none, not consulted"; else kt_test_fail "backend='$SB' bin='$SBIN' why='${SWHY:0:160}' slog='$SLOG'"; fi
+
+kt_test_start "ths._backend a: an explicit KCL_NC that does not exist → missing 'nc not found (NcBinary, KCL_NC, PATH)' even with a socat on PATH (009 relies on it)"
+sdetect "$SK/p2" /no/such/nc -
+if [[ "$SB" == missing && -z "$SBIN" && "$SWHY" == "nc not found (NcBinary, KCL_NC, PATH)" ]]; then kt_test_pass "missing"; else kt_test_fail "backend='$SB' bin='$SBIN' why='$SWHY'"; fi
+
+kt_test_start "ths._backend: the cache key is \$PATH|\$KCL_NC|\$KCL_SOCAT|\$1|\$2 — a repeated call probes nothing, a changed KCL_SOCAT probes again"
+mksocat "$SK/c1" 1
+mksocat "$SK/c2" 1
+sdetect "$SK/empty" - "$SK/c1/socat"
+op="$PATH"; okc=0; if [[ -v KCL_NC ]]; then okc=1; okv="$KCL_NC"; unset -v KCL_NC; fi
+PATH="$SK/empty"; KCL_SOCAT="$SK/c1/socat"
+ths._backend; k1="$__THS_BACKEND"
+KCL_SOCAT="$SK/c2/socat"
+ths._backend; k2="$__THS_BACKEND:$__THS_BACKEND_BIN"
+unset -v KCL_SOCAT; PATH="$op"; if (( okc )); then KCL_NC="$okv"; fi
+slog "$SK/c1"; s1="$SLOG"; slog "$SK/c2"
+if [[ "$k1" == socat && "$k2" == "socat:$SK/c2/socat" && "$s1" == "-hhh" && "$SLOG" == "-hhh" ]]; then kt_test_pass "one probe per key"; else kt_test_fail "k1='$k1' k2='$k2' slog1='$s1' slog2='$SLOG'"; fi
+
+kt_test_start "TSocatTransport.BuildArgv: SOCAT -d -d -lpsocat -t 0.5 TCP4-LISTEN:PORT,bind=ADDR,reuseaddr,accept-timeout=TTL STDIO (RESULT 8); an Address with ':' → TCP6-LISTEN:PORT,bind=[ADDR]"
+TSocatTransport.new SX
+SX.SocatBinary = "$SK/a2/socat"
+SX.Port = 8081
+SX.ListenerTTL = 30
+declare -a SA=() SA6=()
+r=0; SX.BuildArgv SA || r=$?; n4="$RESULT"
+SX.Address = ::1
+SX.BuildArgv SA6; n6="$RESULT"
+if [[ $r -eq 0 && "$n4" == 8 && "${SA[0]}" == "$SK/a2/socat" && "${SA[*]:1}" == "-d -d -lpsocat -t 0.5 TCP4-LISTEN:8081,bind=127.0.0.1,reuseaddr,accept-timeout=30 STDIO" \
+      && "$n6" == 8 && "${SA6[*]:1}" == "-d -d -lpsocat -t 0.5 TCP6-LISTEN:8081,bind=[::1],reuseaddr,accept-timeout=30 STDIO" ]]; then
+    kt_test_pass "v4 and v6 as specified"
+else
+    kt_test_fail "rc=$r n=$n4/$n6 v4='${SA[*]}' v6='${SA6[*]}'"
+fi
+SX.delete
+
+kt_test_start "TSocatTransport.BuildArgv: SocatBinary '' → \$KCL_SOCAT → socat on PATH (a KCL_NC never interferes); none → rc 1 'socat not found …'; a socat failing the probe → rc 2, LastError = that WHY, the out array empty; Port 0 → rc 2"
+TSocatTransport.new SY
+op="$PATH"
+declare -a SB1=() SB2=() SB3=() SB4=()
+KCL_NC="$SK/obsd/nc" KCL_SOCAT="$SK/b1/socat" SY.BuildArgv SB1; v1="${SB1[0]:-}"
+PATH="$SK/a2"; SY.BuildArgv SB2; v2="${SB2[0]:-}"
+PATH="$SK/empty"; r3=0; SY.BuildArgv SB3 || r3=$?; SY.LastError; l3="$RESULT"
+PATH="$op"
+SY.SocatBinary = "$SK/b2/socat"
+r4=0; SY.BuildArgv SB4 || r4=$?; SY.LastError; l4="$RESULT"
+SY.SocatBinary = "$SK/a2/socat"
+SY.Port = 0
+r5=0; SY.BuildArgv SB4 || r5=$?
+if [[ "$v1" == "$SK/b1/socat" && "$v2" == "$SK/a2/socat" && $r3 -eq 1 && "$l3" == "socat not found ("* && ${#SB3[@]} -eq 0 \
+      && $r4 -eq 2 && "$l4" == "$(why_nosocat "$SK/b2/socat")" && ${#SB4[@]} -eq 0 && $r5 -eq 2 ]]; then
+    kt_test_pass "KCL_SOCAT, PATH, rc 1, rc 2 (WHY), rc 2 (Port)"
+else
+    kt_test_fail "v1='$v1' v2='$v2' r3=$r3 l3='$l3' n3=${#SB3[@]} r4=$r4 l4='${l4:0:100}' n4=${#SB4[@]} r5=$r5"
+fi
+SY.delete
+
+# TSocatProbe — _state on a recorded stderr file: Probe DIR SLOT points the
+# private _dir at DIR for one _state call (and clears it again, so Destroy's
+# Shutdown never removes DIR).
+class TSocatProbe : TSocatTransport
+    public
+        func Probe
+end
+TSocatProbe.Probe() {
+    local r
+    _dir="$1"
+    "$__inst__._state" "$2"
+    r="$RESULT"
+    _dir=""
+    kk._return "$r"
+}
+build TSocatProbe
+TSocatProbe.new SP
+SD="$SK/state"; mkdir -p "$SD"
+# st NAME LINE… — the recorded lines (socat 1.8 on Ubuntu 24.04, L2.7-N2 step 0)
+# as SD/errNAME; ST = the _state RESULT, STR = its REPLY.
+st() {
+    local n="$1"
+    shift
+    if (( $# )); then printf '%s\n' "$@" > "$SD/err$n"; else : > "$SD/err$n"; fi
+    SP.Probe "$SD" "$n"
+    ST="$RESULT"; STR="$REPLY"
+}
+P='2026/10/22 10:42:13 socat[1209]'
+
+kt_test_start "TSocatTransport._state on recorded lines: 'N listening on' → listening; 'N accepting connection from AF=2 A:P on …' (+ the transfer lines, a later 'W exiting on signal 15') → connected, REPLY 'A:P'; IPv6 → REPLY '[::1]:P' (RFC 5952 short form of socat's eight groups); the FreeBSD form 'LEN=16 AF=2 A:P' / 'LEN=28 AF=28 […]:P' the same"
+st 1 "$P N listening on AF=2 127.0.0.1:48772"; s1="$ST|$STR"
+st 2 "$P N listening on AF=2 127.0.0.1:48772" "$P N accepting connection from AF=2 127.0.0.1:59560 on AF=2 127.0.0.1:48772" \
+     "$P N reading from and writing to stdio" "$P N starting data transfer loop with FDs [6,6] and [0,1]" "$P W exiting on signal 15"; s2="$ST|$STR"
+st 3 "$P N listening on AF=10 [0000:0000:0000:0000:0000:0000:0000:0001]:35388" \
+     "$P N accepting connection from AF=10 [0000:0000:0000:0000:0000:0000:0000:0001]:36054 on AF=10 [0000:0000:0000:0000:0000:0000:0000:0001]:35388"; s3="$ST|$STR"
+P='2026/10/22 11:28:10 socat[1419]'   # socat 1.8.1.3 on FreeBSD 15.1
+st 31 "$P N listening on LEN=16 AF=2 127.0.0.1:48487" "$P N accepting connection from LEN=16 AF=2 127.0.0.1:33420 on LEN=16 AF=2 127.0.0.1:48487"; s3b="$ST|$STR"
+st 32 "$P N accepting connection from LEN=28 AF=28 [0000:0000:0000:0000:0000:0000:0000:0001]:51308 on LEN=28 AF=28 [0000:0000:0000:0000:0000:0000:0000:0001]:43102"; s3c="$ST|$STR"
+P='2026/10/22 10:42:13 socat[1209]'
+if [[ "$s1" == "listening|" && "$s2" == "connected|127.0.0.1:59560" && "$s3" == "connected|[::1]:36054"       && "$s3b" == "connected|127.0.0.1:33420" && "$s3c" == "connected|[::1]:51308" ]]; then
+    kt_test_pass "$s1 $s2 $s3 $s3b $s3c"
+else
+    kt_test_fail "'$s1' '$s2' '$s3' '$s3b' '$s3c'"
+fi
+
+kt_test_start "TSocatTransport._state: 'W accept: Connection timed out' (FreeBSD: 'Operation timed out') → ttl; an E line → failed:<the text after the severity letter>; an E line AFTER the timeout → still ttl; an accepted connection beats an E line"
+st 4 "$P N listening on AF=2 127.0.0.1:33847" "$P W accept: Connection timed out" "$P N Waiting for child processes to terminate"; s4="$ST"
+st 41 "$P N listening on LEN=16 AF=2 127.0.0.1:33593" "$P W accept: Operation timed out" "$P N Waiting for child processes to terminate"; s4b="$ST"
+st 5 "$P E bind(5, {AF=2 127.0.0.1:32681}, 16): Address already in use" "$P N exit(1)"; s5="$ST"
+st 6 "$P N listening on AF=2 127.0.0.1:33847" "$P W accept: Connection timed out" "$P E some later error"; s6="$ST"
+st 7 "$P N listening on AF=2 127.0.0.1:33847" "$P N accepting connection from AF=2 127.0.0.1:5 on AF=2 127.0.0.1:33847" "$P E write(6, 0x1, 5): Broken pipe"; s7="$ST|$STR"
+st 8 "$P F something fatal"; s8="$ST"
+if [[ "$s4" == ttl && "$s4b" == ttl && "$s5" == "failed:bind(5, {AF=2 127.0.0.1:32681}, 16): Address already in use" && "$s6" == ttl \
+      && "$s7" == "connected|127.0.0.1:5" && "$s8" == "failed:something fatal" ]]; then
+    kt_test_pass "ttl; failed:bind(…); ttl; connected; failed (F)"
+else
+    kt_test_fail "'$s4' '$s5' '$s6' '$s7' '$s8'"
+fi
+
+kt_test_start "TSocatTransport._state: no file / an empty file → none; lines that are not socat's (no 'socat[PID] S ' prefix) and N/W noise are ignored"
+SP.Probe "$SD" 9; s9="$RESULT"
+st 10; s10="$ST"
+st 11 "bash: /usr/bin/socat: cannot execute" "$P W some warning" "$P N exit(1)"; s11="$ST"
+if [[ "$s9" == none && "$s10" == none && "$s11" == none ]]; then kt_test_pass "none none none"; else kt_test_fail "'$s9' '$s10' '$s11'"; fi
+SP.delete
+
+# The mechanism over a fake socat (no socket, every host): TSocatTransport's
+# BuildArgv and _state are called from the BASE's Accept / CloseConnection /
+# Shutdown — the public overrides print no kklass visibility warning.
+mkdir -p "$SK/m"
+cat > "$SK/m/socat" <<EOS
+#!$BASH
+case "\${1-}" in -hhh) printf '%s\n' "      accept-timeout=<seconds>"; exit 0 ;; esac
+nm="\${0##*/}"
+for a in "\$@"; do case "\$a" in -lp*) nm="\${a#-lp}" ;; esac; done
+P="2026/10/22 10:42:13 \$nm[\$\$]"
+n=\$(( \$(cat "$SK/m/count" 2>/dev/null || echo 0) + 1 ))
+printf '%s' "\$n" > "$SK/m/count"
+printf '%s %s\n' "\${FAKE_MODE-}" "\$*" >> "$SK/m/spawns"
+case "\${FAKE_MODE-}:\$n" in
+    bind:*)
+        printf '%s\n' "\$P E bind(5, {AF=2 127.0.0.1:9}, 16): Address already in use" "\$P N exit(1)" >&2
+        exit 1 ;;
+    conn:1)
+        printf '%s\n' "\$P N listening on AF=10 [0000:0000:0000:0000:0000:0000:0000:0001]:9" >&2
+        printf '%s\n' "\$P N accepting connection from AF=10 [0000:0000:0000:0000:0000:0000:0000:0001]:4242 on AF=10 [0000:0000:0000:0000:0000:0000:0000:0001]:9" >&2
+        printf 'GET /x HTTP/1.0\r\n\r\n'
+        cat > "$SK/m/got"
+        exit 0 ;;
+    *)
+        printf '%s\n' "\$P N listening on AF=2 127.0.0.1:9" >&2
+        exec sleep 30 ;;
+esac
+EOS
+chmod +x "$SK/m/socat"
+cat > "$SK/m/child.sh" <<'EOS'
+exec </dev/null
+source "$UNIT" || exit 91
+TSocatTransport.new T
+T.SocatBinary = "$SKM/socat"
+T.Port = 9
+r=0; FAKE_MODE=bind T.Accept 0 10 || r=$?
+T.LastError; printf 'bind_rc=%s\nbind_le=%s\n' "$r" "$RESULT"
+T.Shutdown
+rm -f "$SKM/count"
+T.Address = ::1
+r=0; FAKE_MODE=conn T.Accept 0 10 || r=$?
+T.FirstLine; fl="$RESULT"; T.RemoteAddress; ra="$RESULT"
+printf 'conn_rc=%s\nconn_fl=%s\nconn_ra=%s\n' "$r" "${fl%$'\r'}" "$ra"
+T.OutFd; printf 'HTTP/1.0 200 OK\r\n\r\n' >&"$RESULT"
+T.CloseConnection
+T.Shutdown
+d=""; for x in "$TMPDIR"/thttpserver.*; do [[ -e "$x" ]] && d+=" $x"; done
+printf 'dirs=[%s]\n' "$d"
+T.delete
+EOS
+kt_test_start "the base mechanism over a fake socat: a bind failure → Accept rc 2 at once, LastError = the text after E, spawned once; a v6 connection → rc 0, FirstLine, RemoteAddress '[::1]:4242', the response reaches the listener's stdin, the drained close; no kklass visibility warning, nothing left"
+mkdir -p "$SK/m/tmp"
+rm -f "$SK/m/count" "$SK/m/spawns" "$SK/m/got"
+mrc=0
+FAKE_MODE="" UNIT="$UNIT" SKM="$SK/m" TMPDIR="$SK/m/tmp" timeout 120 "$BASH" "$SK/m/child.sh" >"$SK/m/out" 2>"$SK/m/err" || mrc=$?
+declare -A MR=()
+while IFS= read -r l; do [[ "$l" == *=* ]] && MR["${l%%=*}"]="${l#*=}"; done < "$SK/m/out"
+# bind spawns only: the pre-spawned slot of the conn pass may be stopped by
+# Shutdown before its fake even logs
+ms="$(grep -c -- '^bind .*-d -d -lpsocat -t 0.5' "$SK/m/spawns" 2>/dev/null)"
+mg="$(tr -d '\r' < "$SK/m/got" 2>/dev/null)"
+me="$(<"$SK/m/err")"
+if [[ $mrc -eq 0 && "${MR[bind_rc]:-}" == 2 && "${MR[bind_le]:-}" == "bind(5, {AF=2 127.0.0.1:9}, 16): Address already in use" \
+      && "${MR[conn_rc]:-}" == 0 && "${MR[conn_fl]:-}" == "GET /x HTTP/1.0" && "${MR[conn_ra]:-}" == "[::1]:4242" \
+      && "$mg" == "HTTP/1.0 200 OK" && "${MR[dirs]:-x}" == "[]" && "$ms" == 1 && -z "$me" ]]; then
+    kt_test_pass "rc 2 '${MR[bind_le]:0:40}…' after 1 spawn; rc 0 from ${MR[conn_ra]}; silent"
+else
+    kt_test_fail "exit=$mrc out='$(tr '\n' ' ' < "$SK/m/out")' spawns=$ms got='$mg' stderr='${me:0:300}'"
+fi
+
+kt_test_start "TSocatTransport.BuildArgv refuses an Address outside 0-9 A-Z a-z . : - (rc 2, LastError, the array empty): '127.0.0.1,fork', 'a b', 'x;y'; 'localhost' and 'fe80::1' pass"
+TSocatTransport.new SZ
+SZ.SocatBinary = "$SK/a2/socat"
+bad=""
+for a in '127.0.0.1,fork' 'a b' 'x;y'; do
+    SZ.Address = "$a"
+    declare -a SZA=()
+    r=0; SZ.BuildArgv SZA || r=$?
+    SZ.LastError
+    [[ $r -eq 2 && ${#SZA[@]} -eq 0 && "$RESULT" == "TSocatTransport: Address '$a' may only contain 0-9 A-Z a-z . : -" ]] || bad+=" [$a]:rc=$r,n=${#SZA[@]},le='$RESULT'"
+done
+for a in localhost fe80::1; do
+    SZ.Address = "$a"
+    declare -a SZA=()
+    r=0; SZ.BuildArgv SZA || r=$?
+    [[ $r -eq 0 && ${#SZA[@]} -eq 8 ]] || bad+=" [$a]:rc=$r"
+done
+SZ.delete
+if [[ -z "$bad" ]]; then kt_test_pass "three refused, two accepted"; else kt_test_fail "$bad"; fi
+
+kt_test_start "TNetcatTransport.BuildArgv, NcBinary '' and KCL_NC unset, a non-GNU nc found on PATH: rc 2, LastError ends '; TNetcatTransport runs GNU netcat only (use TSocatTransport, or leave THttpServer.Transport '' for automatic selection)' — not the 'set explicitly' tail"
+TNetcatTransport.new NP
+op="$PATH"; okc=0; if [[ -v KCL_NC ]]; then okc=1; okv="$KCL_NC"; unset -v KCL_NC; fi
+PATH="$SK/obsd"; __THS_BACKEND_KEY=""
+declare -a NPA=()
+r=0; NP.BuildArgv NPA || r=$?
+PATH="$op"; if (( okc )); then KCL_NC="$okv"; fi
+NP.LastError; le="$RESULT"
+NP.delete
+want="no usable network backend: OpenBSD netcat at $SK/obsd/nc is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); TNetcatTransport runs GNU netcat only (use TSocatTransport, or leave THttpServer.Transport '' for automatic selection)"
+if [[ $r -eq 2 && "$le" == "$want" && ${#NPA[@]} -eq 0 ]]; then kt_test_pass "rc 2, the GNU-only reason"; else kt_test_fail "rc=$r le='$le'"; fi
+
+kt_test_start "ths._v6short (RFC 5952): eight groups → the short form (the longest zero run, the first of equal runs, never a single zero); IPv4-mapped eight groups → '::ffff:7f00:1'; anything else unchanged"
+bad=""
+while IFS='|' read -r a w; do
+    ths._v6short "$a"
+    [[ "$REPLY" == "$w" ]] || bad+=" $a→'$REPLY'(want $w)"
+done <<'EOV'
+0000:0000:0000:0000:0000:0000:0000:0001|::1
+0:0:0:0:0:0:0:0|::
+2001:0DB8:0000:0000:0001:0000:0000:0001|2001:db8::1:0:0:1
+fe80:0:0:1:0:0:0:1|fe80:0:0:1::1
+1:0:0:1:0:0:1:1|1::1:0:0:1:1
+fe80:0:0:1:0:0:0:0|fe80:0:0:1::
+1:2:3:4:5:6:7:8|1:2:3:4:5:6:7:8
+1:0:2:3:4:5:6:7|1:0:2:3:4:5:6:7
+0:0:0:0:0:ffff:7f00:1|::ffff:7f00:1
+::1|::1
+::ffff:127.0.0.1|::ffff:127.0.0.1
+EOV
+if [[ -z "$bad" ]]; then kt_test_pass "11 vectors"; else kt_test_fail "$bad"; fi
+
+kt_test_start "a socat binary under another name (socat1) logs as 'socat[PID]' through -lpsocat: the base mechanism still reads its lines (RemoteAddress '[::1]:4242'), no warning, nothing left"
+cp "$SK/m/socat" "$SK/m/socat1"
+cat > "$SK/m/child1.sh" <<'EOS'
+exec </dev/null
+source "$UNIT" || exit 91
+TSocatTransport.new T
+T.SocatBinary = "$SKM/socat1"
+T.Address = ::1
+T.Port = 9
+r=0; FAKE_MODE=conn T.Accept 0 10 || r=$?
+T.RemoteAddress; printf 'rc=%s\nra=%s\n' "$r" "$RESULT"
+T.OutFd; printf 'HTTP/1.0 200 OK\r\n\r\n' >&"$RESULT"
+T.CloseConnection
+T.Shutdown
+d=""; for x in "$TMPDIR"/thttpserver.*; do [[ -e "$x" ]] && d+=" $x"; done
+printf 'dirs=[%s]\n' "$d"
+T.delete
+EOS
+rm -f "$SK/m/count" "$SK/m/spawns" "$SK/m/got"
+mrc=0
+FAKE_MODE="" UNIT="$UNIT" SKM="$SK/m" TMPDIR="$SK/m/tmp" timeout 120 "$BASH" "$SK/m/child1.sh" >"$SK/m/out1" 2>"$SK/m/err1" || mrc=$?
+m1="$(tr '\n' ' ' < "$SK/m/out1")"; me="$(<"$SK/m/err1")"
+if [[ $mrc -eq 0 && "$m1" == "rc=0 ra=[::1]:4242 dirs=[] " && -z "$me" ]] && grep -q -- '-lpsocat' "$SK/m/spawns"; then
+    kt_test_pass "$m1"
+else
+    kt_test_fail "exit=$mrc out='$m1' spawns='$(tr '\n' '|' < "$SK/m/spawns" 2>/dev/null)' stderr='${me:0:200}'"
+fi
+
+kt_test_start "the server factory: BeginServe (no Transport) with only a socat on PATH → the OWNED \${inst}_tr is a TSocatTransport (Port/Address copied); EndServe frees it"
+THttpServer.new FS
+FS.Port = 12346
+FS.Address = 127.0.0.3
+op="$PATH"; okc=0; if [[ -v KCL_NC ]]; then okc=1; okv="$KCL_NC"; unset -v KCL_NC; fi
+PATH="$SK/a1"; __THS_BACKEND_KEY=""
+r=0; FS.BeginServe || r=$?
+PATH="$op"; if (( okc )); then KCL_NC="$okv"; fi
+c1="${FS_tr_class:-}"; p1="$(FS_tr.Port)"; a1="$(FS_tr.Address)"; t1="$(FS.Transport)"
+FS.EndServe
+t2="$(FS.Transport)"
+left=0; declare -p FS_tr_data >/dev/null 2>&1 && left=1
+if [[ $r -eq 0 && "$c1" == TSocatTransport && "$t1" == FS_tr && "$p1" == 12346 && "$a1" == 127.0.0.3 && -z "$t2" && $left -eq 0 ]]; then
+    kt_test_pass "TSocatTransport, configured, freed"
+else
+    kt_test_fail "rc=$r class='$c1' tr='$t1' port='$p1' addr='$a1' after='$t2' left=$left"
+fi
+
+kt_test_start "the server factory: a GNU KCL_NC (a socat on PATH too) → TNetcatTransport; a caller-set Transport is untouched (not replaced, not owned, not freed)"
+op="$PATH"; PATH="$SK/a1"; __THS_BACKEND_KEY=""
+r1=0; KCL_NC="$SK/gnu/nc" FS.BeginServe || r1=$?
+PATH="$op"
+c2="${FS_tr_class:-}"
+FS.EndServe
+TReplayTransport.new FT
+FS.Transport = FT
+op="$PATH"; PATH="$SK/a1"; __THS_BACKEND_KEY=""
+r2=0; FS.BeginServe || r2=$?
+PATH="$op"
+t3="$(FS.Transport)"; c3="${FS_tr_class:-}"
+FS.EndServe
+t4="$(FS.Transport)"
+alive=0; declare -F FT.Accept >/dev/null && alive=1
+if [[ $r1 -eq 0 && "$c2" == TNetcatTransport && $r2 -eq 0 && "$t3" == FT && -z "$c3" && "$t4" == FT && $alive -eq 1 ]]; then
+    kt_test_pass "TNetcatTransport; FT kept"
+else
+    kt_test_fail "rc=$r1/$r2 class='$c2' tr='$t3' owned-class='$c3' after='$t4' alive=$alive"
+fi
+FT.delete
+FS.delete

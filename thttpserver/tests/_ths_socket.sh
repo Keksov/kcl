@@ -16,10 +16,14 @@
 #     curl rc 7 / a refused /dev/tcp connect; all proxy variables are unset;
 #   * ordering is event-driven: marker files polled in bounded loops (the
 #     sleep inside is the poll interval, never a synchronisation by itself);
-#   * nc = KCL_NC, else `nc` on PATH, else /c/bin/msys64/usr/bin/nc.exe
-#     (exported to the child as KCL_NC); with none, or with an nc that is not
-#     GNU netcat (ths._backend, L2.7-N1), the socket cases SKIP visibly
-#     (kt_test_pass "SKIP: …"), so the case count stays the same.
+#   * the backend is the unit's own choice (ths._backend, L2.7-N1/N2): GNU
+#     netcat, else socat. THS_NC = KCL_NC, else `nc` on PATH, else
+#     /c/bin/msys64/usr/bin/nc.exe — only that msys fallback (or a KCL_NC the
+#     caller set) reaches the detection and the child as KCL_NC; otherwise
+#     KCL_NC stays unset and the detection is automatic (a Linux with
+#     OpenBSD nc on PATH and socat installed runs on socat). With no usable
+#     backend the socket cases SKIP visibly (kt_test_pass "SKIP: …"), so the
+#     case count stays the same.
 
 unset -v HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy NO_PROXY no_proxy FTP_PROXY ftp_proxy
 
@@ -32,8 +36,9 @@ if ! declare -F ths._backend >/dev/null; then
     source "${UNIT:-$UNIT_DIR/thttpserver.sh}"
 fi
 
-# THS_NC — the netcat the children use; THS_NC_ENV — 1 when it must reach the
-# child through KCL_NC (not found on PATH).
+# THS_NC — the netcat the children may use; THS_NC_ENV — 1 when it must reach
+# the detection and the child through KCL_NC (set by the caller, or not found
+# on PATH: the msys fallback).
 THS_NC="${KCL_NC:-}"
 THS_NC_ENV=0
 if [[ -n "$THS_NC" ]]; then
@@ -47,12 +52,23 @@ else
     THS_NC=""
 fi
 
-# ths_have_backend — rc 0 when THS_NC is GNU netcat (the unit's own
-# identification, ths._backend; sets __THS_BACKEND / __THS_BACKEND_WHY). The
-# KCL_NC assignment is for that call only.
+# ths_have_backend — rc 0 when the unit's own detection (ths._backend) finds
+# a usable backend, gnu or socat. KCL_NC=$THS_NC for that call ONLY when
+# THS_NC_ENV=1; otherwise KCL_NC stays unset (automatic detection). The result
+# is copied at once into THS_BACKEND / THS_BACKEND_WHY (every later
+# ths._backend call — BuildArgv's identity check included — overwrites the
+# __THS_* globals).
+THS_BACKEND=""
+THS_BACKEND_WHY=""
 ths_have_backend() {
-    KCL_NC=$THS_NC ths._backend
-    [[ "$__THS_BACKEND" == gnu ]]
+    if (( THS_NC_ENV )); then
+        KCL_NC=$THS_NC ths._backend
+    else
+        ths._backend
+    fi
+    THS_BACKEND="$__THS_BACKEND"
+    THS_BACKEND_WHY="$__THS_BACKEND_WHY"
+    [[ "$THS_BACKEND" == gnu || "$THS_BACKEND" == socat ]]
 }
 
 # ths_have_nc — rc 0 when the socket cases can run.
@@ -61,11 +77,11 @@ ths_have_nc() { ths_have_backend; }
 # ths_skip TITLE… — one visible SKIP case per title (the case count is kept).
 ths_skip() {
     local t why
-    if [[ -z "$__THS_BACKEND" ]]; then
+    if [[ -z "$THS_BACKEND" ]]; then
         ths_have_backend || :
     fi
-    why="$__THS_BACKEND_WHY"
-    if [[ "$__THS_BACKEND" == missing ]]; then
+    why="$THS_BACKEND_WHY"
+    if [[ "$THS_BACKEND" == missing ]]; then
         why="no netcat: $why"
     fi
     for t in "$@"; do
@@ -95,22 +111,64 @@ ths_poll() {
     return 1
 }
 
-# ths_mark — THS_RE_BOUND / THS_RE_BINDFAIL (ERE) from the backend
-# (__THS_BACKEND): the stderr line that says "listener bound" and the line of a
-# bind failure. Any backend but gnu: a pattern that never matches.
+# ths_mark — THS_RE_BOUND / THS_RE_BINDFAIL / THS_RE_CONN (ERE) from the
+# backend (THS_BACKEND; detected first when empty): the listener's stderr line
+# that says "bound", the line (= LastError) of a bind failure, and the line of
+# an accepted connection. socat's lines start with a timestamp: unanchored
+# (measured, L2.7-N2 step 0). Neither backend: patterns that never match.
 ths_mark() {
-    case "${__THS_BACKEND:-}" in
+    if [[ -z "$THS_BACKEND" ]]; then
+        ths_have_backend || :
+    fi
+    case "$THS_BACKEND" in
         gnu)
             THS_RE_BOUND='^Listening on'
-            THS_RE_BINDFAIL="Couldn't setup listening socket" ;;
-        *)  # L2.7-N2: socat markers
+            THS_RE_BINDFAIL="Couldn't setup listening socket"
+            THS_RE_CONN='^Connection from' ;;
+        socat)
+            THS_RE_BOUND=' N listening on '
+            THS_RE_BINDFAIL='bind\(.*Address already in use'
+            THS_RE_CONN=' N accepting connection from ' ;;
+        *)
             THS_RE_BOUND='a^b'
-            THS_RE_BINDFAIL='a^b' ;;
+            THS_RE_BINDFAIL='a^b'
+            THS_RE_CONN='a^b' ;;
     esac
 }
 
+# ths_new_transport NAME — a transport instance NAME for the detected backend:
+# TSocatTransport for socat, else TNetcatTransport (NcBinary = THS_NC when
+# THS_NC_ENV=1).
+ths_new_transport() {
+    ths_mark
+    if [[ "$THS_BACKEND" == socat ]]; then
+        TSocatTransport.new "$1"
+    else
+        TNetcatTransport.new "$1"
+        if (( THS_NC_ENV )); then
+            "$1.NcBinary" = "$THS_NC"
+        fi
+    fi
+}
+
+# ths_listen_argv OUTARR PORT TTL — the detected backend's listener argv on
+# 127.0.0.1:PORT with the accept timeout TTL into the caller's array OUTARR
+# (the transport's own BuildArgv: OUTARR must not start with __ths_/__THS_);
+# rc = BuildArgv's. For a stand-alone listener (a port blocker, a "port free
+# again" probe); the caller adds the redirections.
+ths_listen_argv() {
+    local __ths_rc=0
+    ths_new_transport THSListenArgvT
+    THSListenArgvT.Address = 127.0.0.1
+    THSListenArgvT.Port = "$2"
+    THSListenArgvT.ListenerTTL = "$3"
+    THSListenArgvT.BuildArgv "$1" || __ths_rc=$?
+    THSListenArgvT.delete
+    return "$__ths_rc"
+}
+
 # ths_listening DIR [SLOT] — the server under DIR has a listener bound (its
-# slot's -vv stderr says `Listening on`).
+# slot's stderr has the backend's THS_RE_BOUND line).
 ths_listening() {
     local f
     ths_mark
@@ -126,7 +184,7 @@ ths_prespawned() {
     local f
     ths_mark
     for f in "$1"/tmp/thttpserver.*/err[01]; do
-        if [[ -f "$f" ]] && grep -Eq "$THS_RE_BOUND" "$f" 2>/dev/null && ! grep -q '^Connection from' "$f" 2>/dev/null; then
+        if [[ -f "$f" ]] && grep -Eq "$THS_RE_BOUND" "$f" 2>/dev/null && ! grep -Eq "$THS_RE_CONN" "$f" 2>/dev/null; then
             return 0
         fi
     done
@@ -326,6 +384,38 @@ ths_fdcount() {
         return 1
     fi
     THS_NFD=${#__ths_f[@]}
+}
+
+# ths_int_ignored — rc 0 when a server child started the way ths_start starts
+# it (in the background, through `env … timeout`) has SIGINT ignored on entry:
+# GNU coreutils 9.10 `timeout` (Fedora) keeps an inherited SIG_IGN, and bash
+# cannot trap a signal ignored on entry (measured L2.7-N2 on kb-fedora;
+# coreutils 9.4 on Ubuntu, Windows: not ignored). A one-shot probe, cached in
+# THS_INT_IGN (1 / 0) by the first call.
+THS_INT_IGN=""
+ths_int_ignored() {
+    local o="" f="$TMP/.ths_int_probe"
+    if [[ -z "$THS_INT_IGN" ]]; then
+        env timeout 10 "$BASH" -c 'trap ": probe" INT; trap -p INT' >"$f" 2>/dev/null </dev/null &
+        wait "$!" 2>/dev/null
+        o="$(<"$f")"
+        rm -f "$f"
+        if [[ "$o" == *"trap -- '' SIGINT"* ]]; then THS_INT_IGN=1; else THS_INT_IGN=0; fi
+    fi
+    [[ "$THS_INT_IGN" == 1 ]]
+}
+
+# ths_custom_traps TRAPS — rc 0 when TRAPS (a server child's `trap -p INT TERM
+# PIPE`, '|'-joined) shows the fixture's custom traps ': custom int', ': custom
+# term' and ': custom pipe' — INT as ignored (`trap -- '' SIGINT`) instead
+# ONLY when ths_int_ignored says a child gets SIGINT ignored on entry. The
+# callers still compare the traps before and after for equality.
+ths_custom_traps() {
+    [[ "$1" == *"custom term"*"custom pipe"* ]] || return 1
+    if [[ "$1" == *"custom int"* ]]; then
+        return 0
+    fi
+    [[ "$1" == *"trap -- '' SIGINT"* ]] && ths_int_ignored
 }
 
 # ths_reap SECONDS — wait up to SECONDS for the child to end by itself; if it

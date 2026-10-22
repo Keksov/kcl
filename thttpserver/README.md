@@ -1,13 +1,14 @@
-# thttpserver — a minimal HTTP server on kklass + GNU netcat
+# thttpserver — a minimal HTTP server on kklass + GNU netcat or socat
 
-> **Status: COMPLETE (P0–P3).** Nine classes in four files — the messages
+> **Status: COMPLETE (P0–P3; the socat backend L2.7-N2).** Ten classes in four files — the messages
 > (`THttpRequest`, `THttpResponse`), the router (`THttpRouteObject`,
 > `THttpRouter`), the transport seam (`THttpTransport`, `TReplayTransport`,
-> `TNetcatTransport`), the server (`THttpServer`) and the application
+> `TNetcatTransport`, `TSocatTransport`), the server (`THttpServer`) and the application
 > (`THttpApplication : TCustomApplication`) — plus two runnable examples, the
-> bench and the docs. Suite `tests/001`–`010` = **497 checks, green on bash
+> bench and the docs. Suite `tests/001`–`010` = **533 checks, green on bash
 > 5.2.37 and on bash 5.3.9**, threaded and (5.2.37) under `--mode single`, the
-> socket tests **run** (not skipped) on both. A post-completion review
+> socket tests **run** (not skipped) on both — on GNU netcat under Windows,
+> on socat in the Linux lab VMs. A post-completion review
 > (2026-09-30, F1–F6) fixed nested route-object dispatch, a duplicate `Host`,
 > `gone` counting toward `MaxRequests`, the HEAD flag of a failed request, a
 > consumed empty request line, and deduplicated the transport's slot code (§7). What the tests pin, member by
@@ -34,16 +35,18 @@ composition with other kcl units — appears where it is the natural tool (§8).
 objects live across requests: a counter, an in-memory key-value store, a
 router. The classic bash web server (`nc -e script`, `ncat --sh-exec`) starts a
 fresh shell per connection — state is lost, and with kklass loaded every
-request would pay a cold `source` (1–3.5 s on this machine). Here only `nc` is
-started per connection.
+request would pay a cold `source` (1–3.5 s on this machine). Here only the
+listener (`nc`, or `socat`) is started per connection.
 
-**How a connection is noticed.** Never *detected*: a listener `nc` is started
-**in advance** and blocks in accept, while bash waits in `read -t` on that
-`nc`'s stdout. The first bytes of a request arriving there **are** the event;
-the listener's `-vv` stderr (`Listening on …`, `Connection from …`) tells the
-other states apart. GNU nc 0.7.1 has no `-k` (one process = one connection),
-so the server alternates two listener slots and starts the next listener as
-soon as the current request line has arrived (D5) — see §6.
+**How a connection is noticed.** Never *detected*: a listener `nc` (or
+`socat`) is started **in advance** and blocks in accept, while bash waits in
+`read -t` on its stdout. The first bytes of a request arriving there **are**
+the event; the listener's stderr (`Listening on …`, `Connection from …` for
+GNU nc; `N listening on …`, `N accepting connection from …` for socat) tells
+the other states apart. One process = one connection (GNU nc 0.7.1 has no
+`-k`; socat runs without `fork`), so the server alternates two listener slots
+and starts the next listener as soon as the current request line has arrived
+(D5) — see §6.
 
 ---
 
@@ -226,7 +229,7 @@ request (§3).
 
 Anything else is rc 2. The route patterns are in §5.
 
-### THttpTransport (abstract), TReplayTransport, TNetcatTransport — the network seam
+### THttpTransport (abstract), TReplayTransport, TNetcatTransport, TSocatTransport — the network seam
 
 `THttpTransport`: read-only properties `InFd`, `OutFd`, `FirstLine`,
 `LineConsumed`, `TimedOut`, `RemoteAddress`, `LastError` over **protected**
@@ -246,7 +249,7 @@ the socket tests drive — substitutability, and the fork-free proofs.
 
 | var | default | |
 |---|---|---|
-| `NcBinary` | `''` | `''` → `$KCL_NC` → `nc` on PATH (a fork-free PATH walk); none → BuildArgv rc 1, Accept rc 2 `nc not found …`, no respawn loop; an nc that is not GNU netcat → BuildArgv rc 2, Accept rc 2 with the `no usable network backend: …` LastError (see *Network backend*) |
+| `NcBinary` | `''` | `''` → `$KCL_NC` → `nc` on PATH (a fork-free PATH walk); none → BuildArgv rc 1, Accept rc 2 `nc not found …`, no respawn loop; an nc that is not GNU netcat → BuildArgv rc 2, Accept rc 2 with the `no usable network backend: …` LastError (see *Network backend*; with `NcBinary` and `KCL_NC` both empty — an nc found on PATH — the reason ends `; TNetcatTransport runs GNU netcat only (use TSocatTransport, or leave THttpServer.Transport '' for automatic selection)`) |
 | `Address` / `Port` | `127.0.0.1` / `8080` | |
 | `ListenerTTL` | 60 | `nc -w`: an orphan's time-to-live only (it limits accept, not a connection) |
 | `CloseTimeout` | 2 | the bound of the drained close |
@@ -255,44 +258,132 @@ the socket tests drive — substitutability, and the fork-free proofs.
 `BuildArgv OUTARR` (virtual) → `NC -l -c -vv -n -w TTL -s ADDR -p PORT`, after
 the nc was found (rc 1 `nc not found …` otherwise) **and identified as GNU
 netcat** (rc 2, LastError = the reason, the array left empty, otherwise); a
-descendant for another nc flavour overrides it.
+descendant for another listener overrides it — as `TSocatTransport` does.
+
+`TSocatTransport : TNetcatTransport` — the same mechanism (slots, relay,
+drained close, Accept / CloseConnection / Shutdown inherited unchanged) over
+**socat >= 1.7.4**; it overrides `BuildArgv` and `_state` only:
+
+| var | default | |
+|---|---|---|
+| `SocatBinary` | `''` | `''` → `$KCL_SOCAT` → `socat` on PATH; none → BuildArgv rc 1 `socat not found …`; a socat without `accept-timeout` → rc 2 with that reason |
+| `Address` / `Port` / `ListenerTTL` / `CloseTimeout` / `StdinRelay` | as above | `Address` may only contain `0-9 A-Z a-z . : -` (else BuildArgv rc 2: a `,` would add socat options); `ListenerTTL` is socat's `accept-timeout`; `NcBinary` is inherited and unused |
+
+`BuildArgv OUTARR` → `SOCAT -d -d -lpsocat -t 0.5
+TCP4-LISTEN:PORT,bind=ADDR,reuseaddr,accept-timeout=TTL STDIO` (an `Address`
+with `:` → `TCP6-LISTEN:PORT,bind=[ADDR]`; `-lpsocat` fixes the log name,
+which socat otherwise takes from argv[0] — a binary named `socat1` would log
+`socat1[PID]`). `_state` reads the `-d -d` lines
+(`YYYY/MM/DD HH:MM:SS socat[PID] S TEXT`): `N listening on` → listening; `N
+accepting connection from AF=… A:P on …` → connected, `RemoteAddress` = `A:P`
+(`[::1]:P` for IPv6 — socat prints all eight groups, the address is put in
+the RFC 5952 short form; an IPv4-mapped peer comes out as `::ffff:7f00:1`,
+not the dotted form); `W accept: Connection timed out` (FreeBSD: `Operation timed out`; FreeBSD
+also writes `LEN=16 AF=2` where Linux writes `AF=2`) → the TTL (respawn);
+the first `E` / `F` line → fatal, `LastError` = its text after the severity
+letter (a busy port: `bind(5, {AF=2 127.0.0.1:P}, 16): Address already in
+use`); every other line is ignored. `_state` is **public** in the descendant:
+called from the base's Accept / Shutdown, a private or protected override
+prints a kklass visibility warning (measured).
 
 #### Network backend
 
-thttpserver identifies the netcat before it ever starts one
-(`ths._backend [NCBIN]`, a plain function of `thttpserver.sh`). The binary is
-`NCBIN` (BuildArgv passes the resolved `NcBinary`), else `$KCL_NC`, else `nc`
-on PATH (the same fork-free PATH walk BuildArgv uses). The result:
+thttpserver chooses and identifies its listener before it ever starts one
+(`ths._backend [NCBIN] [SOCATBIN]`, a plain function of `thttpserver.sh`;
+`THttpServer.BeginServe` calls it when no `Transport` is set, each transport's
+`BuildArgv` for its own binary). Windows keeps GNU netcat 0.7.1, byte for byte
+as before; a Linux whose `nc` is OpenBSD netcat / Ncat / nc.traditional runs on
+**socat** (decision D2 of the launch triage: OpenBSD nc keeps its listening
+socket open while it serves and sets `SO_REUSEPORT`, so with two pre-spawned
+slots the next client lands in the busy slot's backlog — 10 of 20 runs;
+socat and ncat close the listener after the accept, 10 of 10).
+
+Precedence — the first rule that applies decides:
+
+1. **an explicit netcat** — `NCBIN` (BuildArgv passes its resolved
+   `NcBinary`), else `$KCL_NC`: GNU netcat → `gnu`; an existing nc that is
+   not GNU → `none` (socat is **not** consulted); no such file → `missing`;
+2. **else an explicit socat** — `SOCATBIN` (`SocatBinary`), else
+   `$KCL_SOCAT`: passes the probe → `socat`, else `none`;
+3. **else automatic**: GNU `nc` on PATH → `gnu`; else `socat` on PATH that
+   passes the probe → `socat`; else a socat on PATH that fails it → `none`;
+   else an existing non-GNU nc → `none`; else `missing`.
 
 | backend | meaning |
 |---|---|
-| `missing` | no such binary, or not an executable file. No fork. `nc not found (NcBinary, KCL_NC, PATH)`; BuildArgv still reports its own `nc not found …` (rc 1) |
-| `gnu` | `NC --version` prints `GNU Netcat` (netcat 0.7.1 — msys64's, Debian/Ubuntu `netcat-traditional` is NOT it). The only backend that runs |
-| `none` | any other existing nc. Named by its `--version` text (a second probe, `-h`, only if that names nothing): `OpenBSD netcat`, `Ncat`, `BusyBox nc`, `traditional nc (v1.10)`, an OpenBSD-upstream usage line `[-46…` (no name in it, e.g. Fedora's nc) also counts as `OpenBSD netcat`, else `unknown nc` |
+| `gnu` | `NC --version` prints `GNU Netcat` (netcat 0.7.1 — msys64's; Debian/Ubuntu `netcat-traditional` is NOT it) → `TNetcatTransport` |
+| `socat` | `SOCAT -hhh` lists `accept-timeout` (socat >= 1.7.4) → `TSocatTransport` |
+| `none` | refused: BeginServe rc 2 with the reason as LastError, before it installs a trap or creates a transport; a transport's BuildArgv / Accept rc 2 with it |
+| `missing` | neither exists. BeginServe goes on with a `TNetcatTransport`, whose Accept reports `nc not found …` (rc 2; `Serve` rc 1) |
 
-For `none` the reason is exactly `no usable network backend: <flavour> at
-<path> is not GNU netcat 0.7.1 (refused: thttpserver never runs another
-netcat with GNU flags); install GNU netcat 0.7.1 (a socat backend follows in
-a later version)`. `THttpServer.BeginServe` (no Transport set) returns rc 2
-with that LastError before it installs a trap or creates the transport;
-`TNetcatTransport.BuildArgv` / `Accept` return rc 2 with it. Why another nc is
-refused rather than tried: the listener's flags are GNU's. In **ncat** and
-**nc.traditional** `-c` / `-e` execute a command for every connection (the
-GNU flag `-c` is "run this command" there, not "close on EOF" — a hazard, not
-a harmless mismatch); the **OpenBSD** nc has no accept timeout (`-w` limits
-only connect and idle), so an orphaned listener would live forever. The probes
-(`--version`, `-h`) are the only things an unidentified nc is ever run with.
-The result is cached per `"$PATH|$KCL_NC|NCBIN"` (a hit forks nothing; the
-identity costs one fork per process on a miss). **socat backend: next
-version.** The socket tests report `SKIP: <that reason>` (case counts
-unchanged) wherever the nc is not GNU netcat.
+A non-GNU nc is named by its `--version` text (a second probe, `-h`, only if
+that names nothing): `OpenBSD netcat`, `Ncat`, `BusyBox nc`, `traditional nc
+(v1.10)`, an OpenBSD-upstream usage line `[-46…` (no name in it, e.g.
+Fedora's nc) also counts as `OpenBSD netcat`, else `unknown nc`. The reasons,
+exactly:
+
+* automatic, a non-GNU nc, no socat: `no usable network backend: <flavour>
+  at <nc> is not GNU netcat 0.7.1 (refused: thttpserver never runs another
+  netcat with GNU flags); no socat on PATH — install socat (apt/dnf/apk/pkg
+  install socat) or GNU netcat 0.7.1 (Homebrew netcat, FreeBSD net/gnetcat,
+  Arch gnu-netcat, or from source)`;
+* an explicit non-GNU nc: `no usable network backend: <flavour> at <nc> is not
+  GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU
+  flags); socat was not consulted because the netcat was set explicitly
+  (NcBinary/KCL_NC)`;
+* an explicit socat failing the probe: `no usable network backend: <socat>
+  does not support accept-timeout (socat >= 1.7.4 needed)`;
+* automatic, a non-GNU nc and a socat on PATH failing the probe (`none`, BIN
+  = the nc): `no usable network backend: <flavour> at <nc> is not GNU netcat
+  0.7.1 (refused: thttpserver never runs another netcat with GNU flags);
+  <socat> does not support accept-timeout (socat >= 1.7.4 needed)`;
+* automatic, no nc and a socat on PATH failing the probe (`none`, not
+  `missing`; BIN = the socat): `nc not found (NcBinary, KCL_NC, PATH);
+  <socat> does not support accept-timeout (socat >= 1.7.4 needed)`;
+* `TNetcatTransport.BuildArgv` with `NcBinary` and `KCL_NC` empty and a
+  non-GNU nc on PATH: the nc part, then `; TNetcatTransport runs GNU netcat
+  only (use TSocatTransport, or leave THttpServer.Transport '' for automatic
+  selection)`;
+* neither: `nc not found (NcBinary, KCL_NC, PATH); no socat on PATH either`
+  (an explicit nc that does not exist: `nc not found (NcBinary, KCL_NC,
+  PATH)`).
+
+Why another nc is refused rather than tried: the listener's flags are GNU's.
+In **ncat** and **nc.traditional** `-c` / `-e` execute a command for every
+connection (the GNU flag `-c` is "run this command" there, not "close on EOF"
+— a hazard, not a harmless mismatch); the **OpenBSD** nc has no accept
+timeout (`-w` limits only connect and idle), so an orphaned listener would
+live forever. The probes (`--version`, `-h`; `-hhh` for socat) are the only
+things an unidentified binary is ever run with. The result is cached per
+`"$PATH|$KCL_NC|$KCL_SOCAT|NCBIN|SOCATBIN"` (a hit forks nothing; a miss one to
+three forks per process: `--version`, perhaps `-h`, `-hhh`).
+
+**Where to get one.** GNU netcat 0.7.1: msys64 (`/c/bin/msys64/usr/bin/nc.exe`
+here), Homebrew `netcat`, FreeBSD `net/gnetcat`, Arch `gnu-netcat`, or from
+source; Debian/Ubuntu/Fedora/Alpine do not package it. socat: `apt install
+socat`, `dnf install socat`, `apk add socat`, `pkg install socat` (measured:
+1.8.0.0 Ubuntu 24.04, 1.8.0.3 Debian 13, 1.8.1.1 Fedora, 1.8.1.3 FreeBSD 15.1).
+
+**The two backends differ** in their events and their linger, nothing else:
+
+| | GNU netcat (`TNetcatTransport`) | socat (`TSocatTransport`) |
+|---|---|---|
+| listener | `nc -l -c -vv -n -w TTL -s ADDR -p PORT` | `socat -d -d -lpsocat -t 0.5 TCP4-LISTEN:PORT,bind=ADDR,reuseaddr,accept-timeout=TTL STDIO` |
+| bound / accepted | `Listening on …` / `Connection from A:P` | `… N listening on …` / `… N accepting connection from AF=… A:P on …` (FreeBSD: `LEN=16 AF=2 A:P`) |
+| TTL expired | `Listen mode failed: Connection timed out` | `… W accept: Connection timed out` (FreeBSD: `Operation timed out`; exit 0) |
+| busy port (`LastError`) | `Error: Couldn't setup listening socket (err=-3)` | `bind(5, {AF=2 127.0.0.1:P}, 16): Address already in use` |
+| after the server's stdin EOF | `-c`: closes the connection | `-t 0.5`: shuts the socket's write side, exits at the client's EOF or **0.5 s** later (measured 514–847 ms with a client that keeps the connection open, 1–6 ms with one that closes — below `CloseTimeout` 2 s, the drain never needs the kill) |
+| a client that half-closes after its request | — | socat waits at most `-t` 0.5 s for the response: a handler slower than that answers nobody |
+
+The socket tests run on whichever backend the detection picks and report
+`SKIP: <the reason>` (case counts unchanged) where there is none.
 
 ### THttpServer
 
 | member | kind | |
 |---|---|---|
 | `Address`, `Port` | vars | `127.0.0.1`, `8080` (copied to the owned transport) |
-| `Transport` | var | `''` → an **owned** `TNetcatTransport` `${inst}_tr` created by BeginServe, freed by EndServe |
+| `Transport` | var | `''` → an **owned** `${inst}_tr` created by BeginServe — a `TSocatTransport` when the detection says `socat`, else a `TNetcatTransport` (*Network backend*) — freed by EndServe |
 | `Router` | var | a `THttpRouter` or `''` |
 | `OnRequest` | var (event) | `handler REQ RESP` — wins over `Router` |
 | `OnRequestError` | var (event) | `handler REQ RESP RC` — a handler returned non-zero with nothing sent (then a fresh 500 is sent) |
@@ -305,8 +396,8 @@ unchanged) wherever the nc is not GNU netcat.
 | `ServerBanner` | var | `Server:` header, default `kcl-thttpserver` (`''` → none) |
 | `RequestCount`, `LastError`, `Stopping` | read-only properties | `Stopping` = 1 once Terminate / `Active = false` / a signal asked the server to stop |
 | `Active` | read/write property | **`= true` blocks in Serve** (as FPC); `= false` from a handler → Terminate; rc 1 if already active, rc 2 for a non-boolean |
-| `Serve` | proc | BeginServe; ServeOne until stopped; EndServe. rc 0, or **rc 1 on a transport fatal** (`LastError`, e.g. `Error: Couldn't setup listening socket (err=-3)` for a busy port) |
-| `BeginServe` / `EndServe` | procs | save the traps (the one fork of a Serve), `trap '' PIPE`, INT/TERM → a stop flag; create/free the owned transport; restore the traps exactly. BeginServe rc 2 for a bad number or a non-transport `Transport` |
+| `Serve` | proc | BeginServe; ServeOne until stopped; EndServe. rc 0, or **rc 1 on a transport fatal** (`LastError`, e.g. `Error: Couldn't setup listening socket (err=-3)` for a busy port under GNU nc, `bind(…): Address already in use` under socat) |
+| `BeginServe` / `EndServe` | procs | save the traps (the one fork of a Serve), `trap '' PIPE`, INT/TERM → a stop flag; create/free the owned transport; restore the traps exactly. BeginServe rc 2 for a bad number, a non-transport `Transport`, or (no `Transport`) a detected backend `none` |
 | `ServeOne` | func | accept + handle ONE connection: rc 0 (`RESULT` = the code sent, or `gone`) · 1 idle / a client that left / a signal · 2 fatal. `RequestCount` + 1 for every answered connection (408 included), **never for `gone`** (review F3) |
 | `Terminate` | proc | stop after the current request (its response is still sent) |
 | `HandleRequest REQ RESP` | proc, **virtual** | `OnRequest`, else `Router.RouteRequest`, else 404 — the override point (§4) |
@@ -375,7 +466,7 @@ route object reads `RouteData`).
 | any class (a *controller*: its methods registered as `INST.METHOD`) | nothing | — | as long as the caller keeps it: **this is where state lives** |
 | `THttpApplication` | in practice `Initialize` (`inherited Initialize "$@"` first, then routes and the app's own objects) | `Destroy` (free them, then `inherited`), rarely `DoRun`; set `ServerClass` (D9) | the application's run |
 | `THttpServer` | nothing | `HandleRequest` — cross-cutting logic; `inherited HandleRequest "$@"` routes, omitting it short-circuits; may call `protected` `_log` | the server's run |
-| `TNetcatTransport` / `THttpTransport` | another nc flavour: `BuildArgv`; another backend: `Accept`, `CloseConnection`, `Shutdown` (setting the `protected` fields) | — | not application logic |
+| `TNetcatTransport` / `THttpTransport` | another one-connection listener on the same mechanism: `BuildArgv` and `_state` (declared **public**, as `TSocatTransport` does — a private/protected override called from the base's `Accept` / `Shutdown` prints a kklass visibility warning); another backend: `Accept`, `CloseConnection`, `Shutdown` (setting the `protected` fields) | — | not application logic |
 
 A minimal application needs no subclass at all (§0).
 [`examples/demo_oop.sh`](examples/demo_oop.sh) uses every row: `TMyApp :
@@ -399,10 +490,12 @@ plugged in with `ServerClass = TAuthServer`.
 | `POST /quit` | `App.Terminate` | `TMyApp.Quit` |
 | auth | none | `TAuthServer`: `Authorization: Bearer T` for all but `/`; `--token=T` or `$DEMO_TOKEN` |
 
-Both resolve netcat as the tests do (`$KCL_NC`, else `nc` on PATH, else
-`/c/bin/msys64/usr/bin/nc.exe`), print their URL, log each request, answer a
+Both leave the backend to the server (*Network backend*: GNU netcat — `$KCL_NC`,
+else `nc` on PATH — else socat); their only addition is the Windows fallback
+`KCL_NC=/c/bin/msys64/usr/bin/nc.exe` when no nc is on PATH and that file
+exists (Git-bash). They print their URL, log each request, answer a
 bad `--port` with a usage line and exit 2, and report a transport fatal (e.g.
-no nc) with `kcl demo: the server stopped: …` and exit 1. `tests/009_Demo.sh`
+no backend) with `kcl demo: the server stopped: …` and exit 1. `tests/009_Demo.sh`
 runs both exactly this way.
 
 ---
@@ -499,7 +592,8 @@ exec {wr}>"$dir/fifo$s"      # O_WRONLY: an O_RDWR writer never lets nc see EOF 
   answered **408** after `RequestTimeout`. `Connection from` → the address;
   `Listen mode failed: Connection timed out` (the TTL) → respawn; **any other
   stderr line is fatal** (rc 2, `LastError` = that line) — a bind failure or a
-  missing nc never becomes a respawn loop.
+  missing nc never becomes a respawn loop. `TSocatTransport` reads socat's
+  lines instead (*Network backend*); the rest is the same code.
 * **CloseConnection is a drained close** (C2): close the writer → read the
   reader to EOF (nc flushed, closed and exited) within `CloseTimeout` → close →
   kill **only** past the deadline → reap. Killing first truncated 5 of 5
@@ -564,8 +658,10 @@ into `ServeOne` (so it fires under `App.Run` too), and made the application's
 **Limits.**
 
 * **Serial.** One request at a time in the server shell. A **burst** of
-  clients is not absorbed: GNU nc closes its listening socket after its one
-  accept, which **resets** the connections queued in its backlog — 8
+  clients is not absorbed: GNU nc (and socat, which also closes its listener
+  after the accept; its burst numbers are unmeasured) closes its listening
+  socket after its one accept, which **resets** the connections queued in its
+  backlog — 8
   simultaneous clients get 5–7 answers, 1–3 resets and up to 2 refusals per
   burst (§11). The reset requests never reached a handler, so an idempotent
   request may be retried on curl rc 55/56 (a refusal, rc 7, on anything); the
@@ -611,9 +707,9 @@ into `ServeOne` (so it fires under `App.Run` too), and made the application's
 
 | kklass feature | where |
 |---|---|
-| inheritance, multi-level | `TNetcatTransport : THttpTransport`; `THttpApplication : TCustomApplication`; `TAuthServer : THttpServer`, `TMyApp : THttpApplication` (demo_oop) |
+| inheritance, multi-level | `TSocatTransport : TNetcatTransport : THttpTransport`; `THttpApplication : TCustomApplication`; `TAuthServer : THttpServer`, `TMyApp : THttpApplication` (demo_oop) |
 | `abstract` | `THttpTransport`, `THttpRouteObject`; D8 refuses a still-abstract route class by `kk.isAbstract` (the flag `.new` checks) |
-| `override` + `inherited` with arguments | `THttpApplication.Initialize/Run/Terminate`; `TAuthServer.HandleRequest` → `inherited HandleRequest "$@"` |
+| `override` + `inherited` with arguments | `THttpApplication.Initialize/Run/Terminate`; `TAuthServer.HandleRequest` → `inherited HandleRequest "$@"`; `TSocatTransport` overrides `BuildArgv` and `_state`, which the inherited `Accept` / `Shutdown` call (a public override: no visibility warning) |
 | virtual dispatch via `$this` (template method) | `ServeOne` calls `$inst.HandleRequest`; TCustomApplication's `Run` calls `$this.DoRun` — the overrides win |
 | read-only property over a private field | every `THttpRequest` field, the transport's state, `RequestCount`, `LastError`, `Stopping`, `Server`, `AppRouter` |
 | read/write property | `THttpResponse.Code/CodeText/ContentType/Content`, `MaxRequests`, the application's `Port`/`Address` |
@@ -630,16 +726,17 @@ into `ServeOne` (so it fires under `App.Run` too), and made the application's
 
 ## 9. Environment
 
-* **netcat**: GNU netcat 0.7.1 only (D2), **identified, not assumed**: any
-  other nc is refused with `no usable network backend: …` (see *Network
-  backend*; on Linux the distro's nc is usually OpenBSD netcat, Ncat or
-  nc.traditional, so thttpserver does not serve there until a socat backend
-  exists). Under bash 5.3.9 (msys64) `nc` is on
-  PATH. Under bash 5.2.37 (Git for Windows) it is **not** — point `KCL_NC` (or
-  `NcBinary`) at `/c/bin/msys64/usr/bin/nc.exe`; the examples and the tests do
-  that fallback themselves. A Git-runtime FIFO cannot be msys64 nc's stdin
-  (`select(core_readwrite): Bad file descriptor` on accept): the `cat` relay
-  (`StdinRelay = 1`, the default) is what makes it work.
+* **network backend** (*Network backend*): GNU netcat 0.7.1, else socat
+  (>= 1.7.4), **identified, not assumed**; any other nc is refused with `no
+  usable network backend: …`. On Linux the distro's nc is usually OpenBSD
+  netcat, Ncat or nc.traditional — install `socat`. `KCL_NC` / `NcBinary`
+  force a netcat, `KCL_SOCAT` / `SocatBinary` a socat (precedence: an explicit
+  netcat, then an explicit socat, then PATH). Under bash 5.3.9 (msys64) `nc`
+  is on PATH. Under bash 5.2.37 (Git for Windows) it is **not** — point
+  `KCL_NC` (or `NcBinary`) at `/c/bin/msys64/usr/bin/nc.exe`; the examples and
+  the tests do that fallback themselves. A Git-runtime FIFO cannot be msys64
+  nc's stdin (`select(core_readwrite): Bad file descriptor` on accept): the
+  `cat` relay (`StdinRelay = 1`, the default) is what makes it work.
 * **Proxy**: `HTTP_PROXY`/`HTTPS_PROXY` are exported on this machine — use
   `curl --noproxy '*'`; the tests unset every proxy variable.
 * **Firewall**: listeners bind `127.0.0.1` by default and raised no prompt.
@@ -659,8 +756,9 @@ bash kcl/thttpserver/tests/tests.sh --mode single   # sequential
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/thttpserver/tests/tests.sh
 ```
 
-**497 checks, green on bash 5.2.37 and bash 5.3.9**, threaded (twice each) and
-under `--mode single` (5.2.37), the socket files run on both. Case by case:
+**533 checks, green on bash 5.2.37 and bash 5.3.9**, threaded (twice each) and
+under `--mode single` (5.2.37), the socket files run on both (GNU netcat); in
+the Linux lab VMs they run on socat (L2.7-N2). Case by case:
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | transport |
@@ -668,12 +766,12 @@ under `--mode single` (5.2.37), the socket files run on both. Case by case:
 | `001_Request.sh` | 63 | the parser: every field, headers, byte semantics, 53 raw requests → every status, 408 paths, query decoding, hostile keys, read-only fields, the transport seam, the fork-free proof; review 2026-09-30: a second Host, the fields after a later-stage status, CONSUMED, LineConsumed | replay |
 | `002_Response.sh` | 42 | the head, byte lengths, HEAD/1xx/204/304, custom headers and refusals, validation → 500, SendRedirect, Date in English/UTC, SIGPIPE | replay |
 | `003_Router.sh` | 137 | the 40-row pattern table, the argument rule, the three handler kinds, D7 DATA, D8, 404/405 + Allow, HEAD → GET, defaults, hooks, the handler contract, fork-free routing, param decoding, nested route-object dispatch (review F1), the router refusing a request whose parse ended in a status | replay |
-| `004_Server.sh` | 50 | the server over replay (codes, 500, HEAD, precedence, Active, MaxRequests, a `gone` connection not counted, a failed HEAD without a body, a consumed empty line, traps, TERM, a descendant server); real sockets: state in the server shell, bytes, 50 kB bodies, 408, D5, 8 parallel clients, busy port, no nc | replay + netcat |
-| `005_Lifecycle.sh` | 17 | what a Serve leaves (fds, traps, children, temp dir, instances), port release, TERM with a held connection, TERM while idle, the listening-only Shutdown | netcat |
-| `006_Application.sh` | 40 | options, ServerClass, routes before Initialize, the DoRun mapping, OnAcceptIdle under Run, Stopping, Terminate, TERM and SIGPIPE on the app path, fact 22, Destroy, fork-free DoRun; sockets: `--port=N`, `/quit`, fact 10, TAuthServer 401/200, TERM | replay + netcat |
-| `007_Hostile.sh` | 23 | response splitting at every field, hostile params/headers/queries, every parser status over `/dev/tcp`, slowloris, oversize, two `Host` headers and a leading bare LF on the wire | replay + netcat |
-| `008_Contract.sh` | 107 | source integrity, the scope of every file, the transport's mechanism, C8/C9/C11, `set -eu` children, one debug line per rc 1/2 path, fork-free ServeOne | replay |
-| `009_Demo.sh` | 14 | both examples as a user runs them: every route kind, the store, HEAD/404/405, the token, `/quit`, the refused command line, no nc | netcat |
+| `004_Server.sh` | 50 | the server over replay (codes, 500, HEAD, precedence, Active, MaxRequests, a `gone` connection not counted, a failed HEAD without a body, a consumed empty line, traps, TERM, a descendant server); real sockets: state in the server shell, bytes, 50 kB bodies, 408, D5, 8 parallel clients, busy port, no nc | replay + netcat/socat |
+| `005_Lifecycle.sh` | 17 | what a Serve leaves (fds, traps, children, temp dir, instances), port release, TERM with a held connection, TERM while idle, the listening-only Shutdown | netcat/socat |
+| `006_Application.sh` | 40 | options, ServerClass, routes before Initialize, the DoRun mapping, OnAcceptIdle under Run, Stopping, Terminate, TERM and SIGPIPE on the app path, fact 22, Destroy, fork-free DoRun; sockets: `--port=N`, `/quit`, fact 10, TAuthServer 401/200, TERM | replay + netcat/socat |
+| `007_Hostile.sh` | 23 | response splitting at every field, hostile params/headers/queries, every parser status over `/dev/tcp`, slowloris, oversize, two `Host` headers and a leading bare LF on the wire | replay + netcat/socat |
+| `008_Contract.sh` | 143 | source integrity, the scope of every file, the transport's mechanism, C8/C9/C11, `set -eu` children, one debug line per rc 1/2 path, fork-free ServeOne; the backend detection (L2.7-N1/N2: every precedence rule and WHY), TSocatTransport's argv and `_state` on recorded socat lines, the mechanism over a fake socat, the server factory | replay + fake nc/socat |
+| `009_Demo.sh` | 14 | both examples as a user runs them: every route kind, the store, HEAD/404/405, the token, `/quit`, the refused command line, no nc | netcat/socat |
 | `010_Bench.sh` | 4 | the loose relative gate on the replay path (§11) | replay |
 
 **The socket rules** (PLAN §4): the server is a child bash under `timeout 180`
@@ -687,7 +785,10 @@ Red-first counts per phase are in the ledger.
 
 ## 11. Performance
 
-`bash kcl/thttpserver/bench.sh [NR] [NS] [ROUNDS]` — measured **2026-09-29** on
+`bash kcl/thttpserver/bench.sh [NR] [NS] [ROUNDS]` — the socket phases (b)–(d)
+are **GNU-netcat only by design** (their spawn replica and listener events
+are GNU's): with socat, or no backend, the bench prints the replay rows and
+skips (b)–(d) loudly. Measured **2026-09-29** on
 Windows 11 / MSYS2, NR = 7 interleaved samples, NS = 20 sequential requests per
 sample (5 samples per client, interleaved), ROUNDS = 5; medians:
 

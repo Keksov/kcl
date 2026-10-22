@@ -2,8 +2,8 @@
 # demo.sh — the kcl/thttpserver showcase (PLAN §2.10): an HTTP application
 # built from plain FUNCTIONS and App.RegisterRoute, with objects that live
 # across requests. The handlers run in THIS shell, so the counter and the
-# key-value store keep their state from one request to the next; only `nc` is
-# started per connection.
+# key-value store keep their state from one request to the next; only the
+# listener (`nc` or `socat`) is started per connection.
 #
 #   bash kcl/thttpserver/examples/demo.sh --port=8080        # or: -p 8080
 #
@@ -20,9 +20,12 @@
 # has no authentication: --address=0.0.0.0 exposes it to the network (and may
 # raise a firewall prompt) — see demo_oop.sh for a token-protected variant.
 #
-# NETCAT. GNU netcat 0.7.1 is resolved as the tests do: $KCL_NC, else `nc` on
-# PATH, else /c/bin/msys64/usr/bin/nc.exe when it exists (bash 5.2.37 from Git
-# for Windows has no nc on its PATH; msys64's works by absolute path).
+# NETWORK BACKEND. The server picks it (README "Network backend"): GNU netcat
+# 0.7.1 — $KCL_NC, else `nc` on PATH — else socat (a Linux with OpenBSD nc and
+# socat installed runs on socat). The KCL_NC export below only fills in the
+# Windows case: bash 5.2.37 from Git for Windows has no nc on its PATH, and
+# msys64's /c/bin/msys64/usr/bin/nc.exe works by absolute path; elsewhere it
+# does nothing.
 #
 # HANDLERS get REQ RESP DATA: read the request with direct calls
 # (`$1.RouteParam key; key="$RESULT"` — nothing printed, no fork), answer with

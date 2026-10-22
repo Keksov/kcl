@@ -680,7 +680,7 @@ fi
 kt_test_section "2. fact 4: a busy port → Serve rc 1, LastError = the bind line, no listener left"
 # ===========================================================================
 
-B_TITLE="fact 4: busy port → Serve rc 1 at once, LastError 'Error: Couldn't setup listening socket (err=-3)', no child left"
+B_TITLE="fact 4: busy port → Serve rc 1 at once, LastError = the backend's bind line (GNU nc 'Error: Couldn't setup listening socket (err=-3)', socat 'bind(…): Address already in use'), no child left"
 if ! ths_have_nc; then
     ths_skip "$B_TITLE"
 else
@@ -689,7 +689,8 @@ else
     ths_mark
     for try in 1 2 3 4 5; do
         ths_nport; bport="$THS_PORT"
-        "$THS_NC" -l -n -vv -w 170 -s 127.0.0.1 -p "$bport" >/dev/null 2>"$TMP/blocker.err" </dev/null &
+        BLA=(); ths_listen_argv BLA "$bport" 170
+        "${BLA[@]}" >/dev/null 2>"$TMP/blocker.err" </dev/null &
         BL=$!
         if ths_poll 30 grep -Eq "$THS_RE_BOUND" "$TMP/blocker.err"; then break; fi
         kill "$BL" 2>/dev/null; wait "$BL" 2>/dev/null; BL=""
@@ -706,7 +707,12 @@ AFTER_HOOK=b_after'
     THS_DIR="$B_DIR"
     ths_result rc; rc="$THS_V"; ths_result le; le="$THS_V"; ths_result children; ch="$THS_V"
     left="$(ls "$B_DIR/tmp")"
-    if [[ -n "$BL$bport" && $brc -eq 0 && "$rc" == 1 && "$le" == "Error: Couldn't setup listening socket (err=-3)" && "$ch" == 0 && -z "$left" && -z "$(<"$B_DIR/err")" ]]; then
+    leok=0
+    case "$THS_BACKEND" in
+        socat) if [[ "$le" =~ bind\(.*Address\ already\ in\ use ]]; then leok=1; fi ;;
+        *)     if [[ "$le" == "Error: Couldn't setup listening socket (err=-3)" ]]; then leok=1; fi ;;
+    esac
+    if [[ -n "$BL$bport" && $brc -eq 0 && "$rc" == 1 && $leok -eq 1 && "$ch" == 0 && -z "$left" && -z "$(<"$B_DIR/err")" ]]; then
         kt_test_pass "rc 1, '$le', no child, no temp dir"
     else
         kt_test_fail "exit=$brc rc=$rc le='$le' children=$ch tmp='$left' stderr='$(<"$B_DIR/err")'"

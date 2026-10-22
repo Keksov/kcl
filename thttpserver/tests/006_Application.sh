@@ -767,7 +767,7 @@ else
 
     kt_test_start "${S1_TITLES[4]}"
     tb="${R[before_traps]:-}"
-    if [[ "$tb" == *"custom int"*"custom term"*"custom pipe"* && "${R[after_traps]:-}" == "$tb" && -n "${R[before_fds]:-}" && "${R[after_fds]:-}" == "${R[before_fds]}" \
+    if ths_custom_traps "$tb" && [[ "${R[after_traps]:-}" == "$tb" && -n "${R[before_fds]:-}" && "${R[after_fds]:-}" == "${R[before_fds]}" \
           && "${R[after_children]:-x}" == 0 && "${R[after_dirs]:-x}" == "[]" && "${R[after_left]:-x}" == "[]" ]]; then
         kt_test_pass "clean; ${R[before_fds]} fds; traps '$tb'"
     else
@@ -775,7 +775,8 @@ else
     fi
 
     kt_test_start "${S1_TITLES[5]}"
-    "$THS_NC" -l -n -vv -w 1 -s 127.0.0.1 -p "$THS_PORT" >/dev/null 2>"$TMP/s1probe.err" </dev/null
+    PRA=(); ths_listen_argv PRA "$THS_PORT" 1
+    "${PRA[@]}" >/dev/null 2>"$TMP/s1probe.err" </dev/null
     e="$(<"$THS_DIR/err")"
     ths_mark
     if grep -Eq "$THS_RE_BOUND" "$TMP/s1probe.err" && [[ "${R[deleted_left]:-x}" == "[]" && -z "$e" ]]; then kt_test_pass "bound; nothing left; silent"; else kt_test_fail "probe: $(tr '\n' ' ' < "$TMP/s1probe.err") left=${R[deleted_left]:-?} stderr='${e:0:300}'"; fi

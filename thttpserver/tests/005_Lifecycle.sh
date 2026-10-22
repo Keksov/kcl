@@ -120,7 +120,7 @@ else
 
     kt_test_start "${L1_TITLES[2]}"
     tb="${R[before_traps]:-}"
-    if [[ "$tb" == *"custom int"*"custom term"*"custom pipe"* && "${R[after1_traps]:-}" == "$tb" && "${R[after2_traps]:-}" == "$tb" ]]; then
+    if ths_custom_traps "$tb" && [[ "${R[after1_traps]:-}" == "$tb" && "${R[after2_traps]:-}" == "$tb" ]]; then
         kt_test_pass "identical: $tb"
     else
         kt_test_fail "before='$tb' after1='${R[after1_traps]:-}' after2='${R[after2_traps]:-}'"
@@ -211,6 +211,7 @@ else
 
     kt_test_start "${L2_TITLES[2]}"
     sz="$(wc -c < "$TMP/t2.out" 2>/dev/null)"
+    sz="${sz//[[:space:]]/}"   # BSD wc pads the count with blanks
     if [[ "$sz" == 0 && $c2rc -eq 0 ]]; then kt_test_pass "0 bytes, EOF"; else kt_test_fail "bytes=$sz rc=$c2rc (124 = no EOF)"; fi
 
     kt_test_start "${L2_TITLES[3]}"
@@ -225,7 +226,8 @@ else
     fi
 
     kt_test_start "${L2_TITLES[5]}"
-    "$THS_NC" -l -n -vv -w 1 -s 127.0.0.1 -p "$THS_PORT" >/dev/null 2>"$TMP/probe.err" </dev/null
+    PRA=(); ths_listen_argv PRA "$THS_PORT" 1
+    "${PRA[@]}" >/dev/null 2>"$TMP/probe.err" </dev/null
     ths_mark
     if grep -Eq "$THS_RE_BOUND" "$TMP/probe.err"; then kt_test_pass "bound"; else kt_test_fail "probe: $(tr '\n' ' ' < "$TMP/probe.err")"; fi
 
@@ -282,7 +284,7 @@ L4_TITLES=(
 SNIP_L4='
 source "$THS_LIB"
 NO_SERVE=1
-TNetcatTransport.new T
+ths_new_transport T
 T.Port = "$PORT"
 T.CloseTimeout = 5
 r=0; T.Accept 1000 10 || r=$?

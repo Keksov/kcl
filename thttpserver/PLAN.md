@@ -58,7 +58,7 @@ stay file-scope globals).
 
 | probe | result |
 |---|---|
-| availability | bash 5.3.9 (msys64): `nc` = **GNU netcat 0.7.1**. bash 5.2.37 (Git for Windows): **no `nc` on PATH**; msys64's `/c/bin/msys64/usr/bin/nc.exe` by absolute path works from 5.2.37 **over pipes** (coproc) — **not over a FIFO** (next rows). `openbsd-netcat`, `socat` in pacman, not installed. No `ncat`. |
+| availability | bash 5.3.9 (msys64): `nc` = **GNU netcat 0.7.1**. bash 5.2.37 (Git for Windows): **no `nc` on PATH**; msys64's `/c/bin/msys64/usr/bin/nc.exe` by absolute path works from 5.2.37 **over pipes** (coproc) — **not over a FIFO** (next rows). `openbsd-netcat`, `socat` in pacman, not installed. No `ncat`. (2026-10-22, launch L2.7-N2: socat became the second backend — `TSocatTransport`, chosen by `ths._backend` where no GNU netcat is found; README *Network backend*.) |
 | one nc, many clients | **impossible with GNU 0.7.1**: no `-k`; with stdin held open, client 1 is served, client 2 is **refused** while the process lives on |
 | port released on accept | after nc #1 accepted client 1 (connection still open), nc #2 **binds the same port** and receives client 2 |
 | FIFO writer `O_RDWR` (`exec {wr}<>fifo`) | 5.3.9: nc **never sees EOF** after `wr` is closed (alive ≥ 4.7 s), so `-c` never closes the connection; an HTTP/1.0 client reading to EOF hangs. Earlier probes missed it because curl stops at Content-Length. **Forbidden.** |

@@ -37,7 +37,10 @@
 #      PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/thttpserver/bench.sh
 #      (defaults NR=7, NS=20, ROUNDS=5; NQ=4 and NSS=5 are fixed)
 # netcat as in the tests: $KCL_NC, else `nc` on PATH, else
-# /c/bin/msys64/usr/bin/nc.exe. Without one, (b)–(d) are skipped loudly.
+# /c/bin/msys64/usr/bin/nc.exe. (b)–(d) are GNU-netcat only BY DESIGN (the
+# spawn replica in (c) and the TBenchNetcat descendant are the GNU argv and
+# its `Listening on` line): with any other detected backend — socat
+# included — or none, they are skipped loudly (README §11).
 # Everything lives in one `mktemp -d`, removed by an EXIT trap (a bench, not a
 # test file) which also stops the server child.
 
@@ -192,7 +195,11 @@ TMP="$BD"
 UNIT_DIR="$DIR"
 source "$DIR/tests/_ths_socket.sh"
 if ! ths_have_nc; then
-    echo "(b)-(d) SKIPPED — no netcat (KCL_NC unset, no nc on PATH, no /c/bin/msys64/usr/bin/nc.exe)"
+    echo "(b)-(d) SKIPPED — no network backend: $THS_BACKEND_WHY"
+    exit 0
+fi
+if [[ "$THS_BACKEND" != gnu ]]; then
+    echo "(b)-(d) SKIPPED — the socket phases are GNU-netcat only by design; the detected backend is $THS_BACKEND (README §11)"
     exit 0
 fi
 echo "netcat: $THS_NC  ($("$THS_NC" --version 2>/dev/null </dev/null | head -1))"

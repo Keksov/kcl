@@ -8,7 +8,8 @@ kk.unit thttpserver || return $__kk_unit_rc
 # (THttpRouteObject, THttpRouter) and kcl/tstopwatch (the access-log timing).
 # Own content: the transport seam — THttpTransport (abstract), TReplayTransport
 # (the fork-free test double), TNetcatTransport (GNU netcat 0.7.1, two
-# alternating listener slots) — and THttpServer.
+# alternating listener slots), TSocatTransport (the same mechanism over socat,
+# L2.7-N2) — and THttpServer, which picks one of the two (ths._backend).
 #
 #   THttpRouter.new R; R.RegisterRoute /hello GET hello
 #   THttpServer.new S
@@ -63,11 +64,11 @@ ths._bytes() {
     __ths_b=${#1}
 }
 
-# ths._ncFind NAME — NAME resolved for TNetcatTransport into the global
+# ths._ncFind NAME — NAME (an nc or a socat) resolved into the global
 # __THS_NCPATH: a name without `/` is searched on PATH (a walk with `-f`/`-x`,
 # no fork, no hash side effect), a path stays as is. NAME unchanged when it is
 # not found; the caller checks `/`, `-f` and `-x`. THE one resolver of the
-# unit (BuildArgv and ths._backend share it).
+# unit (both BuildArgv and ths._backend share it).
 ths._ncFind() {
     local __ths_nc="$1" __ths_p __ths_d
     if [[ "$__ths_nc" != */* ]]; then
@@ -87,43 +88,128 @@ ths._ncFind() {
     __THS_NCPATH="$__ths_nc"
 }
 
-# ths._backend [NCBIN] — identify the netcat (L2.7-N1): sets __THS_BACKEND
-# to missing | gnu | none, __THS_BACKEND_BIN to the resolved path, and
-# __THS_BACKEND_WHY to the reason for missing / none. NCBIN = $1 (resolved by
-# the caller), else $KCL_NC, else `nc` on PATH. `gnu` = `NC --version`
-# says GNU Netcat; every other existing nc is `none`, named by its
-# `--version` / `-h` text (OpenBSD, Ncat, BusyBox, traditional v1.10) — it is
+# ths._backend [NCBIN] [SOCATBIN] — choose the network backend (L2.7-N1,
+# L2.7-N2): sets __THS_BACKEND to gnu | socat | missing | none,
+# __THS_BACKEND_BIN to the chosen binary's resolved path (the refused nc /
+# socat for none, '' for missing), and __THS_BACKEND_WHY to the reason for
+# missing / none ('' otherwise). Precedence (README "Network backend"):
+#   a. an explicit netcat — NCBIN (a caller's resolved NcBinary), else $KCL_NC:
+#      GNU → gnu; present but not GNU → none (socat is NOT consulted);
+#      absent → missing;
+#   b. else an explicit socat — SOCATBIN (a caller's SocatBinary), else
+#      $KCL_SOCAT: passes the probe → socat, else none;
+#   c. else auto: GNU `nc` on PATH → gnu; else `socat` on PATH passing the
+#      probe → socat; else a socat on PATH failing the probe → none (BIN = the
+#      non-GNU nc if there is one, else the socat); else a present non-GNU nc
+#      → none; else missing.
+# `gnu` = `NC --version` says GNU Netcat; every other existing nc is named by
+# its `--version` / `-h` text (OpenBSD, Ncat, BusyBox, traditional v1.10) and
 # NEVER run with the GNU flags (ncat / nc.traditional `-c` and `-e` run
-# commands; OpenBSD nc has no accept timeout). The result is cached per
-# "$PATH|$KCL_NC|$1": a hit forks nothing, a miss forks once (twice for an
-# nc whose `--version` names nothing).
+# commands; OpenBSD nc has no accept timeout and keeps its listener open).
+# The socat probe: `SOCAT -hhh` lists the accept-timeout option (socat >=
+# 1.7.4). The result is cached per "$PATH|$KCL_NC|$KCL_SOCAT|$1|$2": a hit
+# forks nothing. EVERY call overwrites the __THS_BACKEND* globals: a caller
+# copies them into locals at once.
 declare -g __THS_NCPATH=""
 : "${__THS_BACKEND:=}" "${__THS_BACKEND_BIN:=}" "${__THS_BACKEND_WHY:=}" "${__THS_BACKEND_KEY:=}"
 ths._backend() {
-    local __ths_k="$PATH|${KCL_NC-}|${1-}" __ths_bin="${1-}" __ths_out="" __ths_fl="" __ths_t
+    local __ths_k="$PATH|${KCL_NC-}|${KCL_SOCAT-}|${1-}|${2-}" __ths_bin="${1-}" __ths_sb="${2-}" __ths_fl=""
     if [[ -n "$__THS_BACKEND" && "$__THS_BACKEND_KEY" == "$__ths_k" ]]; then
         return 0
     fi
+    __THS_BACKEND_KEY="$__ths_k"
+    __THS_BACKEND_WHY=""
     if [[ -z "$__ths_bin" ]]; then
         __ths_bin="${KCL_NC:-}"
     fi
-    if [[ -z "$__ths_bin" ]]; then
-        __ths_bin=nc
-    fi
-    ths._ncFind "$__ths_bin"
-    __ths_bin="$__THS_NCPATH"
-    __THS_BACKEND_KEY="$__ths_k"
-    if [[ "$__ths_bin" != */* || ! -f "$__ths_bin" || ! -x "$__ths_bin" ]]; then
-        __THS_BACKEND=missing
-        __THS_BACKEND_BIN=""
-        __THS_BACKEND_WHY="nc not found (NcBinary, KCL_NC, PATH)"
+    # a. an explicit netcat
+    if [[ -n "$__ths_bin" ]]; then
+        ths._ncFind "$__ths_bin"
+        __ths_bin="$__THS_NCPATH"
+        if [[ "$__ths_bin" != */* || ! -f "$__ths_bin" || ! -x "$__ths_bin" ]]; then
+            __THS_BACKEND=missing
+            __THS_BACKEND_BIN=""
+            __THS_BACKEND_WHY="nc not found (NcBinary, KCL_NC, PATH)"
+            return 0
+        fi
+        __THS_BACKEND_BIN="$__ths_bin"
+        if ths._ncFlavour "$__ths_bin"; then
+            __THS_BACKEND=gnu
+            return 0
+        fi
+        __THS_BACKEND=none
+        __THS_BACKEND_WHY="no usable network backend: $__ths_fl at $__ths_bin is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); socat was not consulted because the netcat was set explicitly (NcBinary/KCL_NC)"
         return 0
     fi
-    __THS_BACKEND_BIN="$__ths_bin"
-    __ths_out="$("$__ths_bin" --version </dev/null 2>&1 || :)"
+    if [[ -z "$__ths_sb" ]]; then
+        __ths_sb="${KCL_SOCAT:-}"
+    fi
+    # b. an explicit socat
+    if [[ -n "$__ths_sb" ]]; then
+        ths._ncFind "$__ths_sb"
+        __ths_sb="$__THS_NCPATH"
+        __THS_BACKEND_BIN="$__ths_sb"
+        if ths._socatOk "$__ths_sb"; then
+            __THS_BACKEND=socat
+            return 0
+        fi
+        __THS_BACKEND=none
+        __THS_BACKEND_WHY="no usable network backend: $__ths_sb does not support accept-timeout (socat >= 1.7.4 needed)"
+        return 0
+    fi
+    # c. auto
+    ths._ncFind nc
+    __ths_bin="$__THS_NCPATH"
+    if [[ "$__ths_bin" == */* && -f "$__ths_bin" && -x "$__ths_bin" ]]; then
+        if ths._ncFlavour "$__ths_bin"; then
+            __THS_BACKEND=gnu
+            __THS_BACKEND_BIN="$__ths_bin"
+            return 0
+        fi
+    else
+        __ths_bin=""
+    fi
+    ths._ncFind socat
+    __ths_sb="$__THS_NCPATH"
+    if ths._socatOk "$__ths_sb"; then
+        __THS_BACKEND=socat
+        __THS_BACKEND_BIN="$__ths_sb"
+        return 0
+    fi
+    if [[ "$__ths_sb" == */* && -f "$__ths_sb" && -x "$__ths_sb" ]]; then
+        # a socat on PATH that fails the probe (older than 1.7.4): none, with
+        # or without an nc — never "no socat"
+        __THS_BACKEND=none
+        if [[ -n "$__ths_bin" ]]; then
+            __THS_BACKEND_BIN="$__ths_bin"
+            __THS_BACKEND_WHY="no usable network backend: $__ths_fl at $__ths_bin is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); $__ths_sb does not support accept-timeout (socat >= 1.7.4 needed)"
+        else
+            __THS_BACKEND_BIN="$__ths_sb"
+            __THS_BACKEND_WHY="nc not found (NcBinary, KCL_NC, PATH); $__ths_sb does not support accept-timeout (socat >= 1.7.4 needed)"
+        fi
+        return 0
+    fi
+    if [[ -n "$__ths_bin" ]]; then
+        __THS_BACKEND=none
+        __THS_BACKEND_BIN="$__ths_bin"
+        __THS_BACKEND_WHY="no usable network backend: $__ths_fl at $__ths_bin is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); no socat on PATH — install socat (apt/dnf/apk/pkg install socat) or GNU netcat 0.7.1 (Homebrew netcat, FreeBSD net/gnetcat, Arch gnu-netcat, or from source)"
+        return 0
+    fi
+    __THS_BACKEND=missing
+    __THS_BACKEND_BIN=""
+    __THS_BACKEND_WHY="nc not found (NcBinary, KCL_NC, PATH); no socat on PATH either"
+    return 0
+}
+
+# ths._ncFlavour NC — rc 0 when the existing executable NC is GNU netcat
+# (`NC --version` says GNU Netcat; one fork); else rc 1 and the caller's
+# __ths_fl names it from its `--version` / `-h` text (a second fork for an nc
+# whose `--version` names nothing). NC is never run with any other argument.
+ths._ncFlavour() {
+    local __ths_out __ths_t
+    __ths_fl=""
+    __ths_out="$("$1" --version </dev/null 2>&1 || :)"
     if [[ "$__ths_out" == *"GNU Netcat"* ]]; then
-        __THS_BACKEND=gnu
-        __THS_BACKEND_WHY=""
         return 0
     fi
     for __ths_t in 1 2; do
@@ -137,14 +223,24 @@ ths._backend() {
         if [[ -n "$__ths_fl" || "$__ths_t" == 2 ]]; then
             break
         fi
-        __ths_out="$("$__ths_bin" -h </dev/null 2>&1 || :)"
+        __ths_out="$("$1" -h </dev/null 2>&1 || :)"
     done
     if [[ -z "$__ths_fl" ]]; then
         __ths_fl="unknown nc"
     fi
-    __THS_BACKEND=none
-    __THS_BACKEND_WHY="no usable network backend: $__ths_fl at $__ths_bin is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); install GNU netcat 0.7.1 (a socat backend follows in a later version)"
-    return 0
+    return 1
+}
+
+# ths._socatOk SOCAT — rc 0 when SOCAT is an existing executable whose
+# `-hhh` lists accept-timeout (socat >= 1.7.4; one fork, no pipe: safe under
+# `set -o pipefail`).
+ths._socatOk() {
+    local __ths_out
+    if [[ "$1" != */* || ! -f "$1" || ! -x "$1" ]]; then
+        return 1
+    fi
+    __ths_out="$("$1" -hhh </dev/null 2>&1 || :)"
+    [[ "$__ths_out" == *accept-timeout* ]]
 }
 
 # ===========================================================================
@@ -470,8 +566,14 @@ TNetcatTransport.BuildArgv() {
         return 1
     fi
     ths._backend "$__ths_nc"
-    if [[ "$__THS_BACKEND" != gnu ]]; then
-        _lastError="$__THS_BACKEND_WHY"
+    local __ths_bk="$__THS_BACKEND" __ths_why="$__THS_BACKEND_WHY"
+    if [[ "$__ths_bk" != gnu ]]; then
+        # nc came from PATH, not from NcBinary / KCL_NC: the "set explicitly"
+        # tail of the reason would mislead
+        if [[ "$__ths_bk" == none && -z "$NcBinary" && -z "${KCL_NC:-}" ]]; then
+            __ths_why="${__ths_why%"; socat was not consulted because the netcat was set explicitly (NcBinary/KCL_NC)"}; TNetcatTransport runs GNU netcat only (use TSocatTransport, or leave THttpServer.Transport '' for automatic selection)"
+        fi
+        _lastError="$__ths_why"
         kk.debug "Error: TNetcatTransport.BuildArgv: $_lastError"
         kk._return ""
         return 2
@@ -875,6 +977,226 @@ TNetcatTransport.Shutdown() {
 
 build TNetcatTransport
 
+# ths._v6short ADDR — REPLY = the IPv6 address ADDR in the RFC 5952 short form
+# (lower case, no leading zeros, the longest run of two or more zero groups —
+# the first of equal runs — as '::'). An ADDR that is not eight groups of hex
+# digits (already short, dotted IPv4-mapped, …) is returned unchanged. An
+# IPv4-mapped address written as eight groups comes out as `::ffff:7f00:1`,
+# not RFC 5952's dotted `::ffff:127.0.0.1`. Fork-free.
+ths._v6short() {
+    local __ths_a="$1" __ths_g __ths_i __ths_bs=-1 __ths_bl=0 __ths_cs=-1 __ths_cl=0 __ths_r=""
+    local -a __ths_v=()
+    REPLY="$__ths_a"
+    if [[ ! "$__ths_a" =~ ^[0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){7}$ ]]; then
+        return 0
+    fi
+    IFS=: read -r -a __ths_v <<< "$__ths_a"
+    for (( __ths_i = 0; __ths_i < 8; __ths_i++ )); do
+        printf -v __ths_g '%x' "$(( 16#${__ths_v[__ths_i]} ))"
+        __ths_v[__ths_i]="$__ths_g"
+        if [[ "$__ths_g" == 0 ]]; then
+            if (( __ths_cs < 0 )); then
+                __ths_cs=$__ths_i
+                __ths_cl=0
+            fi
+            __ths_cl=$(( __ths_cl + 1 ))
+            if (( __ths_cl > __ths_bl )); then
+                __ths_bs=$__ths_cs
+                __ths_bl=$__ths_cl
+            fi
+        else
+            __ths_cs=-1
+        fi
+    done
+    if (( __ths_bl < 2 )); then
+        __ths_bs=-1
+    fi
+    for (( __ths_i = 0; __ths_i < 8; __ths_i++ )); do
+        if (( __ths_i == __ths_bs )); then
+            __ths_r+="::"
+            __ths_i=$(( __ths_i + __ths_bl - 1 ))
+            continue
+        fi
+        if [[ -n "$__ths_r" && "$__ths_r" != *:: ]]; then
+            __ths_r+=":"
+        fi
+        __ths_r+="${__ths_v[__ths_i]}"
+    done
+    REPLY="$__ths_r"
+    return 0
+}
+
+# ===========================================================================
+# TSocatTransport — socat (>= 1.7.4) as the network backend (L2.7-N2, D2).
+#
+# The TNetcatTransport mechanism unchanged (two alternating slots, the FIFO +
+# `cat` relay, the drained close, _spawn / _closeSlot / Accept /
+# CloseConnection / Shutdown); only the listener's argv and the reading of
+# its stderr differ:
+#
+#   SOCAT -d -d -lpsocat -t 0.5 TCP4-LISTEN:PORT,bind=ADDR,reuseaddr,accept-timeout=TTL STDIO
+#   (TCP6-LISTEN:PORT,bind=[ADDR] when ADDR contains ':')
+#
+# `-lpsocat` fixes the program name in the log prefix (socat takes it from
+# argv[0] otherwise: a binary named socat1 would log `socat1[PID]`). ADDR may
+# only hold 0-9 A-Z a-z . : - (a ',' would add socat options).
+#
+# Without `fork`, socat accepts ONE connection and closes its listening socket
+# (measured, docs/dev/launch/L2_triage.md §8) — the second slot is never
+# bypassed. `accept-timeout` is the orphan TTL (the GNU `-w`). `-t 0.5`: after
+# the server closes socat's stdin (CloseConnection), socat shuts the socket's
+# write side and exits at the client's EOF, or 0.5 s later for a client that
+# keeps the connection open (measured 514–847 ms on Ubuntu/Debian/Fedora,
+# below CloseTimeout 2 s, so the drain never needs the kill).
+#
+# Its `-d -d` stderr lines are `YYYY/MM/DD HH:MM:SS socat[PID] S TEXT` (S =
+# the severity letter; measured on socat 1.8.0.0 / 1.8.0.3 / 1.8.1.1 on
+# Linux and 1.8.1.3 on FreeBSD, which writes `LEN=16 AF=2` for `AF=2` and
+# `Operation timed out` for `Connection timed out`):
+#   N listening on AF=2 127.0.0.1:PORT                      → listening
+#   N accepting connection from AF=2 A:P on AF=2 …          → connected
+#   W accept: Connection timed out                          → ttl (then exit 0)
+#   E bind(5, {AF=2 …}, 16): Address already in use         → failed:TEXT
+# NcBinary is inherited and unused; SocatBinary '' = $KCL_SOCAT, else `socat`
+# on PATH.
+# ===========================================================================
+class TSocatTransport : TNetcatTransport
+    public
+        var SocatBinary
+        constructor Create
+        override func BuildArgv
+        override func _state
+end
+
+TSocatTransport.Create() {
+    inherited
+    SocatBinary=""
+}
+
+# BuildArgv OUTARR — the listener's argv (above); RESULT = the element count.
+# SOCAT = SocatBinary, else $KCL_SOCAT, else `socat` on PATH (ths._ncFind). rc
+# 1 + LastError 'socat not found …' when there is none; rc 2 for an unusable
+# OUTARR, Port outside 1–65535, ListenerTTL < 1, Address '' or with a
+# character outside 0-9 A-Z a-z . : -, or a socat that fails the
+# accept-timeout probe (LastError = the WHY of ths._backend).
+TSocatTransport.BuildArgv() {
+    local __ths_o="${1:-}" __ths_sb="$SocatBinary" __ths_port="$Port" __ths_ttl="$ListenerTTL" __ths_bk __ths_why
+    if ! kk._outName "$__ths_o" __ths_ __THS_; then
+        kk.debug "Error: TSocatTransport.BuildArgv: unusable output array name '$__ths_o'"
+        kk._return ""
+        return 2
+    fi
+    if ! kk.isInt "$__ths_port" __ths_port || (( __ths_port < 1 || __ths_port > 65535 )) \
+       || ! kk.isInt "$__ths_ttl" __ths_ttl || (( __ths_ttl < 1 )) || [[ -z "$Address" ]]; then
+        _lastError="TSocatTransport: Port must be 1-65535, ListenerTTL >= 1 and Address non-empty"
+        kk.debug "Error: $_lastError"
+        kk._return ""
+        return 2
+    fi
+    # the address goes into socat's address string: a ',' or ':' option text
+    # must never reach it (only host-name / IPv4 / IPv6 characters)
+    if [[ "$Address" == *[!0-9A-Za-z.:-]* ]]; then
+        _lastError="TSocatTransport: Address '$Address' may only contain 0-9 A-Z a-z . : -"
+        kk.debug "Error: $_lastError"
+        kk._return ""
+        return 2
+    fi
+    if [[ -z "$__ths_sb" ]]; then
+        __ths_sb="${KCL_SOCAT:-}"
+    fi
+    if [[ -z "$__ths_sb" ]]; then
+        __ths_sb=socat
+    fi
+    ths._ncFind "$__ths_sb"
+    __ths_sb="$__THS_NCPATH"
+    if [[ "$__ths_sb" != */* || ! -f "$__ths_sb" || ! -x "$__ths_sb" ]]; then
+        _lastError="socat not found (SocatBinary '$SocatBinary', KCL_SOCAT '${KCL_SOCAT:-}', PATH)"
+        kk.debug "Error: TSocatTransport.BuildArgv: $_lastError"
+        kk._return ""
+        return 1
+    fi
+    # the identity check of THIS socat (precedence b; KCL_NC blanked for the
+    # call, or an explicit netcat would answer instead)
+    KCL_NC="" ths._backend "" "$__ths_sb"
+    __ths_bk="$__THS_BACKEND"
+    __ths_why="$__THS_BACKEND_WHY"
+    if [[ "$__ths_bk" != socat ]]; then
+        _lastError="$__ths_why"
+        kk.debug "Error: TSocatTransport.BuildArgv: $_lastError"
+        kk._return ""
+        return 2
+    fi
+    local -n __ths_out="$__ths_o"
+    if [[ "$Address" == *:* ]]; then
+        __ths_out=("$__ths_sb" -d -d -lpsocat -t 0.5 "TCP6-LISTEN:$__ths_port,bind=[$Address],reuseaddr,accept-timeout=$__ths_ttl" STDIO)
+    else
+        __ths_out=("$__ths_sb" -d -d -lpsocat -t 0.5 "TCP4-LISTEN:$__ths_port,bind=$Address,reuseaddr,accept-timeout=$__ths_ttl" STDIO)
+    fi
+    kk._return "${#__ths_out[@]}"
+    return 0
+}
+
+# _state SLOT — as TNetcatTransport._state, from socat's `-d -d` lines
+# (fork-free): RESULT = listening | connected | ttl | failed:<the text after
+# the severity letter of the first E/F line> | none; REPLY = the remote 'A:P'
+# when connected ('[A]:P' for IPv6, A in the RFC 5952 short form: socat prints
+# all eight groups). Precedence as the base: connected, then ttl, then failed
+# (an E line after the timeout never wins). Every other line is ignored.
+# Public: an override called from the base's Accept / Shutdown frames would
+# print a kklass visibility warning as private or protected (measured).
+TSocatTransport._state() {
+    local __ths_f="$_dir/err$1" __ths_l __ths_st=none __ths_first="" __ths_conn="" __ths_ttl=0 __ths_m
+    REPLY=""
+    if [[ ! -f "$__ths_f" ]]; then
+        kk._return none
+        return 0
+    fi
+    while IFS= read -r __ths_l || [[ -n "$__ths_l" ]]; do
+        __ths_l="${__ths_l%"$__THS_CR"}"
+        if [[ "$__ths_l" != *" socat["*"] "?" "* ]]; then
+            continue
+        fi
+        __ths_m="${__ths_l#* socat\[*\] }"
+        case "$__ths_m" in
+            'N listening on '*)
+                __ths_st=listening ;;
+            'N accepting connection from '*'AF='*' on '*)
+                # the BSD form puts the sockaddr length first: LEN=16 AF=2 A:P
+                __ths_m="${__ths_m#N accepting connection from }"
+                if [[ "$__ths_m" == LEN=* ]]; then
+                    __ths_m="${__ths_m#* }"
+                fi
+                __ths_m="${__ths_m#AF=* }"
+                __ths_conn="${__ths_m%% on *}" ;;
+            'W accept: Connection timed out' | 'W accept: Operation timed out')
+                # ETIMEDOUT as Linux / FreeBSD spell it
+                __ths_ttl=1 ;;
+            [EF]' '*)
+                if [[ -z "$__ths_first" ]]; then
+                    __ths_first="${__ths_m:2}"
+                fi ;;
+        esac
+    done < "$__ths_f"
+    if [[ -n "$__ths_conn" ]]; then
+        if [[ "$__ths_conn" == '['*']:'* ]]; then
+            __ths_m="${__ths_conn#\[}"
+            ths._v6short "${__ths_m%%\]*}"
+            __ths_conn="[$REPLY]:${__ths_conn##*\]:}"
+        fi
+        REPLY="$__ths_conn"
+        kk._return connected
+    elif (( __ths_ttl )); then
+        kk._return ttl
+    elif [[ -n "$__ths_first" ]]; then
+        kk._return "failed:$__ths_first"
+    else
+        kk._return "$__ths_st"
+    fi
+    return 0
+}
+
+build TSocatTransport
+
 # ===========================================================================
 # THttpServer (PLAN §1.3, §2.6). The handlers run in the server's OWN shell:
 # objects live across requests. Only the listener nc is spawned per
@@ -885,7 +1207,10 @@ build TNetcatTransport
 #               fatal (LastError). Active = true does the same (as FPC).
 #   BeginServe  validates the numbers (kk.isInt; rc 2), saves the traps, PIPE
 #               ignored, INT/TERM → __THS_SIGNAL; Transport '' → an OWNED
-#               TNetcatTransport ${inst}_tr with the server's Address/Port.
+#               transport ${inst}_tr with the server's Address/Port: a
+#               TSocatTransport when ths._backend says socat, else a
+#               TNetcatTransport; a backend `none` is refused (rc 2, LastError
+#               = the WHY) before any trap is touched.
 #   ServeOne    accept + handle ONE connection: rc 0 handled (RESULT = the
 #               code answered, or `gone`) · 1 idle tick / a client that left /
 #               a signal · 2 fatal (LastError). RequestCount + 1 for every
@@ -1066,7 +1391,7 @@ THttpServer.Serve() {
 # that is not an integer >= 0 (RequestTimeout >= 1) or a Transport that is not
 # a THttpTransport instance.
 THttpServer.BeginServe() {
-    local __ths_bad="" __ths_n __ths_v
+    local __ths_bad="" __ths_n __ths_v __ths_bk=""
     if [[ "$_active" == 1 ]]; then
         kk.debug "Error: THttpServer.BeginServe: already serving"
         return 1
@@ -1088,8 +1413,10 @@ THttpServer.BeginServe() {
     fi
     if [[ -z "$Transport" ]]; then
         ths._backend
-        if [[ "$__THS_BACKEND" == none ]]; then
-            _lastError="$__THS_BACKEND_WHY"
+        __ths_bk="$__THS_BACKEND"
+        __ths_v="$__THS_BACKEND_WHY"
+        if [[ "$__ths_bk" == none ]]; then
+            _lastError="$__ths_v"
             kk.debug "Error: THttpServer.BeginServe: $_lastError"
             return 2
         fi
@@ -1104,7 +1431,13 @@ THttpServer.BeginServe() {
         if [[ -n "${!__ths_v:-}" ]]; then
             "${__inst__}_tr.delete"
         fi
-        TNetcatTransport.new "${__inst__}_tr"
+        # the factory (L2.7-N2): socat → TSocatTransport; gnu, and missing
+        # (whose Accept then reports 'nc not found …'), → TNetcatTransport
+        if [[ "$__ths_bk" == socat ]]; then
+            TSocatTransport.new "${__inst__}_tr"
+        else
+            TNetcatTransport.new "${__inst__}_tr"
+        fi
         "${__inst__}_tr.Address" = "$Address"
         "${__inst__}_tr.Port" = "$Port"
         Transport="${__inst__}_tr"

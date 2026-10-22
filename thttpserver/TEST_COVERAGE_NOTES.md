@@ -195,5 +195,17 @@ ledger.
   environment fallback is one line and is not.
 * **`--address=0.0.0.0`** is never bound (firewall prompt; the tests stay on
   loopback); the non-loopback warning of the demos is not asserted.
-* **Other netcat flavours** (OpenBSD, ncat, socat) are out of scope (D2);
-  `BuildArgv` is the documented override point.
+* **Other netcat flavours** (OpenBSD, ncat, BusyBox, nc.traditional) are
+  identified and refused, never run (008 §4); **socat is the second backend**
+  (L2.7-N2): the detection precedence and its four reasons, `TSocatTransport`'s
+  argv (v4/v6) and `_state` on recorded socat 1.8 lines, the inherited
+  mechanism over a fake socat and the server factory are pinned by 008 §5 on
+  every host; the socket files 004–007/009 run on socat in the Linux lab VMs
+  (`tools/vmlab`), on GNU netcat under Windows. Not tested: socat's burst
+  behaviour (the 004 parallel case retries on 55/56, so it proves "each handled
+  once", not the reset count), and a client that half-closes after its request
+  (socat answers it only within `-t` 0.5 s). On Fedora (coreutils 9.10) a
+  server child started in the background through `timeout` inherits SIGINT
+  ignored, so its custom INT trap reads `trap -- '' SIGINT`; the trap checks
+  of 005/006 accept that form (`ths_custom_traps`) and still compare before
+  and after for equality.

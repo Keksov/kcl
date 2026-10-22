@@ -25,8 +25,9 @@
 #   curl --noproxy '*' -H 'Authorization: Bearer s3cret' -X POST http://127.0.0.1:8080/quit
 #
 # Options: --port=N / -p N, --address=A, --token=T (else $DEMO_TOKEN; with
-# neither, no token is required). netcat as in demo.sh: $KCL_NC, else `nc` on
-# PATH, else /c/bin/msys64/usr/bin/nc.exe.
+# neither, no token is required). Network backend as in demo.sh: GNU netcat
+# ($KCL_NC, else `nc` on PATH, else /c/bin/msys64/usr/bin/nc.exe on Windows),
+# else socat.
 #
 # Handlers (functions or methods) declare every variable `local`, and a method
 # override passes its arguments on (`inherited HandleRequest "$@"` — a bare
