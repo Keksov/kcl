@@ -17,10 +17,17 @@
 #   * ordering is event-driven: marker files polled in bounded loops (the
 #     sleep inside is the poll interval, never a synchronisation by itself);
 #   * nc = KCL_NC, else `nc` on PATH, else /c/bin/msys64/usr/bin/nc.exe
-#     (exported to the child as KCL_NC); with none the socket cases SKIP
-#     visibly (kt_test_pass "SKIP: …"), so the case count stays the same.
+#     (exported to the child as KCL_NC); with none, or with an nc that is not
+#     GNU netcat (ths._backend, L2.7-N1), the socket cases SKIP visibly
+#     (kt_test_pass "SKIP: …"), so the case count stays the same.
 
 unset -v HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy NO_PROXY no_proxy FTP_PROXY ftp_proxy
+
+# ths._backend (the netcat identification) lives in the unit: 005 and 009 do
+# not load it themselves.
+if ! declare -F ths._backend >/dev/null; then
+    source "${UNIT:-$UNIT_DIR/thttpserver.sh}"
+fi
 
 # THS_NC — the netcat the children use; THS_NC_ENV — 1 when it must reach the
 # child through KCL_NC (not found on PATH).
@@ -37,15 +44,30 @@ else
     THS_NC=""
 fi
 
+# ths_have_backend — rc 0 when THS_NC is GNU netcat (the unit's own
+# identification, ths._backend; sets __THS_BACKEND / __THS_BACKEND_WHY). The
+# KCL_NC assignment is for that call only.
+ths_have_backend() {
+    KCL_NC=$THS_NC ths._backend
+    [[ "$__THS_BACKEND" == gnu ]]
+}
+
 # ths_have_nc — rc 0 when the socket cases can run.
-ths_have_nc() { [[ -n "$THS_NC" ]]; }
+ths_have_nc() { ths_have_backend; }
 
 # ths_skip TITLE… — one visible SKIP case per title (the case count is kept).
 ths_skip() {
-    local t
+    local t why
+    if [[ -z "$__THS_BACKEND" ]]; then
+        ths_have_backend || :
+    fi
+    why="$__THS_BACKEND_WHY"
+    if [[ "$__THS_BACKEND" == missing ]]; then
+        why="no netcat: $why"
+    fi
     for t in "$@"; do
         kt_test_start "$t"
-        kt_test_pass "SKIP: no netcat (KCL_NC unset, no nc on PATH, no /c/bin/msys64/usr/bin/nc.exe)"
+        kt_test_pass "SKIP: $why"
     done
 }
 

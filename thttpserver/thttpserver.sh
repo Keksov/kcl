@@ -63,6 +63,90 @@ ths._bytes() {
     __ths_b=${#1}
 }
 
+# ths._ncFind NAME — NAME resolved for TNetcatTransport into the global
+# __THS_NCPATH: a name without `/` is searched on PATH (a walk with `-f`/`-x`,
+# no fork, no hash side effect), a path stays as is. NAME unchanged when it is
+# not found; the caller checks `/`, `-f` and `-x`. THE one resolver of the
+# unit (BuildArgv and ths._backend share it).
+ths._ncFind() {
+    local __ths_nc="$1" __ths_p __ths_d
+    if [[ "$__ths_nc" != */* ]]; then
+        __ths_p="$PATH:"
+        while [[ -n "$__ths_p" ]]; do
+            __ths_d="${__ths_p%%:*}"
+            __ths_p="${__ths_p#*:}"
+            if [[ -z "$__ths_d" ]]; then
+                __ths_d=.
+            fi
+            if [[ -f "$__ths_d/$__ths_nc" && -x "$__ths_d/$__ths_nc" ]]; then
+                __ths_nc="$__ths_d/$__ths_nc"
+                break
+            fi
+        done
+    fi
+    __THS_NCPATH="$__ths_nc"
+}
+
+# ths._backend [NCBIN] — identify the netcat (L2.7-N1): sets __THS_BACKEND
+# to missing | gnu | none, __THS_BACKEND_BIN to the resolved path, and
+# __THS_BACKEND_WHY to the reason for missing / none. NCBIN = $1 (resolved by
+# the caller), else $KCL_NC, else `nc` on PATH. `gnu` = `NC --version`
+# says GNU Netcat; every other existing nc is `none`, named by its
+# `--version` / `-h` text (OpenBSD, Ncat, BusyBox, traditional v1.10) — it is
+# NEVER run with the GNU flags (ncat / nc.traditional `-c` and `-e` run
+# commands; OpenBSD nc has no accept timeout). The result is cached per
+# "$PATH|$KCL_NC|$1": a hit forks nothing, a miss forks once (twice for an
+# nc whose `--version` names nothing).
+declare -g __THS_NCPATH=""
+: "${__THS_BACKEND:=}" "${__THS_BACKEND_BIN:=}" "${__THS_BACKEND_WHY:=}" "${__THS_BACKEND_KEY:=}"
+ths._backend() {
+    local __ths_k="$PATH|${KCL_NC-}|${1-}" __ths_bin="${1-}" __ths_out="" __ths_fl="" __ths_t
+    if [[ -n "$__THS_BACKEND" && "$__THS_BACKEND_KEY" == "$__ths_k" ]]; then
+        return 0
+    fi
+    if [[ -z "$__ths_bin" ]]; then
+        __ths_bin="${KCL_NC:-}"
+    fi
+    if [[ -z "$__ths_bin" ]]; then
+        __ths_bin=nc
+    fi
+    ths._ncFind "$__ths_bin"
+    __ths_bin="$__THS_NCPATH"
+    __THS_BACKEND_KEY="$__ths_k"
+    if [[ "$__ths_bin" != */* || ! -f "$__ths_bin" || ! -x "$__ths_bin" ]]; then
+        __THS_BACKEND=missing
+        __THS_BACKEND_BIN=""
+        __THS_BACKEND_WHY="nc not found (NcBinary, KCL_NC, PATH)"
+        return 0
+    fi
+    __THS_BACKEND_BIN="$__ths_bin"
+    __ths_out="$("$__ths_bin" --version </dev/null 2>&1 || :)"
+    if [[ "$__ths_out" == *"GNU Netcat"* ]]; then
+        __THS_BACKEND=gnu
+        __THS_BACKEND_WHY=""
+        return 0
+    fi
+    for __ths_t in 1 2; do
+        case "$__ths_out" in
+            *OpenBSD*) __ths_fl="OpenBSD netcat" ;;
+            *Ncat*) __ths_fl=Ncat ;;
+            *BusyBox*) __ths_fl="BusyBox nc" ;;
+            *"[v1.10"*) __ths_fl="traditional nc (v1.10)" ;;
+            *"[-46"*) __ths_fl="OpenBSD netcat" ;;   # the OpenBSD upstream usage line (no name in it)
+        esac
+        if [[ -n "$__ths_fl" || "$__ths_t" == 2 ]]; then
+            break
+        fi
+        __ths_out="$("$__ths_bin" -h </dev/null 2>&1 || :)"
+    done
+    if [[ -z "$__ths_fl" ]]; then
+        __ths_fl="unknown nc"
+    fi
+    __THS_BACKEND=none
+    __THS_BACKEND_WHY="no usable network backend: $__ths_fl at $__ths_bin is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); install GNU netcat 0.7.1 (a socat backend follows in a later version)"
+    return 0
+}
+
 # ===========================================================================
 # THttpTransport — the network seam (PLAN §2.5). The server only knows
 # InFd / OutFd / FirstLine / LineConsumed / TimedOut / RemoteAddress /
@@ -358,7 +442,7 @@ TNetcatTransport.Destroy() {
 # for an unusable OUTARR or Port outside 1–65535, ListenerTTL < 1, Address ''.
 # Virtual: a descendant for another nc flavour overrides it.
 TNetcatTransport.BuildArgv() {
-    local __ths_o="${1:-}" __ths_nc="$NcBinary" __ths_p __ths_d __ths_port="$Port" __ths_ttl="$ListenerTTL"
+    local __ths_o="${1:-}" __ths_nc="$NcBinary" __ths_port="$Port" __ths_ttl="$ListenerTTL"
     if ! kk._outName "$__ths_o" __ths_ __THS_; then
         kk.debug "Error: TNetcatTransport.BuildArgv: unusable output array name '$__ths_o'"
         kk._return ""
@@ -377,25 +461,20 @@ TNetcatTransport.BuildArgv() {
     if [[ -z "$__ths_nc" ]]; then
         __ths_nc=nc
     fi
-    if [[ "$__ths_nc" != */* ]]; then
-        __ths_p="$PATH:"
-        while [[ -n "$__ths_p" ]]; do
-            __ths_d="${__ths_p%%:*}"
-            __ths_p="${__ths_p#*:}"
-            if [[ -z "$__ths_d" ]]; then
-                __ths_d=.
-            fi
-            if [[ -f "$__ths_d/$__ths_nc" && -x "$__ths_d/$__ths_nc" ]]; then
-                __ths_nc="$__ths_d/$__ths_nc"
-                break
-            fi
-        done
-    fi
+    ths._ncFind "$__ths_nc"
+    __ths_nc="$__THS_NCPATH"
     if [[ "$__ths_nc" != */* || ! -f "$__ths_nc" || ! -x "$__ths_nc" ]]; then
         _lastError="nc not found (NcBinary '$NcBinary', KCL_NC '${KCL_NC:-}', PATH)"
         kk.debug "Error: TNetcatTransport.BuildArgv: $_lastError"
         kk._return ""
         return 1
+    fi
+    ths._backend "$__ths_nc"
+    if [[ "$__THS_BACKEND" != gnu ]]; then
+        _lastError="$__THS_BACKEND_WHY"
+        kk.debug "Error: TNetcatTransport.BuildArgv: $_lastError"
+        kk._return ""
+        return 2
     fi
     local -n __ths_out="$__ths_o"
     __ths_out=("$__ths_nc" -l -c -vv -n -w "$__ths_ttl" -s "$Address" -p "$__ths_port")
@@ -1006,6 +1085,14 @@ THttpServer.BeginServe() {
         _lastError="THttpServer.BeginServe: bad value of${__ths_bad}"
         kk.debug "Error: $_lastError"
         return 2
+    fi
+    if [[ -z "$Transport" ]]; then
+        ths._backend
+        if [[ "$__THS_BACKEND" == none ]]; then
+            _lastError="$__THS_BACKEND_WHY"
+            kk.debug "Error: THttpServer.BeginServe: $_lastError"
+            return 2
+        fi
     fi
     _savedTraps="$(trap -p INT TERM PIPE)"
     __THS_SIGNAL=""

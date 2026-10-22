@@ -387,7 +387,11 @@ kt_test_start "BeginServe with Transport '' creates an OWNED TNetcatTransport (S
 SV.Transport = ""
 SV.Port = 12345
 SV.Address = 127.0.0.2
-r=0; SV.BeginServe || r=$?
+# BeginServe identifies the nc (L2.7-N1) and refuses one that is not GNU netcat;
+# nothing is spawned here, so a fake GNU banner stands in on every host.
+printf '#!%s\nprintf "netcat (The GNU Netcat) 0.7.1\\n"\n' "$BASH" > "$TMP/gnunc"; chmod +x "$TMP/gnunc"
+__THS_BACKEND_KEY=""
+r=0; KCL_NC="$TMP/gnunc" SV.BeginServe || r=$?
 p="$(SV_tr.Port)"; a="$(SV_tr.Address)"; tr="$(SV.Transport)"
 SV.EndServe
 tr2="$(SV.Transport)"
@@ -710,7 +714,7 @@ kt_test_section "3. fact 5: no usable nc → Accept rc 2 at once, LastError, no 
 C_TITLES=(
     "fact 5: NcBinary=/no/such/nc → Serve rc 1 at once, LastError 'nc not found …', nothing spawned, no child, no temp dir"
     "fact 5: NcBinary '', KCL_NC unset, no nc on PATH → the same"
-    "an nc that cannot be executed (bad interpreter) → Serve rc 1, LastError = the exec error line, no child, no temp dir"
+    "an nc that cannot be executed (bad interpreter) fails the identity → Serve rc 1, LastError 'no usable network backend: unknown nc at …', no child, no temp dir"
     "an nc that exits at once with an unknown stderr line → Serve rc 1, LastError = that line, spawned exactly ONCE (no respawn loop)"
 )
 if ! ths_have_nc; then
@@ -718,7 +722,7 @@ if ! ths_have_nc; then
 else
     C_DIR="$TMP/c"; rm -rf "$C_DIR"; mkdir -p "$C_DIR/tmp"
     printf '#!/no/such/interp\n' > "$C_DIR/fake_nc"; chmod +x "$C_DIR/fake_nc"
-    printf '#!/bin/bash\nprintf x >> "%s/spawns"\nprintf "fake: no listener here\\n" >&2\nexit 1\n' "$C_DIR" > "$C_DIR/once_nc"; chmod +x "$C_DIR/once_nc"
+    printf '#!/bin/bash\nif [[ "${1:-}" == --version ]]; then printf "netcat (The GNU Netcat) 0.7.1\\n"; exit 0; fi\nprintf x >> "%s/spawns"\nprintf "fake: no listener here\\n" >&2\nexit 1\n' "$C_DIR" > "$C_DIR/once_nc"; chmod +x "$C_DIR/once_nc"
     cat > "$C_DIR/srv.sh" <<'EOF'
 exec </dev/null
 cd "$SRV_DIR" || exit 90
@@ -766,7 +770,7 @@ EOF
     kt_test_start "${C_TITLES[1]}"
     if [[ "$l_nopath" =~ ^nopath\ rc=1\ ms=([0-9]+)\ kids=0\ dirs=\[\]\ le=nc\ not\ found ]] && (( BASH_REMATCH[1] < 5000 )); then kt_test_pass "$l_nopath"; else kt_test_fail "'$l_nopath'"; fi
     kt_test_start "${C_TITLES[2]}"
-    if [[ "$l_fake" =~ ^fake\ rc=1\ ms=([0-9]+)\ kids=0\ dirs=\[\]\ le=.*(bad\ interpreter|cannot\ execute|required\ file\ not\ found) ]] && (( BASH_REMATCH[1] < 5000 )); then
+    if [[ "$l_fake" =~ ^fake\ rc=1\ ms=([0-9]+)\ kids=0\ dirs=\[\]\ le=no\ usable\ network\ backend:\ unknown\ nc\ at\  ]] && (( BASH_REMATCH[1] < 5000 )); then
         kt_test_pass "${l_fake:0:160}"
     else
         kt_test_fail "'$l_fake'"

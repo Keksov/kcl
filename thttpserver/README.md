@@ -246,14 +246,46 @@ the socket tests drive — substitutability, and the fork-free proofs.
 
 | var | default | |
 |---|---|---|
-| `NcBinary` | `''` | `''` → `$KCL_NC` → `nc` on PATH (a fork-free PATH walk); none → Accept rc 2 `nc not found …`, no respawn loop |
+| `NcBinary` | `''` | `''` → `$KCL_NC` → `nc` on PATH (a fork-free PATH walk); none → BuildArgv rc 1, Accept rc 2 `nc not found …`, no respawn loop; an nc that is not GNU netcat → BuildArgv rc 2, Accept rc 2 with the `no usable network backend: …` LastError (see *Network backend*) |
 | `Address` / `Port` | `127.0.0.1` / `8080` | |
 | `ListenerTTL` | 60 | `nc -w`: an orphan's time-to-live only (it limits accept, not a connection) |
 | `CloseTimeout` | 2 | the bound of the drained close |
 | `StdinRelay` | 1 | nc's stdin through `cat` (required under bash 5.2.37, §6); 0 only for a same-runtime nc |
 
-`BuildArgv OUTARR` (virtual) → `NC -l -c -vv -n -w TTL -s ADDR -p PORT`; a
+`BuildArgv OUTARR` (virtual) → `NC -l -c -vv -n -w TTL -s ADDR -p PORT`, after
+the nc was found (rc 1 `nc not found …` otherwise) **and identified as GNU
+netcat** (rc 2, LastError = the reason, the array left empty, otherwise); a
 descendant for another nc flavour overrides it.
+
+#### Network backend
+
+thttpserver identifies the netcat before it ever starts one
+(`ths._backend [NCBIN]`, a plain function of `thttpserver.sh`). The binary is
+`NCBIN` (BuildArgv passes the resolved `NcBinary`), else `$KCL_NC`, else `nc`
+on PATH (the same fork-free PATH walk BuildArgv uses). The result:
+
+| backend | meaning |
+|---|---|
+| `missing` | no such binary, or not an executable file. No fork. `nc not found (NcBinary, KCL_NC, PATH)`; BuildArgv still reports its own `nc not found …` (rc 1) |
+| `gnu` | `NC --version` prints `GNU Netcat` (netcat 0.7.1 — msys64's, Debian/Ubuntu `netcat-traditional` is NOT it). The only backend that runs |
+| `none` | any other existing nc. Named by its `--version` text (a second probe, `-h`, only if that names nothing): `OpenBSD netcat`, `Ncat`, `BusyBox nc`, `traditional nc (v1.10)`, an OpenBSD-upstream usage line `[-46…` (no name in it, e.g. Fedora's nc) also counts as `OpenBSD netcat`, else `unknown nc` |
+
+For `none` the reason is exactly `no usable network backend: <flavour> at
+<path> is not GNU netcat 0.7.1 (refused: thttpserver never runs another
+netcat with GNU flags); install GNU netcat 0.7.1 (a socat backend follows in
+a later version)`. `THttpServer.BeginServe` (no Transport set) returns rc 2
+with that LastError before it installs a trap or creates the transport;
+`TNetcatTransport.BuildArgv` / `Accept` return rc 2 with it. Why another nc is
+refused rather than tried: the listener's flags are GNU's. In **ncat** and
+**nc.traditional** `-c` / `-e` execute a command for every connection (the
+GNU flag `-c` is "run this command" there, not "close on EOF" — a hazard, not
+a harmless mismatch); the **OpenBSD** nc has no accept timeout (`-w` limits
+only connect and idle), so an orphaned listener would live forever. The probes
+(`--version`, `-h`) are the only things an unidentified nc is ever run with.
+The result is cached per `"$PATH|$KCL_NC|NCBIN"` (a hit forks nothing; the
+identity costs one fork per process on a miss). **socat backend: next
+version.** The socket tests report `SKIP: <that reason>` (case counts
+unchanged) wherever the nc is not GNU netcat.
 
 ### THttpServer
 
@@ -598,7 +630,11 @@ into `ServeOne` (so it fires under `App.Run` too), and made the application's
 
 ## 9. Environment
 
-* **netcat**: GNU netcat 0.7.1 only (D2). Under bash 5.3.9 (msys64) `nc` is on
+* **netcat**: GNU netcat 0.7.1 only (D2), **identified, not assumed**: any
+  other nc is refused with `no usable network backend: …` (see *Network
+  backend*; on Linux the distro's nc is usually OpenBSD netcat, Ncat or
+  nc.traditional, so thttpserver does not serve there until a socat backend
+  exists). Under bash 5.3.9 (msys64) `nc` is on
   PATH. Under bash 5.2.37 (Git for Windows) it is **not** — point `KCL_NC` (or
   `NcBinary`) at `/c/bin/msys64/usr/bin/nc.exe`; the examples and the tests do
   that fallback themselves. A Git-runtime FIFO cannot be msys64 nc's stdin

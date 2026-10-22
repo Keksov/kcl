@@ -464,6 +464,11 @@ S.Terminate
 S.Active = false
 S.delete; T.delete; T2.delete; RT.delete'
 
+# A fake GNU netcat for the BuildArgv case below (L2.7-N1: an nc that is not
+# identified as GNU netcat is refused, so $BASH no longer stands in for nc).
+printf '#!%s\nprintf "netcat (The GNU Netcat) 0.7.1\\n"\n' "$BASH" > "$TMP/gnunc"
+chmod +x "$TMP/gnunc"
+
 expect_clean "TNetcatTransport under set -eu: BuildArgv, every refusal guarded, Close/Shutdown with nothing open, free" '
 TNetcatTransport.new N
 N.NcBinary = /no/such/nc
@@ -473,13 +478,13 @@ N.BuildArgv A || rc=$?;             [[ $rc -eq 1 ]] || exit 8; rc=0
 N.Accept x 1 || rc=$?;              [[ $rc -eq 2 ]] || exit 7; rc=0
 N.Accept 0 10 || rc=$?;             [[ $rc -eq 2 ]] || exit 6; rc=0
 N.LastError; [[ "$RESULT" == "nc not found"* ]] || exit 5
-N.NcBinary = "$BASH"
+N.NcBinary = "$TMP/gnunc"
 N.Port = 0
 N.BuildArgv A || rc=$?;             [[ $rc -eq 2 ]] || exit 4; rc=0
 N.Port = 8080
 declare -a A=()
 N.BuildArgv A
-[[ "$RESULT" == 11 && "${A[0]}" == "$BASH" && "${A[*]:1}" == "-l -c -vv -n -w 60 -s 127.0.0.1 -p 8080" ]] || exit 3
+[[ "$RESULT" == 11 && "${A[0]}" == "$TMP/gnunc" && "${A[*]:1}" == "-l -c -vv -n -w 60 -s 127.0.0.1 -p 8080" ]] || exit 3
 N.CloseConnection
 N.Shutdown
 N.delete'
@@ -704,3 +709,137 @@ ctlseen=0; [[ -e "$CANARY" ]] && ctlseen=1
 rm -f "$CANARY"
 if [[ $prc -eq 0 && $seen -eq 0 && $ctlseen -eq 1 ]]; then kt_test_pass "ServeOne: no subshell; control: detected"; else kt_test_fail "rc=$prc seen=$seen control=$ctlseen"; fi
 FS.delete; FR.delete
+
+# ===========================================================================
+kt_test_section "4. the network backend: ths._backend identifies the nc, anything but GNU netcat is refused (L2.7-N1)"
+# ===========================================================================
+
+# mkfake DIR VERSION_TEXT HELP_TEXT — DIR/nc, a script that appends "$*" as one
+# line to DIR/log, answers --version / -h with the given first line (empty: no
+# output) and exits 1; builtins only (the cases run it with PATH=DIR).
+mkfake() {
+    local d="$1"
+    rm -rf "$d"; mkdir -p "$d"
+    printf '%s\n' "$2" > "$d/v"; printf '%s\n' "$3" > "$d/h"
+    cat > "$d/nc" <<EOS
+#!$BASH
+printf '%s\n' "\$*" >> "$d/log"
+show() { local l=""; IFS= read -r l < "\$1" || :; if [[ -n "\$l" ]]; then printf '%s\n' "\$l"; fi; }
+case "\${1-}" in
+    --version) show "$d/v" ;;
+    -h) show "$d/h" ;;
+esac
+exit 1
+EOS
+    chmod +x "$d/nc"
+}
+
+# detect DIR [NCBIN] — a fresh ths._backend with PATH=DIR and KCL_NC unset
+# (both restored before the caller reports).
+detect() {
+    local d="$1" op="$PATH" hadk=0 kc=""
+    if [[ -v KCL_NC ]]; then hadk=1; kc="$KCL_NC"; unset -v KCL_NC; fi
+    PATH="$d"
+    __THS_BACKEND_KEY=""
+    ths._backend ${2:+"$2"}
+    PATH="$op"
+    if (( hadk )); then KCL_NC="$kc"; fi
+}
+nolog() {   # no line of DIR/log is an -l argument (token regex)
+    local l
+    while IFS= read -r l; do
+        if [[ "$l" =~ (^|\ )-l(\ |$) ]]; then return 1; fi
+    done < "$1/log"
+    return 0
+}
+why_for() { printf 'no usable network backend: %s at %s is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); install GNU netcat 0.7.1 (a socat backend follows in a later version)' "$1" "$2"; }
+
+BK="$TMP/backend"; rm -rf "$BK"; mkdir -p "$BK"
+
+kt_test_start "ths._backend: a nc whose --version says GNU Netcat is gnu (one probe, WHY empty)"
+mkfake "$BK/gnu" "netcat (The GNU Netcat) 0.7.1" ""
+detect "$BK/gnu"
+if [[ "$__THS_BACKEND" == gnu && "$__THS_BACKEND_BIN" == "$BK/gnu/nc" && -z "$__THS_BACKEND_WHY" && "$(<"$BK/gnu/log")" == "--version" ]]; then
+    kt_test_pass "gnu at $__THS_BACKEND_BIN"
+else
+    kt_test_fail "backend='$__THS_BACKEND' bin='$__THS_BACKEND_BIN' why='$__THS_BACKEND_WHY' log='$(<"$BK/gnu/log")'"
+fi
+
+# name, --version, -h, flavour in WHY, expected probe log
+bkcase() {
+    local n="$1" v="$2" h="$3" fl="$4" want="$5" got=""
+    kt_test_start "ths._backend: $fl is refused as none — named in WHY, probes only ($want), never -l"
+    mkfake "$BK/$n" "$v" "$h"
+    detect "$BK/$n"
+    got="$(<"$BK/$n/log")"
+    if [[ "$__THS_BACKEND" == none && "$__THS_BACKEND_BIN" == "$BK/$n/nc" && "$__THS_BACKEND_WHY" == "$(why_for "$fl" "$BK/$n/nc")" \
+          && "$got" == "$want" ]] && nolog "$BK/$n"; then
+        kt_test_pass "none: $fl"
+    else
+        kt_test_fail "backend='$__THS_BACKEND' bin='$__THS_BACKEND_BIN' why='${__THS_BACKEND_WHY:0:140}' log='$got'"
+    fi
+}
+bkcase openbsd "nc: unknown option -- -" "OpenBSD netcat (Debian patchlevel 1.226-1ubuntu2)" "OpenBSD netcat" $'--version\n-h'
+bkcase ncat "Ncat: Version 7.94 ( https://nmap.org/ncat )" "" "Ncat" "--version"
+bkcase busybox "BusyBox v1.36.1 (Ubuntu 1:1.36.1-6ubuntu3) multi-call binary." "" "BusyBox nc" "--version"
+bkcase trad "nc: invalid option -- '-'" "[v1.10-47]" "traditional nc (v1.10)" $'--version\n-h'
+bkcase usage "nc: invalid option -- '-'" "usage: nc [-46cDdFhklNnrStUuvz] [-C certfile] [-e name] [-H hash]" "OpenBSD netcat" $'--version\n-h'
+bkcase unknown "gibberish" "more gibberish" "unknown nc" $'--version\n-h'
+
+kt_test_start "ths._backend: an empty PATH dir and KCL_NC unset is missing — no fork, WHY 'nc not found …', BIN empty"
+mkdir -p "$BK/empty"
+detect "$BK/empty"
+if [[ "$__THS_BACKEND" == missing && -z "$__THS_BACKEND_BIN" && "$__THS_BACKEND_WHY" == "nc not found ("* ]]; then
+    kt_test_pass "missing: $__THS_BACKEND_WHY"
+else
+    kt_test_fail "backend='$__THS_BACKEND' bin='$__THS_BACKEND_BIN' why='$__THS_BACKEND_WHY'"
+fi
+
+kt_test_start "ths._backend: the result is cached per \$PATH|\$KCL_NC|\$1 — two calls, ONE --version probe; a changed PATH probes again"
+mkfake "$BK/cache" "netcat (The GNU Netcat) 0.7.1" ""
+detect "$BK/cache"
+op="$PATH"; PATH="$BK/cache"
+ths._backend
+r2="$__THS_BACKEND"
+PATH="$op"
+n1="$(<"$BK/cache/log")"
+mkfake "$BK/cache2" "netcat (The GNU Netcat) 0.7.1" ""
+detect "$BK/cache2"
+if [[ "$r2" == gnu && "$n1" == "--version" && "$(<"$BK/cache2/log")" == "--version" ]]; then
+    kt_test_pass "one probe per key"
+else
+    kt_test_fail "r2='$r2' log1='$n1' log2='$(<"$BK/cache2/log")'"
+fi
+
+kt_test_start "TNetcatTransport.BuildArgv with an nc that is not GNU netcat: rc 2, LastError = WHY, the out array empty, no -l ever run"
+mkfake "$BK/bargv" "nc: unknown option -- -" "OpenBSD netcat (Debian patchlevel 1.226-1ubuntu2)"
+TNetcatTransport.new BN
+BN.NcBinary = "$BK/bargv/nc"
+__THS_BACKEND_KEY=""
+declare -a BA=()
+brc=0; BN.BuildArgv BA || brc=$?
+BN.LastError; ble="$RESULT"
+if [[ $brc -eq 2 && "$ble" == "$(why_for "OpenBSD netcat" "$BK/bargv/nc")" && "${#BA[@]}" -eq 0 ]] && nolog "$BK/bargv"; then
+    kt_test_pass "rc 2, argv empty"
+else
+    kt_test_fail "rc=$brc le='${ble:0:120}' n=${#BA[@]} log='$(<"$BK/bargv/log")'"
+fi
+BN.delete
+
+kt_test_start "THttpServer.BeginServe (no Transport) with an OpenBSD nc on PATH: rc 2, LastError = WHY, nothing started, INT/TERM traps unchanged"
+mkfake "$BK/bserve" "nc: unknown option -- -" "OpenBSD netcat (Debian patchlevel 1.226-1ubuntu2)"
+THttpServer.new BS
+t_int0="$(trap -p INT)"; t_term0="$(trap -p TERM)"
+op="$PATH"; okc=0; if [[ -v KCL_NC ]]; then okc=1; okv="$KCL_NC"; unset -v KCL_NC; fi
+PATH="$BK/bserve"; __THS_BACKEND_KEY=""
+bsrc=0; BS.BeginServe || bsrc=$?
+PATH="$op"; if (( okc )); then KCL_NC="$okv"; fi
+BS.LastError; bsle="$RESULT"; BS.Active; bsact="$RESULT"; bstr="${BS_tr_class:-}"
+t_int1="$(trap -p INT)"; t_term1="$(trap -p TERM)"
+if [[ $bsrc -eq 2 && "$bsle" == "$(why_for "OpenBSD netcat" "$BK/bserve/nc")" && "$bsact" == 0 && -z "$bstr" \
+      && "$t_int0" == "$t_int1" && "$t_term0" == "$t_term1" ]] && nolog "$BK/bserve"; then
+    kt_test_pass "rc 2, no trap, no transport, no -l"
+else
+    kt_test_fail "rc=$bsrc le='${bsle:0:100}' active='$bsact' BS_tr_class='$bstr' int='$t_int0'/'$t_int1' term='$t_term0'/'$t_term1'"
+fi
+BS.delete
