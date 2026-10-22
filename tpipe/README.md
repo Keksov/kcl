@@ -4,8 +4,10 @@
 > `first`, `count`, `stop`, `lastRc` — have real bodies, the `-0`/`-c`/`-s` flags
 > are wired through every sink, the owner's **D6 final** ruling of 2026-09-15 is
 > in (§3: nothing is refused because of a subshell; one `kk.warn` line where the
-> loss is certain; `each` never prints), and the suite is **190 checks, green on
-> bash 5.2.37 and on bash 5.3.9**. Design record and the measurements the unit is built on:
+> loss is certain; `each` never prints), `stop` ends the producer's **whole
+> process tree** (owner decision DL13, launch L2.7-P — §5), and the suite is
+> **205 checks, green on bash 5.2.37 and on bash 5.3.9** (and on the Linux and
+> FreeBSD lab VMs). Design record and the measurements the unit is built on:
 > [docs/TPipe.md](docs/TPipe.md). What the tests pin, case by case:
 > [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). Numbers: `bench.sh`
 > (summarised under [*Performance*](#6-performance) below). History: `PLAN.md` /
@@ -446,6 +448,85 @@ short producer that had already finished, `lastRc` after a stop is simply its ow
 rc, so on the stop path `lastRc` means "141 / 143 / whatever the producer
 managed".
 
+### The stop reaches the producer's whole process tree
+
+`stop` (and `first` after its record) ends the producer **and everything it
+started** — owner decision DL13, launch L2.7-P. A function or compound producer
+runs inside the process substitution, so its own children (a `sleep`, a nested
+subshell, a background job, a pipeline) are not the process `wait` knows about;
+until DL13 only that process got the `TERM` and they were re-parented and lived
+on (the `sleep 8` of `tests/002_Stop.sh` was a STRAY in every Linux gate run —
+launch triage C7). Now the stop path:
+
+1. takes one snapshot of the process table while the read end is still open;
+2. accepts the producer only while the table says it is still **this shell's
+   child** — a pid that was reaped and reused is somebody else's and is not
+   touched (with no table, or the producer not listed, it falls back to
+   `TERM`ing the producer alone, as before DL13);
+3. collects its descendants by the ppid chain — **frozen** on Linux and the BSDs
+   (`SIGSTOP` the producer, wait until the table shows it stopped, scan, stop
+   what is new, scan again until nothing is new), so a child forked right after
+   the record that triggered the stop cannot slip between the snapshot and the
+   kill;
+4. closes the read end and sends **one `TERM`** to the producer and every
+   descendant (plus one `CONT` where they were frozen);
+5. `wait`s for the producer, as before;
+6. polls the descendants until they are gone, `TERM`ing new children of any of
+   them on the way; a survivor gets its `TERM` once more 0.1 s after its first
+   and `SIGKILL` from 1 s on, re-sent until it is gone (the Git runtime loses a
+   signal — a `KILL` included — sent while the target is still in its exec
+   hand-over), 3 s at most.
+
+On **Windows** (Git-bash, MSYS2) step 3 is a plain snapshot: cygwin reports a
+`SIGSTOP` before the process has really stopped, a `STOP` during an exec
+hand-over can leave a process stuck for good, and a `STOP` to a native Win32
+producer makes cygwin print a warning. Instead every `--` producer carries a
+token in its environment (`__TPIPE_TREE`, reserved — §7): an orphan carrying it
+is a descendant whatever its ppid says, and the stop ends only when no
+descendant is alive for two rounds a nap apart. That is what catches a child
+born from a fork the `TERM` interrupted: cygwin delivers the signal only after
+the fork completes and re-parents the child at once.
+
+Costs and scope:
+
+* **nothing on the normal path** — no fork, no scan, no extra process; the
+  process table is read only when a stop happens (Linux: the producer's own
+  `/proc/PID/task/*/children` files where the kernel has them, else every
+  `/proc/PID/stat`; cygwin: `/proc`; no fork either way; FreeBSD/macOS: one
+  `ps` per scan). 1000 `TPipe.count -- printf` calls before/after on Windows:
+  8968 → 8999 µs/call (5.2.37), 8251 → 8304 µs/call (5.3.9); 500 on kb-ubuntu:
+  ~1110 → ~1150 µs/call — noise. The producer's process group and session are
+  unchanged, so job control, the terminal and a stray guard see exactly the
+  processes they saw before;
+* **the stop path costs more**: `TPipe.first -- yes` on kb-ubuntu 2.0 → 3.5 ms
+  (with the children files; a full `/proc` table instead cost ~39 ms there);
+  on Windows 24–36 → 62–64 ms (5.2.37) and 18–25 → 47 ms (5.3.9), 50 calls
+  each — the token pass ends with a second look one nap (one Windows timer
+  tick, ~15 ms) after the first. The §6 table below is the 2026-09-11
+  measurement, before the tree stop;
+* a producer that **ignores `TERM`** still blocks the stop, as before — it is
+  our child, and `wait` is the only honest way to learn its rc; a
+  *descendant* that ignores it is `SIGKILL`ed after the grace;
+* the **EOF path stops nothing**: a producer that ends on its own and leaves a
+  background job behind is not TPipe's to clean up (detach it, or end it in the
+  producer);
+* a descendant that had already **left the tree** before the stop (a
+  double-forked daemon, a child whose parent exited) is not found — on Windows
+  the token still finds it while it is re-parented to 1 and kept its
+  environment;
+* with job control on (`set -m`, an interactive shell) the stop path turns it
+  off for those milliseconds, or bash would record the freeze as the producer's
+  status (`lastRc` 147 or 0 instead of 143, measured); the caller's options are
+  restored on return.
+
+`tests/006_TreeStop.sh` pins all of it: depth-3 trees and background jobs
+through `first`, `each` + `stop` and `toList`, a TPipe nested in the producer,
+ten stops racing a fork made right after the record, a `TERM`-ignoring subtree
+(`SIGKILL` after the grace), a callback's own job surviving, the EOF path,
+`set -m` off and on, `set -euf`, and the full-table `linux`, `ps` and no-table paths. The design
+notes and the measurements behind each choice are the "tree stop" block in
+`tpipe.sh`.
+
 `TPipe.first` takes that same stop path for free — it reads one record and ends
 the stream — which is why `TPipe.first -- yes` answers in tens of milliseconds
 instead of never:
@@ -481,7 +562,7 @@ calibrated for N = 10 000: at a small N (`bench.sh 2000`) the fixed per-call cos
 | `TPipe.each` + an **instance member** (`r.onLine`) | 4172 ms (417.2 µs/rec) — **2.27×** | 4338 ms (433.8 µs/rec) — **2.33×** |
 | **baseline** — bare `mapfile -t` over 10 000 records | 1663 ms (166.3 µs/rec) | 1737 ms (173.7 µs/rec) |
 | `TPipe.toArray` | 1764 ms (176.4 µs/rec) — **1.06×** | 1812 ms (181.2 µs/rec) — **1.04×** |
-| `TPipe.first -- yes` (infinite producer, stop path) | 41 ms, `lastRc` 141 | 42 ms, `lastRc` 141 |
+| `TPipe.first -- yes` (infinite producer, stop path) | 41 ms, `lastRc` 141 (62–64 ms since the tree stop, §5) | 42 ms, `lastRc` 141 (47 ms since the tree stop, §5) |
 | forks per record | **0** | **0** |
 
 Reading the table:
@@ -526,9 +607,14 @@ Reading the table:
   is about the *delimiter*, not about NULs inside a record.
 * **TPipe never times a producer out.** `-- cat`, `-- sleep 30`, `-- ssh host
   tail -f` block in `read` until the producer writes or exits. `timeout(1)` in
-  the argv (`-- timeout 5 cmd`) is the tool; it exists on both targets and kills
-  the whole process-substitution tree, which the engine's own `kill -TERM`
-  cannot — a process substitution is not a process-group leader.
+  the argv (`-- timeout 5 cmd`) is the tool; it exists on every target and ends
+  its command when the time is up. (Ending the producer *early* is
+  `TPipe.stop`'s job, and since DL13 that ends the producer's whole process tree
+  too — §5.)
+* **`__TPIPE_TREE` is reserved.** On Windows every `--` producer starts with it
+  in its environment — the tree token of §5 (`<shell pid>.<producer pid>`,
+  colon-joined when a TPipe runs inside a producer). Leave it alone; a producer
+  that clears its environment (`env -i`) can only be found by its ppid chain.
 * **The producer's stderr passes through untouched.** A caller who wants it
   captured redirects it inside a wrapper function named as `CMD`. On the stop
   path a producer routinely prints `write error: Broken pipe`; that is the
@@ -609,16 +695,17 @@ bash kcl/tpipe/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tpipe/tests/tests.sh
 ```
 
-**190 checks**, green on bash 5.2.37 and on 5.3.9, in the default threaded mode
+**205 checks**, green on bash 5.2.37 and on 5.3.9, in the default threaded mode
 and under `--mode single`. Every case is indexed in
 [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
 
 | File | Cases | What it pins |
 |---|---|---|
 | `001_Each.sh` | 44 | the producer's real rc through `wait` (F3), delivery and the unterminated/empty tail (F10), records as data (the exotic matrix), `TPIPE_INDEX` (F13), the callback matrix — plain / instance / static, from top level and from inside another member (F9), every rc 2 path, the stdin form in a pipe RHS delivering while the parent's object stays untouched and the stdin warning template verbatim — printed with the debug switch off, silenced by `-s` and by `quiet`, absent for a plain-function callback (F1, D6 final), `lastpipe` (F2), the two README forms, and Q7: `each` never prints |
-| `002_Stop.sh` | 13 | the close-kill-wait path on an infinite producer (F4) and on a SIGPIPE-ignoring one (F5), both through `each` + `stop` and through `first`, `$!` clobbered by a callback (F6), the frame-local stop in all four shapes (F12), `stop` leaves `RESULT` alone, the `lastRc` sentinels |
+| `002_Stop.sh` | 13 | the close-kill-wait path on an infinite producer (F4) and on a SIGPIPE-ignoring one (F5), both through `each` + `stop` and through `first`, `$!` clobbered by a callback (F6), the frame-local stop in all four shapes (F12), `stop` leaves `RESULT` alone, the `lastRc` sentinels; unchanged by DL13, its F5 producer (`trap '' PIPE; …; sleep 8`) is the red-first proof of the tree stop — before DL13 every run left its `sleep 8` behind (the C7 STRAY) |
 | `003_Sinks.sh` | 68 | `toArray`/`toList`/`first`/`count` against their bare-bash oracles (`mapfile`, a `while read` loop, `head -n1`, `wc -l`), the exotic matrix byte-exact through `toArray`, a kklass class and a real `TStringList` (64 KiB record included), the `-0` NUL path over `find -print0` on names with a space and a newline (F7), `-c` stripping exactly one CR through every sink, the delimiter surviving `IFS=':'` (F11), the assoc/integer/readonly refusal (F15), rc 2 paths running nothing (F14), stdin pass-through (F16), the rc 1 + non-empty RESULT deviation, a rejecting `.Add`, nesting, and the zero-fork probes |
 | `004_Contract.sh` | 59 | `bash -n` + the open-quote grep, every sink in both forms under `set -eu` (including the stop path, a rejecting `.Add`, a predicate callback and a producer exiting 4 — the child must die of the member's rc 1, not the producer's 4), exactly one `kk.debug` line per rc 2 path with the switch on and none with it off, §3 the whole D6-final matrix (both templates × `each`/`toArray`/`toList` byte-exact, `first`/`count` silent, a plain-function and a static-member callback silent, `-s` / a `KK_SUBSHELL_OK=1` prefix / `local KK_SUBSHELL_OK=1` / `VERBOSE_KKLASS=quiet` each silent, the line printed with the debug switch off, an rc 2 path in a subshell printing its `Error:` line and never a `Warning:`, and nothing at all at `BASH_SUBSHELL` 0), §4 the Q7 pins (`$( )` and a pipe carry only the callback's bytes, a direct call sets `RESULT`, rc 2 leaves it empty), and §6 `__TPIPE_QUIET`: the flag silences `tpipe._ret` only (a callback's and a `.Add`'s stdout still flow), the default is unchanged, a direct call is unaffected either way, and the load-time global is readable under `set -u` |
 | `005_Bench.sh` | 6 | the `PLAN.md` §2.6 gates as assertions with ceilings 3× looser than the measured values (the runner is threaded ×8), the `first`-on-`yes` latency in a child under `timeout`, and zero forks per record for every sink |
+| `006_TreeStop.sh` | 15 | DL13, the tree stop (§5): a depth-3 tree with background jobs through `first`, `each` + `stop` and a `toList` whose `.Add` stops — every recorded descendant gone, `lastRc` 143, nothing on stderr and the caller's stderr intact after the stop; a TPipe nested in the producer; ten stops racing a fork made right after the record; a `TERM`-ignoring subtree `SIGKILL`ed after the 1 s grace; a job the callback started survives; the EOF path stops nothing; `set -m` off and on (the same answer) and `set -euf`; the full-table `linux` backend (N/A where it is not the alternative), the `ps` backend (N/A where `ps -o` is missing) and the no-table fallback |
 
 The exact numbers come from `bench.sh`, run by hand — §6.

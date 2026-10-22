@@ -272,8 +272,13 @@ Row by row:
 * the same producer **with** the `kill -TERM` is gone in 15 ms with `143`.
 * `kill -- -"$pid"` answers rc 1: a process substitution is **not** a
   process-group leader, so the group form cannot be used to reap its children.
-  Killing the procsub itself is what the engine does; `timeout(1)` inside the
-  argv is the tool for a producer whose own children must go too (§10 item 6).
+  Killing the procsub itself is what the engine did until launch L2.7-P; since
+  owner decision DL13 (2026-10-21) the stop path walks the producer's process
+  tree by its ppid chain and TERMs all of it — frozen first on Linux/BSD, with
+  an environment token on cygwin — see README §5 "The stop reaches the
+  producer's whole process tree" and the "tree stop" block in `tpipe.sh` for
+  the measurements (a group is still out: `<( )` joins the caller's group even
+  under `set -m`, and an extra job per call costs ~14 ms on Windows).
 
 Which signal wins on `yes` is a **race** — the close and the kill are two
 statements apart, and under load (the 5.3.9 master sweep at P0) the TERM landed

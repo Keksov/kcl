@@ -1,10 +1,11 @@
 # tpipe — test coverage notes
 
-**Status: updated at P3 (D6 final, 2026-09-15); previously FINALIZED at P2
-(2026-09-11).** Suite `001`–`005` = **190 cases**, green on bash 5.2.37 (primary)
-and on bash 5.3.9 (secondary), in the default threaded mode and under
-`--mode single`. The per-file counts below sum to 190 —
-44 + 13 + 68 + 59 + 6 — and **every case in the suite has a row**. (The P2
+**Status: updated at launch L2.7-P (DL13, the tree stop — `006`, 2026-10-22);
+previously at P3 (D6 final, 2026-09-15) and FINALIZED at P2 (2026-09-11).**
+Suite `001`–`006` = **205 cases**, green on bash 5.2.37 (primary) and on bash
+5.3.9 (secondary), in the default threaded mode and under `--mode single`. The
+per-file counts below sum to 205 — 44 + 13 + 68 + 59 + 6 + 15 — and **every
+case in the suite has a row**. (The P2
 edition of this page carried 165 with `004` written down as 41; the file was
 already 47 cases then, because `004`'s `check_rc2` / `expect_clean` helpers each
 raise a case of their own. The counts here are now the runner's.)
@@ -380,6 +381,37 @@ milliseconds earlier, so a slow machine moves both numbers.
 | 005.fork-tolist | toList | `.Add` runs in this process for every record | contract | §1.8 |
 | 005.fork-rest | toArray, count, first | the only fork per call is the producer: 5 records carry one producer pid, different from ours; `count` and `first` see it too | contract | §1.8 |
 
+## 006_TreeStop.sh — the tree stop (launch L2.7-P, owner decision DL13) — 15 cases
+
+Every producer writes `LABEL PID` for each descendant it starts and — where the
+case is about a tree that exists when the stop happens — prints its first record
+only once all of them are written. After the sink returns every recorded pid
+must be gone: the child counts them itself (`kill -0`, up to 3 s) and prints
+`alive=A/N` — FreeBSD's `timeout` is a reaper and would make a missed one look
+gone from outside — and the parent polls them again (5 s); the descendants are
+`sleep 60`, and a survivor is KILLed by its recorded pid before the case
+reports. Each case runs in a child bash under `timeout -k 10 120`. **DL13** = the owner decision;
+**C7** = the launch-triage cluster (`docs/dev/launch/L2_triage.md`); the
+measurements are in the "tree stop" block of `tpipe.sh`.
+
+| ID | Members | Case | Class | Basis |
+|---|---|---|---|---|
+| 006.tree-first | first, lastRc | depth 3 (producer → subshell → subshell → `sleep`) plus background jobs, 6 pids: all gone; `rc=0 res=a lastrc=143`; the child's stderr holds only its own `stderr-ok`, printed after the call — TPipe silent, and the caller's stderr still its own (no call in 006 carries a `2>/dev/null`, which would mask a permanent redirection in the stop path; the producers silence their own) | contract | **DL13**, **C7**; the stderr half caught a real bug during L2.7-P (`exec {fd}<>/dev/ptmx 2>/dev/null` in the nap) |
+| 006.tree-each | each, stop | the same tree through `each` + `TPipe.stop`: gone, `RESULT` 1 | contract | **DL13** |
+| 006.tree-tolist | toList, stop | the same tree through a `toList` whose `.Add` stops: gone | contract | **DL13** |
+| 006.nested-tpipe | first, each | a TPipe **inside** the producer: the outer stop ends the inner producer's tree (cygwin: the token is colon-joined) | boundary | **DL13** |
+| 006.inflight | first | ten stops racing a fork the producer makes right **after** the record: no recorded descendant survives | boundary | the freeze (Linux/BSD) and the tree token (cygwin); before them a survivor in nearly every stop (kb-ubuntu) and 30/30 (Windows) |
+| 006.ignterm | first | a subtree that ignores TERM is `SIGKILL`ed after the 1 s grace (`us` ≥ 0.9 s) | boundary | `__TPIPE_GRACE_US` |
+| 006.cbjob-survives | each, stop | a job the **callback** started is not the producer's: alive after the stop (counted in the child) | contract | scope of **DL13** |
+| 006.eof-untouched | each | the EOF path stops nothing: a producer's detached leftover is alive after the sink | contract | scope of **DL13** (README §5) |
+| 006.setm-off | first | `set +m` in the caller: the tree is gone | contract | brief L2.7-P item 3 |
+| 006.setm-on | first | `set -m` in the caller: the tree is gone, `lastRc` still 143 (the stop path turns job control off for the freeze) | contract | measured: 147 / 0 without it (kb-ubuntu) |
+| 006.setm-same | first | `set -m` on and off give the same answer line | contract | brief L2.7-P item 3 |
+| 006.setef | first | `set -euf` in the caller: the tree is gone, nothing aborts (the walk's glob survives `set -f`) | contract | §1 `set -eu` cleanliness |
+| 006.pt-linux | first | the full-table `linux` backend (`__TPIPE_PT=linux`: every `/proc/PID/stat`) stops the tree too; N/A where the children files are missing (off Linux, or the full table is the default there anyway) | cross-check | `linuxc` is the default where the kernel has `/proc/PID/task/TID/children`; this keeps the fallback run |
+| 006.pt-ps | first | the `ps` backend (`__TPIPE_PT=ps`) stops the tree too; N/A where `ps -A -o pid= -o ppid=` does not work (cygwin) | cross-check | the FreeBSD/macOS path, driven on every platform that has a POSIX `ps` |
+| 006.pt-none | first | no process table (`__TPIPE_PT=none`): the producer alone is TERMed (`lastRc` 143), its descendants live — the documented fallback | boundary | the pre-DL13 behaviour, kept where nothing better is possible |
+
 ---
 
 ## What is pinned where — the F-list index
@@ -390,7 +422,7 @@ milliseconds earlier, so a slow machine moves both numbers.
 | **F2** `BASH_SUBSHELL` 1 in the pipe RHS, 0 under `lastpipe`, also for a static member | 001.lastpipe-delivers, 001.lastpipe-mutates, 001.lastpipe-pipestatus, 001.sub-cmdsubst, 004.d6-subshell-zero |
 | **F3** `exec {fd}< <(cmd); pid=$!; wait $pid` = the producer's rc | 001.rc-external-4, 001.rc-function-6, 001.rc-missing-127, 003.dev-127 |
 | **F4** closing the fd kills an infinite producer; `wait` returns | 002.f4-each-yes, 002.f4-first-yes, 005.gate-first |
-| **F5** a SIGPIPE-ignoring producer that stops writing is terminated | 002.f5-each-sigpipe, 002.f5-first-sigpipe |
+| **F5** a SIGPIPE-ignoring producer that stops writing is terminated — and since DL13 its own children with it | 002.f5-each-sigpipe, 002.f5-first-sigpipe, 006.tree-first … 006.setef |
 | **F6** `$!` clobbered by a callback does not move the captured pid | 002.f6-bang-clobber |
 | **F7** `-d ''` delivers NUL records | 003.nul-find, 003.nul-byte-exact, 003.nul-all-sinks |
 | **F8** `mapfile -t -u fd` fills from the fd; unterminated tail delivered | 003.arr-oracle, 003.arr-tail, 003.arr-tail-empty |

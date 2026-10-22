@@ -85,6 +85,49 @@ declare -g TPIPE_INDEX=0
 declare -g __TPIPE_CR
 printf -v __TPIPE_CR '\r'
 
+# __TPIPE_PT — the process-table source of the tree stop (tpipe._ptScan), probed
+# once per process on the FIRST stop and never at load time, so a run that never
+# stops pays nothing for it:
+#
+#   cygwin  Git-bash, MSYS2: /proc/PID/ppid           — no fork
+#   linuxc  Linux with /proc/PID/task/TID/children (CONFIG_PROC_CHILDREN, the
+#           distribution kernels): no table at all — the tree is walked from
+#           the producer down, a couple of reads per member, and a parent is
+#           one /proc/PID/stat read. No fork
+#   linux   any other Linux (glibc, musl, busybox): every /proc/PID/stat —
+#           no fork, but ~150 reads for a full table (measured on kb-ubuntu:
+#           two full scans made `TPipe.first -- yes` 2 -> 39 ms)
+#   ps      FreeBSD, macOS, a Linux without /proc: ONE `ps -A -o pid= -o ppid=`
+#   none    nothing works: the stop path falls back to TERMing the producer
+#           alone, which is what it did before launch L2.7-P
+#
+# This is the unit's OWN table (kcl must not depend on ktests' ktest_proc.sh).
+# A value assigned after `source` is honoured when it is one of the five words —
+# a test knob (tests/006_TreeStop.sh drives `linux`, `ps` and `none` wherever
+# they work); anything else is probed again.
+declare -g __TPIPE_PT=''
+
+# __TPIPE_TREETOK — 1 on cygwin (Git-bash, MSYS2): every `--` producer is started
+# with `__TPIPE_TREE=...:<shell pid>.<producer pid>` exported, a token
+# that the stop path uses to find the producer's descendants that the ppid walk
+# cannot (see "The tree stop" below: cygwin delivers a TERM only after a fork in
+# flight completes, and the new child is re-parented at once). The assignment
+# rides on the existing fork: `<( export VAR=v; cmd )` still execs `cmd`
+# directly (no extra process, measured), and costs nothing measurable per call
+# for a builtin, a function or an external producer. The prefix form
+# `<( VAR=v "$@" )` is NOT used: called from a function, a temporary
+# assignment in front of a BUILTIN producer cost ~2 ms per call on Windows
+# (`TPipe.count -- printf ...`: 9.3 -> 10.8 ms, measured; nothing for a
+# function or an external one). The value accumulates (`a:b`), so a TPipe
+# nested inside a producer keeps the outer token. Elsewhere the producer is started exactly as before: Linux does not
+# need it, and a forked (not exec'd) Linux subshell would not even show it in
+# /proc/PID/environ.
+if [[ "$OSTYPE" == cygwin* || "$OSTYPE" == msys* ]]; then
+    declare -g __TPIPE_TREETOK=1
+else
+    declare -g __TPIPE_TREETOK=0
+fi
+
 # ---------------------------------------------------------------------------
 # TPipe: run a producer and hand every record to a callback IN THIS SHELL.
 #
@@ -440,14 +483,523 @@ tpipe._open() {
     #    stdin, so `-- grep needle` reads whatever the caller reads. With no
     #    `--` the producer IS the caller's stdin and there is nothing of ours to
     #    open or to close.
+    #    On cygwin the producer also gets the tree token (__TPIPE_TREETOK): the
+    #    substitution expands it in the CHILD, where $BASHPID is the producer's
+    #    own pid and `__tpi_pid` still holds this shell's, so the token is
+    #    "<this shell>.<producer>" without a second local.
     if [[ "$__tpi_form" == "cmd" ]]; then
-        exec {__tpi_fd}< <( "$@" )
+        if (( __TPIPE_TREETOK )); then
+            __tpi_pid="$BASHPID"
+            exec {__tpi_fd}< <( export __TPIPE_TREE="${__TPIPE_TREE:+$__TPIPE_TREE:}$__tpi_pid.$BASHPID"; "$@" )
+        else
+            exec {__tpi_fd}< <( "$@" )
+        fi
         __tpi_pid=$!
         return 0
     fi
     __tpi_fd=0
     __tpi_pid=''
     return 0
+}
+
+# ===========================================================================
+# The tree stop (launch L2.7-P, owner decision DL13)
+#
+# `TPipe.stop` (and `TPipe.first` after its record) stops the producer's WHOLE
+# process tree, not only the process substitution. Before DL13 only `$!` got
+# the TERM; a function producer runs IN that subshell, so its own children (the
+# `sleep 8` of tests/002_Stop.sh's `trap '' PIPE; printf 'a\n'; sleep 8; ...`)
+# were re-parented and lived on — the gate's STRAY on Linux, 6-9 per run.
+#
+# ---- Why a ppid walk on the stop path and not a process group -------------
+# A process group would be the textbook tool, but bash cannot give a process
+# substitution one: `<( )` joins the caller's group even under `set -m`
+# (process_substitute() sets pipeline_pgrp = shell_pgrp; measured on 5.2.37 and
+# 5.3.9). The producer would have to be an extra `set -m; "$@" & wait` job
+# INSIDE the substitution — one more fork on EVERY call, stopped or not, and a
+# fork of a kklass-sized bash costs ~14 ms on Windows (10.4 -> 24.4 ms per
+# `<( printf )`, 23.4 -> 37.8 ms per `<( /usr/bin/printf )`, measured). It
+# would also move the producer out of the terminal's foreground group, so a
+# `-- cat` that reads the caller's terminal would get SIGTTIN, and `setsid`
+# would take it out of the session the ktests stray guard watches. The walk
+# costs nothing until a stop happens; the normal EOF path is untouched.
+#
+# ---- The sequence (tpipe._close STOPPED=1) ---------------------------------
+#   1. one snapshot of the process table (tpipe._ptScan; on linuxc only the
+#      producer's own /proc entries) WHILE the read end is still open — a
+#      SIGPIPE-honouring producer cannot die and orphan its children before
+#      they are seen;
+#   2. the producer is accepted only while the table says it is still OUR
+#      child (ppid == $BASHPID): a pid that was reaped and reused belongs to
+#      someone else, and neither it nor anything below it is touched. With no
+#      usable table, or with the producer missing from it (already reaped; or
+#      cygwin's /proc listing missing a live process for a moment), the
+#      producer alone gets the TERM, exactly as before DL13;
+#   3. its descendants by the ppid chain (tpipe._ptDesc) — collected FROZEN on
+#      linux/ps (tpipe._ptFreeze: SIGSTOP the producer, wait until the table
+#      shows it stopped, scan, stop what is new, scan again, until a scan finds
+#      nothing new), as one snapshot on cygwin (see below);
+#   4. close the read end, then ONE `kill -TERM producer descendant...`, and on
+#      linux/ps ONE `kill -CONT` of the same list (a stopped process keeps a
+#      trapped TERM pending until it runs);
+#   5. `wait` for the producer (the one child of ours);
+#   6. tpipe._ptReap: the descendants are not our children and cannot be
+#      waited for, so they are polled (tpipe._ptAlive: `kill -0`, and on Linux
+#      not a zombie; fork-free naps between rounds), every
+#      round re-scanning for NEW children of any member (a member that traps
+#      TERM may fork on) and TERMing those too; a survivor gets its TERM once
+#      more __TPIPE_RETERM_US (0.1 s) after its first and SIGKILL from
+#      __TPIPE_GRACE_US (1 s) on, re-sent every round until it is gone (at
+#      most __TPIPE_HARDCAP_US, 3 s). On cygwin a ppid-1 process carrying the
+#      producer's tree token is a member too (tpipe._ptOrphans,
+#      __TPIPE_TREETOK), and the reap ends only when no member is alive for two
+#      rounds a nap apart.
+#
+# ---- Why the freeze (linux, ps) ---------------------------------------------
+# Without it the walk loses a race it meets all the time: the producer prints
+# the record that makes the consumer stop and forks right after it. A child
+# born between the snapshot and the TERM is not in the list, its parent dies
+# of the TERM, and it is re-parented — 006 §C left a `sleep` alive in nearly
+# every one of ten stops on Linux (measured on kb-ubuntu). A stopped process
+# cannot fork, the state the table shows is the real one (Linux sets T when the
+# task has stopped), and a fork that completed before the STOP left a child the
+# next scan lists; a fork still in flight when a FATAL signal arrives is
+# aborted by the kernel.
+#
+# ---- Why no freeze, and a token instead, on cygwin --------------------------
+#   * a STOP is reported as state T before the main thread really stops: a
+#     fork in flight still completes and its child appears ~12 ms later
+#     (measured), so "frozen" cannot be observed;
+#   * a STOP that lands while a process is in its exec hand-over left `sleep`s
+#     stuck in T that neither CONT nor KILL ended (Git runtime, measured — only
+#     TerminateProcess did);
+#   * a STOP to a native Win32 producer (git.exe) makes cygwin print
+#     "Suppressing signal 17 to win32 process" on the producer's stderr.
+# The race is real there too, and worse: cygwin delivers a TERM only after a
+# fork in flight completes, and the new child is re-parented to 1 at once (30
+# of 30 survivors in 006 §C before the token, both bashes). What survives is
+# the environment: cygwin's /proc/PID/environ of a FORKED bash shows the
+# variables it exported (unlike Linux, where it is the env of the last exec),
+# so the producer's token reaches every descendant, and a ppid-1 process that
+# carries it is the producer's, whatever its ppid says now. Each one found is
+# TERMed, and the reap ends only when no member is alive for two rounds a nap
+# apart.
+#
+# ---- Job control, the terminal, the stray guard ----------------------------
+# Neither the freeze nor the token changes the producer's process group or
+# session, so job control, the terminal and the ktests stray guard (which
+# watches the session) see the same processes as before DL13. The freeze
+# stops processes of the caller's own group for a few milliseconds; a caller
+# with job control on is not told — the stop path turns `set -m` off for that
+# time, or bash would record the producer's STOP as its status (tpipe._close;
+# 006 §F runs the stop under `set -m`, an interactive bash was checked by hand
+# on kb-ubuntu under script(1)).
+#
+# ---- What is NOT done, and why --------------------------------------------
+#   * the producer itself gets no KILL: it is our child, `wait` is the only
+#     honest way to learn its rc, and a producer that ignores TERM blocks the
+#     stop exactly as it did before (README §5).
+#   * no tree stop on the EOF path: a producer that finished on its own and
+#     left a background job behind is not stopped by TPipe (README §5).
+#
+# ---- Limits (README §5) -----------------------------------------------------
+#   * a descendant that already left the tree before the stop — a daemon that
+#     double-forked, a child whose parent exited — has no ppid chain to the
+#     producer any more and is not found (on cygwin the token still finds it
+#     while it is re-parented to 1 and kept its environment);
+#   * a descendant that clears its environment (`env -i`) AND is born in the
+#     race above escapes the cygwin token;
+#   * the `ps` backend costs one `ps` per scan and per freeze check (FreeBSD,
+#     macOS) — a stop there forks a few times; the EOF path still never does.
+#
+# All helpers write the CALLER's `__tpi_*` locals through dynamic scoping, like
+# the rest of this unit, and are `set -eu` safe: every test is an `if`, every
+# signal `|| :`.
+# ===========================================================================
+
+# The reap's deadlines, in µs. Constants, not knobs.
+#   RETERM  a descendant still alive this long after ITS TERM gets the TERM
+#           once more (once per member). The Git runtime
+#           (5.2.37) LOSES a signal sent while the target is still in its exec
+#           hand-over — 2 of 30 `sleep`s TERMed right after the fork survived
+#           (measured; 0 of 30 on MSYS2's 5.3.9), and in the 006 shapes every
+#           stop then waited the whole grace. A second TERM to a process that
+#           did get the first one only re-queues its trap.
+#   GRACE   whatever is still alive this long after its first TERM gets
+#           SIGKILL, re-sent every round until it is gone: a member that traps
+#           TERM and takes longer, or ignores it, or (Git runtime) one whose
+#           signals are still being lost in its exec hand-over.
+#   HARDCAP the reap gives up: a process that neither TERM nor repeated KILLs
+#           end within this is left (none was seen; it bounds the stop).
+declare -gr __TPIPE_RETERM_US=100000
+declare -gr __TPIPE_GRACE_US=1000000
+declare -gr __TPIPE_HARDCAP_US=3000000
+
+# tpipe._ptScan — fill the caller's assoc `__tpi_pp` (pid -> ppid) from the
+# process table. rc 0 when the table is usable, i.e. it lists this shell
+# itself; rc 1 when there is none (`__TPIPE_PT=none`) or it came back empty.
+tpipe._ptScan() {
+    local __tpi_f='' __tpi_q='' __tpi_l='' __tpi_a='' __tpi_b=''
+    local IFS=$' \t\n'
+    __tpi_pp=()
+    case "$__TPIPE_PT" in
+        cygwin|linuxc|linux|ps|none) ;;
+        *)  if [[ -r "/proc/$BASHPID/ppid" ]]; then
+                __TPIPE_PT=cygwin
+            elif (( ! __TPIPE_TREETOK )) \
+                 && [[ -r "/proc/$BASHPID/task/$BASHPID/children" ]]; then
+                __TPIPE_PT=linuxc
+            elif (( ! __TPIPE_TREETOK )) && [[ -r "/proc/$BASHPID/stat" ]]; then
+                __TPIPE_PT=linux
+            elif type -P ps >/dev/null 2>&1; then
+                __TPIPE_PT=ps
+            else
+                __TPIPE_PT=none
+            fi ;;
+    esac
+    case "$__TPIPE_PT" in
+        linuxc)
+            # no table: tpipe._ptDesc and tpipe._ptParent read /proc per pid
+            [[ -r "/proc/$BASHPID/task/$BASHPID/children" ]]
+            return ;;
+        cygwin)
+            # /proc/PID/ppid is cygwin's own file (~30 µs a read); its
+            # /proc/PID/stat is far more expensive there.
+            for __tpi_f in /proc/[0-9]*/ppid; do
+                if { read -r __tpi_l < "$__tpi_f"; } 2>/dev/null; then
+                    __tpi_q="${__tpi_f#/proc/}"
+                    __tpi_pp[${__tpi_q%/ppid}]="$__tpi_l"
+                fi
+            done ;;
+        linux)
+            # Fields counted from the LAST ") ": a comm may hold spaces and
+            # parentheses. After it: state, ppid, ...
+            for __tpi_f in /proc/[0-9]*/stat; do
+                if { IFS= read -r __tpi_l < "$__tpi_f"; } 2>/dev/null; then
+                    __tpi_l="${__tpi_l##*) }"
+                    __tpi_l="${__tpi_l#* }"
+                    __tpi_q="${__tpi_f#/proc/}"
+                    __tpi_pp[${__tpi_q%/stat}]="${__tpi_l%% *}"
+                fi
+            done ;;
+        ps)
+            # POSIX keywords, one `-o` each (BSD ps reads the rest of
+            # `-o a=,b=` as a's header).
+            while read -r __tpi_a __tpi_b; do
+                if [[ -n "$__tpi_a" && "$__tpi_a" != *[!0-9]* \
+                      && -n "$__tpi_b" && "$__tpi_b" != *[!0-9]* ]]; then
+                    __tpi_pp[$__tpi_a]="$__tpi_b"
+                fi
+            done < <(ps -A -o pid= -o ppid= 2>/dev/null)
+            ;;
+    esac
+    [[ -n "${__tpi_pp[$BASHPID]+x}" ]]
+}
+
+# tpipe._ptParent PID — the caller's `__tpi_par` = the ppid of PID, '' when it
+# is not listed (gone, or not in the last scan). linuxc reads /proc/PID/stat;
+# the other backends look it up in the caller's `__tpi_pp` from the last
+# tpipe._ptScan. rc 0. (Not REPLY: the caller's REPLY is the caller's.)
+tpipe._ptParent() {
+    local __tpi_l=''
+    __tpi_par=''
+    if [[ "$__TPIPE_PT" == linuxc ]]; then
+        if { IFS= read -r __tpi_l < "/proc/$1/stat"; } 2>/dev/null; then
+            __tpi_l="${__tpi_l##*) }"
+            __tpi_l="${__tpi_l#* }"
+            __tpi_par="${__tpi_l%% *}"
+        fi
+    elif [[ -n "${__tpi_pp[$1]+x}" ]]; then
+        __tpi_par="${__tpi_pp[$1]}"
+    fi
+    return 0
+}
+
+# tpipe._ptDesc PID... — append to the caller's `__tpi_new` every descendant of
+# the PIDs that is not yet in the caller's assoc `__tpi_seen`, and mark it seen:
+# linuxc walks /proc/PID/task/*/children from the PIDs down (every thread's
+# file: a child belongs to the thread that forked it); the other backends
+# follow the ppid chain in `__tpi_pp`. Always rc 0.
+tpipe._ptDesc() {
+    local -A __tpi_kids=()
+    local -a __tpi_q=( "$@" )
+    local __tpi_p='' __tpi_c='' __tpi_f='' __tpi_l=''
+    local IFS=$' \t\n'
+    __tpi_new=()
+    if [[ "$__TPIPE_PT" == linuxc ]]; then
+        while (( ${#__tpi_q[@]} > 0 )); do
+            __tpi_p="${__tpi_q[0]}"
+            __tpi_q=( "${__tpi_q[@]:1}" )
+            for __tpi_f in "/proc/$__tpi_p/task/"*/children; do
+                __tpi_l=''
+                { IFS= read -r __tpi_l < "$__tpi_f"; } 2>/dev/null || :
+                for __tpi_c in $__tpi_l; do
+                    if [[ -z "${__tpi_seen[$__tpi_c]+x}" ]]; then
+                        __tpi_seen[$__tpi_c]=1
+                        __tpi_new+=( "$__tpi_c" )
+                        __tpi_q+=( "$__tpi_c" )
+                    fi
+                done
+            done
+        done
+        return 0
+    fi
+    for __tpi_p in "${!__tpi_pp[@]}"; do
+        __tpi_kids[${__tpi_pp[$__tpi_p]}]+=" $__tpi_p"
+    done
+    while (( ${#__tpi_q[@]} > 0 )); do
+        __tpi_p="${__tpi_q[0]}"
+        __tpi_q=( "${__tpi_q[@]:1}" )
+        for __tpi_c in ${__tpi_kids[$__tpi_p]:-}; do
+            if [[ -z "${__tpi_seen[$__tpi_c]+x}" ]]; then
+                __tpi_seen[$__tpi_c]=1
+                __tpi_new+=( "$__tpi_c" )
+                __tpi_q+=( "$__tpi_c" )
+            fi
+        done
+    done
+    return 0
+}
+
+# tpipe._ptOrphans TOKEN — cygwin only: append to the caller's `__tpi_new` every
+# process the last scan shows re-parented to 1 that is not yet in `__tpi_seen`
+# and whose environment carries TOKEN in __TPIPE_TREE (see __TPIPE_TREETOK), and
+# mark it seen. The token is unique to one producer, so a hit is that producer's
+# descendant whatever its ppid says now. Only ppid-1 processes are read: on
+# cygwin that is where an orphan lands. Always rc 0.
+tpipe._ptOrphans() {
+    local __tpi_p='' __tpi_v=''
+    local -a __tpi_env=()
+    __tpi_new=()
+    for __tpi_p in "${!__tpi_pp[@]}"; do
+        if [[ "${__tpi_pp[$__tpi_p]}" != 1 || -n "${__tpi_seen[$__tpi_p]+x}" ]]; then
+            continue
+        fi
+        __tpi_env=()
+        { mapfile -d '' -t __tpi_env < "/proc/$__tpi_p/environ"; } 2>/dev/null || continue
+        for __tpi_v in "${__tpi_env[@]}"; do
+            if [[ "$__tpi_v" == __TPIPE_TREE=* && ":${__tpi_v#__TPIPE_TREE=}:" == *":$1:"* ]]; then
+                __tpi_seen[$__tpi_p]=1
+                __tpi_new+=( "$__tpi_p" )
+                break
+            fi
+        done
+    done
+    return 0
+}
+
+# tpipe._nap — about 10 ms without a fork: `read -t` on a pty master that never
+# has data (the caller's `__tpi_nfd`, opened on first use and closed by
+# tpipe._close); `sleep` where /dev/ptmx cannot be opened or the read does not
+# time out (FreeBSD without the pty compat device).
+#
+# The open is `{ exec {fd}<>/dev/ptmx; } 2>/dev/null`, never `exec {fd}<>...
+# 2>/dev/null`: on `exec` EVERY redirection is permanent, so the second form
+# sends the caller's stderr to /dev/null for the rest of its life (measured —
+# 006 pins that stderr still works after a stop). The `-c` test first: a failed
+# redirection on `exec` ends a shell in POSIX mode.
+tpipe._nap() {
+    local __tpi_x='' __tpi_r=0
+    if [[ -z "$__tpi_nfd" ]]; then
+        __tpi_nfd=-
+        if [[ -c /dev/ptmx ]]; then
+            { exec {__tpi_nfd}<>/dev/ptmx; } 2>/dev/null || __tpi_nfd=-
+        fi
+    fi
+    if [[ "$__tpi_nfd" != - ]]; then
+        read -r -t 0.01 -u "$__tpi_nfd" __tpi_x 2>/dev/null || __tpi_r=$?
+        if (( __tpi_r > 128 )); then
+            return 0
+        fi
+    fi
+    sleep 0.01 2>/dev/null || :
+    return 0
+}
+
+# tpipe._ptFrozen PID... — rc 0 when every PID given is stopped (T/t), dead
+# (Z/X) or gone. linux: /proc/PID/stat (no fork); ps: ONE `ps -o pid= -o
+# state= -p LIST`. Never called on cygwin (see "Why no freeze ... on cygwin").
+tpipe._ptFrozen() {
+    local __tpi_p='' __tpi_l='' __tpi_s=''
+    local IFS=$' \t\n'
+    if [[ "$__TPIPE_PT" == ps ]]; then
+        printf -v __tpi_l '%s,' "$@"
+        while read -r __tpi_p __tpi_s; do
+            case "$__tpi_s" in
+                T*|t*|Z*|X*|'') ;;
+                *) return 1 ;;
+            esac
+        done < <(ps -o pid= -o state= -p "${__tpi_l%,}" 2>/dev/null)
+        return 0
+    fi
+    for __tpi_p in "$@"; do
+        if { IFS= read -r __tpi_l < "/proc/$__tpi_p/stat"; } 2>/dev/null; then
+            __tpi_s="${__tpi_l##*) }"
+            case "${__tpi_s%% *}" in
+                T|t|Z|X) ;;
+                *) return 1 ;;
+            esac
+        fi
+    done
+    return 0
+}
+
+# tpipe._ptStop PID... — SIGSTOP each PID (one that refuses it — EPERM, already
+# gone — is not waited for) and wait until all are frozen: a few tight
+# re-checks, then fork-free naps, the STOP re-sent every 4th round, at most
+# __TPIPE_GRACE_US. Always rc 0; a process that never freezes (stuck in
+# uninterruptible sleep) is simply TERMed with the rest after the bound.
+tpipe._ptStop() {
+    local __tpi_t0="${EPOCHREALTIME/[.,]/}" __tpi_i=0 __tpi_p=''
+    local -a __tpi_w=()
+    for __tpi_p in "$@"; do
+        if kill -STOP "$__tpi_p" 2>/dev/null; then
+            __tpi_w+=( "$__tpi_p" )
+        fi
+    done
+    if (( ${#__tpi_w[@]} == 0 )); then
+        return 0
+    fi
+    while ! tpipe._ptFrozen "${__tpi_w[@]}"; do
+        __tpi_i=$(( __tpi_i + 1 ))
+        if (( ${EPOCHREALTIME/[.,]/} - __tpi_t0 >= __TPIPE_GRACE_US )); then
+            return 0
+        fi
+        if (( __tpi_i % 4 == 0 )); then
+            kill -STOP "${__tpi_w[@]}" 2>/dev/null || :
+        fi
+        if (( __tpi_i > 3 )); then
+            tpipe._nap
+        fi
+    done
+    return 0
+}
+
+# tpipe._ptFreeze ROOT — linux and ps backends: freeze the producer and its
+# tree before anything is signalled to die. ROOT first, then, scan after scan,
+# every descendant not yet frozen, until a scan taken with all of them stopped
+# finds nothing new: a stopped process cannot fork, and a fork that completed
+# before the STOP left a child the next scan lists. The caller's `__tpi_tree`
+# receives the descendants (the caller's `__tpi_pp`, `__tpi_seen`, `__tpi_new`
+# are used). At most 16 rounds. Always rc 0.
+tpipe._ptFreeze() {
+    local __tpi_i=0
+    tpipe._ptStop "$1"
+    for (( __tpi_i = 0; __tpi_i < 16; __tpi_i++ )); do
+        if ! tpipe._ptScan; then
+            break
+        fi
+        tpipe._ptDesc "$1" "${__tpi_tree[@]}"
+        if (( ${#__tpi_new[@]} == 0 )); then
+            break
+        fi
+        tpipe._ptStop "${__tpi_new[@]}"
+        __tpi_tree+=( "${__tpi_new[@]}" )
+    done
+    return 0
+}
+
+# tpipe._ptAlive PID — rc 0 while PID is a live process: `kill -0` sees it and,
+# on linux, /proc/PID/stat does not say Z. A killed descendant is re-parented
+# and stays a ZOMBIE until its new parent reaps it — busybox init (Alpine) does
+# that about once a second, and `kill -0` answers yes all that time (measured:
+# every stop on kb-alpine took the whole 1 s grace before this check).
+tpipe._ptAlive() {
+    local __tpi_l=''
+    if ! kill -0 "$1" 2>/dev/null; then
+        return 1
+    fi
+    if [[ "$__TPIPE_PT" == linux* ]] \
+       && { IFS= read -r __tpi_l < "/proc/$1/stat"; } 2>/dev/null; then
+        __tpi_l="${__tpi_l##*) }"
+        if [[ "${__tpi_l%% *}" == Z ]]; then
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# tpipe._ptReap [TOKEN] — step 6 of the sequence. Round after round, until the
+# tree is gone or __TPIPE_HARDCAP_US:
+#   * one scan: every NEW descendant of any member ever seen gets its TERM (a
+#     member that traps TERM may fork on); with TOKEN (cygwin) every ppid-1
+#     process carrying the token is a member too (tpipe._ptOrphans);
+#   * every member is checked (tpipe._ptAlive) — ALL of them, every round, not
+#     only the ones alive last time: under load the Git runtime can report a
+#     process in its exec hand-over as gone for a moment;
+#   * per member, counted from ITS first TERM: one more TERM after
+#     __TPIPE_RETERM_US, SIGKILL after __TPIPE_GRACE_US and again every round
+#     after that (the Git runtime loses a KILL sent during the hand-over too —
+#     measured under the threaded runner).
+# Done when no member is alive — on cygwin only when that holds for two rounds a
+# nap apart (a child whose parent's fork just returned is not always listed
+# yet: one survivor in ten 006 §C stops with a single look). Uses the caller's
+# `__tpi_tree`, `__tpi_pp`, `__tpi_seen`, `__tpi_new`. Always rc 0.
+tpipe._ptReap() {
+    local __tpi_t0="${EPOCHREALTIME/[.,]/}" __tpi_now=0 __tpi_p='' __tpi_age=0
+    local __tpi_quiet=0 __tpi_need=1
+    local -A __tpi_tt=() __tpi_rt=()
+    local -a __tpi_live=() __tpi_re=() __tpi_kl=()
+    if [[ -n "$1" && "$__TPIPE_PT" == cygwin ]]; then
+        __tpi_need=2
+    fi
+    for __tpi_p in "${__tpi_tree[@]}"; do
+        __tpi_tt[$__tpi_p]="$__tpi_t0"
+    done
+    while :; do
+        if tpipe._ptScan; then
+            tpipe._ptDesc "${!__tpi_seen[@]}"
+            if [[ -n "$1" && "$__TPIPE_PT" == cygwin ]]; then
+                __tpi_re=( "${__tpi_new[@]}" )
+                tpipe._ptOrphans "$1"
+                __tpi_new+=( "${__tpi_re[@]}" )
+            fi
+            if (( ${#__tpi_new[@]} > 0 )); then
+                kill -TERM "${__tpi_new[@]}" 2>/dev/null || :
+                __tpi_now="${EPOCHREALTIME/[.,]/}"
+                for __tpi_p in "${__tpi_new[@]}"; do
+                    __tpi_tt[$__tpi_p]="$__tpi_now"
+                done
+                __tpi_tree+=( "${__tpi_new[@]}" )
+            fi
+        fi
+        __tpi_live=()
+        for __tpi_p in "${__tpi_tree[@]}"; do
+            if tpipe._ptAlive "$__tpi_p"; then
+                __tpi_live+=( "$__tpi_p" )
+            fi
+        done
+        if (( ${#__tpi_live[@]} == 0 )); then
+            __tpi_quiet=$(( __tpi_quiet + 1 ))
+            if (( __tpi_quiet >= __tpi_need )); then
+                return 0
+            fi
+            tpipe._nap
+            continue
+        fi
+        __tpi_quiet=0
+        __tpi_now="${EPOCHREALTIME/[.,]/}"
+        if (( __tpi_now - __tpi_t0 >= __TPIPE_HARDCAP_US )); then
+            return 0
+        fi
+        __tpi_re=(); __tpi_kl=()
+        for __tpi_p in "${__tpi_live[@]}"; do
+            __tpi_age=$(( __tpi_now - ${__tpi_tt[$__tpi_p]:-$__tpi_t0} ))
+            if (( __tpi_age >= __TPIPE_GRACE_US )); then
+                __tpi_kl+=( "$__tpi_p" )
+            elif (( __tpi_age >= __TPIPE_RETERM_US )) && [[ -z "${__tpi_rt[$__tpi_p]+x}" ]]; then
+                __tpi_rt[$__tpi_p]=1
+                __tpi_re+=( "$__tpi_p" )
+            fi
+        done
+        if (( ${#__tpi_re[@]} > 0 )); then
+            kill -TERM "${__tpi_re[@]}" 2>/dev/null || :
+        fi
+        if (( ${#__tpi_kl[@]} > 0 )); then
+            kill -KILL "${__tpi_kl[@]}" 2>/dev/null || :
+        fi
+        tpipe._nap
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -457,14 +1009,15 @@ tpipe._open() {
 # `__tpi_rc` (the member's exit status) and the process-wide `__TPIPE_RC` (the
 # producer's raw rc, published by TPipe.lastRc). Always rc 0.
 #
-#   * `exec {fd}<&-` comes FIRST and never after the wait: a producer blocked on
-#     a full pipe only gets its SIGPIPE once the read end is gone, and `wait`
-#     would hang.
-#   * on the stop path the close is followed by `kill -TERM`: a producer that
-#     ignores SIGPIPE and then stops writing (`trap '' PIPE; echo a; sleep 8`)
-#     otherwise blocks `wait` for its whole remaining life — 8.1 s measured,
-#     ~50 ms with the kill. `kill -- -"$pid"` is wrong: a process substitution
-#     is not a process-group leader.
+#   * `exec {fd}<&-` comes before the wait, always: a producer blocked on a full
+#     pipe only gets its SIGPIPE once the read end is gone, and `wait` would
+#     hang. On the stop path the table snapshot comes before the close (step 1
+#     of the tree stop above), the TERM right after it.
+#   * on the stop path the close is followed by `kill -TERM` of the producer
+#     and its whole tree (the block above): a producer that ignores SIGPIPE and
+#     then stops writing (`trap '' PIPE; echo a; sleep 8`) otherwise blocks
+#     `wait` for its whole remaining life — 8.1 s measured, ~50 ms with the
+#     kill — and its `sleep 8` would outlive it.
 #   * `wait` is the one statement here that is EXPECTED to be non-zero, so it is
 #     always `__TPIPE_RC=0; wait "$pid" || __TPIPE_RC=$?` — a bare `wait` aborts
 #     a `set -e` caller.
@@ -478,17 +1031,65 @@ tpipe._close() {
         __tpi_rc=0
         return 0
     fi
+    if [[ "${1:-0}" == "0" ]]; then         # EOF path: unchanged by DL13
+        exec {__tpi_fd}<&-
+        __TPIPE_RC=0
+        wait "$__tpi_pid" || __TPIPE_RC=$?
+        if [[ "$__TPIPE_RC" == "0" ]]; then
+            __tpi_rc=0
+        else
+            __tpi_rc=1
+        fi
+        return 0
+    fi
+    # The stop path. `local -` restores the caller's options when we return:
+    #   set +f  the table is read through a glob, and a caller under `set -f`
+    #           must not turn the walk into a no-op;
+    #   set +m  with job control on, bash reaps its children with WUNTRACED, so
+    #           the freeze's SIGSTOP of the producer (our child) is RECORDED as
+    #           its status and the `wait` below answers 147 or 0 instead of 143
+    #           (measured on kb-ubuntu, 5.2.21, non-interactive `set -m`). Off
+    #           for these few milliseconds, the stop and the CONT are invisible
+    #           to bash and `wait` gets the real exit status.
+    local -
+    set +f +m
+    local -A __tpi_pp=() __tpi_seen=()
+    local -a __tpi_new=() __tpi_tree=()
+    local __tpi_nfd='' __tpi_kill=1 __tpi_tok='' __tpi_frz=0 __tpi_par=''
+    if (( __TPIPE_TREETOK )); then
+        __tpi_tok="$BASHPID.$__tpi_pid"
+    fi
+    if tpipe._ptScan && tpipe._ptParent "$__tpi_pid" && [[ -n "$__tpi_par" ]]; then
+        if [[ "$__tpi_par" == "$BASHPID" ]]; then
+            __tpi_seen[$__tpi_pid]=1
+            if (( __TPIPE_TREETOK )); then  # cygwin: never a SIGSTOP (above)
+                tpipe._ptDesc "$__tpi_pid"
+                __tpi_tree=( "${__tpi_new[@]}" )
+            else
+                __tpi_frz=1
+                tpipe._ptFreeze "$__tpi_pid"
+            fi
+        else
+            __tpi_kill=0                    # a reused pid: not ours any more
+            __tpi_tok=''
+        fi
+    fi
     exec {__tpi_fd}<&-
-    if [[ "${1:-0}" != "0" ]]; then
-        kill -TERM "$__tpi_pid" 2>/dev/null || :
+    if (( __tpi_kill )); then
+        kill -TERM "$__tpi_pid" "${__tpi_tree[@]}" 2>/dev/null || :
+    fi
+    if (( __tpi_frz )); then
+        kill -CONT "$__tpi_pid" "${__tpi_tree[@]}" 2>/dev/null || :
     fi
     __TPIPE_RC=0
     wait "$__tpi_pid" || __TPIPE_RC=$?
-    if [[ "${1:-0}" != "0" || "$__TPIPE_RC" == "0" ]]; then
-        __tpi_rc=0
-    else
-        __tpi_rc=1
+    if (( ${#__tpi_tree[@]} > 0 )) || [[ -n "$__tpi_tok" && "$__TPIPE_PT" == cygwin ]]; then
+        tpipe._ptReap "$__tpi_tok"
     fi
+    if [[ -n "$__tpi_nfd" && "$__tpi_nfd" != - ]]; then
+        exec {__tpi_nfd}>&-
+    fi
+    __tpi_rc=0
     return 0
 }
 
