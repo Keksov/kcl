@@ -16,8 +16,8 @@ unaccounted for: the counts in each heading are the sum of the counts in its
 rows. Hand-written cases have a row of their own.
 
 **Protocol.** `TAwk` has no FPC upstream: it is the sixth wrapper on
-[`TUtil`](../tutil/README.md), itself a kcl addition
-([../tutil/docs/TUtil.md](../tutil/docs/TUtil.md)). The oracle is **the bare GNU
+[`TUtil`](../../../tutil/README.md), itself a kcl addition
+([../tutil/docs/TUtil.md](../../../tutil/docs/TUtil.md)). The oracle is **the bare GNU
 tool on the same fixture**, run with the same arguments, never a second call
 into the code under test. Decision **D4** pins the *dialect* — GNU Awk — not a
 binary, and the two target bashes resolve two different versions (5.0.0 and
@@ -63,15 +63,15 @@ The Basis column cites one of:
   re-validates the names in `${inst}_vnames`; the directory warning text
   (`cmd. line:1:` and a backtick) as measured.
 * **P3-F1** — the tgrep finding this unit inherits with its guard
-  ([../tgrep/README.md §4](../tgrep/README.md)).
+  ([../tgrep/README.md §4](../../../tgrep/README.md)).
 * **D4 / D6** — a decision: D4 the GNU dialect gate, D6 final `subshellOk`.
-* **§n** — a section of [`PLAN.md`](PLAN.md) (or of [README.md](README.md)).
+* **§n** — a section of [`PLAN.md`](PLAN.md) (or of [README.md](../../../tawk/README.md)).
 
 **Classes.**
 
 | Class | Meaning |
 |---|---|
-| `contract` | the kcl contract ([../README.md](../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
+| `contract` | the kcl contract ([../README.md](../../../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
 | `argv` | the typed option set → the pinned command line, asserted **without running gawk** |
 | `tool-behaviour` | what GNU Awk 5.0.0 / 5.4.0 actually do, measured against the bare tool as oracle |
 | `security` | the sandbox default (owner Q1), the deny-list's dangerous options, the planted include: what is refused, that it fails closed, that nothing ran |
@@ -83,14 +83,14 @@ The Basis column cites one of:
 `TUTIL_OUT_PREFIXES` and `_progs _vnames _vvals` to `TUTIL_OUT_SUFFIXES`; it did
 not change tutil's code or tests. The registries' own cases — the reserved
 names, the fail-closed empty / unset / scalar registry — are in
-[`../tutil/tests/001_Core.sh` §C](../tutil/tests/001_Core.sh) (see
+[`../tutil/tests/001_Core.sh` §C](../../../tutil/tests/001_Core.sh) (see
 [../tutil/TEST_COVERAGE_NOTES.md](../tutil/TEST_COVERAGE_NOTES.md), the
 `001.reg-*` rows). This file's rows cover the **tawk side**: the four names are
 registered once, idempotently, and refused through a `TAwk` instance with the
 instance's lists intact.
 
 **Deliberate gaps** (each is stated in [`PLAN.md`](PLAN.md) and restated in
-[README.md](README.md)):
+[README.md](../../../tawk/README.md)):
 
 * **BSD awk / mawk** (D4, PLAN §1.3) — nothing to assert on this box.
 * **a callback's bare assignment** (**C19**) — a callback that assigns a bare
@@ -554,7 +554,7 @@ README.
 ## 007_Bench.sh — the PLAN §5 P1 performance gate (P1) — 12 cases
 
 Class `perf` throughout (except the banner gate and the fork cases, class
-`contract`). **Two sets of numbers on purpose**: [`../bench.sh`](bench.sh)
+`contract`). **Two sets of numbers on purpose**: [`../bench.sh`](../../../tawk/bench.sh)
 measures the real **1.5×** gate by hand on an idle box from the medians of 21
 interleaved runs (README §10); this file asserts the same shapes with a **10×**
 ceiling, because ktests runs test files threaded (8 workers) and the two sides

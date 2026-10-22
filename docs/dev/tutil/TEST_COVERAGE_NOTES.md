@@ -38,7 +38,7 @@ The Basis column therefore cites one of:
 * **U1–U8** — a pinned fact of `PLAN.md` §3.
 * **C1–C23** — a finding of the 2026-09-10 critic pass (`PLAN.md` §8, same
   numbering). The measurement behind each blocker, as a runnable script with its
-  output on both bashes, is [docs/TUtil.md §3](docs/TUtil.md#3-the-measurements).
+  output on both bashes, is [docs/TUtil.md §3](../../../tutil/docs/TUtil.md#3-the-measurements).
 * **P0-Fn / P1-Fn / P3-Fn** — a finding made by the implementing worker in that
   phase (`tutil_ledger.json` `execution_log`).
 * **D2 / D6** — a `TPipe` decision this unit inherits (tpipe `PLAN.md` §2.0).
@@ -64,7 +64,7 @@ The Basis column therefore cites one of:
 | `perf` | a `PLAN.md` §5 P3.1 gate, asserted with a loose ceiling |
 
 **Deliberate gaps** (each is a `wontfix` of `PLAN.md` §1.4 or of
-[docs/TUtil.md §1.2](docs/TUtil.md#12-wontfix-and-why), and none is testable as a
+[docs/TUtil.md §1.2](../../../tutil/docs/TUtil.md#12-wontfix-and-why), and none is testable as a
 behaviour of this unit):
 
 * **the tool's stderr** — it passes through by design, so every silence assertion
@@ -98,7 +98,7 @@ stubs gone (3). Rows are in file order.
 | 001.lastrc-initial | lastRc | `lastRc` is `-1` until something ran | contract | §2.1 — `RESULT=-1` has corpus precedent (tarray, tlist) |
 | 001.delete-frees | Destroy | after `delete` neither `${inst}_args` nor `${inst}_argv` nor `${inst}_data` exists | contract | **U3**, §1.9 |
 | 001.reuse-clean | Create | a SECOND instance reusing the name starts empty — no storage left over | boundary | **C3** — `.new` over a live instance does not clear `_data` |
-| 001.setu-vars | Create | every declared var — `subshellOk` included — is readable under `set -u` right after `new` | bash-convention | **C3** — unbound on 5.3.9, silently empty on 5.2.37 ([docs §3.3](docs/TUtil.md#33-c3--an-unassigned-var-is-unbound-under-set--u--and-the-two-bashes-disagree)) |
+| 001.setu-vars | Create | every declared var — `subshellOk` included — is readable under `set -u` right after `new` | bash-convention | **C3** — unbound on 5.3.9, silently empty on 5.2.37 ([docs §3.3](../../../tutil/docs/TUtil.md#33-c3--an-unassigned-var-is-unbound-under-set--u--and-the-two-bashes-disagree)) |
 | 001.ctor-verbatim | Create | constructor arguments reach `Create` verbatim, `--format=%H` included | representation | **U2**, §1.2 |
 | 001.buildargv-base | buildArgv | fills `${inst}_argv` with `cmd` + args; RESULT = the count | contract | **U2** |
 | 001.buildargv-rebuild | buildArgv | calling it twice does not accumulate | boundary | §2.2 |
@@ -151,7 +151,7 @@ stubs gone (3). Rows are in file order.
 | 001.run-cmd-empty | run | `cmd=''` → rc 2, NOTHING runs, and a here-string on stdin is left unread | contract | **U4** |
 | 001.argv-cmd-empty | argv | `cmd=''` → `argv` is rc 2 as well and nothing runs | contract | **U4** |
 | 001.run-missing | run, lastRc | a missing command → rc 1, `lastRc` 127, and NOTHING runs | contract | **U5**, **C15** |
-| 001.run-missing-quiet | run | with the debug switch OFF the missing command is COMPLETELY silent | contract | **C15** — bash's own line would be unconditional ([docs §3.5](docs/TUtil.md#35-c15--the-command-not-found-line-comes-from-bash-not-from-us)) |
+| 001.run-missing-quiet | run | with the debug switch OFF the missing command is COMPLETELY silent | contract | **C15** — bash's own line would be unconditional ([docs §3.5](../../../tutil/docs/TUtil.md#35-c15--the-command-not-found-line-comes-from-bash-not-from-us)) |
 | 001.run-missing-one | run | under `VERBOSE_KKLASS=debug` exactly ONE stderr line | contract | **U5**, §1.2 |
 | 001.run-exit3 | run, lastRc | a tool exiting 3 → rc 1, `lastRc` 3, silent | contract | §2.4 |
 | 001.run-exit3-debug | run | a tool exiting 3 stays silent under the switch too — only `127` speaks | contract | §2.4 |
@@ -191,7 +191,7 @@ stubs gone (3). Rows are in file order.
 | 002.u8-tolist | toList | RESULT = records offered, rc 0 | contract | **U8**, **C21** |
 | 002.u8-first | first | RESULT = the first record, rc 0 | contract | **U8** |
 | 002.u8-count | count | RESULT = the number of records, rc 0 | contract | **U8** |
-| 002.u8-cmdsubst | toArray, toList, first, count | under `$( )` each func sink prints its value EXACTLY ONCE | contract | **P1-F1** — without `__TPIPE_QUIET` it was twice ([docs §3.6](docs/TUtil.md#36-p1-f1--__tpipe_quiet-and-why-a-redirect-is-not-the-fix)) |
+| 002.u8-cmdsubst | toArray, toList, first, count | under `$( )` each func sink prints its value EXACTLY ONCE | contract | **P1-F1** — without `__TPIPE_QUIET` it was twice ([docs §3.6](../../../tutil/docs/TUtil.md#36-p1-f1--__tpipe_quiet-and-why-a-redirect-is-not-the-fix)) |
 | 002.u8-pipe | toArray, toList, first, count | on the LHS of a pipe the value is printed exactly once too | contract | **P1-F1** |
 | 002.each-cmdsubst | each | `each` under `$( )` carries ONLY what the callback printed | contract | **P1-F1** — a `>/dev/null` "fix" would have eaten this |
 | 002.each-pipe | each | `each` on the LHS of a pipe carries ONLY what the callback printed | contract | **P1-F1** |

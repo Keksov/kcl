@@ -8,9 +8,9 @@
 > `tests/007_Bench.sh` — **226 checks green on bash 5.2.37 and 226 on bash
 > 5.3.9**, threaded and (5.2.37) under `--mode single`, against **GNU findutils
 > 4.10.0**. What the tests pin, case by case:
-> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
-> [PLAN.md](PLAN.md) (§8 is the critic pass every decision below survived) and
-> [tfind_ledger.json](tfind_ledger.json). The base:
+> **[TEST_COVERAGE_NOTES.md](../docs/dev/tfind/TEST_COVERAGE_NOTES.md)**. Design record:
+> [PLAN.md](../docs/dev/tfind/PLAN.md) (§8 is the critic pass every decision below survived) and
+> [tfind_ledger.json](../docs/dev/tfind/tfind_ledger.json). The base:
 > [`../tutil/README.md`](../tutil/README.md); the worked siblings:
 > [`../tgrep`](../tgrep/README.md), [`../thead`](../thead/README.md),
 > [`../ttail`](../ttail/README.md).
@@ -426,7 +426,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tfind/test
 
 **226 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
 mode and (5.2.37) under `--mode single`, against GNU findutils 4.10.0. Case by
-case: [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+case: [TEST_COVERAGE_NOTES.md](../docs/dev/tfind/TEST_COVERAGE_NOTES.md).
 
 | file | cases | what it pins | runs find? |
 |---|---|---|---|
@@ -471,7 +471,7 @@ MSYS2 with the machine idle, against **GNU findutils 4.10.0**:
 
 Reading the table:
 
-- **The gate is the four `TFind.byName` / baseline rows** ([PLAN.md](PLAN.md) §5
+- **The gate is the four `TFind.byName` / baseline rows** ([PLAN.md](../docs/dev/tfind/PLAN.md) §5
   P1): at most **1.5×** a bare `find … -name` on the same corpus. Both shapes
   pass on both bashes. The delta *is* the `new` + `name` + `argv` + `delete` row
   — one throw-away instance, measured on its own line — and it is a **per-call**
@@ -490,7 +490,7 @@ Reading the table:
   medians run 1.3–2× them, and the **worst single pairing** inside these very
   samples read **7.8×** on 5.2.37 and **10.6×** on 5.3.9. The planning pass saw
   the same effect at 1.64× on code whose interleaved medians were 1.13–1.16×
-  ([PLAN.md](PLAN.md) §8, finding 17). A one-shot comparison, or a
+  ([PLAN.md](../docs/dev/tfind/PLAN.md) §8, finding 17). A one-shot comparison, or a
   non-interleaved loop, can therefore fail a 1.5× gate on code that is fine —
   so the two sides are timed one-of-each per iteration and the ratio is taken
   between medians. `bench.sh` prints the worst single pairing of each sample

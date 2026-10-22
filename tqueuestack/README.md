@@ -130,4 +130,4 @@ FIFO/LIFO with optional ownership — not a high-throughput ring buffer.
 `TTestSimpleStack` parity (004–005), events with recorded sequences +
 `Test_T{Queue,Stack}_Notification` (006), and ownership +
 `TTestSingleObject{Queue,Stack}` (007). Per-case rationale in
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+[TEST_COVERAGE_NOTES.md](../docs/dev/tqueuestack/TEST_COVERAGE_NOTES.md).

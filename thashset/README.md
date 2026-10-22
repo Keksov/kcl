@@ -28,7 +28,7 @@ s.delete               # destructor: frees the storage array too
 > membership core, the set algebra and the event seam — and the suite is
 > **149 checks, green on bash 5.2.37 and 5.3.9**. Upstream API reference:
 > [docs/THashSet.md](docs/THashSet.md). What the tests pin, case by case:
-> [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). Numbers: `bench.sh`
+> [TEST_COVERAGE_NOTES.md](../docs/dev/thashset/TEST_COVERAGE_NOTES.md). Numbers: `bench.sh`
 > (summarised under *Performance* below). History: `PLAN.md` /
 > `thashset_ledger.json`.
 
@@ -316,7 +316,7 @@ Reading the table:
 
 `bash kcl/thashset/tests/tests.sh` — **149 checks**, green on bash 5.2.37 and
 on 5.3.9. Every case is indexed in
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+[TEST_COVERAGE_NOTES.md](../docs/dev/thashset/TEST_COVERAGE_NOTES.md).
 
 | File | Cases | What it pins |
 |---|---|---|

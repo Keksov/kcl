@@ -233,4 +233,4 @@ matches, split, **FPC parity (008)**, replace/replaceCb, the kcl contract (010),
 and the P7 review regressions — locale + zero-length anchors (011, T3/T4),
 strict flags + output-array validation (012, T5/T8), `escape`/scan scaling
 (013, T6/T7), trailing-newline capture + two-digit group refs (014, T9/T10).
-Coverage rationale per case in [`TEST_COVERAGE_NOTES.md`](TEST_COVERAGE_NOTES.md).
+Coverage rationale per case in [`TEST_COVERAGE_NOTES.md`](../docs/dev/tregex/TEST_COVERAGE_NOTES.md).

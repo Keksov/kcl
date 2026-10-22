@@ -7,8 +7,8 @@ per-file row counts below sum to 200 — 74 + 61 + 55 + 10 — and **every case 
 the suite has a row**.
 
 **Protocol.** `TTail` has no FPC upstream: it is the fourth wrapper on
-[`TUtil`](../tutil/README.md), which is itself a kcl addition (see
-[../tutil/docs/TUtil.md](../tutil/docs/TUtil.md)). The oracle is therefore **the
+[`TUtil`](../../../tutil/README.md), which is itself a kcl addition (see
+[../tutil/docs/TUtil.md](../../../tutil/docs/TUtil.md)). The oracle is therefore **the
 bare GNU tool on the same fixture**, run with the same argv, never a second call
 into the code under test. Decision **D4** (of the tpipe plan) pins the *dialect*
 — GNU coreutils 8.32, the build MSYS2 ships — not a binary, so every behavioural
@@ -59,13 +59,13 @@ The Basis column cites one of:
 * **D4 / D6** — a decision: D4 the GNU dialect gate, D6 final `subshellOk`.
 * **§n** — a section of [`PLAN.md`](PLAN.md), or of
   [`../thead/PLAN.md`](../thead/PLAN.md) where the decision is shared, or of
-  [README.md](README.md).
+  [README.md](../../../ttail/README.md).
 
 **Classes.**
 
 | Class | Meaning |
 |---|---|
-| `contract` | the kcl contract ([../README.md](../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
+| `contract` | the kcl contract ([../README.md](../../../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
 | `argv` | the typed option set → the pinned command line, asserted **without running tail** |
 | `tool-behaviour` | what GNU coreutils 8.32 `tail` actually does, measured against the bare tool as oracle |
 | `representation` | paths and records are **data**: a space, a newline, a leading `-`, a CR, a NUL delimiter, an unterminated last record |
@@ -73,7 +73,7 @@ The Basis column cites one of:
 | `perf` | a [`PLAN.md`](PLAN.md) §4 P1 gate, asserted with a loose ceiling |
 
 **Deliberate gaps** (each is stated in the plans and restated in
-[README.md](README.md)):
+[README.md](../../../ttail/README.md)):
 
 * **suffix multipliers** (`-n 1K`, `-c 2M`) — refused by the count regex; the
   documented escape hatch `addArg -n 1K` is pinned instead (004 §E);
@@ -161,7 +161,7 @@ Class `argv`, basis **H1**, §1.2 throughout.
 
 Every case asserts rc 2, `RESULT ''`, the caller's array untouched,
 `${inst}_argv` EMPTY, and exactly ONE `kk.debug` line. Class `contract`, basis
-**H2** + [../README.md](../README.md) §1.2 throughout.
+**H2** + [../README.md](../../../README.md) §1.2 throughout.
 
 | ID | Case | extra basis |
 |---|---|---|
@@ -323,7 +323,7 @@ The block this unit exists for. Every case that starts a follower ends it.
 | 005.h-refuse-count | `count` with `follow = 1` is rc 2 and NOTHING runs | boundary | **T2**, §2.1 |
 | 005.h-refuse-tolist | `toList` with `follow = 1` is rc 2 and NOTHING runs (no kcl list calls `TPipe.stop`) | boundary | **T2**, §2.1, **C4** |
 | 005.h-refuse-msg | the refusal names the reason and points at the shapes that DO work | contract | **T2**, §2.1 |
-| 005.h-refuse-state | `RESULT` is `''` on the refusal and the caller's array is left alone | contract | **T2**, [../README.md](../README.md) §1.2 |
+| 005.h-refuse-state | `RESULT` is `''` on the refusal and the caller's array is left alone | contract | **T2**, [../README.md](../../../README.md) §1.2 |
 | 005.h-each-stop | `each` + a stopping callback — rc 0, `lastRc` **143**, exactly one record, in a child under `timeout 20` | tool-behaviour | **T2**, §2.1, §1.1 |
 | 005.h-first | `first` on a follow stream returns the last line and stops | tool-behaviour | **T2**, §2.1 |
 | 005.h-run-grow | `run` with `follow = 1` streams a line appended while it waits (a bounded READY-flag handshake, `--pid=HELPER` ends the follow) | tool-behaviour | **T2**, §1.1, **C16** |
@@ -339,7 +339,7 @@ Class `contract` throughout.
 
 | ID | Case | Basis |
 |---|---|---|
-| 006.0-parse | the unit source parses (`bash -n`) | [../README.md](../README.md) §1 |
+| 006.0-parse | the unit source parses (`bash -n`) | [../README.md](../../../README.md) §1 |
 | 006.0-quote | no single-quoted `printf` format is left open at end of line | the P2 sweep incident |
 | 006.0-inline-cr | no member body carries an inline `$'…'` | thead §6 |
 | 006.0-this | no internal member call is spelled `$this.NAME` | tutil PLAN §2.2 |
@@ -361,7 +361,7 @@ Class `contract` throughout.
 
 Every child runs under `set -eu` with `timeout 20` and its own stdin, and every
 sink call in a child is guarded `|| rc=$?`. Class `contract`, basis **H12** +
-[../README.md](../README.md) §1 throughout.
+[../README.md](../../../README.md) §1 throughout.
 
 | ID | Case | extra basis |
 |---|---|---|
@@ -390,7 +390,7 @@ sink call in a child is guarded `|| rc=$?`. Class `contract`, basis **H12** +
 
 ### 2. the debug switch — one line per rc 2 / tool-error path (21)
 
-Class `contract`, basis [../README.md](../README.md) §1.2 throughout.
+Class `contract`, basis [../README.md](../../../README.md) §1.2 throughout.
 
 | ID | Case | extra basis |
 |---|---|---|

@@ -7,8 +7,8 @@ per-file row counts below sum to 182 — 73 + 50 + 50 + 9 — and **every case i
 the suite has a row**.
 
 **Protocol.** `THead` has no FPC upstream: it is the third wrapper on
-[`TUtil`](../tutil/README.md), which is itself a kcl addition (see
-[../tutil/docs/TUtil.md](../tutil/docs/TUtil.md)). The oracle is therefore **the
+[`TUtil`](../../../tutil/README.md), which is itself a kcl addition (see
+[../tutil/docs/TUtil.md](../../../tutil/docs/TUtil.md)). The oracle is therefore **the
 bare GNU tool on the same fixture**, run with the same argv, never a second call
 into the code under test. Decision **D4** (of the tpipe plan) pins the *dialect*
 — GNU coreutils 8.32, the build MSYS2 ships — not a binary, so every behavioural
@@ -36,15 +36,15 @@ The Basis column cites one of:
 * **P0-C1 / P0-C2** — the two plan facts the implementing worker **corrected**
   against the real tool at P0 and the supervisor accepted (see below).
 * **P3-F1** — the tgrep finding this unit inherits with its guard
-  ([../tgrep/README.md §4](../tgrep/README.md#4--z-and-nul-framing--the-derived--0)).
+  ([../tgrep/README.md §4](../../../tgrep/README.md#4--z-and-nul-framing--the-derived--0)).
 * **D4 / D6** — a decision: D4 the GNU dialect gate, D6 final `subshellOk`.
-* **§n** — a section of [`PLAN.md`](PLAN.md) (or of [README.md](README.md)).
+* **§n** — a section of [`PLAN.md`](PLAN.md) (or of [README.md](../../../thead/README.md)).
 
 **Classes.**
 
 | Class | Meaning |
 |---|---|
-| `contract` | the kcl contract ([../README.md](../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
+| `contract` | the kcl contract ([../README.md](../../../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
 | `argv` | the typed option set → the pinned command line, asserted **without running head** |
 | `tool-behaviour` | what GNU coreutils 8.32 `head` actually does, measured against the bare tool as oracle |
 | `representation` | paths and records are **data**: a space, a newline, a leading `-`, a CR, a NUL delimiter, an unterminated last record |
@@ -66,7 +66,7 @@ both are now written into `PLAN.md` (§2.4/§2.5, H3/H7, §8) with the measureme
   large*. `005` §F pins that shape.
 
 **Deliberate gaps** (each is stated in [`PLAN.md`](PLAN.md) §1.3 and restated in
-[README.md](README.md)):
+[README.md](../../../thead/README.md)):
 
 * **suffix multipliers** (`-n 1K`, `-c 2M`) — refused by the count regex; the
   documented escape hatch `addArg -n 1K` is pinned instead (004 §E, 005 §F);
@@ -150,7 +150,7 @@ array against `head FLAG -- f`. Class `argv`, basis **H1**, §1.2 throughout.
 
 Every case asserts **all five**: rc 2, `RESULT ''`, the caller's array untouched,
 `${inst}_argv` EMPTY, and exactly ONE `kk.debug` line naming the reason. Class
-`contract`, basis **H2** + [../README.md](../README.md) §1.2 throughout.
+`contract`, basis **H2** + [../README.md](../../../README.md) §1.2 throughout.
 
 | ID | Case | extra basis |
 |---|---|---|
@@ -316,7 +316,7 @@ throughout.
 
 | ID | Case | Basis |
 |---|---|---|
-| 006.0-parse | the unit source parses (`bash -n`) | [../README.md](../README.md) §1 |
+| 006.0-parse | the unit source parses (`bash -n`) | [../README.md](../../../README.md) §1 |
 | 006.0-quote | no single-quoted `printf` format is left open at end of line | the P2 sweep incident |
 | 006.0-inline-cr | no member body carries an inline `$'…'` (it does not survive `build`'s `declare -f` round trip) | §6 |
 | 006.0-this | no internal member call is spelled `$this.NAME` | tutil PLAN §2.2 |
@@ -337,7 +337,7 @@ throughout.
 
 Every child runs under `set -eu` with `timeout 20` and its own stdin, and
 **every** sink call in a child is guarded `|| rc=$?`. Class `contract`, basis
-**H12** + [../README.md](../README.md) §1 throughout.
+**H12** + [../README.md](../../../README.md) §1 throughout.
 
 | ID | Case | extra basis |
 |---|---|---|
@@ -368,7 +368,7 @@ Every child runs under `set -eu` with `timeout 20` and its own stdin, and
 Exactly ONE `kk.debug` line on each rc 2 path and on each "head exited 1" path,
 NOTHING on any rc 0 path, and complete silence from us when the switch is off
 while head's own lines pass through. Class `contract`, basis
-[../README.md](../README.md) §1.2 throughout.
+[../README.md](../../../README.md) §1.2 throughout.
 
 | ID | Case | extra basis |
 |---|---|---|

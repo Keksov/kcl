@@ -18,7 +18,7 @@
 > * **Roadmap:** `tutil` (the wrapper base) and `TGrep` (the first wrapper),
 >   which delegate their sinks to this unit and add the README's *form 3*
 >   (`g.each r.onLine`). Nothing is planned inside `tpipe` itself; the surface of
->   §1.3 of [../PLAN.md](../PLAN.md) is final and a change to it needs an owner
+>   §1.3 of [../PLAN.md](../../docs/dev/tpipe/PLAN.md) is final and a change to it needs an owner
 >   decision.
 > * **Wontfix:** nine items, listed with their reasons in [§10](#10-wontfix)
 >   below (`PLAN.md` §1.4).
@@ -715,12 +715,12 @@ changed the unit:
 
 * **[../README.md](../README.md)** — the API, the contract, the traps and the
   measured cost table. The normative page.
-* **[../TEST_COVERAGE_NOTES.md](../TEST_COVERAGE_NOTES.md)** — every case of
+* **[../TEST_COVERAGE_NOTES.md](../../docs/dev/tpipe/TEST_COVERAGE_NOTES.md)** — every case of
   `001`–`005`, with the pin or finding it closes.
-* **[../PLAN.md](../PLAN.md)** — the plan this unit was built from: §1 scoping,
+* **[../PLAN.md](../../docs/dev/tpipe/PLAN.md)** — the plan this unit was built from: §1 scoping,
   §2 design decisions D1–D6 (**D6 final**, the owner's nine answers, supersedes
   D1), §3 the pinned facts F1–F16, §4 the test model, §6 the bash traps, §8 the
   critic pass.
-* **[../tpipe_ledger.json](../tpipe_ledger.json)** — the phase journal: what each
+* **[../tpipe_ledger.json](../../docs/dev/tpipe/tpipe_ledger.json)** — the phase journal: what each
   phase closed, the red-first counts, the gate numbers and the commits.
 * **[../bench.sh](../bench.sh)** — the numbers, re-runnable.

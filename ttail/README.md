@@ -8,10 +8,10 @@
 > 5.2.37 and 200 on bash 5.3.9**, threaded and under `--mode single`, against
 > **GNU coreutils 8.32**, with no follower of ours surviving a run. What the
 > tests pin, case by case:
-> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
-> [PLAN.md](PLAN.md) plus [`../thead/PLAN.md`](../thead/PLAN.md), which carries
+> **[TEST_COVERAGE_NOTES.md](../docs/dev/ttail/TEST_COVERAGE_NOTES.md)**. Design record:
+> [PLAN.md](../docs/dev/ttail/PLAN.md) plus [`../thead/PLAN.md`](../docs/dev/thead/PLAN.md), which carries
 > every shared decision (§8 there is the critic pass), and
-> [ttail_ledger.json](ttail_ledger.json). The base:
+> [ttail_ledger.json](../docs/dev/ttail/ttail_ledger.json). The base:
 > [`../tutil/README.md`](../tutil/README.md); the sibling written from the same
 > plan: [`../thead/README.md`](../thead/README.md).
 
@@ -326,8 +326,8 @@ coreutils 8.32**:
 
 Reading the table:
 
-- **The gate is the two `TTail.take` rows** ([PLAN.md](PLAN.md) §4 P1, the
-  shared text is [`../thead/PLAN.md`](../thead/PLAN.md) §5 P1): at most **1.5×**
+- **The gate is the two `TTail.take` rows** ([PLAN.md](../docs/dev/ttail/PLAN.md) §4 P1, the
+  shared text is [`../thead/PLAN.md`](../docs/dev/thead/PLAN.md) §5 P1): at most **1.5×**
   a bare `tail -n N` on the same corpus. Both shapes pass on both bashes. The
   delta *is* the `new` + `argv` + `delete` row — one throw-away instance,
   measured on its own line — and it is a **per-call** cost, never a per-record
@@ -341,7 +341,7 @@ Reading the table:
   reasons outside this repo: the *means* printed beside these medians are
   routinely double them. A non-interleaved loop has been read as high as **2.4×**
   on code that interleaved medians put at 1.07–1.30×
-  ([`../thead/PLAN.md`](../thead/PLAN.md) §8, finding 7) — which is why the gate
+  ([`../thead/PLAN.md`](../docs/dev/thead/PLAN.md) §8, finding 7) — which is why the gate
   is 1.5×, the two shapes are timed one-of-each per iteration, and the ratio is
   taken between medians.
 - **`argv` runs nothing** and forks nothing — with `follow = 1` set, so the
@@ -377,7 +377,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/ttail/test
 
 **200 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
 mode and under `--mode single`, against GNU coreutils 8.32. Case by case:
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+[TEST_COVERAGE_NOTES.md](../docs/dev/ttail/TEST_COVERAGE_NOTES.md).
 
 | file | cases | what it pins | runs tail? |
 |---|---|---|---|

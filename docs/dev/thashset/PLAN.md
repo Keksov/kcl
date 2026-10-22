@@ -27,7 +27,7 @@ Tier A; every storage idiom arrives pre-validated by tdictionary tests/002.
 *(The `:5xx`/`:28xx`/`:30xx` numbers in this table are the P0 revision's and are
 kept as written; the **release_3_2_2** tag's numbers — the ones every other file
 now uses — are in the P2/P3 DONE blocks of §5 and, member by member, in
-[docs/THashSet.md](docs/THashSet.md). The code is identical word for word.)*
+[docs/THashSet.md](../../../thashset/docs/THashSet.md). The code is identical word for word.)*
 
 | FPC | bash | Notes |
 |---|---|---|

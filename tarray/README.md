@@ -122,4 +122,4 @@ the binarySearch loop is the FPC implementation transcribed line-for-line).
 `tests/001…007` — 80 cases, green on bash 5.2.37 **and** 5.3.9: wiring/contract,
 sort modes/range/edges/rejects, stability + torture, binarySearch, scan family,
 **FPC parity (006)**, copy/reverse/concat/compact. Rationale per case in
-[`TEST_COVERAGE_NOTES.md`](TEST_COVERAGE_NOTES.md).
+[`TEST_COVERAGE_NOTES.md`](../docs/dev/tarray/TEST_COVERAGE_NOTES.md).

@@ -197,7 +197,7 @@ target, read-only target, `-`-leading name, temp-file cleanup on every failure
 branch, eager delete rc, `\`-paths), the two round-trip corruptions and
 `SectionExists` (008), `ifoEscapeLineFeeds` plus the whole `val()` grammar
 (009), output-array names (010) the relative cost gates (011) and the D6 locale self-heal in a child shell with the locale cleared (012). Per-case
-rationale in [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+rationale in [TEST_COVERAGE_NOTES.md](../docs/dev/tinifile/TEST_COVERAGE_NOTES.md).
 
 `bench.sh` reports load / ReadString / WriteString / UpdateFile costs (timed
 via `TStopwatch`) and, since P8, the two **relative** shape gates the review

@@ -112,4 +112,4 @@ ownership core (001), **the 9 FPC fpcunit tests of
 for TObjects, `TStringList(:TList)` standing in for `TMyObject(:TObject)`,
 dispatcher-liveness for the `IsFreed` destructor flag), and the ownership
 torture matrix (003). Rationale per case in
-[`TEST_COVERAGE_NOTES.md`](TEST_COVERAGE_NOTES.md).
+[`TEST_COVERAGE_NOTES.md`](../docs/dev/tobjectlist/TEST_COVERAGE_NOTES.md).

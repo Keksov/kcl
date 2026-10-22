@@ -5,8 +5,8 @@ Pascal-DSL **static utility class**: 185 public methods called as
 `dateutils.<Method>`. Pure-bash integer arithmetic, **zero `date` forks** on the
 hot paths, thin (capture-free) dispatch on bash 5.2 and 5.3 alike.
 
-- Design & rationale: [PLAN.md](PLAN.md) · status: [dateutils_ledger.json](dateutils_ledger.json)
-- Test-coverage analysis: [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)
+- Design & rationale: [PLAN.md](../docs/dev/dateutils/PLAN.md) · status: [dateutils_ledger.json](../docs/dev/dateutils/dateutils_ledger.json)
+- Test-coverage analysis: [TEST_COVERAGE_NOTES.md](../docs/dev/dateutils/TEST_COVERAGE_NOTES.md)
 
 ```bash
 source /path/to/kbool/kbool.sh
@@ -401,4 +401,4 @@ turned into a regression test.
 
 Mac/DOS timestamps, `TDateTimeHelper`/`TTimeZone` sugar, and the full
 `ScanDateTime` matcher (month/day names, am/pm, `[]` optionals) are intentionally
-not ported — see [PLAN.md](PLAN.md) §3.
+not ported — see [PLAN.md](../docs/dev/dateutils/PLAN.md) §3.

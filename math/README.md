@@ -4,7 +4,7 @@ A bash port of FPC's `Math` unit as a kcl [kklass](../../kklass) Pascal-DSL
 **static utility class**: 123 public methods called as `math.<Method>`.
 
 FPC's `Math` is ~80% floating point, and bash has no float type, so the port is
-**hybrid** — see [PLAN.md](PLAN.md) for the full rationale:
+**hybrid** — see [PLAN.md](../docs/dev/math/PLAN.md) for the full rationale:
 
 | Tier | What | How |
 |---|---|---|
@@ -368,11 +368,11 @@ FPU control has no bash equivalent — `getRoundMode` (→ `rmNearest`),
 `clearExceptions` is a no-op. Also wontfix: the Single/Extended precision
 distinctions (the engine is `Double`), the `PT+N` pointer-array overloads (the
 port takes an argument list), `generic RandomFrom<T>`, and the FPU-rounding-mode-
-dependent integer→float conversion. See [PLAN.md](PLAN.md) §4.
+dependent integer→float conversion. See [PLAN.md](../docs/dev/math/PLAN.md) §4.
 
 ---
 
 - Upstream API reference: [docs/Math.md](docs/Math.md)
-- Design & rationale: [PLAN.md](PLAN.md) · status: [math_ledger.json](math_ledger.json)
-- Test-coverage analysis: [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)
+- Design & rationale: [PLAN.md](../docs/dev/math/PLAN.md) · status: [math_ledger.json](../docs/dev/math/math_ledger.json)
+- Test-coverage analysis: [TEST_COVERAGE_NOTES.md](../docs/dev/math/TEST_COVERAGE_NOTES.md)
 - Micro-benchmark: [bench.sh](bench.sh)

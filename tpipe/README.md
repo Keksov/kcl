@@ -9,7 +9,7 @@
 > **205 checks, green on bash 5.2.37 and on bash 5.3.9** (and on the Linux and
 > FreeBSD lab VMs). Design record and the measurements the unit is built on:
 > [docs/TPipe.md](docs/TPipe.md). What the tests pin, case by case:
-> [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). Numbers: `bench.sh`
+> [TEST_COVERAGE_NOTES.md](../docs/dev/tpipe/TEST_COVERAGE_NOTES.md). Numbers: `bench.sh`
 > (summarised under [*Performance*](#6-performance) below). History: `PLAN.md` /
 > `tpipe_ledger.json`.
 
@@ -697,7 +697,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tpipe/test
 
 **205 checks**, green on bash 5.2.37 and on 5.3.9, in the default threaded mode
 and under `--mode single`. Every case is indexed in
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+[TEST_COVERAGE_NOTES.md](../docs/dev/tpipe/TEST_COVERAGE_NOTES.md).
 
 | File | Cases | What it pins |
 |---|---|---|

@@ -12,9 +12,9 @@
 > resolves Git for Windows' `/usr/bin/gawk` = **GNU Awk 5.0.0**, bash 5.3.9
 > msys64's = **GNU Awk 5.4.0** (§0); the behavioural tests pin behaviour on both
 > and match gawk's own messages by prefix. What the tests pin, case by case:
-> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
-> [PLAN.md](PLAN.md) (§2.0 holds the four owner decisions, §8 the critic pass)
-> and [tawk_ledger.json](tawk_ledger.json). The base:
+> **[TEST_COVERAGE_NOTES.md](../docs/dev/tawk/TEST_COVERAGE_NOTES.md)**. Design record:
+> [PLAN.md](../docs/dev/tawk/PLAN.md) (§2.0 holds the four owner decisions, §8 the critic pass)
+> and [tawk_ledger.json](../docs/dev/tawk/tawk_ledger.json). The base:
 > [`../tutil/README.md`](../tutil/README.md); the closest sibling:
 > [`../tsed`](../tsed/README.md); the others:
 > [`../tgrep`](../tgrep/README.md), [`../thead`](../thead/README.md),
@@ -505,7 +505,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tawk/tests
 
 **609 checks, green on bash 5.2.37 (gawk 5.0.0) and on bash 5.3.9 (gawk
 5.4.0)**, in the default threaded mode and (5.2.37) under `--mode single`. Case
-by case: [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+by case: [TEST_COVERAGE_NOTES.md](../docs/dev/tawk/TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | runs gawk? |
 |---|---|---|---|
@@ -553,7 +553,7 @@ sampled), under `bash -eu` (rc 0 on both):
 
 Reading the table:
 
-- **The gate is the four `TAwk.apply` / baseline rows** ([PLAN.md](PLAN.md) §5
+- **The gate is the four `TAwk.apply` / baseline rows** ([PLAN.md](../docs/dev/tawk/PLAN.md) §5
   P1): at most **1.5×** a bare `gawk --sandbox -e … --` on the same file. Both
   shapes pass on both bashes. A second run read **1.15×** / **1.11×** on 5.2.37
   and **1.08×** / **1.19×** on 5.3.9 — the medians move by a few points while
@@ -587,7 +587,7 @@ Reading the table:
   timed one-of-each per iteration and the ratio is taken between medians.
   `bench.sh` prints the mean beside every median and the worst single pairing
   under every gate for exactly this reason
-  ([`../tfind/PLAN.md`](../tfind/PLAN.md) §8, finding 17).
+  ([`../tfind/PLAN.md`](../docs/dev/tfind/PLAN.md) §8, finding 17).
 - **The clock is `TStopwatch.getTimeStamp`, never `date +%s%N`.** On msys the
   latter is its own process at ~20 ms a call — about half of the `gawk` run
   being measured, and paid twice per sample.

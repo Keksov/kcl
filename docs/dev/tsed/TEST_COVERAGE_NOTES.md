@@ -14,8 +14,8 @@ last section); the suite is now **402** — `004` 160, `005` 78, `006` 66, `007`
 11, `008` 87 — green on both bashes.
 
 **Protocol.** `TSed` has no FPC upstream: it is the fifth wrapper on
-[`TUtil`](../tutil/README.md), which is itself a kcl addition (see
-[../tutil/docs/TUtil.md](../tutil/docs/TUtil.md)). The oracle is therefore **the
+[`TUtil`](../../../tutil/README.md), which is itself a kcl addition (see
+[../tutil/docs/TUtil.md](../../../tutil/docs/TUtil.md)). The oracle is therefore **the
 bare GNU tool on the same fixture**, run with the same arguments, never a second
 call into the code under test. Decision **D4** (of the tpipe plan) pins the
 *dialect* — GNU sed 4.9, identical under both target bashes although they
@@ -54,15 +54,15 @@ The Basis column cites one of:
 * **P0-fact** — the P0 correction of PLAN §1.1: `*` in the in-place suffix is
   the **operand as given**, directory part included.
 * **P3-F1** — the tgrep finding this unit inherits with its guard
-  ([../tgrep/README.md §4](../tgrep/README.md)).
+  ([../tgrep/README.md §4](../../../tgrep/README.md)).
 * **D4 / D6** — a decision: D4 the GNU dialect gate, D6 final `subshellOk`.
-* **§n** — a section of [`PLAN.md`](PLAN.md) (or of [README.md](README.md)).
+* **§n** — a section of [`PLAN.md`](PLAN.md) (or of [README.md](../../../tsed/README.md)).
 
 **Classes.**
 
 | Class | Meaning |
 |---|---|
-| `contract` | the kcl contract ([../README.md](../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
+| `contract` | the kcl contract ([../README.md](../../../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
 | `argv` | the typed option set → the pinned command line, asserted **without running sed** |
 | `tool-behaviour` | what GNU sed 4.9 actually does, measured against the bare tool as oracle |
 | `security` | the sandbox default (owner Q1): what it refuses, that it fails closed, that nothing ran |
@@ -76,14 +76,14 @@ is this unit's change to **tutil**, and its own cases — the registry
 loads, the append on load, the registry's own NAME refused with the registry
 intact, and the fail-closed EMPTIED / UNSET / SCALAR registry followed by the
 restored one — are the twelve suffix-registry cases of
-**[`../tutil/tests/001_Core.sh` §C](../tutil/tests/001_Core.sh)** (tutil went
+**[`../tutil/tests/001_Core.sh` §C](../../../tutil/tests/001_Core.sh)** (tutil went
 197 → 209 at this unit's P0; 10 of the 12 were red against the unchanged tutil).
 This file's rows cover only the **tsed side**: that `__tsd_` and `_exprs` are
 registered once, that the family's names are still refused through a `TSed`
 instance, and that the expression list survives every refusal.
 
 **Deliberate gaps** (each is stated in [`PLAN.md`](PLAN.md) and restated in
-[README.md](README.md)):
+[README.md](../../../tsed/README.md)):
 
 * **BSD sed** (D4) — nothing to assert on this box.
 * **`-i` on a symlink / across devices** (PLAN §1.3) — tool behaviour, not
@@ -593,7 +593,7 @@ all. Class `contract`, basis **S13** and §1.2 of the kcl README.
 ## 007_Bench.sh — the PLAN §5 P1 performance gate (P1) — 11 cases
 
 Class `perf` throughout (except the banner gate). **Two sets of numbers on
-purpose**: [`../bench.sh`](bench.sh) measures the real **1.5×** gate by hand on
+purpose**: [`../bench.sh`](../../../tsed/bench.sh) measures the real **1.5×** gate by hand on
 an idle box from the medians of 21 interleaved runs (README §10); this file
 asserts the same shapes with a **10×** ceiling, because ktests runs test files
 threaded (8 workers) and the two sides of the ratio do not inflate together —

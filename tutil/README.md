@@ -9,8 +9,8 @@
 > 5.2.37 and 172 on bash 5.3.9**, threaded and under `--mode single`.
 > Design record, the TProcess comparison and every measurement the design rests
 > on: **[docs/TUtil.md](docs/TUtil.md)**. What the tests pin, case by case:
-> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Phase history:
-> [PLAN.md](PLAN.md) / [tutil_ledger.json](tutil_ledger.json).
+> **[TEST_COVERAGE_NOTES.md](../docs/dev/tutil/TEST_COVERAGE_NOTES.md)**. Phase history:
+> [PLAN.md](../docs/dev/tutil/PLAN.md) / [tutil_ledger.json](../docs/dev/tutil/tutil_ledger.json).
 > The first wrapper built on it is [`TGrep`](../tgrep/README.md).
 
 `TUtil` wraps an external tool the way FPC's `fcl-process` **`TProcess`** does —
@@ -655,7 +655,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tutil/test
 
 **226 cases, green on bash 5.2.37 and on bash 5.3.9** (launch L2.7-C), in the default threaded
 mode and under `--mode single`. Case-by-case:
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+[TEST_COVERAGE_NOTES.md](../docs/dev/tutil/TEST_COVERAGE_NOTES.md).
 
 | File | Cases | What it pins |
 |---|---|---|

@@ -7,9 +7,9 @@
 > `tests/007_Bench.sh` — **182 checks green on bash 5.2.37 and 182 on bash
 > 5.3.9**, threaded and under `--mode single`, against **GNU coreutils 8.32**.
 > What the tests pin, case by case:
-> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
-> [PLAN.md](PLAN.md) (§8 is the critic pass every decision below survived) and
-> [thead_ledger.json](thead_ledger.json). The base:
+> **[TEST_COVERAGE_NOTES.md](../docs/dev/thead/TEST_COVERAGE_NOTES.md)**. Design record:
+> [PLAN.md](../docs/dev/thead/PLAN.md) (§8 is the critic pass every decision below survived) and
+> [thead_ledger.json](../docs/dev/thead/thead_ledger.json). The base:
 > [`../tutil/README.md`](../tutil/README.md); the worked sibling example:
 > [`../tgrep/README.md`](../tgrep/README.md); the `tail` wrapper, written from
 > the same plan: [`../ttail/README.md`](../ttail/README.md).
@@ -351,7 +351,7 @@ coreutils 8.32**:
 
 Reading the table:
 
-- **The gate is the two `THead.take` rows** ([PLAN.md](PLAN.md) §5 P1): at most
+- **The gate is the two `THead.take` rows** ([PLAN.md](../docs/dev/thead/PLAN.md) §5 P1): at most
   **1.5×** a bare `head -n N` on the same corpus. Both shapes pass on both
   bashes. The delta *is* the `new` + `argv` + `delete` row — one throw-away
   instance, measured on its own line — and it is a **per-call** cost, never a
@@ -367,7 +367,7 @@ Reading the table:
   reasons outside this repo: the *means* printed beside these medians are
   routinely double them. A non-interleaved loop over the two shapes has been
   read as high as **2.4×** on code that interleaved medians put at 1.07–1.30×
-  ([PLAN.md](PLAN.md) §8, finding 7) — which is why the gate is 1.5×, the two
+  ([PLAN.md](../docs/dev/thead/PLAN.md) §8, finding 7) — which is why the gate is 1.5×, the two
   shapes are timed one-of-each per iteration, and the ratio is taken between
   medians.
 - **`argv` runs nothing** and forks nothing: section (a) of the bench points
@@ -400,7 +400,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/thead/test
 
 **182 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
 mode and under `--mode single`, against GNU coreutils 8.32. Case by case:
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+[TEST_COVERAGE_NOTES.md](../docs/dev/thead/TEST_COVERAGE_NOTES.md).
 
 | file | cases | what it pins | runs head? |
 |---|---|---|---|

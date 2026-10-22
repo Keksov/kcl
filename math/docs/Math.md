@@ -27,7 +27,7 @@ FPC RTL source (`rtl/objpas/math.pp`); where the unit overloads
 Single/Double/Extended the family is collapsed to one representative
 `Float`/`Double` signature and marked *(overloaded for Single/Double/Extended)*.
 Behaviour, the return contract, tiers, and the FPC-Double parity notes follow the port's
-[`math_ledger.json`](../math_ledger.json) and [README](../README.md), which are
+[`math_ledger.json`](../../docs/dev/math/math_ledger.json) and [README](../README.md), which are
 authoritative for how each `math.<method>` behaves.
 
 The port is a **hybrid** of three tiers:

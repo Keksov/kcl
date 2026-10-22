@@ -19,7 +19,7 @@ gives — and the design rests on a list of measured bash facts, **F1–F16**
 
 * **F1–F16** — a pinned fact of `PLAN.md` §3. The measurement behind each one,
   as a runnable script with its output on both bashes, is
-  [docs/TPipe.md](docs/TPipe.md).
+  [docs/TPipe.md](../../../tpipe/docs/TPipe.md).
 * **D2 / D6 final (Q1–Q9)** — an owner decision (`PLAN.md` §2.0). **D1**, the old
   rc 2 refusal of the stdin form in a subshell, was **superseded** by D6 final on
   2026-09-15; the rows that cited it are now the warning rows of §G / §3.

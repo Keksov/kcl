@@ -19,7 +19,7 @@
 > * **Roadmap:** the five wrappers of [§4](#4-the-template-for-the-next-wrappers)
 >   — `tsed`, `tawk`, `tfind`, `thead`, `ttail` — one unit each, each with its
 >   own PLAN and ledger. Nothing is planned inside `tutil` itself; the surface of
->   [PLAN.md](../PLAN.md) §1.2 is final and a change to it needs an owner
+>   [PLAN.md](../../docs/dev/tutil/PLAN.md) §1.2 is final and a change to it needs an owner
 >   decision. `stdinFrom FILE` as a sink option is the one member that was
 >   discussed and deferred (PLAN §1.4 item 4).
 > * **Wontfix:** the `TProcess` families listed in [§1.2](#12-wontfix-and-why) —

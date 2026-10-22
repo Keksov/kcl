@@ -61,7 +61,7 @@ the short verb.
 
 ### 2.2 `_exprs` becomes tagged records
 
-Today `${inst}_exprs` holds ready expressions ([tsed.sh:311](../tsed/tsed.sh#L311)).
+Today `${inst}_exprs` holds ready expressions ([tsed.sh:311](../../../tsed/tsed.sh#L311)).
 To keep call order between `addExpr` and `addReplace` and escape at build time,
 each element becomes `TAG<TAB>…`:
 

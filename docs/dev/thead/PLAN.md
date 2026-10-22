@@ -14,8 +14,8 @@ otherwise.
 plan: GNU dialect, PATH-resolved binary, GNU banner gate in the behavioural tests).
 Measured 2026-09-15 on bash 5.2.37 and 5.3.9 (`/usr/bin/head` first on PATH under
 both, no non-GNU shadow): §1.1.
-**Base:** [`kcl/tutil`](../tutil/README.md) — `THead : TUtil`, the tobjectlist→tlist
-sourcing pattern, exactly as [`kcl/tgrep`](../tgrep/README.md) does it. Read first:
+**Base:** [`kcl/tutil`](../../../tutil/README.md) — `THead : TUtil`, the tobjectlist→tlist
+sourcing pattern, exactly as [`kcl/tgrep`](../../../tgrep/README.md) does it. Read first:
 the header block of `kcl/tgrep/tgrep.sh` and `kcl/tgrep/README.md` (the constructor
 rule `parent.constructor grep` — never `inherited` in a constructor; every var
 assigned; `kk.call_silent`; `_nulDerived` with the P3-F1 guard; the throw-away

@@ -7,11 +7,11 @@
 > `tests/007_Bench.sh` — **184 checks green on bash 5.2.37 and 184 on bash
 > 5.3.9**, threaded and under `--mode single`, against **GNU grep 3.0**.
 > What the tests pin, case by case:
-> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. The design record, the
+> **[TEST_COVERAGE_NOTES.md](../docs/dev/tgrep/TEST_COVERAGE_NOTES.md)**. The design record, the
 > `TProcess` comparison and every measurement the family rests on:
 > **[../tutil/docs/TUtil.md](../tutil/docs/TUtil.md)**. Phase history:
-> [../tutil/PLAN.md](../tutil/PLAN.md) /
-> [../tutil/tutil_ledger.json](../tutil/tutil_ledger.json).
+> [../tutil/PLAN.md](../docs/dev/tutil/PLAN.md) /
+> [../tutil/tutil_ledger.json](../docs/dev/tutil/tutil_ledger.json).
 >
 > **`P3-F1`, found and fixed at P3:** the §4 `-0` derivation used to clear a
 > `nul = 1` the **caller** set, if the same instance also went through a `-Z` +
@@ -522,7 +522,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tgrep/test
 
 **197 cases, green on bash 5.2.37 and on bash 5.3.9** (launch L2.7-C), in the default threaded
 mode and under `--mode single`, against GNU grep 3.0. Case-by-case:
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md). The behavioural files all open
+[TEST_COVERAGE_NOTES.md](../docs/dev/tgrep/TEST_COVERAGE_NOTES.md). The behavioural files all open
 with the **GNU banner gate**: this box carries a non-GNU `grep` (Embarcadero)
 that can win the PATH race, and D4 pins the *dialect*, so without the banner
 every behavioural case is a loud SKIP and the case count is unchanged.

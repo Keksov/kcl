@@ -8,8 +8,8 @@ row counts below sum to 185 — 74 + 53 + 49 + 9 — and **every case in the sui
 has a row**.
 
 **Protocol.** `TGrep` has no FPC upstream: it is the first wrapper on
-[`TUtil`](../tutil/README.md), which is itself a kcl addition (see
-[../tutil/docs/TUtil.md](../tutil/docs/TUtil.md)). The oracle is therefore **the
+[`TUtil`](../../../tutil/README.md), which is itself a kcl addition (see
+[../tutil/docs/TUtil.md](../../../tutil/docs/TUtil.md)). The oracle is therefore **the
 bare GNU tool on the same fixture**, run with the same argv, never a second call
 into the code under test. Decision **D4** pins the *dialect* (GNU grep 3.0, the
 build MSYS2 ships), not a binary, so every behavioural file opens with the **GNU
@@ -32,7 +32,7 @@ The Basis column cites one of:
 * **G1–G12** — a pinned fact of `../tutil/PLAN.md` §3.
 * **C1–C23** — a finding of the 2026-09-10 critic pass (`../tutil/PLAN.md` §8).
   The measurement behind each blocker is
-  [../tutil/docs/TUtil.md §3](../tutil/docs/TUtil.md#3-the-measurements).
+  [../tutil/docs/TUtil.md §3](../../../tutil/docs/TUtil.md#3-the-measurements).
 * **P2-Fn / P3-Fn** — a finding made by the implementing worker in that phase
   (`../tutil/tutil_ledger.json` `execution_log`).
 * **D2 / D4 / D6** — an owner or supervisor decision.
@@ -54,7 +54,7 @@ The Basis column cites one of:
 README §1):
 
 * **`-P` (PCRE)** — optional in a GNU build and absent from the house ERE line
-  ([tregex](../tregex/README.md)); nothing to assert;
+  ([tregex](../../../tregex/README.md)); nothing to assert;
 * **`--color`** — never emitted; the output is data;
 * **context (`-A`/`-B`/`-C`)** — breaks the one-record-one-match model of the
   sinks; `addArg` + `run` is the documented way to it, and *that* is pinned
@@ -73,7 +73,7 @@ deriving cleared the caller's own value. It was found while writing the docs,
 fixed in the same phase with a one-line guard, and pinned by the last case of
 004 §G below (red-first: 1 FAIL of 184 against the unguarded code). The full
 before/after measurement is in
-[../tutil/docs/TUtil.md §3.8](../tutil/docs/TUtil.md#38-27--the--0-derivation-and-the-shape-it-used-to-get-wrong).
+[../tutil/docs/TUtil.md §3.8](../../../tutil/docs/TUtil.md#38-27--the--0-derivation-and-the-shape-it-used-to-get-wrong).
 
 ---
 
@@ -88,7 +88,7 @@ before/after measurement is in
 |---|---|---|---|---|
 | 004.vars-present | Create | all 23 declared vars **plus TUtil's five** (`cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`) are present in `${inst}_data` right after `new` | contract | **C3**, §2.1, **D6 final Q9** |
 | 004.vars-defaults | Create | the documented defaults: booleans `0` (**`subshellOk` among them**), strings `''`, `cmd` `grep`, `_lastRc` `-1` | contract | §2.1 |
-| 004.args-empty | Create | `${g}_args` is EMPTY after `TGrep.new g PAT PATH` | contract | **C2** — the `inherited` trap doubled every path ([docs §3.2](../tutil/docs/TUtil.md#32-c2--inherited-in-a-constructor-forwards-)) |
+| 004.args-empty | Create | `${g}_args` is EMPTY after `TGrep.new g PAT PATH` | contract | **C2** — the `inherited` trap doubled every path ([docs §3.2](../../../tutil/docs/TUtil.md#32-c2--inherited-in-a-constructor-forwards-)) |
 | 004.paths-verbatim | Create | `${g}_paths` holds the constructor's paths verbatim, once each | representation | §2.1 |
 | 004.reuse-clean | Create | a REUSED instance name starts clean — every var re-assigned | boundary | **C3** |
 | 004.delete-chains | Destroy | `delete` removes `_paths`, `_args` AND `_argv` (the descendant destructor chains with `inherited`) | contract | §1.9, §2.1 |

@@ -7,8 +7,8 @@ per-file row counts below sum to 226 — 110 + 49 + 57 + 10 — and **every case
 the suite has a row**.
 
 **Protocol.** `TFind` has no FPC upstream: it is the fourth wrapper on
-[`TUtil`](../tutil/README.md), which is itself a kcl addition (see
-[../tutil/docs/TUtil.md](../tutil/docs/TUtil.md)). The oracle is therefore **the
+[`TUtil`](../../../tutil/README.md), which is itself a kcl addition (see
+[../tutil/docs/TUtil.md](../../../tutil/docs/TUtil.md)). The oracle is therefore **the
 bare GNU tool on the same fixture**, run with the same expression, never a second
 call into the code under test. Decision **D4** (of the tpipe plan) pins the
 *dialect* — GNU findutils 4.10.0, the build MSYS2 ships, identical under both
@@ -49,15 +49,15 @@ The Basis column cites one of:
   Every one of the twenty is cited by at least one row below, or named under
   "deliberate gaps".
 * **P3-F1** — the tgrep finding this unit inherits with its guard
-  ([../tgrep/README.md §4](../tgrep/README.md)).
+  ([../tgrep/README.md §4](../../../tgrep/README.md)).
 * **D4 / D6** — a decision: D4 the GNU dialect gate, D6 final `subshellOk`.
-* **§n** — a section of [`PLAN.md`](PLAN.md) (or of [README.md](README.md)).
+* **§n** — a section of [`PLAN.md`](PLAN.md) (or of [README.md](../../../tfind/README.md)).
 
 **Classes.**
 
 | Class | Meaning |
 |---|---|
-| `contract` | the kcl contract ([../README.md](../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
+| `contract` | the kcl contract ([../README.md](../../../README.md) §1): rc mapping, `RESULT`, silence, validation order, `set -eu` cleanliness, lifecycle, zero forks |
 | `argv` | the typed option set → the pinned command line, asserted **without running find** |
 | `tool-behaviour` | what GNU findutils 4.10.0 `find` actually does, measured against the bare tool as oracle |
 | `representation` | start points and records are **data**: a space, a newline, a leading `-`, a Windows spelling, NUL framing |
@@ -68,14 +68,14 @@ The Basis column cites one of:
 is this unit's change to **tutil**, and its own cases — the registry name refused
 as an out-name, the fail-closed behaviour of an empty / unset / scalar registry,
 and the restored registry working again — are in
-**[`../tutil/tests/001_Core.sh` §C](../tutil/tests/001_Core.sh)** (tutil 001 went
+**[`../tutil/tests/001_Core.sh` §C](../../../tutil/tests/001_Core.sh)** (tutil 001 went
 64 → 74 cases at this unit's P0, and 9 of those 10 were red against the
 pre-registry `tutil._badOut`). This file's rows cover only the **tfind side**:
 that `__tfd_` is registered, that the family prefixes are still refused through a
 `TFind` instance, and that the registry survives a refusal aimed at it.
 
 **Deliberate gaps** (each is stated in [`PLAN.md`](PLAN.md) §1.3 and restated in
-[README.md](README.md)):
+[README.md](../../../tfind/README.md)):
 
 * **`-H` / `-P`** — the default is `-P`; wontfix, nothing to assert.
 * **`-regex`, `-path`, `-size`, `-mtime`, `-empty`, the boolean operators and
@@ -292,7 +292,7 @@ Class `tool-behaviour`, basis **F6**, §1.2 throughout.
 ### B. F6 — symlinks: `-L` vs the default `-P` (3)
 
 A second gate (`kt_symlinks_supported` / `kt_make_symlink` from
-[`../tdirectory/tests/symlink_helper.sh`](../tdirectory/tests/symlink_helper.sh)
+[`../tdirectory/tests/symlink_helper.sh`](../../../tdirectory/tests/symlink_helper.sh)
 — **C19**): plain `ln -s` runs in COPY mode on MSYS and would silently make a
 directory copy. Class `tool-behaviour`, basis **F6**.
 
@@ -473,7 +473,7 @@ ours at all. Class `contract`, basis §1.2 of the kcl README.
 ## 007_Bench.sh — the PLAN §5 P1 performance gate (P1) — 10 cases
 
 Class `perf` throughout (except the banner gate). **Two sets of numbers on
-purpose**: [`../bench.sh`](bench.sh) measures the real **1.5×** gate by hand on
+purpose**: [`../bench.sh`](../../../tfind/bench.sh) measures the real **1.5×** gate by hand on
 an idle box from the medians of 21 interleaved runs; this file asserts the same
 shapes with a **10×** ceiling, because ktests runs test files threaded (8
 workers) and the two sides of the ratio do not inflate together — `find` is its

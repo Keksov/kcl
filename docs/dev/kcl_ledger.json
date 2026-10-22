@@ -393,7 +393,7 @@
                "what" : "`[[ -n \"$TMPDIR\" ]]` without `:-` — an unbound TMPDIR killed the member under `set -u`, which the P1 contract test missed because it only exercised the parsers."
             },
             {
-               "where" : "docs/review-2026-09-06/repro/g6/probe_tdir.sh",
+               "where" : "docs/dev/review-2026-09-06/repro/g6/probe_tdir.sh",
                "fix" : "not fixed, recorded",
                "id" : "P3-F3",
                "test" : "n/a",

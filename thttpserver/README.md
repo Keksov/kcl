@@ -12,10 +12,10 @@
 > (2026-09-30, F1–F6) fixed nested route-object dispatch, a duplicate `Host`,
 > `gone` counting toward `MaxRequests`, the HEAD flag of a failed request, a
 > consumed empty request line, and deduplicated the transport's slot code (§7). What the tests pin, member by
-> member: **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
-> [PLAN.md](PLAN.md) (§1.1 the measured facts, §2 the design and the owner
+> member: **[TEST_COVERAGE_NOTES.md](../docs/dev/thttpserver/TEST_COVERAGE_NOTES.md)**. Design record:
+> [PLAN.md](../docs/dev/thttpserver/PLAN.md) (§1.1 the measured facts, §2 the design and the owner
 > decisions D1–D9, §8 the critic pass) and
-> [thttpserver_ledger.json](thttpserver_ledger.json).
+> [thttpserver_ledger.json](../docs/dev/thttpserver/thttpserver_ledger.json).
 
 A **kcl addition with its own names** (D1): there is no FPC/Delphi source. FPC
 fcl-web (`fphttpserver.pp`, `httpdefs.pp`, `httproute.pp`, `fphttpapp.pp`) is a
@@ -759,7 +759,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/thttpserve
 **533 checks, green on bash 5.2.37 and bash 5.3.9**, threaded (twice each) and
 under `--mode single` (5.2.37), the socket files run on both (GNU netcat); in
 the Linux lab VMs they run on socat (L2.7-N2). Case by case:
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+[TEST_COVERAGE_NOTES.md](../docs/dev/thttpserver/TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | transport |
 |---|---|---|---|

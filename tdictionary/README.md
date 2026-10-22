@@ -14,7 +14,7 @@ NUL is impossible in bash). Keys compare as exact byte strings.
 
 Upstream API reference (per-member Pascal signatures + mapping):
 [docs/TDictionary.md](docs/TDictionary.md). Plan and scoping rationale:
-[PLAN.md](PLAN.md). Status ledger: `tdictionary_ledger.json`.
+[PLAN.md](../docs/dev/tdictionary/PLAN.md). Status ledger: `tdictionary_ledger.json`.
 
 ## Quickstart
 
@@ -200,6 +200,6 @@ aliases, `TPair.Create`, NUL bytes in keys/values.
 
 - `tests/tests.sh` — 130 checks (001–013), green on bash 5.2.37 and 5.3.9;
   FPC-seeded from `packages/rtl-generics/tests/tests.generics.dictionary*.pas`.
-  Non-FPC cases are logged in [TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+  Non-FPC cases are logged in [TEST_COVERAGE_NOTES.md](../docs/dev/tdictionary/TEST_COVERAGE_NOTES.md).
 - `bench.sh` — per-op latency, O(1) scaling proof (1k vs 10k pairs),
   zero-fork check, `tlist.Add` reference point.

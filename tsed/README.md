@@ -12,9 +12,9 @@
 > (5.2.37) under `--mode single`, against **GNU sed 4.9** (5.2.37 resolves Git
 > for Windows' `sed.exe`, 5.3.9 msys64's; both 4.9, byte-identical in every
 > probe). What the tests pin, case by case:
-> **[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md)**. Design record:
-> [PLAN.md](PLAN.md) (§2.0 holds the six owner decisions Q1–Q6, §8 the critic
-> pass) and [tsed_ledger.json](tsed_ledger.json). The base:
+> **[TEST_COVERAGE_NOTES.md](../docs/dev/tsed/TEST_COVERAGE_NOTES.md)**. Design record:
+> [PLAN.md](../docs/dev/tsed/PLAN.md) (§2.0 holds the six owner decisions Q1–Q6, §8 the critic
+> pass) and [tsed_ledger.json](../docs/dev/tsed/tsed_ledger.json). The base:
 > [`../tutil/README.md`](../tutil/README.md); the siblings:
 > [`../tgrep`](../tgrep/README.md), [`../thead`](../thead/README.md),
 > [`../ttail`](../ttail/README.md), [`../tfind`](../tfind/README.md).
@@ -33,7 +33,7 @@
 > **data, never sed syntax** — `addReplace FROM TO [FLAGS]`, the statics
 > `TSed.replace` / `TSed.replaceInFile`, and the escapers `TSed.quoteRe` /
 > `TSed.quoteRepl` (§7, §7a). Design and decisions:
-> [`../tutil/HELPERS_PLAN.md`](../tutil/HELPERS_PLAN.md) §2 and §5; tests:
+> [`../tutil/HELPERS_PLAN.md`](../docs/dev/tutil/HELPERS_PLAN.md) §2 and §5; tests:
 > `tests/008_Helpers.sh` (§9).
 
 `TSed` is a [`TUtil`](../tutil/README.md) descendant: typed properties instead
@@ -508,7 +508,7 @@ TSed.replaceInFile 'v1.2' 'v1.3' a.txt b.txt    # in place, CRLF kept, no backup
 
 sed's `s///` takes **syntax**: a `.`, `*` or `/` in the text, an `&` or `\1` in
 the replacement, and sed silently does something else. These members take
-**data** and do the escaping ([HELPERS_PLAN](../tutil/HELPERS_PLAN.md) §2):
+**data** and do the escaping ([HELPERS_PLAN](../docs/dev/tutil/HELPERS_PLAN.md) §2):
 
 ```bash
 TSed.new s '' cfg.ini
@@ -615,7 +615,7 @@ PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tsed/tests
 **402 checks, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
 mode and (5.2.37) under `--mode single`, against GNU sed 4.9 (315 before H1;
 `008_Helpers.sh` adds 87). Case by case:
-[TEST_COVERAGE_NOTES.md](TEST_COVERAGE_NOTES.md).
+[TEST_COVERAGE_NOTES.md](../docs/dev/tsed/TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | runs sed? |
 |---|---|---|---|
@@ -660,7 +660,7 @@ the machine idle, against **GNU sed 4.9**:
 
 Reading the table:
 
-- **The gate is the four `TSed.edit` / baseline rows** ([PLAN.md](PLAN.md) §5
+- **The gate is the four `TSed.edit` / baseline rows** ([PLAN.md](../docs/dev/tsed/PLAN.md) §5
   P1): at most **1.5×** a bare `sed --sandbox -e … --` on the same file. Both
   shapes pass on both bashes. A second 5.2.37 run read **1.14×** and **1.18×** —
   the medians moved by two points while the means moved by up to 17 ms.
@@ -685,7 +685,7 @@ Reading the table:
   medians ran up to 2.2× them, and the **worst single pairing** inside these very
   samples read **8.5–12.3×**. tfind's planning pass saw the same effect at
   1.64× on code whose interleaved medians were 1.13–1.16×
-  ([`../tfind/PLAN.md`](../tfind/PLAN.md) §8, finding 17). A one-shot comparison,
+  ([`../tfind/PLAN.md`](../docs/dev/tfind/PLAN.md) §8, finding 17). A one-shot comparison,
   or a non-interleaved loop, can therefore fail a 1.5× gate on code that is fine
   — so the two sides are timed one-of-each per iteration and the ratio is taken
   between medians. `bench.sh` prints the mean beside every median and the worst
