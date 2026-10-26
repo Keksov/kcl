@@ -460,7 +460,7 @@ keep their own concerns and totals:
    the section 2 table; its README, TEST_COVERAGE_NOTES and ledger.
 5. A unit outside `kcl/` (your own project) uses the user header with
    `KBOOL_HOME` instead and a `unitpath` entry in its project file — see the
-   [kbool README](../README.md#units).
+   [kbool reference](../docs/reference.md#units).
 
 ---
 
