@@ -88,8 +88,8 @@ ledger.
 | 8 fork-free routing (four-part proof) | 4 | C21 |
 | 9 route params percent-decoded with path rules; `%2F`, `%00` → 400, route object | 22 | R1 |
 | 10 review F1: nested route-object dispatch — two and three levels (each its own instance and fields, deleted innermost first), no level left behind, a stale nested-level object, a dispatch under a function route; the router refuses a request whose parse ended in a status | 6 | F1, F4 |
-| **004_Server** | **50** | |
-| 0 over replay: ServeOne codes and captures, OnLog format, 500 + OnRequestError, a handler that sent, HEAD, parser statuses, `gone`, precedence, Serve/Active/MaxRequests/Terminate, a `gone` connection not counted (MaxRequests 2 with gone + 3 queued; ServeOne gone +0 / 400 +1), a failed HEAD (400, 501) bodyless with ISHEAD from `Method` and the log naming it, a consumed empty line → 400 through a `TReplayTransport` descendant, traps, TERM from a handler, a descendant server (`inherited HandleRequest "$@"`, protected `_log`), the owned transport, BeginServe refusals, delete | 28 | F22 (server half), C11, review F3–F5 |
+| **004_Server** | **51** | |
+| 0 over replay: ServeOne codes and captures, OnLog format, 500 + OnRequestError, a handler that sent, HEAD, parser statuses, `gone`, precedence, Serve/Active/MaxRequests/Terminate, a `gone` connection not counted (MaxRequests 2 with gone + 3 queued; ServeOne gone +0 / 400 +1), a failed HEAD (400, 501) bodyless with ISHEAD from `Method` and the log naming it, a consumed empty line → 400 through a `TReplayTransport` descendant, traps, TERM from a handler, a descendant server (`inherited HandleRequest "$@"`, protected `_log`), the owned transport, BeginServe refusals, delete, a listener that ignores TERM stopped by `Shutdown` in time (L2.8-a) | 29 | F22 (server half), C11, review F3–F5, L2.8-a |
 | 1 real sockets: idle ticks with the same listener, state in the server shell, bytes both ways, HEAD/405, 404/500, hostile data on the wire, 50 kB ×5 and to EOF, a client that leaves, 408, D5 (client 2 in the pre-spawned listener), 8 parallel clients handled exactly once, the access log, Terminate from OnAcceptIdle | 17 | F1–F3, F6–F9, F13, F16, D5 |
 | 2 busy port → rc 1, the bind line, nothing left | 1 | F4 |
 | 3 no usable nc (missing, not on PATH, bad interpreter, an nc that exits) → rc 1 at once, spawned once | 4 | F5, C6 |
@@ -163,6 +163,15 @@ ledger.
 
 ## 3. Known, deliberate gaps
 
+* **Stopping a listener that ignores signals** (`ths._stopPid`, L2.8-a).
+  Under Git-bash on msys 3.6.10 the MSYS2 `nc.exe` (another msys runtime) is a
+  job that `kill -TERM`/`-KILL` cannot end; only `/usr/bin/kill -f -9` does.
+  The TERM → KILL steps are pinned on EVERY platform by the 004 §0 case with a
+  fake listener that traps TERM away (`deafnc`, Shutdown < 1.5 s). The third
+  step (`kill -f -9`) is reached only by 005 §4 (`Shutdown`, ceiling 1.5 s)
+  under Git-bash 5.3.15 with the MSYS2 nc, and by 004 §2 (the blocker nc is
+  stopped by `ths._stopPid`, else a 170 s `wait`); Linux/BSD and MSYS2's own
+  bash never reach it, so no case reaches it there.
 * **INT is not sent to a server.** A `&` child has INT ignored and cannot trap
   it; the tests signal with TERM, which goes through the same trap code
   (`__THS_SIGNAL=INT|TERM`). 004 §0 and 006 §1 check that TERM is the

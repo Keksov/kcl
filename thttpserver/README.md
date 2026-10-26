@@ -5,7 +5,7 @@
 > `THttpRouter`), the transport seam (`THttpTransport`, `TReplayTransport`,
 > `TNetcatTransport`, `TSocatTransport`), the server (`THttpServer`) and the application
 > (`THttpApplication : TCustomApplication`) — plus two runnable examples, the
-> bench and the docs. Suite `tests/001`–`010` = **533 checks, green on bash
+> bench and the docs. Suite `tests/001`–`010` = **534 checks, green on bash
 > 5.2.37 and on bash 5.3.9**, threaded and (5.2.37) under `--mode single`, the
 > socket tests **run** (not skipped) on both — on GNU netcat under Windows,
 > on socat in the Linux lab VMs. A post-completion review
@@ -737,6 +737,10 @@ into `ServeOne` (so it fires under `App.Run` too), and made the application's
   the tests do that fallback themselves. A Git-runtime FIFO cannot be msys64
   nc's stdin (`select(core_readwrite): Bad file descriptor` on accept): the
   `cat` relay (`StdinRelay = 1`, the default) is what makes it work.
+  Under Git-bash the netcat usually comes from MSYS2 (another msys runtime);
+  msys 3.6.10 cannot signal such a child, so the transport stops a listener
+  with TERM, then KILL, then `/usr/bin/kill -f -9` (`ths._stopPid`; no fork
+  when `/dev/ptmx` opens, about 10 ms per nap, a normal stop 1-3 naps).
 * **Proxy**: `HTTP_PROXY`/`HTTPS_PROXY` are exported on this machine — use
   `curl --noproxy '*'`; the tests unset every proxy variable.
 * **Firewall**: listeners bind `127.0.0.1` by default and raised no prompt.
@@ -756,7 +760,7 @@ bash kcl/thttpserver/tests/tests.sh --mode single   # sequential
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/thttpserver/tests/tests.sh
 ```
 
-**533 checks, green on bash 5.2.37 and bash 5.3.9**, threaded (twice each) and
+**534 checks, green on bash 5.2.37 and bash 5.3.9**, threaded (twice each) and
 under `--mode single` (5.2.37), the socket files run on both (GNU netcat); in
 the Linux lab VMs they run on socat (L2.7-N2). Case by case:
 [TEST_COVERAGE_NOTES.md](../docs/dev/thttpserver/TEST_COVERAGE_NOTES.md).

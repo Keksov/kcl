@@ -211,20 +211,22 @@ bad=""
 [[ "$b" == *'< <(exec cat '* ]] || bad+=" no-cat-relay"
 [[ "$b" == *'if [[ -n "$__ths_wo" ]]; then exec {__ths_wo}>&-; fi'*'if [[ -n "$__ths_ro" ]]; then exec {__ths_ro}<&-; fi'*'exec "${ths_argv[@]}"'* ]] || bad+=" child-keeps-other-slot"
 [[ "$a" == *'-l -c -vv -n -w'* ]] || bad+=" argv"
-if grep -n '<>' "$UNIT" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then bad+=" <>-somewhere"; fi
+if grep -n '<>' "$UNIT" | grep -v '^[0-9]*:[[:space:]]*#' | grep -v '/dev/ptmx' >/dev/null; then bad+=" <>-somewhere"; fi
 if [[ -z "$bad" ]]; then kt_test_pass "as measured"; else kt_test_fail "$bad"; fi
 
-kt_test_start "the drained close (C2): wr closed, rd drained to EOF under CloseTimeout, rd closed, kill ONLY past the deadline, every kill/wait silenced"
+kt_test_start "the drained close (C2): wr closed, rd drained to EOF under CloseTimeout, rd closed, kill (ths._stopPid) ONLY past the deadline, every kill/wait silenced"
 b="$(sed -n '/^TNetcatTransport._closeSlot()/,/^}/p' "$UNIT")"
 s="$(sed -n '/^TNetcatTransport.Shutdown()/,/^}/p' "$UNIT")"
 bad=""
-iw="${b%%'exec {__ths_wr}>&-'*}"; ir="${b%%'exec {__ths_rd}<&-'*}"; ik="${b%%kill -TERM*}"; iwt="${b%%'wait "$__ths_pid"'*}"
+iw="${b%%'exec {__ths_wr}>&-'*}"; ir="${b%%'exec {__ths_rd}<&-'*}"; ik="${b%%ths._stopPid*}"; iwt="${b%%'wait "$__ths_pid"'*}"
 (( ${#iw} < ${#ir} && ${#ir} < ${#ik} && ${#ik} < ${#iwt} )) || bad+=" order"
 [[ "$b" == *'read -r -d '"''"' -n 8192 -t'* ]] || bad+=" no-drain"
-[[ "$b" == *'if (( ! __ths_eof )); then'*'kill -TERM "$__ths_pid" 2>/dev/null || :'* ]] || bad+=" kill-not-deadline-only"
+[[ "$b" == *'if (( ! __ths_eof )); then'*'ths._stopPid "$__ths_pid"'* ]] || bad+=" kill-not-deadline-only"
 [[ "$b" == *'wait "$__ths_pid" 2>/dev/null ||'* ]] || bad+=" wait-not-silenced"
-[[ "$s" == *'kill -TERM "$__ths_pid" 2>/dev/null || :'* && "$s" == *'wait "$__ths_pid" 2>/dev/null || :'* ]] || bad+=" shutdown-not-silenced"
-if [[ -z "$bad" ]]; then kt_test_pass "close wr → drain → close rd → kill past deadline → wait"; else kt_test_fail "$bad"; fi
+[[ "$s" == *'ths._stopPid "$__ths_pid"'* && "$s" == *'wait "$__ths_pid" 2>/dev/null || :'* ]] || bad+=" shutdown-not-silenced"
+sp="$(sed -n '/^ths._stopPid()/,/^}/p' "$UNIT")"
+[[ "$sp" == *'kill -TERM'*'kill -KILL'*'/usr/bin/kill -f -9'* ]] || bad+=" stopPid-no-escalation"
+if [[ -z "$bad" ]]; then kt_test_pass "close wr → drain → close rd → ths._stopPid (TERM → KILL → kill -f -9) past deadline → wait"; else kt_test_fail "$bad"; fi
 
 kt_test_start "the server never touches EXIT; traps restored as 'trap - INT TERM PIPE; eval \"\$_savedTraps\"'; the ONE fork of Serve is the trap -p capture"
 b="$(sed -n '/^THttpServer.EndServe()/,/^}/p' "$UNIT")"

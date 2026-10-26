@@ -402,6 +402,45 @@ else
     kt_test_fail "rc=$r tr='$tr' port='$p' addr='$a' after='$tr2' left=$left"
 fi
 
+kt_test_start "a listener that ignores TERM is stopped by Shutdown within the budget (L2.8-a): ths._stopPid escalates TERM → KILL (→ /usr/bin/kill -f -9 on cygwin); no 60 s wait for the listener's own end"
+dn_dir="$TMP/deaf"; rm -rf "$dn_dir"; mkdir -p "$dn_dir"
+cat > "$dn_dir/deafnc" <<'DEAF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --version ]]; then printf 'netcat (The GNU Netcat) 0.7.1\n'; exit 0; fi
+trap '' TERM
+printf 'Listening on [127.0.0.1] 47100\n' >&2
+: > "$DEAF_DIR/deafnc.ready"
+mkfifo "$DEAF_DIR/hold.$$"
+exec 9<>"$DEAF_DIR/hold.$$"
+read -r -t 20 -u 9 || :
+rm -f "$DEAF_DIR/hold.$$"
+exit 0
+DEAF
+chmod +x "$dn_dir/deafnc"
+__THS_BACKEND_KEY=""
+export DEAF_DIR="$dn_dir"
+TNetcatTransport.new DN
+DN.NcBinary = "$dn_dir/deafnc"
+DN.Port = 47100
+DN.CloseTimeout = 5
+r=0; DN.Accept 300 10 || r=$?
+dn_acc=$r
+dn_pid="${DN_data[_pid0]:-}"
+dn_tmp="${DN_data[_dir]:-}"
+ths_poll 5 test -e "$dn_dir/deafnc.ready" || :
+dn_t0=${EPOCHREALTIME//[!0-9]/}
+r=0; DN.Shutdown || r=$?
+dn_us=$(( ${EPOCHREALTIME//[!0-9]/} - dn_t0 ))
+dn_alive=0; [[ -n "$dn_pid" ]] && kill -0 "$dn_pid" 2>/dev/null && dn_alive=1
+dn_dirleft=0; [[ -n "$dn_tmp" && -e "$dn_tmp" ]] && dn_dirleft=1
+[[ "$dn_alive" == 1 ]] && kill -KILL "$dn_pid" 2>/dev/null
+DN.delete
+if [[ $dn_acc -eq 1 && -n "$dn_pid" && $r -eq 0 && $dn_us -lt 1500000 && $dn_alive -eq 0 && $dn_dirleft -eq 0 && -e "$dn_dir/deafnc.ready" ]]; then
+    kt_test_pass "Accept rc 1 (idle tick), Shutdown rc 0 in $(( dn_us / 1000 )) ms, listener $dn_pid gone, dir removed"
+else
+    kt_test_fail "accept_rc=$dn_acc pid='$dn_pid' shutdown_rc=$r shutdown_us=$dn_us alive=$dn_alive dirleft=$dn_dirleft"
+fi
+
 kt_test_start "BeginServe refuses a Transport that is not a THttpTransport instance (rc 2) and changes no trap"
 before="$(trap -p INT TERM PIPE)"
 SV.Transport = RR
@@ -693,7 +732,7 @@ else
         "${BLA[@]}" >/dev/null 2>"$TMP/blocker.err" </dev/null &
         BL=$!
         if ths_poll 30 grep -Eq "$THS_RE_BOUND" "$TMP/blocker.err"; then break; fi
-        kill "$BL" 2>/dev/null; wait "$BL" 2>/dev/null; BL=""
+        ths._stopPid "$BL"; wait "$BL" 2>/dev/null; BL=""
     done
     B_DIR="$TMP/b"; rm -rf "$B_DIR"; mkdir -p "$B_DIR/tmp"
     ths_server_script "$B_DIR/srv.sh" '
@@ -703,7 +742,7 @@ AFTER_HOOK=b_after'
     if (( THS_NC_ENV )); then export KCL_NC="$THS_NC"; fi
     UNIT="$UNIT" SRV_DIR="$B_DIR" PORT="$bport" TMPDIR="$B_DIR/tmp" timeout 180 "$BASH" "$B_DIR/srv.sh" >"$B_DIR/out" 2>"$B_DIR/err" </dev/null
     brc=$?
-    if [[ -n "$BL" ]]; then kill "$BL" 2>/dev/null; wait "$BL" 2>/dev/null; fi
+    if [[ -n "$BL" ]]; then ths._stopPid "$BL"; wait "$BL" 2>/dev/null; fi
     THS_DIR="$B_DIR"
     ths_result rc; rc="$THS_V"; ths_result le; le="$THS_V"; ths_result children; ch="$THS_V"
     left="$(ls "$B_DIR/tmp")"

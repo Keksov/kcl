@@ -88,6 +88,65 @@ ths._ncFind() {
     __THS_NCPATH="$__ths_nc"
 }
 
+# ths._stopPid PID — end the listener PID (a child of the caller) and return;
+# it only signals and polls, the caller's own `wait` reaps. Always rc 0.
+#   1. `kill -TERM`, polled with ~10 ms naps for at most 300 ms;
+#   2. still alive: `kill -KILL`, at most 100 ms more;
+#   3. still alive on cygwin / msys: `/usr/bin/kill -f -9 PID` (the cygwin
+#      kill utility, -f = through the Windows API). msys 3.6.10 cannot signal a
+#      job that is a stub for a FOREIGN-runtime exe (Git-bash running the MSYS2
+#      nc.exe): the builtin `kill -TERM`/`-KILL` return 0 and do nothing, and
+#      without step 3 the `wait` lasts until nc ends by itself at ListenerTTL
+#      (launch L2.8-a). The only fork, on that failure path only.
+# The nap (copied from tpipe._nap, not called): `read -t 0.01` on a pty master
+# that never has data, opened on the FIRST nap and closed before the return —
+# no fd survives the call (a listener must not inherit one); `sleep 0.01`
+# (a fork) only where /dev/ptmx cannot be opened. A normal stop costs about
+# 1-3 naps, because a listener is still alive right after TERM. The open is
+# `{ exec {fd}<>/dev/ptmx; } 2>/dev/null`: a bare `exec … 2>/dev/null` would
+# make the redirection permanent (see tpipe._nap).
+ths._stopPid() {
+    local __ths_sp="$1" __ths_sfd='' __ths_sx='' __ths_sr __ths_sk __ths_sdl __ths_sgone=0
+    for __ths_sk in 1 2; do
+        if (( __ths_sk == 1 )); then
+            kill -TERM "$__ths_sp" 2>/dev/null || :
+            __ths_sdl=$(( ${EPOCHREALTIME//[!0-9]/} + 300000 ))
+        else
+            kill -KILL "$__ths_sp" 2>/dev/null || :
+            __ths_sdl=$(( ${EPOCHREALTIME//[!0-9]/} + 100000 ))
+        fi
+        while :; do
+            if ! kill -0 "$__ths_sp" 2>/dev/null; then
+                __ths_sgone=1
+                break 2
+            fi
+            if (( ${EPOCHREALTIME//[!0-9]/} >= __ths_sdl )); then
+                break
+            fi
+            if [[ -z "$__ths_sfd" ]]; then
+                __ths_sfd=-
+                if [[ -c /dev/ptmx ]]; then
+                    { exec {__ths_sfd}<>/dev/ptmx; } 2>/dev/null || __ths_sfd=-
+                fi
+            fi
+            __ths_sr=0
+            if [[ "$__ths_sfd" != - ]]; then
+                read -r -t 0.01 -u "$__ths_sfd" __ths_sx 2>/dev/null || __ths_sr=$?
+            fi
+            if [[ "$__ths_sfd" == - ]] || (( __ths_sr <= 128 )); then
+                sleep 0.01 2>/dev/null || :
+            fi
+        done
+    done
+    if [[ -n "$__ths_sfd" && "$__ths_sfd" != - ]]; then
+        exec {__ths_sfd}<&-
+    fi
+    if (( ! __ths_sgone )) && [[ "$OSTYPE" == cygwin || "$OSTYPE" == msys ]] && [[ -x /usr/bin/kill ]]; then
+        /usr/bin/kill -f -9 "$__ths_sp" >/dev/null 2>&1 || :
+    fi
+    return 0
+}
+
 # ths._backend [NCBIN] [SOCATBIN] — choose the network backend (L2.7-N1,
 # L2.7-N2): sets __THS_BACKEND to gnu | socat | missing | none,
 # __THS_BACKEND_BIN to the chosen binary's resolved path (the refused nc /
@@ -680,7 +739,7 @@ TNetcatTransport._closeSlot() {
     fi
     if [[ -n "$__ths_pid" ]]; then
         if (( ! __ths_eof )); then
-            kill -TERM "$__ths_pid" 2>/dev/null || :
+            ths._stopPid "$__ths_pid"
         fi
         wait "$__ths_pid" 2>/dev/null || :
     fi
@@ -953,7 +1012,7 @@ TNetcatTransport.Shutdown() {
         fi
         __ths_pid="$__ths_pidS"
         if [[ -n "$__ths_pid" ]]; then
-            kill -TERM "$__ths_pid" 2>/dev/null || :
+            ths._stopPid "$__ths_pid"
             wait "$__ths_pid" 2>/dev/null || :
         fi
         __ths_rdS=""
