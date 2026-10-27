@@ -89,7 +89,7 @@ bash 5.2/5.3 — that is the mechanism behind G6-01. Use `"$__TPATH_BS"`
 | `hasExtension p` | rc + `true`/`false` | of the file name |
 | `getPathRoot p` | root, input characters preserved | FPC `ExtractFileDrive` + the POSIX root: `//server/share`, `C:`, `/`, or `""` |
 | `isPathRooted p` / `isRelativePath p` | rc + `true`/`false` | rooted = leading separator or `X:` |
-| `getFullPath p` | absolute, normalised | `realpath -m` — components need **not** exist |
+| `getFullPath p` | absolute, normalised | `realpath -m`, else `readlink -m`, else a lexical normaliser (busybox, BSD: `..` and `.` collapse, symlinks are not resolved — so with a symlink in the path the answer differs by platform) — components need **not** exist |
 | `isUNCPath p` / `isUNCRooted p` | rc + `true`/`false` | two leading separators of either kind |
 | `isDriveRooted p` | rc + `true`/`false` | `X:` prefix |
 | `isExtendedPrefixed p` | rc + `true`/`false` | `//?/…` |

@@ -91,7 +91,7 @@ getFileSystemEntries … same shape
 | `setAttributes p '[fa…]'` | — | `faReadOnly` → `chmod a-w`, anything else → `chmod u+w` |
 | `getCreationTime[Utc] d` | `YYYY-MM-DD HH:MM:SS` | `stat %W`, falling back to `%Y` |
 | `getLastAccessTime[Utc] d` / `getLastWriteTime[Utc] d` | same | `%X` / `%Y` |
-| `setLastAccessTime[Utc] d v` / `setLastWriteTime[Utc] d v` | — | `v` = epoch seconds or a date string; the `Utc` form reads a STRING as UTC. `touch -d @epoch`, so a value round-trips exactly |
+| `setLastAccessTime[Utc] d v` / `setLastWriteTime[Utc] d v` | — | `v` = epoch seconds or a date string (`YYYY-MM-DD HH:MM:SS` everywhere; other forms only where `date -d` parses them: GNU, busybox); the `Utc` form reads a STRING as UTC. `touch -t` under `TZ=UTC0`, so a value round-trips exactly |
 | `setCreationTime[Utc] d v` | — | **rc 1** — not settable here (the old body silently set the WRITE time) |
 
 Per-member upstream reference (and the map of what is *not* ported):

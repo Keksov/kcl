@@ -476,10 +476,10 @@ tfile.setAttributes() {
 # ---- timestamps -----------------------------------------------------------
 # All six getters go through tpath._statTime (%W falls back to %Y when the
 # filesystem has no birth time - G6-26); the four settable ones go through
-# tpath._touchTime, which uses `touch -d @epoch` so a *Utc value is stored as
-# the instant it names (G6-08). Creation time is NOT settable: POSIX has no
-# API and Windows' is not reachable through touch, so it answers rc 1 the way
-# .NET does on Unix (R13).
+# tpath._touchTime, which uses `touch -t` under TZ=UTC0 so a *Utc value is
+# stored as the instant it names (G6-08, launch L3.5-1). Creation time is NOT
+# settable: POSIX has no API and Windows' is not reachable through touch, so
+# it answers rc 1 the way .NET does on Unix (R13).
 
 tfile._getTime() {   # STAT-FIELD UTC PATH
     local __tp_r

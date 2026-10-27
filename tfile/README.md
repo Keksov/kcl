@@ -89,7 +89,7 @@ nothing is written.
 | `setAttributes f '[fa…]'` | — | `faReadOnly` → `chmod a-w`, anything else → `chmod u+w` |
 | `getCreationTime[Utc] f` | `YYYY-MM-DD HH:MM:SS` | `stat %W`, falling back to `%Y` when the filesystem has no birth time |
 | `getLastAccessTime[Utc] f` / `getLastWriteTime[Utc] f` | same | `%X` / `%Y` |
-| `setLastAccessTime[Utc] f v` / `setLastWriteTime[Utc] f v` | — | `v` = epoch seconds or a date string; the `Utc` form reads a STRING as UTC. Implemented with `touch -d @epoch`, so a value round-trips exactly |
+| `setLastAccessTime[Utc] f v` / `setLastWriteTime[Utc] f v` | — | `v` = epoch seconds or a date string (`YYYY-MM-DD HH:MM:SS` everywhere; other forms only where `date -d` parses them: GNU, busybox); the `Utc` form reads a STRING as UTC. Implemented with `touch -t` under `TZ=UTC0`, so a value round-trips exactly |
 | `setCreationTime[Utc] f v` | — | **rc 1** — a creation time cannot be set here, exactly as .NET's `File.SetCreationTime` on Unix |
 | `createSymLink link target` | rc + `true`/`false` | needs a native symlink (Developer Mode or an elevated shell); a missing target, a missing link directory or an **occupied** link path is `false` + rc 1 (an existing path is never overwritten and never removed) |
 | `getSymLinkTarget link` | the stored target | rc 1 for a non-link; a BROKEN link still answers |

@@ -375,44 +375,103 @@ tpath._badOutName() {
 
 # ---- shared filesystem helpers (R13; used by tfile and tdirectory) --------
 
-# -> __tp_r = "YYYY-MM-DD HH:MM:SS" of stat format $2 for path $1.
-# $3 == "true" formats in UTC. %W (birth time) falls back to %Y when the
-# filesystem answers -1 (G6-26). rc 1 = no such path / no such timestamp.
+# The stat flavour (launch L3.5-1 R1), probed lazily once per process - no
+# fork at source time: gnu = `stat -c FMT` (GNU coreutils, busybox), bsd =
+# `stat -f FMT` (FreeBSD, macOS), none = neither works. The cache does not
+# survive `$( )`: a getter called in a command substitution probes once per
+# subshell; a direct call (the RESULT mode) probes once for the whole shell.
+__TP_STAT=''   # '' unknown | gnu | bsd | none
+
+# rc 0 and __TP_STAT set when a usable stat exists; rc 1 (none) otherwise.
+tpath._statFlavour() {
+    if stat -c %Y -- / >/dev/null 2>&1; then
+        __TP_STAT=gnu
+    elif stat -f %m -- / >/dev/null 2>&1; then
+        __TP_STAT=bsd
+    else
+        __TP_STAT=none
+        return 1
+    fi
+    return 0
+}
+
+# -> __tp_e = the GNU `stat -c %LETTER` value of path $2, on either flavour.
+# LETTER: X (access), Y (write), W (birth), a (octal mode). $3 == L adds -L
+# (follow a symlink; both flavours accept it). rc 1 = stat failed.
+tpath._stat() {
+    local __tp_sf __tp_sm
+    if [[ -z "$__TP_STAT" ]]; then
+        tpath._statFlavour || return 1
+    fi
+    case "$__TP_STAT:$1" in
+        gnu:[XYWa]) __tp_sf=-c; __tp_sm="%$1" ;;
+        bsd:X) __tp_sf=-f; __tp_sm=%a ;;
+        bsd:Y) __tp_sf=-f; __tp_sm=%m ;;
+        bsd:W) __tp_sf=-f; __tp_sm=%B ;;
+        bsd:a) __tp_sf=-f; __tp_sm=%Lp ;;
+        *) return 1 ;;
+    esac
+    if [[ "${3:-}" == "L" ]]; then
+        __tp_e=$(stat -L "$__tp_sf" "$__tp_sm" -- "$2" 2>/dev/null) || return 1
+    else
+        __tp_e=$(stat "$__tp_sf" "$__tp_sm" -- "$2" 2>/dev/null) || return 1
+    fi
+    return 0
+}
+
+# -> __tp_r = "YYYY-MM-DD HH:MM:SS" of stat format $2 (%X, %Y or %W) for path
+# $1. $3 == "true" formats in UTC. rc 1 = no such path / no such timestamp.
+# The formatting is the printf builtin (no `date` fork); a temporary TZ=UTC0
+# does not stick to the shell. printf reads the epochs -1 and -2 as "now" and
+# "shell start": those two seconds are built from their minute (-60) in UTC,
+# and in local time come from `date -d @E` (GNU, busybox) / `date -r E` (BSD),
+# else (busybox has no -1) from their local minute too - exact unless the
+# zone's 1969 offset has seconds (e.g. Africa/Monrovia, -0:44:30).
 tpath._statTime() {
-    local __tp_p="$1" __tp_f="$2" __tp_utc="${3:-false}" __tp_e
+    local __tp_p="$1" __tp_f="${2#%}" __tp_utc="${3:-false}" __tp_e
     __tp_r=""
     # No `[[ -e ]]` probe first: `stat` already fails for a missing path, and
     # on NTFS an ACCESS-time read is destroyed by the extra access — Windows
     # rewrites a stored access time that is far in the past on the next
     # access, so the probe made getLastAccessTime answer "now" instead of the
     # value the setter had just stored. One syscall, one answer.
-    __tp_e=$(stat -c "$__tp_f" -- "$__tp_p" 2>/dev/null) || return 1
-    if [[ "$__tp_f" == "%W" && "$__tp_e" == "-1" ]]; then
-        __tp_e=$(stat -c "%Y" -- "$__tp_p" 2>/dev/null) || return 1
+    tpath._stat "$__tp_f" "$__tp_p" || return 1
+    # No birth time falls back to the write time: cygwin answers -1 (G6-26),
+    # GNU 0, busybox the letter `W`, BSD 0 or -1 (launch L3.5-b C2).
+    if [[ "$__tp_f" == "W" && ! "$__tp_e" =~ ^[1-9][0-9]*$ ]]; then
+        tpath._stat Y "$__tp_p" || return 1
     fi
     if [[ ! "$__tp_e" =~ ^-?[0-9]+$ ]]; then
         return 1
     fi
-    if [[ "$__tp_utc" == "true" ]]; then
-        __tp_r=$(date -u -d "@$__tp_e" "+%Y-%m-%d %H:%M:%S" 2>/dev/null) || return 1
+    if [[ "$__tp_e" == -[12] ]]; then
+        if [[ "$__tp_utc" == "true" ]]; then
+            TZ=UTC0 printf -v __tp_r '%(%Y-%m-%d %H:%M)T:%02d' -60 $(( 60 + __tp_e ))
+        else
+            __tp_r=$(date -d "@$__tp_e" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)                 || __tp_r=$(date -r "$__tp_e" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)                 || printf -v __tp_r '%(%Y-%m-%d %H:%M)T:%02d' -60 $(( 60 + __tp_e ))
+        fi
+    elif [[ "$__tp_utc" == "true" ]]; then
+        TZ=UTC0 printf -v __tp_r '%(%Y-%m-%d %H:%M:%S)T' "$__tp_e"
     else
-        __tp_r=$(date -d "@$__tp_e" "+%Y-%m-%d %H:%M:%S" 2>/dev/null) || return 1
+        printf -v __tp_r '%(%Y-%m-%d %H:%M:%S)T' "$__tp_e"
     fi
     return 0
 }
 
 # Set a timestamp of $1. $2 = epoch seconds or a date string, $3 = touch flag
 # (-a or -m), $4 == "true" reads a date STRING as UTC (an epoch is absolute
-# and never shifts).
+# and never shifts). A date string is `YYYY-MM-DD HH:MM:SS` everywhere; other
+# forms only where `date -d` parses them (GNU, busybox; BSD has `date -j -f`).
 #
 # G6-08: the old code went through `date +%Y%m%d%H%M.%S` and `touch -t`, and
 # `touch -t` reads LOCAL time - so every *Utc setter stored a value shifted by
 # the local offset (three hours on this box). Everything now goes through an
-# EPOCH and `touch -d @epoch`, which is absolute, so set/get round-trips
-# exactly in both zones.
+# EPOCH, formatted as a UTC stamp and given to `touch -t` under TZ=UTC0
+# (POSIX; `touch -d @epoch` is GNU only), so set/get round-trips exactly in
+# both zones (launch L3.5-1 R3).
 tpath._touchTime() {
     local __tp_p="$1" __tp_v="${2:-}" __tp_flag="${3:-}" __tp_utc="${4:-false}"
-    local __tp_e __tp_touch
+    local __tp_e __tp_touch __tp_st
     if [[ ! -e "$__tp_p" && ! -L "$__tp_p" ]]; then
         return 1
     fi
@@ -422,11 +481,22 @@ tpath._touchTime() {
     if [[ "$__tp_v" =~ ^[0-9]+$ ]]; then
         __tp_e="$__tp_v"
     elif [[ "$__tp_utc" == "true" ]]; then
-        __tp_e=$(date -u -d "$__tp_v" +%s 2>/dev/null) || return 1
+        __tp_e=$(date -u -d "$__tp_v" +%s 2>/dev/null) \
+            || __tp_e=$(date -u -j -f '%Y-%m-%d %H:%M:%S' "$__tp_v" +%s 2>/dev/null) \
+            || return 1
     else
-        __tp_e=$(date -d "$__tp_v" +%s 2>/dev/null) || return 1
+        __tp_e=$(date -d "$__tp_v" +%s 2>/dev/null) \
+            || __tp_e=$(date -j -f '%Y-%m-%d %H:%M:%S' "$__tp_v" +%s 2>/dev/null) \
+            || return 1
     fi
-    if [[ ! "$__tp_e" =~ ^-?[0-9]+$ ]]; then
+    # Decimal, also with leading zeros (`0100` is 100, `08` is 8, not octal);
+    # at most 12 digits, and a UTC year 1000..9999, the range `touch -t`
+    # can express.
+    if [[ ! "$__tp_e" =~ ^(-?)0*([0-9]{1,12})$ ]]; then
+        return 1
+    fi
+    __tp_e=$(( ${BASH_REMATCH[1]}10#${BASH_REMATCH[2]} ))
+    if (( __tp_e < -30610224000 || __tp_e > 253402300799 )); then
         return 1
     fi
     # Prefer POSIX/GNU touch over a vendor touch.exe earlier in PATH.
@@ -434,7 +504,13 @@ tpath._touchTime() {
     if [[ ! -x "$__tp_touch" ]]; then
         __tp_touch="$(command -v touch 2>/dev/null)" || return 1
     fi
-    "$__tp_touch" "$__tp_flag" -d "@$__tp_e" -- "$__tp_p" 2>/dev/null
+    # -1 and -2 are "now" and "shell start" to printf: from their minute.
+    if [[ "$__tp_e" == -[12] ]]; then
+        TZ=UTC0 printf -v __tp_st '%(%Y%m%d%H%M)T.%02d' -60 $(( 60 + __tp_e )) || return 1
+    else
+        TZ=UTC0 printf -v __tp_st '%(%Y%m%d%H%M.%S)T' "$__tp_e" || return 1
+    fi
+    TZ=UTC0 "$__tp_touch" "$__tp_flag" -t "$__tp_st" -- "$__tp_p" 2>/dev/null
 }
 
 # Apply an FPC attribute token list to $1 with chmod. faReadOnly is the only
@@ -457,16 +533,17 @@ tpath._chmodAttrs() {
 #    follow_link == "true" branch, where the old code had it backwards
 #    (G6-14). rc 1 = no such path.
 tpath._attrs() {
-    local __tp_p="$1" __tp_follow="${2:-true}" __tp_mode __tp_name
+    local __tp_p="$1" __tp_follow="${2:-true}" __tp_mode __tp_name __tp_e
     __tp_r=""
     if [[ -z "$__tp_p" ]]; then
         return 1
     fi
     if [[ "$__tp_follow" == "false" ]]; then
-        __tp_mode="$(stat -c "%a" -- "$__tp_p" 2>/dev/null)" || return 1
+        tpath._stat a "$__tp_p" || return 1
     else
-        __tp_mode="$(stat -L -c "%a" -- "$__tp_p" 2>/dev/null)" || return 1
+        tpath._stat a "$__tp_p" L || return 1
     fi
+    __tp_mode="$__tp_e"
     if [[ -z "$__tp_mode" ]]; then
         return 1
     fi
@@ -496,6 +573,25 @@ tpath._attrs() {
         __tp_r="${__tp_r},faSystem"
     fi
     return 0
+}
+
+# -> __tp_r = the absolute path $1 (starts with `/`) normalised lexically:
+# empty and `.` components dropped, `..` pops one (never above `/`), no
+# trailing `/`. Symlinks are not resolved (bash only, no fork).
+tpath._normPath() {
+    local __tp_rest="${1#/}" __tp_c IFS=/
+    local -a __tp_st=()
+    while :; do
+        __tp_c="${__tp_rest%%/*}"
+        case "$__tp_c" in
+            ""|.) ;;
+            ..) if (( ${#__tp_st[@]} )); then unset '__tp_st[-1]'; fi ;;
+            *) __tp_st+=("$__tp_c") ;;
+        esac
+        [[ "$__tp_rest" == */* ]] || break
+        __tp_rest="${__tp_rest#*/}"
+    done
+    __tp_r="/${__tp_st[*]}"
 }
 
 # ===========================================================================
@@ -697,11 +793,20 @@ tpath.getFullPath() {
             return 0
         fi
     fi
+    # Neither has -m (busybox, BSD): a lexical normaliser (launch L3.5-1 R5).
+    # It does not resolve symlinks, so with a symlink in the path this answer
+    # differs from GNU's. A drive-rooted or UNC path is answered as given.
     if tpath._rooted "$path"; then
-        tpath._ret "$path"
+        full="$path"
     else
-        tpath._ret "$PWD/$path"
+        full="$PWD/$path"
     fi
+    if [[ "$full" == /* ]] && ! tpath._unc "$full"; then
+        local __tp_r
+        tpath._normPath "$full"
+        full="$__tp_r"
+    fi
+    tpath._ret "$full"
 }
 
 # ---- path type detection --------------------------------------------------
