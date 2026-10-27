@@ -1,11 +1,12 @@
 # tpipe — test coverage notes
 
-**Status: updated at launch L2.7-P (DL13, the tree stop — `006`, 2026-10-22);
-previously at P3 (D6 final, 2026-09-15) and FINALIZED at P2 (2026-09-11).**
-Suite `001`–`006` = **205 cases**, green on bash 5.2.37 (primary) and on bash
+**Status: updated at launch L3.5-8 (the status pipe — `007`, 2026-10-27);
+previously at L2.7-P (DL13, the tree stop — `006`, 2026-10-22), at P3 (D6
+final, 2026-09-15) and FINALIZED at P2 (2026-09-11).**
+Suite `001`–`007` = **229 cases**, green on bash 5.2.37 (primary) and on bash
 5.3.9 (secondary), in the default threaded mode and under `--mode single`. The
-per-file counts below sum to 205 — 44 + 13 + 68 + 59 + 6 + 15 — and **every
-case in the suite has a row**. (The P2
+per-file counts below sum to 229 — 44 + 13 + 68 + 59 + 6 + 15 + 24 — and
+**every case in the suite has a row**. (The P2
 edition of this page carried 165 with `004` written down as 41; the file was
 already 47 cases then, because `004`'s `check_rc2` / `expect_clean` helpers each
 raise a case of their own. The counts here are now the runner's.)
@@ -411,6 +412,47 @@ measurements are in the "tree stop" block of `tpipe.sh`.
 | 006.pt-linux | first | the full-table `linux` backend (`__TPIPE_PT=linux`: every `/proc/PID/stat`) stops the tree too; N/A where the children files are missing (off Linux, or the full table is the default there anyway) | cross-check | `linuxc` is the default where the kernel has `/proc/PID/task/TID/children`; this keeps the fallback run |
 | 006.pt-ps | first | the `ps` backend (`__TPIPE_PT=ps`) stops the tree too; N/A where `ps -A -o pid= -o ppid=` does not work (cygwin) | cross-check | the FreeBSD/macOS path, driven on every platform that has a POSIX `ps` |
 | 006.pt-none | first | no process table (`__TPIPE_PT=none`): the producer alone is TERMed (`lastRc` 143), its descendants live — the documented fallback | boundary | the pre-DL13 behaviour, kept where nothing better is possible |
+
+## 007_StatusPipe.sh — the status pipe (launch L3.5-8) — 24 cases
+
+Bash on Linux can lose the status of a fast process substitution (`wait $!`
+answers 127 "not a child" on 5.3.9, a silent -1 on 5.2.37; measured
+0.03–0.3 % of the calls under load, plain bash). A function or builtin producer
+therefore reports its own status through a per-process pipe (README §4,
+`__TPIPE_ST` in `tpipe.sh`). The race itself is load-dependent and is proven by
+the repro of the L3.5-8 report (0 in 400000 after, per bash). These cases pin
+the mechanism deterministically: a `wait` **function** reaps with
+`builtin wait` and then answers like bash after the race (127 plus the "not a
+child" line). Every case after the first passes as **N/A** off Linux, where the
+workaround is off. **L3.5-8** = the launch card; **SF1/SF2** = the critic's
+should-fix items (the fd guard, builtins by name).
+
+| ID | Members | Case | Class | Basis |
+|---|---|---|---|---|
+| 007.activation | — | `__TPIPE_ST` is 1 exactly on Linux with `/proc/self/fd`, 0 elsewhere (FreeBSD FIFO procsub, cygwin) | contract | L3.5-8 scope |
+| 007.count-recover | count | function producer, wait 127: `RESULT` 2, rc 1, `lastRc` 6, no stderr | contract | L3.5-8 |
+| 007.sinks-recover | toArray, each, toList | the same through the other three sinks | contract | L3.5-8 |
+| 007.builtin-recover | count | a **builtin** producer (`printf`): `lastRc` 0, rc 0; `printf` is in the builtin set | contract | L3.5-8 |
+| 007.real-wait-kept | count | wait answering 0 / 143 is kept (the report 6 is not used); queue empty | contract | the report of a TERMed/SIGPIPEd producer says 0 (measured), so it only fills a lost status |
+| 007.real-127 | count | a function that really returns 127 stays 127; its report line consumed | boundary | L3.5-8 |
+| 007.exit-4 | count | a function that ends through `exit 4` is recovered (the EXIT trap reports it) | boundary | why a trap and not a trailing statement |
+| 007.external | count | an external producer keeps the plain form: wait's 127 and bash's line stand | contract | exec'd producers: 0 in 24000 lost (measured), a trap would cost a fork |
+| 007.no-race | count | the real wait: `lastRc` 6, pipe drained, queue empty | contract | L3.5-8 |
+| 007.stop-recover | each, stop | a producer already done when the stop comes: `lastRc` 5 recovered | contract | L3.5-8, stop path |
+| 007.stop-infinite | first | an infinite function producer ended by the stop keeps 141/143, not the trap's 0 | boundary | the 127 / <0 / >255 rule |
+| 007.drain-200 | count | 200 calls leave nothing pending and nothing queued | contract | a writer blocks at 64 KiB |
+| 007.nest-drain | each, count | an inner sink drains the OUTER line and keeps it: the outer `lastRc` 6 | contract | `__TPIPE_STQ` |
+| 007.nest-producer | toArray | a TPipe inside the producer: the outer status still reaches the outer pipe | contract | the fd number baked into the trap |
+| 007.subshell-own | count | inside `$( )` the pipe is the subshell's own (BASHPID-keyed) and the status is recovered | contract | no cross-process draining |
+| 007.set-eu-ifs | count | `set -eu` and `IFS=':'` in the caller change nothing | contract | §1 `set -eu` cleanliness |
+| 007.claim-rule | (`tpipe._stClaim`) | direct: wait -1 → the report, 256 → the report, 127 → the report, a real 3 stays; every line consumed | contract | the only deterministic proof of the 5.2.37 (-1) branch |
+| 007.fd-reused-after | count | the script opens its own file on our fd number after a call: the file is intact and still reads l1 l2 l3, a new pipe on another number, `lastRc` 6 | contract | **SF1** |
+| 007.fd-reused-during | each | the fd is taken over by the callback during a sink: the close reads nothing from the file and forgets the fd (`lastRc` 127, the report went to the replaced pipe); the next call recovers 6 on a new pipe | boundary | **SF1** |
+| 007.producer-redirects | count | a function producer that does `exec N>log` on our number: no status line in its log, `lastRc` 6 | contract | **SF1**, producer side |
+| 007.builtin-names | count | user functions named `printf` and `enable`: count 2, `lastRc` 6, the builtin set is the real one | contract | **SF2** |
+| 007.own-exit-trap | count | a producer with its own EXIT trap writes no report: wait's 127 stays; one `kk.debug` line with the switch on, nothing with it off | boundary | the lost-and-unrecovered diagnostic |
+| 007.set-e-producer | count | an inherited `set -e` ends the producer after one record: `lastRc` 1 recovered | contract | why a trap and not a trailing statement (measured: a `set -eu` caller lost the status that way) |
+| 007.open-failed | count | a process whose pipe could not be opened does not retry: plain form, `lastRc` 127, still no pipe | boundary | the "tried" flag |
 
 ---
 

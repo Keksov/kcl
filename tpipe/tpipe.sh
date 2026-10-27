@@ -128,6 +128,67 @@ else
     declare -g __TPIPE_TREETOK=0
 fi
 
+# __TPIPE_ST — the status pipe (launch L3.5-8): bash on Linux can LOSE the exit
+# status of a process substitution, and tpipe gets it back.
+#
+# The bash race (measured, plain bash, no kbool): when the child of a `<( )`
+# exits and is reaped while the parent is still doing its own bookkeeping right
+# after the fork, bash loses the child's status. `$!` is right and the child is
+# already reaped; bash 5.3.9 then answers `wait $!` with 127 and "wait: pid N is
+# not a child of this shell", bash 5.2.37 silently with -1 (an impossible exit
+# status, which tpipe published as lastRc -1), every time it is asked. Under
+# load (`: < <(exit 6); wait $!`, 4-8 copies in parallel): 0.03-0.3 % of the
+# calls on kb-alpine 5.3.9, kb-ubuntu 5.2.21 and kb-debian 5.2.37, rarely even
+# idle; 0 seen on kb-fedora 5.3.9, on FreeBSD (FIFO procsub) and on cygwin.
+# Only a FAST child that bash does not exec loses: a function or a builtin
+# producer (0 hits in 24000 for an exec'd `/bin/false`). bash 5.3.9 also keeps
+# a stale "running" entry for the lost child, on which a later `wait -n` spins
+# forever (README §4).
+#
+# The workaround: a FUNCTION or BUILTIN producer reports its own status. It is
+# started as `<( trap "printf 'PID RC\n' >&SFD" EXIT; "$@" )` — a builtin
+# printf in the subshell that already runs it, so no extra process — and when
+# `wait` answers what only a LOST status gives (127, or a value outside 0-255
+# such as 5.2.37's -1), the close takes the RC whose PID matches from the
+# status pipe. An EXIT trap, not a statement after "$@": it also reports a
+# producer that ends through `exit` or through the caller's inherited `set -e`,
+# where a trailing statement never runs (measured: a `set -eu` caller lost the
+# status that way). The trap replaces nothing of the caller's: a subshell does
+# not inherit the EXIT trap. An EXTERNAL producer keeps `<( "$@" )`: bash execs
+# it directly, and a trap would cost a fork per call.
+#
+# Why the report does not simply win: bash runs the EXIT trap also when a TERM
+# or a SIGPIPE ends the subshell, and `$?` in there is then 0, not 143/141
+# (measured on 5.2.37: wait 143 / line 0, wait 141 / line 0). A lost child,
+# though, is one that ended BY ITSELF during its own creation — before any stop
+# path could signal it — so whenever `wait` lost the status the report is the
+# true one, and whenever `wait` has a real status it is kept.
+#
+# The status pipe is one anonymous pipe per shell PROCESS, opened read-write on
+# its first function/builtin producer: `exec {fd}<> <(...)` opens
+# /dev/fd/N -> /proc/self/fd/N with O_RDWR, which Linux answers with BOTH ends
+# of that pipe (verified on 5.2.37 and 5.3.9: no blocking, no EOF, it survives
+# the `<( )` child). A subshell opens its own (keyed by BASHPID): sharing the
+# parent's would let one process drain the other's lines. Every close that used
+# it drains it completely with `read -t 0` (a poll, never a wait), because a
+# writer blocks once 64 KiB are pending; lines of OTHER producers of this
+# process (an outer sink still open) are kept in __TPIPE_STQ until their own
+# close claims them.
+#
+# Only Linux with /proc: FreeBSD's procsub is a FIFO (`<>` on it would leave
+# the FIFO behind and the race is not seen there), and the cygwin branch
+# (__TPIPE_TREETOK) is left exactly as it was. A value assigned after `source`
+# (0 or 1) is honoured — a test knob.
+if [[ "$OSTYPE" == linux* && -d /proc/self/fd ]]; then
+    declare -g __TPIPE_ST=1
+else
+    declare -g __TPIPE_ST=0
+fi
+declare -g __TPIPE_STFD=''          # the status pipe's fd in THIS process
+declare -g __TPIPE_STPID=''         # the BASHPID that opened __TPIPE_STFD
+declare -gA __TPIPE_STQ=()          # PID -> RC drained but not claimed yet
+declare -gA __TPIPE_BI=()           # the builtin names, filled once (inherited)
+
 # ---------------------------------------------------------------------------
 # TPipe: run a producer and hand every record to a callback IN THIS SHELL.
 #
@@ -186,7 +247,7 @@ fi
 # sinks share the flag parser, the guards, the pid capture and the rc bookkeeping
 # WITHOUT a nested `$( )` and without double-printing under `$( )`. They read and
 # write the CALLER's locals through bash's dynamic scoping — `__tpi_d`,
-# `__tpi_crlf`, `__tpi_op`, `__tpi_fd`, `__tpi_pid`, `__tpi_rc` — so a sink that
+# `__tpi_crlf`, `__tpi_op`, `__tpi_fd`, `__tpi_pid`, `__tpi_sf`, `__tpi_rc` — so a sink that
 # calls one MUST declare all of them first. The `__tpi_*` and `__TPIPE_*` names
 # and `TPIPE_INDEX` are reserved for this unit and must never be used as an
 # output-variable name (kcl/README.md §1.7).
@@ -381,11 +442,135 @@ tpipe._subshellWarn() {
 }
 
 # ---------------------------------------------------------------------------
+# tpipe._stWrap NAME — the status pipe (__TPIPE_ST): rc 0 when a producer named
+# NAME is a function or a builtin AND this process has a status pipe (opened
+# on first use by tpipe._stOpen), so the caller starts the reporting form.
+# rc 1: start the plain `<( "$@" )`.
+#
+# No fork per call: the __TPIPE_BI set for a builtin (an array lookup, asked
+# first), `declare -F` for a function (once). The set is filled ONCE, by the
+# very `<( )` that gives the first process its pipe, and a subshell inherits
+# it — so an external producer in a subshell costs nothing here.
+#
+# The fd is checked before every reuse (`[[ -p /dev/fd/N ]]`, no fork): a
+# script may close it or put its own file on that number (`exec 10<data`)
+# after a TPipe call, and the reporting form must then neither append to that
+# file nor read from it — a fresh pipe is opened on a free number instead, the
+# script's fd is left alone. ANOTHER PIPE on the same number cannot be told
+# from ours; that one is not detected (README §4).
+#
+# __TPIPE_STPID doubles as the "tried" flag: once this process has tried to
+# open a pipe and failed (EMFILE, the builtin list timing out), __TPIPE_STFD
+# stays empty and nothing is retried in this process.
+# ---------------------------------------------------------------------------
+tpipe._stWrap() {
+    if [[ -z "$1" ]]; then
+        return 1
+    fi
+    if [[ -z "${__TPIPE_BI[$1]:-}" ]] && ! builtin declare -F -- "$1" >/dev/null; then
+        if (( ${#__TPIPE_BI[@]} > 0 )) || [[ "$__TPIPE_STPID" == "$BASHPID" ]]; then
+            return 1                        # external (or the set never came)
+        fi
+        tpipe._stOpen || return 1           # fills the builtin set, then ask
+        [[ -n "${__TPIPE_BI[$1]:-}" ]] || return 1
+    fi
+    if [[ "$__TPIPE_STPID" != "$BASHPID" ]]; then
+        tpipe._stOpen || return 1
+    elif [[ -z "$__TPIPE_STFD" ]]; then
+        return 1                            # tried and failed in this process
+    elif [[ ! -p "/dev/fd/$__TPIPE_STFD" ]]; then
+        tpipe._stOpen || return 1           # our number now names something else
+    fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# tpipe._stOpen — open THIS process's status pipe (__TPIPE_STPID = BASHPID).
+# With the builtin set still empty, the `<( )` that gives the pipe also fills
+# it (`enable` lists the enabled builtins into the pipe, `--` ends the list);
+# otherwise it is a bare `<(:)`. One fork either way, once per process (again
+# only when the old number was taken over, see tpipe._stWrap). The previous
+# number is never closed here: it is not ours any more. `builtin` in front of
+# `enable` and `printf`: a user function of that name must not answer for
+# them. A pipe that cannot be opened turns the workaround off for this process
+# (__TPIPE_STFD stays empty, rc 1), never the call.
+# ---------------------------------------------------------------------------
+tpipe._stOpen() {
+    local __tpi_l=''
+    __TPIPE_STPID="$BASHPID"
+    __TPIPE_STFD=''
+    __TPIPE_STQ=()
+    if (( ${#__TPIPE_BI[@]} > 0 )); then
+        exec {__TPIPE_STFD}<> <(:) || __TPIPE_STFD=''
+    elif exec {__TPIPE_STFD}<> <(builtin enable; builtin printf -- '--\n'); then
+        while IFS= read -r -t 10 -u "$__TPIPE_STFD" __tpi_l && [[ "$__tpi_l" != -- ]]; do
+            __tpi_l="${__tpi_l#enable }"
+            if [[ -n "$__tpi_l" && "$__tpi_l" != -* ]]; then
+                __TPIPE_BI[$__tpi_l]=1
+            fi
+        done
+        if [[ "$__tpi_l" != -- ]]; then     # the list never ended: give up
+            exec {__TPIPE_STFD}>&-
+            __TPIPE_STFD=''
+        fi
+    else
+        __TPIPE_STFD=''
+    fi
+    [[ -n "$__TPIPE_STFD" ]]
+}
+
+# ---------------------------------------------------------------------------
+# tpipe._stClaim — after the `wait` of a producer started in the reporting form
+# (the caller's `__tpi_sf` is set): drain the status pipe into __TPIPE_STQ and,
+# when `wait` answered what a lost status looks like — 127 (5.3.9) or a value
+# outside 0-255 (5.2.37: -1) — take the RC reported by this producer's PID. A
+# real 127 is reported as 127, so it survives; any other answer of `wait` is a
+# real status and stays (the report of a TERMed or SIGPIPEd producer says 0,
+# see __TPIPE_ST). The producer's line is in the pipe by now: it writes it
+# before it exits, and `wait` returns (or gives up) only after the exit. A
+# producer that never wrote one (SIGKILL, `exec` inside the function, a
+# function that sets an EXIT trap of its own) leaves `wait`'s own answer in
+# place; when that answer is a lost one, a `kk.debug` line says so (the
+# `wait` itself ran with stderr discarded). The own entry is always removed,
+# so the queue holds only lines of sinks still open — or, rarely, a stale one
+# (a sink interrupted between its open and its close), harmless unless that
+# pid is reused AND its new producer writes no line.
+# `read -t 0` only polls; the line read after it is whole (one printf of a few
+# bytes is one atomic write). The fd is checked first: when it no longer names
+# a pipe (the script closed it or opened its own file on that number) nothing
+# is read from it — a regular file would answer `read -t 0` forever — and it
+# is forgotten, so the next producer gets a fresh pipe.
+# ---------------------------------------------------------------------------
+tpipe._stClaim() {
+    local __tpi_a='' __tpi_b=''
+    if [[ -p "/dev/fd/$__tpi_sf" ]]; then
+        while read -t 0 -u "$__tpi_sf" 2>/dev/null; do
+            IFS=' ' read -r -u "$__tpi_sf" __tpi_a __tpi_b || break
+            if [[ -n "$__tpi_a" ]]; then
+                __TPIPE_STQ[$__tpi_a]="$__tpi_b"
+            fi
+        done
+    elif [[ "$__tpi_sf" == "$__TPIPE_STFD" && "$__TPIPE_STPID" == "$BASHPID" ]]; then
+        __TPIPE_STFD=''
+        __TPIPE_STPID=''
+    fi
+    if [[ "$__TPIPE_RC" == 127 || "$__TPIPE_RC" == -* || "$__TPIPE_RC" -gt 255 ]]; then
+        if [[ -n "${__TPIPE_STQ[$__tpi_pid]+set}" ]]; then
+            __TPIPE_RC="${__TPIPE_STQ[$__tpi_pid]}"
+        else
+            kk.debug "TPipe: wait for producer $__tpi_pid answered $__TPIPE_RC and the producer left no status report (bash lost its status, or it really ended so)"
+        fi
+    fi
+    unset '__TPIPE_STQ[$__tpi_pid]'
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # tpipe._open MEMBER VALIDATOR ARG...
 #
 # Parses the flags and the operand, applies the §2.5 validation order, and opens
 # the producer. Writes the caller's `__tpi_d` / `__tpi_crlf` / `__tpi_op` /
-# `__tpi_fd` / `__tpi_pid`. rc 0 = ready to read, rc 2 = malformed call.
+# `__tpi_fd` / `__tpi_pid` / `__tpi_sf`. rc 0 = ready to read, rc 2 = malformed call.
 #
 # VALIDATOR is '' for a sink with no operand, else the name of a checker called
 # as `VALIDATOR MEMBER OPERAND` that answers rc 0 or rc 2 (and prints its own
@@ -487,10 +672,23 @@ tpipe._open() {
     #    substitution expands it in the CHILD, where $BASHPID is the producer's
     #    own pid and `__tpi_pid` still holds this shell's, so the token is
     #    "<this shell>.<producer>" without a second local.
+    #    On Linux a function or builtin producer reports its own status through
+    #    the status pipe (__TPIPE_ST above). The fd NUMBER goes into the trap
+    #    text when the child sets the trap (the double quotes), so a producer
+    #    that runs a TPipe of its own — which opens that process's own pipe and
+    #    rewrites __TPIPE_STFD, and a nested `__tpi_sf`, in there — still
+    #    reports to THIS shell's pipe. `__tpi_sf` also tells tpipe._close which
+    #    form was started. The trap keeps `$?` first, writes only while that
+    #    number still names a pipe (a function producer may `exec N>log` on it
+    #    — its log must not get our line), and says `builtin` for `trap` and
+    #    `printf` (a user function of either name must not answer).
     if [[ "$__tpi_form" == "cmd" ]]; then
         if (( __TPIPE_TREETOK )); then
             __tpi_pid="$BASHPID"
             exec {__tpi_fd}< <( export __TPIPE_TREE="${__TPIPE_TREE:+$__TPIPE_TREE:}$__tpi_pid.$BASHPID"; "$@" )
+        elif (( __TPIPE_ST )) && tpipe._stWrap "$1"; then
+            __tpi_sf="$__TPIPE_STFD"
+            exec {__tpi_fd}< <( builtin trap "__tpi_x=\$?; [[ -p /dev/fd/$__tpi_sf ]] && builtin printf '%s %s\\n' \"\$BASHPID\" \"\$__tpi_x\" 2>/dev/null >&$__tpi_sf" EXIT; "$@" )
         else
             exec {__tpi_fd}< <( "$@" )
         fi
@@ -1021,6 +1219,10 @@ tpipe._ptReap() {
 #   * `wait` is the one statement here that is EXPECTED to be non-zero, so it is
 #     always `__TPIPE_RC=0; wait "$pid" || __TPIPE_RC=$?` — a bare `wait` aborts
 #     a `set -e` caller.
+#   * a producer started in the reporting form (`__tpi_sf` set, __TPIPE_ST)
+#     gets its `wait` with stderr discarded — bash's "not a child" line is the
+#     race the status pipe repairs — and tpipe._stClaim right after it, on both
+#     paths.
 #   * the member's rc is 0 whenever the consumer stopped the stream: that is the
 #     consumer's success, not the producer's failure (the producer's own 141/143
 #     stays visible through TPipe.lastRc).
@@ -1034,7 +1236,12 @@ tpipe._close() {
     if [[ "${1:-0}" == "0" ]]; then         # EOF path: unchanged by DL13
         exec {__tpi_fd}<&-
         __TPIPE_RC=0
-        wait "$__tpi_pid" || __TPIPE_RC=$?
+        if [[ -n "$__tpi_sf" ]]; then       # the status pipe (__TPIPE_ST)
+            wait "$__tpi_pid" 2>/dev/null || __TPIPE_RC=$?
+            tpipe._stClaim
+        else
+            wait "$__tpi_pid" || __TPIPE_RC=$?
+        fi
         if [[ "$__TPIPE_RC" == "0" ]]; then
             __tpi_rc=0
         else
@@ -1082,7 +1289,12 @@ tpipe._close() {
         kill -CONT "$__tpi_pid" "${__tpi_tree[@]}" 2>/dev/null || :
     fi
     __TPIPE_RC=0
-    wait "$__tpi_pid" || __TPIPE_RC=$?
+    if [[ -n "$__tpi_sf" ]]; then           # the status pipe (__TPIPE_ST)
+        wait "$__tpi_pid" 2>/dev/null || __TPIPE_RC=$?
+        tpipe._stClaim
+    else
+        wait "$__tpi_pid" || __TPIPE_RC=$?
+    fi
     if (( ${#__tpi_tree[@]} > 0 )) || [[ -n "$__tpi_tok" && "$__TPIPE_PT" == cygwin ]]; then
         tpipe._ptReap "$__tpi_tok"
     fi
@@ -1103,7 +1315,7 @@ TPipe.each() {
     # its own pair and neither disturbs ours.
     local __TPIPE_STOP=0 TPIPE_INDEX=0
     local __tpi_d=$'\n' __tpi_crlf='' __tpi_op='' __tpi_fd='' __tpi_pid='' \
-          __tpi_rc=0 __tpi_cb='' __tpi_line='' __tpi_n=0
+          __tpi_sf='' __tpi_rc=0 __tpi_cb='' __tpi_line='' __tpi_n=0
     if tpipe._open each tpipe._isFunc "$@"; then
         __tpi_cb="$__tpi_op"
         # `IFS= read -r` and the `|| [[ -n ]]` tail: leading/trailing blanks and
@@ -1153,7 +1365,7 @@ TPipe.toArray() {
     # tpipe._isOutArr is true by construction.
     local __TPIPE_STOP=0 TPIPE_INDEX=0
     local __tpi_d=$'\n' __tpi_crlf='' __tpi_op='' __tpi_fd='' __tpi_pid='' \
-          __tpi_rc=0 __tpi_i=0 __tpi_n=0
+          __tpi_sf='' __tpi_rc=0 __tpi_i=0 __tpi_n=0
     if tpipe._open toArray tpipe._isOutArr "$@"; then
         # The nameref is bound only AFTER the name passed kk._outName AND the
         # assoc/readonly check inside tpipe._open (PLAN §2.4): `local -n` on a
@@ -1185,7 +1397,7 @@ TPipe.toArray() {
 TPipe.toList() {
     local __TPIPE_STOP=0 TPIPE_INDEX=0
     local __tpi_d=$'\n' __tpi_crlf='' __tpi_op='' __tpi_fd='' __tpi_pid='' \
-          __tpi_rc=0 __tpi_add='' __tpi_line='' __tpi_n=0
+          __tpi_sf='' __tpi_rc=0 __tpi_add='' __tpi_line='' __tpi_n=0
     if tpipe._open toList tpipe._isAddable "$@"; then
         __tpi_add="$__tpi_op.Add"
         # The `each` loop with `INST.Add` in the callback's place (PLAN §2.2).
@@ -1215,7 +1427,7 @@ TPipe.toList() {
 TPipe.first() {
     local __TPIPE_STOP=0 TPIPE_INDEX=0
     local __tpi_d=$'\n' __tpi_crlf='' __tpi_op='' __tpi_fd='' __tpi_pid='' \
-          __tpi_rc=0 __tpi_line='' __tpi_got=0
+          __tpi_sf='' __tpi_rc=0 __tpi_line='' __tpi_got=0
     if tpipe._open first '' "$@"; then
         # One record, then stop. `read`'s own rc is not the test: the `|| [[ -n ]]`
         # tail is what delivers an unterminated last record, and a record that is
@@ -1247,7 +1459,7 @@ TPipe.first() {
 TPipe.count() {
     local __TPIPE_STOP=0 TPIPE_INDEX=0
     local __tpi_d=$'\n' __tpi_crlf='' __tpi_op='' __tpi_fd='' __tpi_pid='' \
-          __tpi_rc=0 __tpi_line='' __tpi_n=0
+          __tpi_sf='' __tpi_rc=0 __tpi_line='' __tpi_n=0
     if tpipe._open count '' "$@"; then
         # No callback, so nothing can request a stop and nothing reads the record
         # but the counter. `-c` is accepted for surface symmetry and is a no-op
