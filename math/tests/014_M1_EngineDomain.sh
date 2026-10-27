@@ -181,6 +181,19 @@ $ok && kt_test_pass "engine tokens feed the predicates" || kt_test_fail "$why"
 FREXP_ARGS=("+inf" "inf" "-inf" "nan" "1e308" "0" "-8" "0.75" "5e-324" "2.2250738585072014e-308")
 FREXP_WANT=("inf 0" "inf 0" "-inf 0" "nan 0" "0.55626846462680035 1024" "0 0" \
             "-0.5 4" "0.75 0" "0.5 -1073" "0.5 -1021")
+# BWK awk (one-true-awk: FreeBSD, macOS) reads an operand below
+# 2.2250738585072014e-308 (a subnormal) as 0 — README "Which awk" (launch
+# L3.5-5, D5 a). Decided by the ENGINE's awk, as math._fe_start picks it
+# (gawk when `command -v gawk` finds one, else awk), not by `awk` on PATH:
+# FreeBSD with gawk installed runs the engine on gawk and gets 0.5 -1073.
+FE_AWK=awk; command -v gawk >/dev/null 2>&1 && FE_AWK=gawk
+fe_awk_ver="$(LC_ALL=C "$FE_AWK" --version </dev/null 2>&1)"; fe_awk_ver=${fe_awk_ver%%$'\n'*}
+FE_BWK=""; [[ $fe_awk_ver == "awk version 2"* ]] && FE_BWK=1
+frexp_note=""
+if [[ -n $FE_BWK ]]; then
+    FREXP_WANT[8]="0 0"
+    frexp_note=" (engine awk '$fe_awk_ver' is BWK: it reads the subnormal operand 5e-324 as 0, so that row is '0 0')"
+fi
 kt_test_start "frexp answers for every non-finite / extreme input, never hangs [M2]"
 frexp_out="$(timeout 300 bash -c "source '$MATH_DIR/math.sh'
 for a in ${FREXP_ARGS[*]@Q}; do
@@ -193,7 +206,7 @@ else
     want=""
     for w in "${FREXP_WANT[@]}"; do want+="$w|"; done
     if [[ "$frexp_out" == "$want" ]]; then
-        kt_test_pass "10 rows: $frexp_out"
+        kt_test_pass "10 rows: $frexp_out$frexp_note"
     else
         kt_test_fail "got '$frexp_out' want '$want' (rc $frexp_rc)"
     fi

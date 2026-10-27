@@ -225,7 +225,10 @@ math._fe_own || :
 # 0, and `-0` as +0 (atan2 0 -0 must be pi; `-0.0` `-.0` `-0.` `-0e0` `-00`
 # it reads as -0, probed 2026-10-22) — so the dispatch rewrites such a field
 # to the BEGIN-built value first (only when the line holds "nan", "inf" or
-# " -0" at all; no op name contains any of them). The operands are validated
+# " -0" at all; no op name contains any of them). BWK awk (one-true-awk:
+# FreeBSD, macOS) stores every computed -0 as +0 (tran.c setfval) but reads a
+# field `-0` as -0, so the rewrite runs only where _NZ really is -0 (launch
+# L3.5-b): _NZOK, set in BEGIN. The operands are validated
 # tokens (math._is_num: an unsigned or "-" decimal, or +nan -nan +inf -inf),
 # so the field test looks at the first two characters instead of matching
 # regexes (L2.7-M2, Finding 5): an unsigned number costs one substr.
@@ -266,10 +269,10 @@ function _fv(rate,n,pmt,pv,pt,   q,qn,f){ rate+=0; n+=0; if(rate==0 && !_isnan(r
 function _pvf(rate,n,pmt,fv,pt,  q,qn,f){ rate+=0; n+=0; if(rate==0 && !_isnan(rate))return -fv-pmt*n; if(_nf(n)) return _NAN; q=1+rate; qn=_ipow(q,int(n)); f=_dv(qn-1,q-1); if(pt==1)f=f*q; return _dv(-(fv+pmt*f),qn) }
 function _pmtf(rate,n,pv,fv,pt,  q,qn,f){ rate+=0; n+=0; if(rate==0 && !_isnan(rate))return _dv(-(fv+pv),n); if(_nf(n)) return _NAN; q=1+rate; qn=_ipow(q,int(n)); f=_dv(qn-1,q-1); if(pt==1)f=f*q; return _dv(-(fv+pv*qn),f) }
 function _irate(n,pmt,pv,fv,pt,  r1,r2,dr,f1,f2,it){ it=0; r1=0.05; do{ r2=r1+0.001; f1=_fv(r1,n,pmt,pv,pt); f2=_fv(r2,n,pmt,pv,pt); dr=_dv(fv-f1,f2-f1)*0.001; r1=r1+dr; it++ }while(!((dr<0?-dr:dr)<1e-9||it>=20)); return r1 }
-BEGIN { srand(); _INF=1e308*10; _NINF=-_INF; _NAN=_INF-_INF; _NZ=_dv(-1,_INF); _P32=2^32; _M32=2^-32; _P256=2^256; _M256=2^-256 }
+BEGIN { srand(); _INF=1e308*10; _NINF=-_INF; _NAN=_INF-_INF; _NZ=_dv(-1,_INF); _NZOK=(atan2(0,_NZ) > 3); _P32=2^32; _M32=2^-32; _P256=2^256; _M256=2^-256 }
 {
   op=$1
-  if (index($0,"nan") || index($0,"inf") || index($0," -0")) for (i=2;i<=NF;i++) { c=substr($i,1,1); if (c=="-") { c=substr($i,2,1); if (c=="n") $i=_NAN; else if (c=="i") $i=_NINF; else if (c=="0" && $i+0==0) $i=_NZ } else if (c=="+") { if (substr($i,2,1)=="n") $i=_NAN; else $i=_INF } }
+  if (index($0,"nan") || index($0,"inf") || index($0," -0")) for (i=2;i<=NF;i++) { c=substr($i,1,1); if (c=="-") { c=substr($i,2,1); if (c=="n") $i=_NAN; else if (c=="i") $i=_NINF; else if (c=="0" && $i+0==0 && _NZOK) $i=_NZ } else if (c=="+") { if (substr($i,2,1)=="n") $i=_NAN; else $i=_INF } }
   if (op=="sin") { _pn(sin($2)); fflush(); next }
   if (op=="cos") { _pn(cos($2)); fflush(); next }
   if (op=="tan") { _pn(_tan($2)); fflush(); next }
@@ -840,9 +843,17 @@ math._fe_spawn() {
             fi
         }
     fi
-    __MATH_FE_IN=${MATH_FE[1]}; __MATH_FE_OUT=${MATH_FE[0]}; __MATH_FE_PID=$MATH_FE_PID
+    # `-` defaults (launch L3.5-5): bash disposes of a co-process it has reaped
+    # at the next command boundary — it CLOSES MATH_FE's fds and UNSETS MATH_FE
+    # and MATH_FE_PID. An awk that exits at once (it rejected a flag, could not
+    # read the program) can be gone already here, and a `set -u` caller would
+    # die on the unbound names; empty fds make the probe below fail -> rc 1.
+    __MATH_FE_IN=${MATH_FE[1]-}; __MATH_FE_OUT=${MATH_FE[0]-}; __MATH_FE_PID=${MATH_FE_PID-}
     __MATH_FE_OWN[pid]=$__MATH_FE_PID __MATH_FE_OWN[in]=$__MATH_FE_IN __MATH_FE_OWN[out]=$__MATH_FE_OUT
-    if printf 'pi\n' >&"$__MATH_FE_IN" 2>/dev/null; then
+    # `2>/dev/null` FIRST: redirections apply left to right, so a bad fd (the
+    # co-process already disposed of, see above) made `>&fd 2>/dev/null` print
+    # `Bad file descriptor` before stderr was redirected (launch L3.5-5)
+    if printf 'pi\n' 2>/dev/null >&"$__MATH_FE_IN"; then
         IFS= read -r -t "$__MATH_FE_TIMEOUT" -u "$__MATH_FE_OUT" __m_probe 2>/dev/null || __m_rc=$?
         if (( __m_rc == 0 )) && [[ -n $__m_probe ]]; then
             __MATH_FE_UP=1
@@ -1035,7 +1046,7 @@ math._fe() {
         kk.debug "math: request of ${#__m_req} characters exceeds this awk's line buffer ($__MATH_FE_LINEMAX)"
         REPLY=""; return 1
     fi
-    printf '%s\n' "$__m_req" >&"$__MATH_FE_IN" 2>/dev/null || {
+    printf '%s\n' "$__m_req" 2>/dev/null >&"$__MATH_FE_IN" || {
         math._fe_drop; REPLY=""; return 1
     }
     # `read -t` costs ~410 us per call on BOTH bashes here (measured 5.2.37 and

@@ -51,12 +51,18 @@ REAL_AWK="$(command -v awk)"      # mawk on Debian/Ubuntu, gawk elsewhere
 CAT="$(command -v cat)"
 RM="$(command -v rm)"
 HAVE_GAWK=""; command -v gawk >/dev/null 2>&1 && HAVE_GAWK=1
+real_id="$(LC_ALL=C "$REAL_AWK" -W version </dev/null 2>&1)"; real_id=${real_id%%$'\n'*}
 # a line-wise awk without any flag from the engine: gawk, else the system awk
-# with -W interactive (mawk) — what an awk that rejects -W must be to answer
-if [[ -n $HAVE_GAWK ]]; then LINEWISE="\"$(command -v gawk)\""; else LINEWISE="\"$REAL_AWK\" -W interactive"; fi
+# with -W interactive when it is mawk, else the system awk as it is (BWK and
+# busybox answer a pipe line by line without a flag; BWK takes `-W` for an
+# unknown option and `interactive` for its program — launch L3.5-5) — what an
+# awk that rejects -W must be to answer
+if [[ -n $HAVE_GAWK ]]; then LINEWISE="\"$(command -v gawk)\""
+elif [[ $real_id == mawk* ]]; then LINEWISE="\"$REAL_AWK\" -W interactive"
+else LINEWISE="\"$REAL_AWK\""; fi
 # is the system awk a mawk older than 20250131 (or of an unreadable date)?
 # then an engine on it has the 4095-character limit
-REAL_LIMITED=""; real_id="$(LC_ALL=C "$REAL_AWK" -W version </dev/null 2>&1)"; real_id=${real_id%%$'\n'*}
+REAL_LIMITED=""
 if [[ $real_id == mawk* ]]; then
     re='^mawk [0-9.]+ ([0-9]{8})'
     if [[ $real_id =~ $re ]] && (( 10#${BASH_REMATCH[1]} >= 20250131 )); then :; else REAL_LIMITED=1; fi
