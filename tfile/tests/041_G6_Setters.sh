@@ -22,6 +22,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 
 TFILE_DIR="$SCRIPT_DIR/.."
 source "$TFILE_DIR/tfile.sh"
+source "$SCRIPT_DIR/../../tpath/tests/_fsoracle.sh"
 
 kt_test_init "G6_Setters" "$SCRIPT_DIR" "$@"
 
@@ -30,8 +31,8 @@ F="$W/times.txt"
 printf 'x\n' > "$F"
 
 EPOCH=1700000000              # 2023-11-14 22:13:20 UTC
-LOCAL_OF_EPOCH="$(date -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S')"
-UTC_OF_EPOCH="$(date -u -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S')"
+LOCAL_OF_EPOCH="$(fso_fmt "$EPOCH")"
+UTC_OF_EPOCH="$(fso_fmt "$EPOCH" utc)"
 
 eq() {   # TITLE EXPECTED ACTUAL
     kt_test_start "$1"
@@ -44,9 +45,9 @@ eq() {   # TITLE EXPECTED ACTUAL
 
 # --- G6-07: setLastWriteTime actually moves mtime ---------------------------
 kt_test_start "setLastWriteTime changes the file's mtime [G6-07]"
-before="$(stat -c %Y "$F")"
+before="$(fso_stat Y "$F")"
 tfile.setLastWriteTime "$F" "$EPOCH" || :
-after="$(stat -c %Y "$F")"
+after="$(fso_stat Y "$F")"
 if [[ "$after" == "$EPOCH" && "$after" != "$before" ]]; then
     kt_test_pass "mtime $before -> $after"
 else
@@ -79,9 +80,9 @@ fi
 
 kt_test_start "an epoch argument means the same instant in both setters [G6-08]"
 tfile.setLastWriteTime "$F" "$EPOCH" || :
-a="$(stat -c %Y "$F")"
+a="$(fso_stat Y "$F")"
 tfile.setLastWriteTimeUtc "$F" "$EPOCH" || :
-b="$(stat -c %Y "$F")"
+b="$(fso_stat Y "$F")"
 if [[ "$a" == "$EPOCH" && "$b" == "$EPOCH" ]]; then
     kt_test_pass "both stored $EPOCH"
 else
@@ -92,7 +93,7 @@ fi
 kt_test_start "setLastAccessTime changes atime and leaves mtime alone [G6-07]"
 tfile.setLastWriteTime "$F" "$EPOCH" || :
 tfile.setLastAccessTime "$F" "1600000000" || :
-read -r atime mtime <<< "$(stat -c '%X %Y' "$F")"
+atime="$(fso_stat X "$F")"; mtime="$(fso_stat Y "$F")"
 if [[ "$atime" == "1600000000" && "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "atime=$atime mtime=$mtime"
 else
@@ -107,8 +108,8 @@ fi
 # on mtime above, which is stable and goes through the same tpath._statTime.
 kt_test_start "setLastAccessTimeUtc stores the UTC instant it was given [G6-08]"
 tfile.setLastAccessTimeUtc "$F" "2024-01-01 12:00:00" || :
-stored="$(stat -c %X "$F")"
-want="$(date -u -d '2024-01-01 12:00:00' +%s)"
+stored="$(fso_stat X "$F")"
+want="$(fso_epoch '2024-01-01 12:00:00' utc)"
 if [[ "$stored" == "$want" ]]; then
     kt_test_pass "stored $stored = 2024-01-01 12:00:00 UTC"
 else
@@ -117,8 +118,8 @@ fi
 
 kt_test_start "setLastAccessTime reads its argument as LOCAL time [G6-08]"
 tfile.setLastAccessTime "$F" "2024-01-01 12:00:00" || :
-stored="$(stat -c %X "$F")"
-want="$(date -d '2024-01-01 12:00:00' +%s)"
+stored="$(fso_stat X "$F")"
+want="$(fso_epoch '2024-01-01 12:00:00')"
 if [[ "$stored" == "$want" ]]; then
     kt_test_pass "stored $stored = 2024-01-01 12:00:00 local"
 else
@@ -138,7 +139,7 @@ kt_test_start "setCreationTime answers rc 1 and changes nothing [R13]"
 tfile.setLastWriteTime "$F" "$EPOCH" || :
 rc=0
 tfile.setCreationTime "$F" "2001-02-03 04:05:06" >/dev/null 2>&1 || rc=$?
-mtime="$(stat -c %Y "$F")"
+mtime="$(fso_stat Y "$F")"
 if (( rc == 1 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "rc 1, mtime untouched"
 else
@@ -148,7 +149,7 @@ fi
 kt_test_start "setCreationTimeUtc answers rc 1 and changes nothing [R13]"
 rc=0
 tfile.setCreationTimeUtc "$F" "2001-02-03 04:05:06" >/dev/null 2>&1 || rc=$?
-mtime="$(stat -c %Y "$F")"
+mtime="$(fso_stat Y "$F")"
 if (( rc == 1 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "rc 1, mtime untouched"
 else
@@ -195,7 +196,7 @@ kt_test_start "setLastWriteTime with an unparsable time is rc 1 [1.2]"
 tfile.setLastWriteTime "$F" "$EPOCH" || :
 rc=0
 tfile.setLastWriteTime "$F" "not-a-date" >/dev/null 2>&1 || rc=$?
-mtime="$(stat -c %Y "$F")"
+mtime="$(fso_stat Y "$F")"
 if (( rc == 1 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "rc 1, mtime untouched"
 else
@@ -206,7 +207,7 @@ fi
 kt_test_start "setAttributes faReadOnly actually clears the write bit [G6-07]"
 A="$W/attrs.txt"; printf 'a\n' > "$A"; chmod 644 "$A"
 tfile.setAttributes "$A" "[faReadOnly]" || :
-mode="$(stat -c %a "$A")"
+mode="$(fso_stat a "$A")"
 if [[ "$mode" == "444" ]]; then
     kt_test_pass "mode $mode"
 else
@@ -218,7 +219,7 @@ eq "getAttributes reports the read-only file [G6-07]" \
 
 kt_test_start "setAttributes without faReadOnly restores the write bit [G6-07]"
 tfile.setAttributes "$A" "[faArchive]" || :
-mode="$(stat -c %a "$A")"
+mode="$(fso_stat a "$A")"
 if [[ "$mode" == *"6"* || "$mode" == *"7"* ]]; then
     kt_test_pass "mode $mode"
 else

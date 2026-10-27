@@ -16,6 +16,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 # Source tfile module
 TFILE_DIR="$SCRIPT_DIR/.."
 source "$TFILE_DIR/tfile.sh"
+source "$SCRIPT_DIR/../../tpath/tests/_fsoracle.sh"
 
 TEST_NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -29,7 +30,7 @@ OTHER=1600000000
 kt_test_start "SetLastAccessTime stores an epoch argument"
 rc=0
 tfile.setLastAccessTime "$F" "$EPOCH" || rc=$?
-stored="$(stat -c '%X' "$F")"
+stored="$(fso_stat X "$F")"
 if (( rc == 0 )) && [[ "$stored" == "$EPOCH" ]]; then
     kt_test_pass "SetLastAccessTime stores an epoch argument ($stored)"
 else
@@ -40,8 +41,8 @@ fi
 kt_test_start "SetLastAccessTime reads a datetime string as local time"
 rc=0
 tfile.setLastAccessTime "$F" "2024-01-01 12:00:00" || rc=$?
-stored="$(stat -c '%X' "$F")"
-want="$(date -d '2024-01-01 12:00:00' +%s)"
+stored="$(fso_stat X "$F")"
+want="$(fso_epoch '2024-01-01 12:00:00')"
 if (( rc == 0 )) && [[ "$stored" == "$want" ]]; then
     kt_test_pass "SetLastAccessTime reads a datetime string ($stored)"
 else
@@ -51,7 +52,7 @@ fi
 # Test 3: a second call really moves the value (a no-op would keep it)
 kt_test_start "SetLastAccessTime moves the value on a second call"
 tfile.setLastAccessTime "$F" "$OTHER" || :
-stored="$(stat -c '%X' "$F")"
+stored="$(fso_stat X "$F")"
 if [[ "$stored" == "$OTHER" ]]; then
     kt_test_pass "SetLastAccessTime moves the value on a second call ($stored)"
 else
@@ -62,7 +63,7 @@ fi
 kt_test_start "getLastAccessTime reads the stored value back"
 tfile.setLastAccessTime "$F" "$EPOCH" || :
 got="$(tfile.getLastAccessTime "$F")"
-want="$(date -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S')"
+want="$(fso_fmt "$EPOCH")"
 if [[ "$got" == "$want" ]]; then
     kt_test_pass "getLastAccessTime reads the stored value back ($got)"
 else
@@ -88,7 +89,7 @@ kt_test_start "SetLastAccessTime rejects an unparsable time"
 tfile.setLastWriteTime "$F" "$EPOCH" || :
 rc=0
 tfile.setLastAccessTime "$F" "not-a-date" >/dev/null 2>&1 || rc=$?
-mtime="$(stat -c '%Y' "$F")"
+mtime="$(fso_stat Y "$F")"
 if (( rc == 1 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "SetLastAccessTime rejects an unparsable time (rc 1, nothing touched)"
 else

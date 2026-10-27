@@ -11,6 +11,7 @@ kt_test_init "GetLastAccessTimeUtc" "$SCRIPT_DIR" "$@"
 # Source tdirectory if needed
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
+source "$SCRIPT_DIR/../../tpath/tests/_fsoracle.sh"
 
 
 # Test 1: GetLastAccessTimeUtc returns datetime
@@ -49,8 +50,8 @@ tdirectory.createDirectory "$test_dir"
 # more (2026-09-24). The member's own `stat` is the only process left.
 tdirectory.getLastAccessTimeUtc "$test_dir"; result1="$RESULT"
 tdirectory.getLastAccessTimeUtc "$test_dir"; result2="$RESULT"
-e1=$(date -u -d "$result1" +%s 2>/dev/null || printf 0)
-e2=$(date -u -d "$result2" +%s 2>/dev/null || printf 0)
+e1=$(fso_epoch "$result1" utc 2>/dev/null || printf 0)
+e2=$(fso_epoch "$result2" utc 2>/dev/null || printf 0)
 delta=$(( e2 > e1 ? e2 - e1 : e1 - e2 ))
 if [[ "$result1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]] \
    && (( e1 > 0 && delta <= 2 )); then

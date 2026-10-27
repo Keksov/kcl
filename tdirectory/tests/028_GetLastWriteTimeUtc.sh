@@ -15,6 +15,7 @@ kt_test_init "GetLastWriteTimeUtc" "$SCRIPT_DIR" "$@"
 # Source tdirectory if needed
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
+source "$SCRIPT_DIR/../../tpath/tests/_fsoracle.sh"
 
 EPOCH=1700000000
 
@@ -32,15 +33,15 @@ test_dir="$_KT_TMPDIR/utc_write_001"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setLastWriteTime "$test_dir" "$EPOCH" || :
 eq "GetLastWriteTimeUtc - returns the stored write time in UTC" \
-   "$(date -u -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S')" \
+   "$(fso_fmt "$EPOCH" utc)" \
    "$(tdirectory.getLastWriteTimeUtc "$test_dir")"
 
 # Test 2: the UTC and local getters describe the SAME instant
 kt_test_start "GetLastWriteTimeUtc - agrees with the local getter"
 utc="$(tdirectory.getLastWriteTimeUtc "$test_dir")"
 loc="$(tdirectory.getLastWriteTime "$test_dir")"
-e_utc="$(date -u -d "$utc" +%s)"
-e_loc="$(date -d "$loc" +%s)"
+e_utc="$(fso_epoch "$utc" utc)"
+e_loc="$(fso_epoch "$loc")"
 if [[ "$e_utc" == "$EPOCH" && "$e_loc" == "$EPOCH" ]]; then
     kt_test_pass "GetLastWriteTimeUtc - agrees with the local getter ($utc / $loc)"
 else
@@ -51,7 +52,7 @@ fi
 kt_test_start "GetLastWriteTimeUtc - newly created directory"
 test_dir="$_KT_TMPDIR/utc_write_new"
 tdirectory.createDirectory "$test_dir"
-want="$(date -u -d "@$(stat -c %Y "$test_dir")" '+%Y-%m-%d %H:%M:%S')"
+want="$(fso_fmt "$(fso_stat Y "$test_dir")" utc)"
 got="$(tdirectory.getLastWriteTimeUtc "$test_dir")"
 if [[ "$got" == "$want" ]]; then
     kt_test_pass "GetLastWriteTimeUtc - newly created directory ($got)"

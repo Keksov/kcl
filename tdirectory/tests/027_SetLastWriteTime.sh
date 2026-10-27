@@ -16,6 +16,7 @@ kt_test_init "SetLastWriteTime" "$SCRIPT_DIR" "$@"
 
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
+source "$SCRIPT_DIR/../../tpath/tests/_fsoracle.sh"
 
 EPOCH=1700000000
 OTHER=1600000000
@@ -26,7 +27,7 @@ test_dir="$_KT_TMPDIR/write_set_001"
 tdirectory.createDirectory "$test_dir"
 rc=0
 tdirectory.setLastWriteTime "$test_dir" "$EPOCH" || rc=$?
-stored="$(stat -c %Y "$test_dir")"
+stored="$(fso_stat Y "$test_dir")"
 if (( rc == 0 )) && [[ "$stored" == "$EPOCH" ]]; then
     kt_test_pass "SetLastWriteTime - changes the write time ($stored)"
 else
@@ -41,7 +42,7 @@ test_dir="$_KT_TMPDIR/write_persist"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setLastWriteTime "$test_dir" "$EPOCH" || :
 printf 'file\n' > "$test_dir/file.txt"
-stored="$(stat -c %Y "$test_dir")"
+stored="$(fso_stat Y "$test_dir")"
 if [[ "$stored" != "$EPOCH" ]]; then
     kt_test_pass "SetLastWriteTime - a new entry moves the write time ($stored)"
 else
@@ -53,7 +54,7 @@ kt_test_start "SetLastWriteTime - nested directory"
 test_dir="$_KT_TMPDIR/write/nested/path"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setLastWriteTime "$test_dir" "$OTHER" || :
-stored="$(stat -c %Y "$test_dir")"
+stored="$(fso_stat Y "$test_dir")"
 if [[ "$stored" == "$OTHER" ]]; then
     kt_test_pass "SetLastWriteTime - nested directory ($stored)"
 else
@@ -65,8 +66,8 @@ kt_test_start "SetLastWriteTime - accepts a datetime string"
 test_dir="$_KT_TMPDIR/write_format"
 tdirectory.createDirectory "$test_dir"
 tdirectory.setLastWriteTime "$test_dir" "2024-01-01 12:00:00" || :
-stored="$(stat -c %Y "$test_dir")"
-want="$(date -d '2024-01-01 12:00:00' +%s)"
+stored="$(fso_stat Y "$test_dir")"
+want="$(fso_epoch '2024-01-01 12:00:00')"
 if [[ "$stored" == "$want" ]]; then
     kt_test_pass "SetLastWriteTime - accepts a datetime string ($stored)"
 else
@@ -77,7 +78,7 @@ fi
 kt_test_start "SetLastWriteTime - the getter reads it back"
 tdirectory.setLastWriteTime "$test_dir" "$EPOCH" || :
 got="$(tdirectory.getLastWriteTime "$test_dir")"
-want="$(date -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S')"
+want="$(fso_fmt "$EPOCH")"
 if [[ "$got" == "$want" ]]; then
     kt_test_pass "SetLastWriteTime - the getter reads it back ($got)"
 else

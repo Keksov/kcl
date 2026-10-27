@@ -15,6 +15,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 # Source tfile module
 TFILE_DIR="$SCRIPT_DIR/.."
 source "$TFILE_DIR/tfile.sh"
+source "$SCRIPT_DIR/../../tpath/tests/_fsoracle.sh"
 
 TEST_NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -29,7 +30,7 @@ tfile.setLastAccessTime "$F" "$EPOCH" || :
 kt_test_start "Set creation time on existing file"
 rc=0
 out="$(tfile.setCreationTimeUtc "$F" "$EPOCH" 2>&1)" || rc=$?
-read -r atime mtime <<< "$(stat -c '%X %Y' "$F")"
+atime="$(fso_stat X "$F")"; mtime="$(fso_stat Y "$F")"
 if (( rc == 1 )) && [[ -z "$out" ]] && [[ "$mtime" == "$EPOCH" && "$atime" == "$EPOCH" ]]; then
     kt_test_pass "Set creation time on existing file (rc 1, timestamps untouched)"
 else
@@ -40,7 +41,7 @@ fi
 kt_test_start "Set creation time with a datetime string"
 rc=0
 tfile.setCreationTimeUtc "$F" "2001-02-03 04:05:06" >/dev/null 2>&1 || rc=$?
-mtime="$(stat -c %Y "$F")"
+mtime="$(fso_stat Y "$F")"
 if (( rc == 1 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "Set creation time with a datetime string (rc 1, mtime untouched)"
 else

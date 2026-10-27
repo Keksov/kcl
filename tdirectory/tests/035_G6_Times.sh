@@ -20,6 +20,7 @@ kt_test_init "G6_Times" "$SCRIPT_DIR" "$@"
 
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
 source "$TDIRECTORY_DIR/tdirectory.sh"
+source "$SCRIPT_DIR/../../tpath/tests/_fsoracle.sh"
 
 W="$(cd "$(kt_fixture_tmpdir)" && pwd)"
 D="$W/times"
@@ -40,7 +41,7 @@ eq() {   # TITLE EXPECTED ACTUAL
 # --- the write time round-trips exactly ------------------------------------
 kt_test_start "setLastWriteTime stores the epoch it was given [G6-08]"
 tdirectory.setLastWriteTime "$D" "$EPOCH" || :
-stored="$(stat -c %Y "$D")"
+stored="$(fso_stat Y "$D")"
 if [[ "$stored" == "$EPOCH" ]]; then
     kt_test_pass "$stored"
 else
@@ -48,9 +49,9 @@ else
 fi
 
 eq "getLastWriteTime formats it in local time [G6-08]" \
-   "$(date -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S')" "$(tdirectory.getLastWriteTime "$D")"
+   "$(fso_fmt "$EPOCH")" "$(tdirectory.getLastWriteTime "$D")"
 eq "getLastWriteTimeUtc formats the same instant in UTC [G6-08]" \
-   "$(date -u -d "@$EPOCH" '+%Y-%m-%d %H:%M:%S')" "$(tdirectory.getLastWriteTimeUtc "$D")"
+   "$(fso_fmt "$EPOCH" utc)" "$(tdirectory.getLastWriteTimeUtc "$D")"
 
 kt_test_start "setLastWriteTimeUtc reads its argument as UTC [G6-08]"
 tdirectory.setLastWriteTimeUtc "$D" "2024-01-01 12:00:00" || :
@@ -72,9 +73,9 @@ fi
 
 kt_test_start "the two setters agree when they are given an epoch [G6-08]"
 tdirectory.setLastWriteTime "$D" "$EPOCH" || :
-a="$(stat -c %Y "$D")"
+a="$(fso_stat Y "$D")"
 tdirectory.setLastWriteTimeUtc "$D" "$EPOCH" || :
-b="$(stat -c %Y "$D")"
+b="$(fso_stat Y "$D")"
 if [[ "$a" == "$EPOCH" && "$b" == "$EPOCH" ]]; then
     kt_test_pass "both $EPOCH"
 else
@@ -91,7 +92,7 @@ kt_test_start "setLastAccessTime succeeds and leaves the write time alone [G6-08
 tdirectory.setLastWriteTime "$D" "$EPOCH" || :
 rc=0
 tdirectory.setLastAccessTime "$D" "$OTHER" || rc=$?
-mtime="$(stat -c %Y "$D")"
+mtime="$(fso_stat Y "$D")"
 if (( rc == 0 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "rc 0, mtime still $mtime"
 else
@@ -101,7 +102,7 @@ fi
 kt_test_start "setLastAccessTimeUtc succeeds and leaves the write time alone [G6-08]"
 rc=0
 tdirectory.setLastAccessTimeUtc "$D" "2024-01-01 12:00:00" || rc=$?
-mtime="$(stat -c %Y "$D")"
+mtime="$(fso_stat Y "$D")"
 if (( rc == 0 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "rc 0, mtime still $mtime"
 else
@@ -113,7 +114,7 @@ kt_test_start "setCreationTime is rc 1 and does not touch the write time [R13, G
 tdirectory.setLastWriteTime "$D" "$EPOCH" || :
 rc=0
 out="$(tdirectory.setCreationTime "$D" "2001-02-03 04:05:06" 2>&1)" || rc=$?
-mtime="$(stat -c %Y "$D")"
+mtime="$(fso_stat Y "$D")"
 if (( rc == 1 )) && [[ -z "$out" && "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "rc 1, silent, mtime untouched"
 else
@@ -123,7 +124,7 @@ fi
 kt_test_start "setCreationTimeUtc is rc 1 and does not touch the write time [R13]"
 rc=0
 tdirectory.setCreationTimeUtc "$D" "2001-02-03 04:05:06" >/dev/null 2>&1 || rc=$?
-mtime="$(stat -c %Y "$D")"
+mtime="$(fso_stat Y "$D")"
 if (( rc == 1 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "rc 1, mtime untouched"
 else
@@ -154,7 +155,7 @@ kt_test_start "a setter refuses an unparsable time and touches nothing [1.2]"
 tdirectory.setLastWriteTime "$D" "$EPOCH" || :
 rc=0
 tdirectory.setLastWriteTime "$D" "not-a-date" >/dev/null 2>&1 || rc=$?
-mtime="$(stat -c %Y "$D")"
+mtime="$(fso_stat Y "$D")"
 if (( rc == 1 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "rc 1, mtime untouched"
 else
@@ -191,7 +192,7 @@ else
 fi
 
 kt_test_start "getAttributes matches the mode the filesystem reports [G6-07]"
-mode="$(stat -c %a "$A")"
+mode="$(fso_stat a "$A")"
 owner="${mode: -3:1}"
 if (( (8#$owner & 2) == 0 )); then
     want="faDirectory,faReadOnly"
@@ -209,7 +210,7 @@ kt_test_start "setAttributes without faReadOnly answers rc 0 and keeps it writab
 rc=0
 tdirectory.setAttributes "$A" "faArchive" || rc=$?
 if (( rc == 0 )) && [[ -w "$A" ]]; then
-    kt_test_pass "rc 0, writable (mode $(stat -c %a "$A"))"
+    kt_test_pass "rc 0, writable (mode $(fso_stat a "$A"))"
 else
     kt_test_fail "rc=$rc writable=$([[ -w "$A" ]] && echo yes || echo no)"
 fi

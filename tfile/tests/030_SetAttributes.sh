@@ -13,6 +13,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 # Source tfile module
 TFILE_DIR="$SCRIPT_DIR/.."
 source "$TFILE_DIR/tfile.sh"
+source "$SCRIPT_DIR/../../tpath/tests/_fsoracle.sh"
 
 # Extract test name from filename
 TEST_NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
@@ -26,7 +27,7 @@ chmod 644 "$F"
 kt_test_start "Set attributes on existing file"
 rc=0
 tfile.setAttributes "$F" "[faReadOnly]" || rc=$?
-mode="$(stat -c %a "$F")"
+mode="$(fso_stat a "$F")"
 if (( rc == 0 )) && [[ "$mode" == "444" ]] && [[ ! -w "$F" ]]; then
     kt_test_pass "Set attributes on existing file (mode $mode)"
 else
@@ -46,7 +47,7 @@ fi
 kt_test_start "Clearing faReadOnly makes the file writable again"
 rc=0
 tfile.setAttributes "$F" "[faArchive]" || rc=$?
-mode="$(stat -c %a "$F")"
+mode="$(fso_stat a "$F")"
 if (( rc == 0 )) && [[ -w "$F" ]]; then
     kt_test_pass "Clearing faReadOnly makes the file writable again (mode $mode)"
 else

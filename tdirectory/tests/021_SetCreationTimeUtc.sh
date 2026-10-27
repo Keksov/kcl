@@ -18,6 +18,7 @@ kt_test_init "SetCreationTimeUtc" "$SCRIPT_DIR" "$@"
 # Source tdirectory if needed
 TDIRECTORY_DIR="$SCRIPT_DIR/.."
 [[ -f "$TDIRECTORY_DIR/tdirectory.sh" ]] && source "$TDIRECTORY_DIR/tdirectory.sh"
+source "$SCRIPT_DIR/../../tpath/tests/_fsoracle.sh"
 
 EPOCH=1700000000
 
@@ -28,7 +29,7 @@ tdirectory.createDirectory "$test_dir"
 tdirectory.setLastWriteTime "$test_dir" "$EPOCH" || :
 rc=0
 out="$(tdirectory.setCreationTimeUtc "$test_dir" "$EPOCH" 2>&1)" || rc=$?
-mtime="$(stat -c %Y "$test_dir")"
+mtime="$(fso_stat Y "$test_dir")"
 if (( rc == 1 )) && [[ -z "$out" && "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "SetCreationTimeUtc - rc 1, silent, write time untouched"
 else
@@ -39,7 +40,7 @@ fi
 kt_test_start "SetCreationTimeUtc - refuses a datetime string"
 rc=0
 tdirectory.setCreationTimeUtc "$test_dir" "2001-02-03 04:05:06" >/dev/null 2>&1 || rc=$?
-mtime="$(stat -c %Y "$test_dir")"
+mtime="$(fso_stat Y "$test_dir")"
 if (( rc == 1 )) && [[ "$mtime" == "$EPOCH" ]]; then
     kt_test_pass "SetCreationTimeUtc - rc 1, write time untouched"
 else
