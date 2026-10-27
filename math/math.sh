@@ -46,7 +46,8 @@ kk.unit math || return $__kk_unit_rc
 #     and `-nan`), so the tokens this unit publishes are the tokens it
 #     accepts (M5);
 #   * awk runs under `LC_ALL=C`, so `%.17g` prints `2.5`, never `2,5` (M15);
-#   * the program reaches awk through PROCESS SUBSTITUTION (`awk -f <(...)`),
+#   * the program reaches awk through PROCESS SUBSTITUTION (`exec {fd}< <(...)`
+#     in the co-process, then `awk -f /dev/fd/N`; launch L3.5, PORTING H44),
 #     which leaves nothing on disk (M6). Both bashes on this machine were
 #     probed and keep the substitution alive for the co-process's lifetime; if
 #     it ever fails the code falls back to a temp file plus an EXIT trap that
@@ -813,10 +814,20 @@ math._fe_spawn() {
     if [[ $__m_src == - ]]; then
         coproc MATH_FE {
             export LC_ALL=C
+            # the co-process's own shell OPENS the substitution and awk reads
+            # it as /dev/fd/N (launch L3.5, PORTING H44): a bash without
+            # /dev/fd (FreeBSD's pkg bash) makes `<( )` a FIFO whose writer
+            # blocks in open() until a reader comes — an awk that exited
+            # before opening `-f FIFO` (BWK awk takes `-W interactive` for
+            # its program) left that writer blocked for ever, holding the
+            # caller's pipes. Opened here, the writer never waits for awk: it
+            # fills the pipe, and an awk that never reads ends it (EOF of the
+            # read side, SIGPIPE) when this process exits.
+            exec {__m_pf}< <(printf '%s\n' "$__MATH_AWK_PROG") || exit 1
             if declare -F -- "$__m_awk" >/dev/null; then
-                "$__m_awk" "$@" -f <(printf '%s\n' "$__MATH_AWK_PROG") 2>/dev/null
+                "$__m_awk" "$@" -f "/dev/fd/$__m_pf" 2>/dev/null
             else
-                exec "$__m_awk" "$@" -f <(printf '%s\n' "$__MATH_AWK_PROG") 2>/dev/null
+                exec "$__m_awk" "$@" -f "/dev/fd/$__m_pf" 2>/dev/null
             fi
         }
     else
