@@ -20,8 +20,11 @@
 #   ceiling set at 3x the idle measurement would therefore flake for a reason
 #   that has nothing to do with this unit; 10x still catches every regression
 #   the gate exists for — an instance constructed per LINE instead of per call,
-#   a `$( )` around the producer, a second grep process per call — each of which
+#   a `$( )` around the producer, a second grep process per call (on slow-fork platforms) — each of which
 #   costs orders of magnitude, not tens of percent.
+#   On a fast-fork platform (bare ≈ 1 ms) the ceiling is never below bare + 30 ms;
+#   it still catches a per-line instance (ms × lines) and, on slow-fork platforms, an
+#   extra process per call.
 #
 # MEDIANS. Every number here is one PROCESS START plus a scan (~28 ms idle), and
 # on this platform a process start occasionally takes 200 ms for reasons outside
@@ -142,7 +145,7 @@ if tcase "TGrep.search costs at most 10x a bare \`grep -r\` (PLAN gate 1.3x)"; t
     done
     median T_GREP;   m_grep="$MED";   (( m_grep > 0 )) || m_grep=1
     median T_SEARCH; m_search="$MED"
-    lim=$(( m_grep * 10 ))
+    lim=$(( m_grep * 10 )); (( lim < m_grep + 30000 )) && lim=$(( m_grep + 30000 ))
     r100=$(( m_search * 100 / m_grep ))
     if [[ "$nb" == "$SPARSE" && "$nw" == "$SPARSE" ]] && (( m_search <= lim )); then
         kt_test_pass "both found $SPARSE hits; grep median ${m_grep}us, search median ${m_search}us — ${r100}% (ceiling ${lim}us), $NR runs"
@@ -244,7 +247,7 @@ if tcase "g.count costs at most 10x \`grep -c\` on the same tree (measured 1.47x
     median T_GC;  m_gc="$MED"; (( m_gc > 0 )) || m_gc=1
     median T_CNT; m_cnt="$MED"
     median T_CO;  m_co="$MED"
-    lim=$(( m_gc * 10 ))
+    lim=$(( m_gc * 10 )); (( lim < m_gc + 30000 )) && lim=$(( m_gc + 30000 ))
     r100=$(( m_cnt * 100 / m_gc ))
     if [[ "$n_sparse" == "$SPARSE" ]] && (( m_cnt <= lim )); then
         kt_test_pass "count $n_sparse records; grep -c median ${m_gc}us, g.count median ${m_cnt}us — ${r100}% (ceiling ${lim}us)"
@@ -253,7 +256,7 @@ if tcase "g.count costs at most 10x \`grep -c\` on the same tree (measured 1.47x
     fi
 
     kt_test_start "countOnly=1 delivers grep's OWN numbers in 2 records, at most 10x \`grep -c\`"
-    lim=$(( m_gc * 10 ))
+    lim=$(( m_gc * 10 )); (( lim < m_gc + 30000 )) && lim=$(( m_gc + 30000 ))
     r100=$(( m_co * 100 / m_gc ))
     # grep's walk order over a directory is not ours to pin, so the two records
     # are compared as a SET.

@@ -1,7 +1,7 @@
 # kcl/tregex — TRegEx for bash
 
 Delphi `System.RegularExpressions.TRegEx`'s **API**, running on bash's
-`[[ $s =~ $re ]]` **engine** (POSIX ERE via glibc `regexec`) — C-speed,
+`[[ $s =~ $re ]]` **engine** (POSIX ERE via the C library's `regexec`: glibc, musl, FreeBSD libc, msys) — C-speed,
 fork-free, patterns cached by bash internally. A **static** kklass class (no
 instances): the whole surface is class functions, same as Delphi's usage.
 
@@ -140,6 +140,11 @@ The three most likely to bite when porting Delphi code (full list in
 The engine is the C library's ERE (`regcomp`): glibc accepts some patterns
 newlib/cygwin rejects (`a|`, `()`), so their rc can differ by platform; the empty
 pattern is rc 2 everywhere (S2).
+
+`\b` is an extension of the C library: glibc, newlib and musl accept it (musl
+also matches it on an empty remainder, so a scan with `\b` reports one more
+offset), FreeBSD libc (macOS untested) rejects it (rc 2) — `\<` and `\>` work
+everywhere.
 
 ### Match offsets, and the zero-length anchor delta
 

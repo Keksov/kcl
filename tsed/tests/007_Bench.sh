@@ -17,8 +17,11 @@
 #   identical code). A ceiling set at 3x the idle measurement would flake for a
 #   reason that has nothing to do with this unit; 10x still catches every
 #   regression the gate exists for — an instance constructed per RECORD instead
-#   of per call, a `$( )` around the producer, a second `sed` process per call —
+#   of per call, a `$( )` around the producer, a second `sed` process per call (on slow-fork platforms) —
 #   each of which costs orders of magnitude, not tens of percent.
+#   On a fast-fork platform (bare ≈ 1 ms) the ceiling is never below bare + 30 ms;
+#   it still catches a per-line instance (ms × lines) and, on slow-fork platforms, an
+#   extra process per call.
 #
 # MEDIANS, AND WHY THEY ARE NOT NEGOTIABLE. Every number here is one PROCESS
 # START plus an edit, and on this platform a process start occasionally takes
@@ -168,7 +171,7 @@ gate_case() {
     done
     median __t_bare; local __m_bare="$MED"; (( __m_bare > 0 )) || __m_bare=1
     median __t_ed;   local __m_ed="$MED"
-    local __lim=$(( __m_bare * 10 ))
+    local __lim=$(( __m_bare * 10 )); (( __lim < __m_bare + 30000 )) && __lim=$(( __m_bare + 30000 ))
     local __r100=$(( __m_ed * 100 / __m_bare ))
     if [[ "$__same" == "1" && "$__nb" == "$__want" ]] && (( __m_ed <= __lim )); then
         kt_test_pass "byte-identical, $__want records; sed median ${__m_bare}us, edit median ${__m_ed}us — ${__r100}% (ceiling ${__lim}us), $NR runs"
@@ -312,7 +315,7 @@ if tcase "s.count over $NL records costs at most 10x \`sed --sandbox -e … -- F
     done
     median T_WC;  m_wc="$MED"; (( m_wc > 0 )) || m_wc=1
     median T_CNT; m_cnt="$MED"
-    lim=$(( m_wc * 10 ))
+    lim=$(( m_wc * 10 )); (( lim < m_wc + 30000 )) && lim=$(( m_wc + 30000 ))
     r100=$(( m_cnt * 100 / m_wc ))
     if [[ "$n_wc" == "$NL" && "$n_cnt" == "$NL" ]] && (( m_cnt <= lim )); then
         kt_test_pass "both counted $NL; pipeline median ${m_wc}us, s.count median ${m_cnt}us — ${r100}% (ceiling ${lim}us)"

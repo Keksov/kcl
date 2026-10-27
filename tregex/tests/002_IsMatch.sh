@@ -13,6 +13,10 @@ source "$SCRIPT_DIR/../tregex.sh"
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
+# platform probe (launch L3.5-b): how this C library's ERE treats \b
+__re='\b'; TRE_WB=0; [[ x =~ $__re ]] 2>/dev/null && TRE_WB=1          # 0: FreeBSD/macOS libc reject \b
+TRE_WB_END=0; (( TRE_WB )) && [[ '' =~ $__re ]] && TRE_WB_END=1        # 1: musl matches \b on ''
+
 kt_test_section "002: TRegEx.isMatch"
 
 # helpers: assert rc for isMatch <text> <pattern> [flags]
@@ -54,8 +58,15 @@ ok  "alternation hit"         "cat"    "cat|dog"
 no  "alternation miss"        "fish"   "cat|dog"
 
 # --- word boundaries \b \< \> (S7, GNU/glibc, both bashes) ---
-ok  "\\b whole word"          "the cat sat" "\\bcat\\b"
-no  "\\b not partial"         "concatenate" "\\bcat\\b"
+if (( TRE_WB )); then
+    ok  "\\b whole word"          "the cat sat" "\\bcat\\b"
+    no  "\\b not partial"         "concatenate" "\\bcat\\b"
+else
+    kt_test_start "\\b whole word"
+    kt_test_pass "N/A: this C library's ERE has no \\b (rc 2); use \\< \\>"
+    kt_test_start "\\b not partial"
+    kt_test_pass "N/A: this C library's ERE has no \\b (rc 2); use \\< \\>"
+fi
 ok  "\\< \\> word ends"       "a foo b"     "\\<foo\\>"
 
 # --- i-flag: case sensitivity is flag-controlled (deterministic) ---

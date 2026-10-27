@@ -27,6 +27,10 @@ source "$UNIT"
 kt_test_init "T3T4LocaleAndAnchors" "$SCRIPT_DIR" "$@"
 kt_test_section "011: locale semantics (T3) and anchored zero-length scans (T4/R12)"
 
+# platform probe (launch L3.5-b): how this C library's ERE treats \b
+__re='\b'; TRE_WB=0; [[ x =~ $__re ]] 2>/dev/null && TRE_WB=1          # 0: FreeBSD/macOS libc reject \b
+TRE_WB_END=0; (( TRE_WB )) && [[ '' =~ $__re ]] && TRE_WB_END=1        # 1: musl matches \b on ''
+
 # ---------------------------------------------------------------------------
 # 1. T3 — `.` over a multibyte character, under both locales, in a CHILD shell
 #    (the runner pins LC_ALL=C.UTF-8, so the C case has to be constructed).
@@ -95,7 +99,14 @@ _scan() {   # PATTERN TEXT EXPECT-n EXPECT-offsets DOTNET-NOTE
 # whole string one character at a time.
 _scan '$'  "abc"   4 "0 1 2 3" "1 match at 3"
 _scan '^'  "abc"   4 "0 1 2 3" "1 match at 0"
-_scan '\b' "ab cd" 5 "0 1 2 3 4" "4 matches at 0,2,3,5"
+if (( ! TRE_WB )); then
+    kt_test_start "matches(ab cd, \b) = 5 matches at [0 1 2 3 4]; .NET: 4 matches at 0,2,3,5 [T4/R12]"
+    kt_test_pass "N/A: this C library's ERE has no \b (rc 2); use \< \>"
+elif (( TRE_WB_END )); then   # musl also matches \b on the empty remainder: one more offset
+    _scan '\b' "ab cd" 6 "0 1 2 3 4 5" "4 matches at 0,2,3,5"
+else
+    _scan '\b' "ab cd" 5 "0 1 2 3 4" "4 matches at 0,2,3,5"
+fi
 _scan '\<' "ab cd" 5 "0 1 2 3 4" "2 matches at 0,3"
 _scan '\>' "ab cd" 5 "0 1 2 3 4" "2 matches at 2,5"
 # An UNANCHORED empty-match pattern is exact — the empty match really is at the
@@ -110,7 +121,9 @@ _rep() {   # TEXT PATTERN REPL EXPECT DOTNET
 }
 _rep "abc"   '$'  "!" "!a!b!c!" "abc!"
 _rep "abc"   '^'  ">" ">a>b>c>" ">abc"
-_rep "ab cd" '\b' "|" "|a|b| |c|d" "|ab| |cd|"
+if (( TRE_WB_END )); then _rep "ab cd" '\b' "|" "|a|b| |c|d|" "|ab| |cd|"
+elif (( TRE_WB )); then _rep "ab cd" '\b' "|" "|a|b| |c|d" "|ab| |cd|"
+fi   # TRE_WB=0: not called (rc 2)
 _rep "abc"   'x*' "-" "-a-b-c-"   "-a-b-c- (agrees)"
 $ok && kt_test_pass "4 rows pinned" || kt_test_fail "$why"
 
@@ -118,8 +131,11 @@ kt_test_start "split with an anchored zero-length pattern [T4/R12]"
 ok=true; why=""
 p=(); TRegEx.split "abc" '$' p
 [[ "$(printf '[%s]' "${p[@]}")" == "[][a][b][c][]" ]] || { ok=false; why+=" [split \$ -> $(printf '[%s]' "${p[@]}")]"; }
-p=(); TRegEx.split "ab cd" '\b' p
-[[ "$(printf '[%s]' "${p[@]}")" == "[][a][b][ ][c][d]" ]] || { ok=false; why+=" [split \\b -> $(printf '[%s]' "${p[@]}")]"; }
+if (( TRE_WB )); then
+    want_wb="[][a][b][ ][c][d]"; (( TRE_WB_END )) && want_wb="[][a][b][ ][c][d][]"
+    p=(); TRegEx.split "ab cd" '\b' p
+    [[ "$(printf '[%s]' "${p[@]}")" == "$want_wb" ]] || { ok=false; why+=" [split \\b -> $(printf '[%s]' "${p[@]}") want $want_wb]"; }
+fi   # TRE_WB=0: not checked (rc 2)
 $ok && kt_test_pass "pinned" || kt_test_fail "$why"
 
 kt_test_start "the S6 offset caveat: an anchored match whose text recurs earlier [T4]"

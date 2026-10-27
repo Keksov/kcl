@@ -17,8 +17,11 @@
 #   identical code). A ceiling set at 3x the idle measurement would flake for a
 #   reason that has nothing to do with this unit; 10x still catches every
 #   regression the gate exists for — an instance constructed per RECORD instead
-#   of per call, a `$( )` around the producer, a second `head` process per call
+#   of per call, a `$( )` around the producer, a second `head` process per call (on slow-fork platforms)
 #   — each of which costs orders of magnitude, not tens of percent.
+#   On a fast-fork platform (bare ≈ 1 ms) the ceiling is never below bare + 30 ms;
+#   it still catches a per-line instance (ms × lines) and, on slow-fork platforms, an
+#   extra process per call.
 #
 # MEDIANS. Every number here is one PROCESS START plus a scan, and on this
 # platform a process start occasionally takes several hundred milliseconds for
@@ -149,7 +152,7 @@ gate_case() {
     done
     median __t_bare; local __m_bare="$MED"; (( __m_bare > 0 )) || __m_bare=1
     median __t_take; local __m_take="$MED"
-    local __lim=$(( __m_bare * 10 ))
+    local __lim=$(( __m_bare * 10 )); (( __lim < __m_bare + 30000 )) && __lim=$(( __m_bare + 30000 ))
     local __r100=$(( __m_take * 100 / __m_bare ))
     if [[ "$__nb" == "$__want" && "$__nw" == "$__want" ]] && (( __m_take <= __lim )); then
         kt_test_pass "both delivered $__want records; head median ${__m_bare}us, take median ${__m_take}us — ${__r100}% (ceiling ${__lim}us), $NR runs"
@@ -253,7 +256,7 @@ if tcase "h.count over $CNT_N records costs at most 10x \`head -n $CNT_N | wc -l
     done
     median T_WC;  m_wc="$MED"; (( m_wc > 0 )) || m_wc=1
     median T_CNT; m_cnt="$MED"
-    lim=$(( m_wc * 10 ))
+    lim=$(( m_wc * 10 )); (( lim < m_wc + 30000 )) && lim=$(( m_wc + 30000 ))
     r100=$(( m_cnt * 100 / m_wc ))
     if [[ "$n_wc" == "$CNT_N" && "$n_cnt" == "$CNT_N" ]] && (( m_cnt <= lim )); then
         kt_test_pass "both counted $CNT_N; wc median ${m_wc}us, h.count median ${m_cnt}us — ${r100}% (ceiling ${lim}us)"

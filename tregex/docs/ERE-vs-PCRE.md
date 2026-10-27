@@ -150,6 +150,9 @@ advancing past each match (bash has no `\G`/previous-match anchor). Consequences
   | `replace("ab cd", '\b', "\|")` | `\|a\|b\| \|c\|d` | `\|ab\| \|cd\|` |
   | `split("abc", '$')` | `[][a][b][c][]` | `[abc][]` |
 
+  The `\b` rows are glibc/msys; musl also matches `\b` on the empty remainder
+  (6 matches at 0..5, `\|a\|b\| \|c\|d\|`), and FreeBSD libc rejects `\b` (rc 2) — see the README.
+
   Fixing it would need a match offset bash does not expose, so R12 (owner,
   2026-09-06) keeps it documented and pinned. **Use anchored patterns with
   `isMatch`/`match`, not with the scanning members.**
@@ -189,7 +192,8 @@ caller chose is never overridden. Both halves are pinned in
 - **`.` matches newline.** In bash ERE the subject is one string and `.` spans
   `\n` (probe S1); PCRE's default excludes `\n` (needs `Singleline`).
 - **`\< \>` word-edge anchors** work (GNU/glibc) in addition to `\b`; these are
-  GNU extensions, not POSIX, and not standard PCRE spelling.
+  GNU extensions, not POSIX, and not standard PCRE spelling. (FreeBSD libc
+  rejects `\b` but accepts `\< \>`.)
 
 ---
 
