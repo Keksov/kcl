@@ -46,12 +46,14 @@ kk.unit math || return $__kk_unit_rc
 #     and `-nan`), so the tokens this unit publishes are the tokens it
 #     accepts (M5);
 #   * awk runs under `LC_ALL=C`, so `%.17g` prints `2.5`, never `2,5` (M15);
-#   * the program reaches awk through PROCESS SUBSTITUTION (`exec {fd}< <(...)`
-#     in the co-process, then `awk -f /dev/fd/N`; launch L3.5, PORTING H44),
-#     which leaves nothing on disk (M6). Both bashes on this machine were
-#     probed and keep the substitution alive for the co-process's lifetime; if
-#     it ever fails the code falls back to a temp file plus an EXIT trap that
-#     CHAINS the caller's own EXIT handler instead of replacing it;
+#   * the program reaches awk through PROCESS SUBSTITUTION (`<(...)` opened
+#     by the co-process's shell, then `awk -f /dev/fd/N`; launch L3.5, H44),
+#     which leaves nothing on disk (M6; a FIFO substitution — FreeBSD's pkg
+#     bash — is unlinked right after its open, L3.5-7). Both bashes on this
+#     machine were probed and keep the substitution alive for the
+#     co-process's lifetime; if it ever fails the code falls back to a temp
+#     file plus an EXIT trap that CHAINS the caller's own EXIT handler
+#     instead of replacing it;
 #   * a restart reaps the old co-process first, so bash never prints
 #     `execute_coproc: coproc [pid:MATH_FE] still exists` (M9);
 #   * with no awk at all a Tier-B member is rc 1 + RESULT='' + silence (M10);
@@ -792,6 +794,23 @@ math._fe_arm_trap() {
     return 0
 }
 
+# math._fe_pfopen PATH — open the program substitution PATH (`<(printf …)`)
+# as __m_pf in the co-process's shell (math._fe_spawn). Where `<( )` is a FIFO
+# in TMPDIR (FreeBSD's pkg bash, PORTING H14/H44) the shell that made it
+# unlinks it only after its writer ended — never, when that shell `exec`s the
+# awk: one `sh-np.*` was left per spawn attempt (launch L3.5-a-o5). So a PATH
+# named like bash's FIFOs (`sh-np.XXXXXX`, or `sh-np-N` where bash has no
+# mktemp(3)) is unlinked right after the open, which pairs with the writer's
+# (the fd stays valid; awk reads /dev/fd/$__m_pf). Any other PATH — /dev/fd/N
+# (Linux, cygwin), /proc/self/fd/N — is opened exactly as `exec {fd}< <(…)`
+# opened it, nothing more; the unlink is the only fork this adds, and only on
+# a FIFO bash. rc 1: no open.
+math._fe_pfopen() {
+    exec {__m_pf}<"$1" || return 1
+    if [[ ${1##*/} == sh-np[.-]* ]]; then command rm -f -- "$1" 2>/dev/null || :; fi
+    return 0
+}
+
 # math._fe_spawn AWK SRC [FLAG...] — start AWK on the engine program and send
 # it the start probe (`pi`). SRC `-` hands the program through process
 # substitution, anything else is the path of the fallback file. rc 0: the
@@ -825,8 +844,10 @@ math._fe_spawn() {
             # its program) left that writer blocked for ever, holding the
             # caller's pipes. Opened here, the writer never waits for awk: it
             # fills the pipe, and an awk that never reads ends it (EOF of the
-            # read side, SIGPIPE) when this process exits.
-            exec {__m_pf}< <(printf '%s\n' "$__MATH_AWK_PROG") || exit 1
+            # read side, SIGPIPE) when this process exits. math._fe_pfopen
+            # opens it (and unlinks such a FIFO: this shell `exec`s, so bash
+            # never would — launch L3.5-7).
+            math._fe_pfopen <(printf '%s\n' "$__MATH_AWK_PROG") || exit 1
             if declare -F -- "$__m_awk" >/dev/null; then
                 "$__m_awk" "$@" -f "/dev/fd/$__m_pf" 2>/dev/null
             else

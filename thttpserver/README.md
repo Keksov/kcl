@@ -578,10 +578,20 @@ kklass class in P2:
 # _spawn SLOT   (o = the other slot)
 exec {rd}< <( [[ -n $wrO ]] && exec {wrO}>&- {rdO}<&-    # never inherit the live connection (C4)
               export LC_ALL=C                              # nc's -vv lines are classified by text
-              exec nc -l -c -vv -n -w TTL -s ADDR -p PORT < <(exec cat "$dir/fifo$s") 2>"$dir/err$s" )
-pid=$!
+              ths._relayExec "$dir/err$s" <(exec cat "$dir/fifo$s") nc -l -c -vv -n -w TTL -s ADDR -p PORT )
+pid=$!                       # ths._relayExec: exec <RELAY; unlink RELAY if named sh-np.*/sh-np-N; exec nc 2>err
 exec {wr}>"$dir/fifo$s"      # O_WRONLY: an O_RDWR writer never lets nc see EOF (C1)
 ```
+
+Where `<( )` is a FIFO in `TMPDIR` (FreeBSD's pkg bash, `sh-np.XXXXXX`), bash
+unlinks it only after its writer ended — never in a shell that then `exec`s.
+The relay's substitution is made in exactly such a shell (it becomes the
+listener), so `ths._relayExec` opens it and unlinks it at once (the fd stays
+valid): no `sh-np.*` is left per spawn (launch L3.5-7). A `/dev/fd/N` relay
+(Linux, cygwin) is opened exactly as `< <(…)` did and nothing else happens.
+While a listener lives, `TMPDIR` holds one more `sh-np.*` on such a bash: the
+server shell's own reader substitution, which bash removes when the listener
+ends.
 
 * **Accept** reads the request line in ≤ 1 s ticks (partial input kept); the
   moment it arrives, the **other** slot's listener is spawned (D5), so a second

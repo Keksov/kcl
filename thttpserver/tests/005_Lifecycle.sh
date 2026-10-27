@@ -10,6 +10,9 @@
 #      Serve returns 0, the child exits cleanly, the port is free.
 #   §3 TERM while idle in Accept with AcceptIdleTimeout 0 (no idle ticks at
 #      all): the child still ends on its own.
+#   §5 N listener spawns leave no process-substitution FIFO (`sh-np.*`) in
+#      TMPDIR, while serving or after (launch L3.5-7; N/A where `<( )` is
+#      /dev/fd).
 #
 # The checks that must run INSIDE the server shell (traps, fds, children,
 # instances) are made by the child and written to its result file.
@@ -310,5 +313,62 @@ else
         kt_test_pass "idle tick, then Shutdown in $(( us / 1000 )) ms; clean"
     else
         kt_test_fail "exit=$THS_RC accept=$ac shutdown_us=$us children=$ch dirs=$dd stderr='${e:0:200}'"
+    fi
+fi
+
+# ===========================================================================
+kt_test_section "5. no process-substitution FIFO left in TMPDIR after N spawns (launch L3.5-7, PORTING H44)"
+# ===========================================================================
+# Where `<( )` is a FIFO in TMPDIR (FreeBSD's pkg bash) the relay's
+# substitution used to stay behind as one `sh-np.*` per listener spawn: the
+# shell that made it became the listener by `exec` and never unlinked it.
+# While serving, a live listener still has ONE such entry: the reader
+# substitution the server shell opened (`exec {rd}< <(…)`), which bash
+# unlinks when that listener ends — so at most one per slot (2) mid-run, and
+# none after Serve; the leak grew by one per spawn. N/A where `<( )` is /dev/fd (the same checks run, nothing can be left).
+# The kind is read by OPENING the path (a bare `echo <(:)` would leave the
+# writer blocked in open() for ever on a FIFO bash).
+
+l5_kind() { L5_PS="$1"; : < "$1"; }
+l5_kind <(:)
+if [[ "$L5_PS" == /dev/fd/* ]]; then L5_NA=" (N/A: <( ) is $L5_PS)"; else L5_NA=" (<( ) is a FIFO: ${L5_PS##*/})"; fi
+L5_N=6
+L5_TITLES=(
+    "MaxRequests $L5_N served (one listener spawn per request): at most one sh-np.* per slot while serving (a live listener's reader), TMPDIR empty after Serve"
+)
+SNIP_L5='
+l5() { $2.Write five; }
+THttpRouter.new RT
+RT.RegisterRoute /x GET l5
+S.Router = RT
+'
+# l5_fifos — the sh-np.* entries of the server's TMPDIR into L5_F; rc 0 = at
+# most 2 (one live listener's reader per slot)
+l5_fifos() { local f n=0; L5_F=""; for f in "$THS_DIR"/tmp/sh-np.*; do if [[ -e "$f" || -p "$f" ]]; then L5_F+=" ${f##*/}"; n=$(( n + 1 )); fi; done; (( n <= 2 )); }
+if ! ths_have_nc; then
+    ths_skip "${L5_TITLES[@]}"
+elif ! ths_start l5 "$SNIP_L5" MAXREQ="$L5_N" IDLE_BUDGET=60; then
+    for t in "${L5_TITLES[@]}"; do kt_test_start "$t"; kt_test_fail "l5 never listened: $(tr '\n' ' ' < "$THS_DIR/err" 2>/dev/null)"; done
+else
+    codes=""; mid=""; want=""
+    for (( i = 1; i <= L5_N; i++ )); do want+=" 200"; done
+    for (( i = 1; i <= L5_N; i++ )); do
+        ths_curl "$TMP/l5.$i" "http://127.0.0.1:$THS_PORT/x"; codes+=" $CURL_CODE"
+        if (( i == L5_N - 1 )); then
+            # the next listener is pre-spawned by now (D5); a leak never goes
+            # away (it would be one per spawn so far: L5_N)
+            ths_poll 30 ths_prespawned "$THS_DIR" || :
+            ths_poll 2 l5_fifos || mid="$L5_F"
+        fi
+    done
+    THS_RC=0; wait "$THS_PID" || THS_RC=$?
+    ths_result rc; rc="$THS_V"; ths_result n; n="$THS_V"
+    left="$(ls -A "$THS_DIR/tmp")"
+    e="$(<"$THS_DIR/err")"
+    kt_test_start "${L5_TITLES[0]}"
+    if [[ $THS_RC -eq 0 && "$rc" == 0 && "$n" == "$L5_N" && "$codes" == "$want" && -z "$mid" && -z "$left" && -z "$e" ]]; then
+        kt_test_pass "$L5_N served; mid-run [${L5_F# }]; nothing left after$L5_NA"
+    else
+        kt_test_fail "exit=$THS_RC rc=$rc n=$n codes='$codes' mid='$mid' tmp='${left//$'\n'/ }' stderr='${e:0:200}'$L5_NA"
     fi
 fi

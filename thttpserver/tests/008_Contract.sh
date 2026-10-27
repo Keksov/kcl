@@ -202,13 +202,16 @@ for f in "${EXAMPLES[@]}"; do
 done
 if [[ -z "$bad" ]]; then kt_test_pass "both"; else kt_test_fail "$bad"; fi
 
-kt_test_start "the transport's mechanism (PLAN §2.5, C1–C4): the FIFO writer is opened O_WRONLY (never '<>'), nc's stdin through 'exec cat', the child closes the other slot's fds, nc -vv"
+kt_test_start "the transport's mechanism (PLAN §2.5, C1–C4): the FIFO writer is opened O_WRONLY (never '<>'), nc's stdin through 'exec cat' (a FIFO relay unlinked after its open, L3.5-7), the child closes the other slot's fds, nc -vv"
 b="$(sed -n '/^TNetcatTransport._spawn()/,/^}/p' "$UNIT")"
 a="$(sed -n '/^TNetcatTransport.BuildArgv()/,/^}/p' "$UNIT")"
 bad=""
 [[ "$b" == *'exec {__ths_wr}>"'* ]] || bad+=" no-O_WRONLY-writer"
 [[ "$b" == *'<>'* ]] && bad+=" O_RDWR"
-[[ "$b" == *'< <(exec cat '* ]] || bad+=" no-cat-relay"
+[[ "$b" == *'ths._relayExec "$__ths_dir/err$__ths_s" <(exec cat '* ]] || bad+=" no-cat-relay"
+rx="$(sed -n '/^ths._relayExec()/,/^}/p' "$UNIT")"
+# launch L3.5-7: a FIFO relay (named like bash's sh-np.* / sh-np-N FIFOs) is unlinked right after its open, before the exec
+[[ "$rx" == *'exec <"$__ths_p"'*'== sh-np[.-]*'*'rm -f -- "$__ths_p"'*'exec "$@" 2>"$__ths_e"'* ]] || bad+=" relay-fifo-not-unlinked"
 [[ "$b" == *'if [[ -n "$__ths_wo" ]]; then exec {__ths_wo}>&-; fi'*'if [[ -n "$__ths_ro" ]]; then exec {__ths_ro}<&-; fi'*'exec "${ths_argv[@]}"'* ]] || bad+=" child-keeps-other-slot"
 [[ "$a" == *'-l -c -vv -n -w'* ]] || bad+=" argv"
 if grep -n '<>' "$UNIT" | grep -v '^[0-9]*:[[:space:]]*#' | grep -v '/dev/ptmx' >/dev/null; then bad+=" <>-somewhere"; fi

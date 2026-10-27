@@ -304,7 +304,9 @@ for (( s = 0; s < NR; s++ )); do
     f="$BD/fifo$s"; e="$BD/err$s"
     mkfifo "$f"; : > "$e"
     TStopwatch.getTimeStamp; t0=$RESULT
-    exec {rd}< <( export LC_ALL=C; exec "$THS_NC" -l -c -vv -n -w 5 -s 127.0.0.1 -p "$P2" < <(exec cat "$f" 2>/dev/null) 2>"$e" )
+    # the unit's own spawn path (TNetcatTransport._spawn, StdinRelay 1): the relay
+    # substitution opened — and unlinked where it is a FIFO — by ths._relayExec (L3.5-7)
+    exec {rd}< <( export LC_ALL=C; ths._relayExec "$e" <(exec cat "$f" 2>/dev/null) "$THS_NC" -l -c -vv -n -w 5 -s 127.0.0.1 -p "$P2" )
     pid=$!
     exec {wr}>"$f"
     TStopwatch.getTimeStamp; t1=$RESULT

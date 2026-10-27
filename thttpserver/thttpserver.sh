@@ -147,6 +147,29 @@ ths._stopPid() {
     return 0
 }
 
+# ths._relayExec ERRFILE RELAY CMD… — the end of a StdinRelay listener's
+# start: stdin from RELAY (the path of the `<(exec cat fifoS)` substitution
+# the caller hands over), stderr to ERRFILE, then `exec CMD…`. Never returns;
+# rc 1 when RELAY cannot be opened. Where `<( )` is a FIFO in TMPDIR (FreeBSD's
+# pkg bash, PORTING H14) the shell that made it unlinks it only after its
+# writer ended — never, when that shell becomes the listener by `exec`: one
+# `sh-np.*` was left per spawn (launch L3.5-7, H44). So a RELAY named like
+# bash's FIFOs (`sh-np.XXXXXX`, or `sh-np-N` where bash has no mktemp(3)) is
+# unlinked right after the open, which pairs with the writer's (the FIFO is
+# no longer needed by name; the fd stays valid). Any other RELAY — /dev/fd/N
+# (Linux, cygwin), /proc/self/fd/N — is opened exactly as `< <(…)` would open
+# it and nothing else happens; the unlink is the only fork it adds, and only
+# on a FIFO bash.
+ths._relayExec() {
+    local __ths_e="$1" __ths_p="$2"
+    shift 2
+    exec <"$__ths_p" || exit 1
+    if [[ "${__ths_p##*/}" == sh-np[.-]* ]]; then
+        command rm -f -- "$__ths_p" 2>/dev/null || :
+    fi
+    exec "$@" 2>"$__ths_e"
+}
+
 # ths._backend [NCBIN] [SOCATBIN] — choose the network backend (L2.7-N1,
 # L2.7-N2): sets __THS_BACKEND to gnu | socat | missing | none,
 # __THS_BACKEND_BIN to the chosen binary's resolved path (the refused nc /
@@ -680,7 +703,7 @@ TNetcatTransport._spawn() {
                 if [[ -n "$__ths_wo" ]]; then exec {__ths_wo}>&-; fi
                 if [[ -n "$__ths_ro" ]]; then exec {__ths_ro}<&-; fi
                 export LC_ALL=C
-                exec "${ths_argv[@]}" < <(exec cat "$__ths_dir/fifo$__ths_s" 2>/dev/null) 2>"$__ths_dir/err$__ths_s"
+                ths._relayExec "$__ths_dir/err$__ths_s" <(exec cat "$__ths_dir/fifo$__ths_s" 2>/dev/null) "${ths_argv[@]}"
             ); then
             _lastError="TNetcatTransport: cannot start the listener"
             kk.debug "Error: $_lastError"
