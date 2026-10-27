@@ -35,6 +35,16 @@ else
     STEP=37
 fi
 
+if ! command -v perl >/dev/null 2>&1; then
+kt_test_start "the perl reference for the sweep is produced"
+kt_test_pass "SKIP: no perl on PATH (the reference oracle)"
+kt_test_start "ISO year/week/weekday and day-of-year match perl over 1900..2100"
+kt_test_pass "SKIP: no perl on PATH (the reference oracle)"
+kt_test_start "encodeDateWeek(decodeDateWeek(d)) == d for every sampled day"
+kt_test_pass "SKIP: no perl on PATH (the reference oracle)"
+kt_test_start "weeksInAYear matches perl for every year 1900..2100"
+kt_test_pass "SKIP: no perl on PATH (the reference oracle)"
+else
 kt_test_start "the perl reference for the sweep is produced"
 if perl -MPOSIX -e '
     my ($first, $last, $step) = @ARGV;
@@ -130,6 +140,7 @@ if (( bad == 0 && n == 201 )); then
     kt_test_pass "201 years, 0 mismatches"
 else
     kt_test_fail "$n years, $bad mismatches; first: $firstbad"
+fi
 fi
 
 kt_test_start "the slow variant is reachable (KCL_SLOW_TESTS=1 raises the day count)"

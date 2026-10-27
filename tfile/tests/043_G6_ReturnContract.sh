@@ -99,10 +99,10 @@ capture_once "\$( ) prints integerToFileAttributes exactly once [D3]" "[ReadOnly
 kt_test_start "appendAllText writes '-neE' verbatim [X-ECHO, G6-03]"
 A="$W/ap.txt"; : > "$A"
 tfile.appendAllText "$A" "-neE"
-if [[ "$(wc -c < "$A")" == "4" ]]; then
+if [[ "$(( $(wc -c < "$A") ))" == "4" ]]; then
     kt_test_pass "4 bytes"
 else
-    kt_test_fail "$(wc -c < "$A") bytes"
+    kt_test_fail "$(( $(wc -c < "$A") )) bytes"
 fi
 
 kt_test_start "readAllText round-trips a value that looks like an echo option [X-ECHO]"

@@ -43,7 +43,8 @@ live=$$                              # this test file's shell: alive
 # review R3: only a file older than 5 minutes is a dead process's leftover — a
 # younger one may belong to an engine starting right now in another MSYS
 # runtime (whose pids `kill -0` cannot see)
-touch -d '10 minutes ago' "$P/.math_fe_${dead}.awk" "$P/.math_fe_${live}.awk" \
+printf -v _st '%(%Y%m%d%H%M.%S)T' $(( EPOCHSECONDS - 600 ))
+touch -t "$_st" "$P/.math_fe_${dead}.awk" "$P/.math_fe_${live}.awk" \
     "$P/.math_fe_abc.awk" "$P/.math_fe_${dead}.awk.keep"
 ln -s "$P/.math_fe_abc.awk" "$P/.math_fe_9.awk" 2>/dev/null
 # MSYS `ln -s` may make a COPY: a regular .math_fe_9.awk would be judged by
@@ -103,7 +104,7 @@ wait "$cpid" 2>/dev/null
 kpid="$(<"$TMP/killed.pid")"
 leaked=no; [[ -n "$kpid" && -e "$P/.math_fe_${kpid}.awk" ]] && leaked=yes
 # ... and some minutes pass (the age guard, R3)
-[[ $leaked == yes ]] && touch -d '10 minutes ago' "$P/.math_fe_${kpid}.awk"
+[[ $leaked == yes ]] && { printf -v _st '%(%Y%m%d%H%M.%S)T' $(( EPOCHSECONDS - 600 )); touch -t "$_st" "$P/.math_fe_${kpid}.awk"; }
 TMPDIR="$P" bash -c "$SHIM
 source '$UNIT'
 math.cos 0 >/dev/null" >/dev/null 2>&1
@@ -124,7 +125,8 @@ if [[ "$P2M" != [A-Za-z]:/* ]]; then
 else
     d2="$(bash -c 'echo $$')"
     : > "$P2/.math_fe_${d2}.awk"
-    touch -d '10 minutes ago' "$P2/.math_fe_${d2}.awk"
+    printf -v _st '%(%Y%m%d%H%M.%S)T' $(( EPOCHSECONDS - 600 ))
+    touch -t "$_st" "$P2/.math_fe_${d2}.awk"
     TMPDIR="$P2M" bash -c "$SHIM
 source '$UNIT'
 math.sin 1 >/dev/null" >/dev/null 2>&1

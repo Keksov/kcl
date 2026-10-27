@@ -773,7 +773,7 @@ if ! ths_have_nc; then
 else
     C_DIR="$TMP/c"; rm -rf "$C_DIR"; mkdir -p "$C_DIR/tmp"
     printf '#!/no/such/interp\n' > "$C_DIR/fake_nc"; chmod +x "$C_DIR/fake_nc"
-    printf '#!/bin/bash\nif [[ "${1:-}" == --version ]]; then printf "netcat (The GNU Netcat) 0.7.1\\n"; exit 0; fi\nprintf x >> "%s/spawns"\nprintf "fake: no listener here\\n" >&2\nexit 1\n' "$C_DIR" > "$C_DIR/once_nc"; chmod +x "$C_DIR/once_nc"
+    printf '#!/usr/bin/env bash\nif [[ "${1:-}" == --version ]]; then printf "netcat (The GNU Netcat) 0.7.1\\n"; exit 0; fi\nprintf x >> "%s/spawns"\nprintf "fake: no listener here\\n" >&2\nexit 1\n' "$C_DIR" > "$C_DIR/once_nc"; chmod +x "$C_DIR/once_nc"
     cat > "$C_DIR/srv.sh" <<'EOF'
 exec </dev/null
 cd "$SRV_DIR" || exit 90

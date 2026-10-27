@@ -52,7 +52,7 @@ ok=1
 while IFS= read -r k; do
     d.ContainsKey "$k" || { ok=0; break; }
 done < <(d.Keys)
-if [[ $ok -eq 1 && "$(d.Keys | wc -l)" == "3" ]]; then
+if [[ $ok -eq 1 && $(( $(d.Keys | wc -l) )) -eq 3 ]]; then
     kt_test_pass "3 keys, all resolvable"
 else
     kt_test_fail "a listed key did not resolve"

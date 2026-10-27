@@ -235,16 +235,16 @@ fi
 kt_test_start "writeAllBytes writes text that looks like an echo option [X-ECHO]"
 B="$W/bytes.bin"
 tfile.writeAllBytes "$B" "-neE" || :
-if [[ "$(wc -c < "$B")" == "4" ]]; then
+if [[ "$(( $(wc -c < "$B") ))" == "4" ]]; then
     kt_test_pass "4 bytes"
 else
-    kt_test_fail "$(wc -c < "$B") bytes"
+    kt_test_fail "$(( $(wc -c < "$B") )) bytes"
 fi
 
 kt_test_start "writeAllBytes writes a multi-line payload verbatim [G6-18]"
 tfile.writeAllBytes "$B" $'a\nb\n' || :
-if [[ "$(wc -c < "$B")" == "4" ]]; then
+if [[ "$(( $(wc -c < "$B") ))" == "4" ]]; then
     kt_test_pass "4 bytes"
 else
-    kt_test_fail "$(wc -c < "$B") bytes"
+    kt_test_fail "$(( $(wc -c < "$B") )) bytes"
 fi
