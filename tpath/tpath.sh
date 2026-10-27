@@ -521,9 +521,9 @@ tpath._chmodAttrs() {
         return 1
     fi
     if [[ "$__tp_a" == *faReadOnly* ]]; then
-        chmod a-w -- "$__tp_p" 2>/dev/null || return 1
+        chmod -- a-w "$__tp_p" 2>/dev/null || return 1   # `--` before the mode: BSD getopt stops at the mode (launch L3.5-2)
     else
-        chmod u+w -- "$__tp_p" 2>/dev/null || return 1
+        chmod -- u+w "$__tp_p" 2>/dev/null || return 1
     fi
     return 0
 }
