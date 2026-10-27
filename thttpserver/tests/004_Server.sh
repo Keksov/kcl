@@ -625,12 +625,14 @@ else
     if [[ $RAW_RC -eq 0 && ${#THS_BODY} -eq 50000 && "$THS_HEAD" == *$'\nConnection: close'* ]]; then kt_test_pass "EOF after 50000 bytes"; else kt_test_fail "rc=$RAW_RC (124 = no EOF) body=${#THS_BODY}"; fi
 
     kt_test_start "${A_TITLES[11]}"
-    ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" && printf 'GET /big HTTP/1.0\r\n\r\n' >&3 && exec 3>&- ) 2>/dev/null
+    early_close() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; printf 'GET /big HTTP/1.0\r\n\r\n' >&3; exec 3>&- ) 2>/dev/null; }
+    ths_retry_refused early_close
     ths_curl "$TMP/after" "http://127.0.0.1:$THS_PORT/count"
     if [[ "$CURL_CODE" == 200 && "$(<"$TMP/after")" == 4 ]]; then kt_test_pass "next request 200 (count 4)"; else kt_test_fail "code=$CURL_CODE body='$(<"$TMP/after")'"; fi
 
     kt_test_start "${A_TITLES[12]}"
-    ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; : > "$TMP/silent.conn"; timeout 30 cat <&3 > "$TMP/silent.out" ) 2>/dev/null
+    silent_client() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; : > "$TMP/silent.conn"; timeout 30 cat <&3 > "$TMP/silent.out" ) 2>/dev/null; }
+    ths_retry_refused silent_client
     ths_curl "$TMP/after408" "http://127.0.0.1:$THS_PORT/pid"
     s="$(<"$TMP/silent.out")"
     if [[ -e "$TMP/silent.conn" && "$s" == "HTTP/1.1 408 Request Timeout"* && "$CURL_CODE" == 200 ]]; then kt_test_pass "408, then 200"; else kt_test_fail "silent='${s:0:60}' next=$CURL_CODE"; fi
@@ -731,7 +733,7 @@ else
         BLA=(); ths_listen_argv BLA "$bport" 170
         "${BLA[@]}" >/dev/null 2>"$TMP/blocker.err" </dev/null &
         BL=$!
-        if ths_poll 30 grep -Eq "$THS_RE_BOUND" "$TMP/blocker.err"; then break; fi
+        if ths_poll 30 grep -sEq "$THS_RE_BOUND" "$TMP/blocker.err"; then break; fi
         ths._stopPid "$BL"; wait "$BL" 2>/dev/null; BL=""
     done
     B_DIR="$TMP/b"; rm -rf "$B_DIR"; mkdir -p "$B_DIR/tmp"

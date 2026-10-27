@@ -469,6 +469,26 @@ ths_curl() {
     return 0
 }
 
+# ths_retry_refused CMD… — run CMD, a hand-made /dev/tcp client whose rc 7
+# means "connect refused", again while it returns 7 (≤ 60 × 0.1 s); rc = its
+# last rc. The next listener (the D5 pre-spawn, one nc per connection) may not
+# have bound yet when the previous response has arrived: a one-shot connect
+# right after a response can be refused (L3.5-7-o1: kb-freebsd, 004 case 12,
+# 1 of 12 suite runs) — the §4 rule "retry only on a refused connect".
+# A retried client lands on a listener that has only just bound: a second
+# client sent right behind it can queue in the same one-accept backlog and be
+# reset (GNU nc, see the 8-client case of 004): 007 case 8 with this retry
+# failed once with curl code 000 (kb-freebsd, 1 of 32 runs), so it has none.
+ths_retry_refused() {
+    local i r=0
+    for (( i = 0; i < 60; i++ )); do
+        r=0; "$@" || r=$?
+        if (( r != 7 )); then return "$r"; fi
+        sleep 0.1
+    done
+    return "$r"
+}
+
 # ths_raw OUT REQUEST — a raw /dev/tcp client: connect (retry while refused),
 # send REQUEST byte for byte, read to EOF into OUT (≤ 30 s).
 # RAW_RC: 0 read to EOF · 7 never connected · 124 no EOF within 30 s.

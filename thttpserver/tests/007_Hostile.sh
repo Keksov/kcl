@@ -209,8 +209,8 @@ else
 
     kt_test_start "${W_TITLES[7]}"
     t0=${EPOCHREALTIME//[!0-9]/}
-    ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; printf 'GET /ok HTTP/1.1\r\nHost: x\r\n' >&3; timeout 30 cat <&3 > "$TMP/slow.out" ) 2>/dev/null
-    src=$?
+    slow_client() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; printf 'GET /ok HTTP/1.1\r\nHost: x\r\n' >&3; timeout 30 cat <&3 > "$TMP/slow.out" ) 2>/dev/null; }
+    src=0; ths_retry_refused slow_client || src=$?
     ms=$(( (${EPOCHREALTIME//[!0-9]/} - t0) / 1000 ))
     s="$(<"$TMP/slow.out")"
     if [[ $src -eq 0 && "$s" == "HTTP/1.1 408 Request Timeout"* && $ms -ge 1500 ]]; then kt_test_pass "408 after ${ms} ms"; else kt_test_fail "rc=$src '${s:0:40}' ${ms} ms"; fi
