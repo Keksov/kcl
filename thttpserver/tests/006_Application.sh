@@ -744,7 +744,8 @@ else
     ths_curl "$TMP/s1c" "http://127.0.0.1:$THS_PORT/count"; cc="$CURL_CODE:$(<"$TMP/s1c")"
     ths_curl "$TMP/s1d" "http://127.0.0.1:$THS_PORT/nope"; cd4="$CURL_CODE"
     ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" && printf 'GET /big HTTP/1.0\r\n\r\n' >&3 && exec 3>&- ) 2>/dev/null
-    ths_curl "$TMP/s1e" "http://127.0.0.1:$THS_PORT/count"; ce="$CURL_CODE:$(<"$TMP/s1e")"
+    # the curl's rc and its error text go into a failure message (launch L3.5-10: one '000:' on kb-freebsd)
+    ths_curl "$TMP/s1e" -S --stderr "$TMP/s1e.err" "http://127.0.0.1:$THS_PORT/count"; ce="$CURL_CODE:$(<"$TMP/s1e")"; ce_rc="$CURL_RC"
     ths_curl "$TMP/s1q" -X POST --data-binary x "http://127.0.0.1:$THS_PORT/quit"; cq="$CURL_CODE:$(<"$TMP/s1q")"
     ths_reap 60
     res_load
@@ -756,7 +757,7 @@ else
     if [[ "$cb" == "200:1:$SPID" && "$cc" == "200:2:$SPID" && "$cd4" == 404 ]]; then kt_test_pass "1 then 2 in pid $SPID; 404"; else kt_test_fail "'$cb' '$cc' 404='$cd4' pid=$SPID"; fi
 
     kt_test_start "${S1_TITLES[2]}"
-    if [[ "$ce" == "200:3:$SPID" ]]; then kt_test_pass "next request 200 (count 3)"; else kt_test_fail "'$ce'"; fi
+    if [[ "$ce" == "200:3:$SPID" ]]; then kt_test_pass "next request 200 (count 3)"; else kt_test_fail "'$ce' curl rc=$ce_rc stderr='$(tr '\n' ' ' < "$TMP/s1e.err" 2>/dev/null)'"; fi
 
     kt_test_start "${S1_TITLES[3]}"
     if [[ "$cq" == "200:bye" && $THS_TERMED -eq 0 && $THS_RC -eq 0 && "${R[rc]:-}" == 0 && -z "${R[le]-x}" && "${R[ticks]:-}" =~ ^[0-9]+$ && -e "$THS_DIR/ended" ]] && (( ${R[ticks]} < 40 )); then

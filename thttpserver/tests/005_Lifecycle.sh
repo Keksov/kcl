@@ -13,6 +13,9 @@
 #   §5 N listener spawns leave no process-substitution FIFO (`sh-np.*`) in
 #      TMPDIR, while serving or after (launch L3.5-7; N/A where `<( )` is
 #      /dev/fd).
+#   §6 a slot's stdin relay (`cat`) that has not seen its EOF — made
+#      deterministic by stopping it — never reads the slot's next FIFO: each
+#      listener gets a fresh one, the next responses are clean (launch L3.5-10).
 #
 # The checks that must run INSIDE the server shell (traps, fds, children,
 # instances) are made by the child and written to its result file.
@@ -370,5 +373,94 @@ else
         kt_test_pass "$L5_N served; mid-run [${L5_F# }]; nothing left after$L5_NA"
     else
         kt_test_fail "exit=$THS_RC rc=$rc n=$n codes='$codes' mid='$mid' tmp='${left//$'\n'/ }' stderr='${e:0:200}'$L5_NA"
+    fi
+fi
+
+# ===========================================================================
+kt_test_section "6. a stdin relay that has not seen its EOF never reads the slot's next FIFO (launch L3.5-10)"
+# ===========================================================================
+# A slot's listener reads its FIFO through a `cat` relay — the listener's
+# child, not the server's. When the slot closes, that cat ends only once it
+# has RUN and seen the EOF of the closed writer. With one FIFO per slot, the
+# next spawn of the same slot opened a new writer on the same FIFO, which
+# clears a pending EOF: an old cat that had not run by then read on as a
+# second reader (kb-freebsd: it took the status line of the next response on
+# that slot, 2 of 36 suite runs). Each listener now gets a fresh FIFO.
+# Made deterministic here: the relay of a silent client's slot is STOPPED
+# (it can see nothing), the 408 goes into its FIFO, the slot closes. On a
+# reused FIFO that stopped reader keeps the FIFO — and the 408 in it — alive,
+# and the slot's next generation sends those stale bytes ahead of the next
+# response on that slot (request 2 below; request 1 takes the other slot).
+# On a fresh FIFO both requests are clean; once continued, the old relay ends
+# by itself (nobody will ever write its FIFO again). RequestTimeout 6 s
+# leaves time to find and stop the relay before the 408 (slow Windows: a
+# /proc scan); an EXIT hook continues and kills a stopped relay if the test
+# dies before its own cleanup.
+L6_TITLES=(
+    "a silent client's slot with its relay cat STOPPED: the 408 goes into that FIFO, the slot closes — the next two requests (one per slot) are a clean 200 each (no stale 408), and the old relay, continued, ends by itself"
+)
+SNIP_L6='
+l6() { $2.Write six; }
+THttpRouter.new RT
+RT.RegisterRoute /x GET l6
+S.Router = RT
+'
+# l6_client — a silent client: connect, send nothing, read to EOF (rc 7 =
+# refused). l6_conn — some slot of the server has accepted it. l6_one — the
+# server's FIFOs have exactly one cat reader (until the 408 only the current
+# slot has a listener) → L6_CAT.
+l6_client() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; timeout -k 5 30 cat <&3 > "$TMP/l6.silent" ) 2>/dev/null; }
+l6_conn() { local f; for f in "$THS_DIR"/tmp/thttpserver.*/err[01]; do if [[ -f "$f" ]] && grep -Eq "$THS_RE_CONN" "$f" 2>/dev/null; then return 0; fi; done; return 1; }
+l6_one() { kt_proc_pids "$THS_DIR/tmp/thttpserver."; L6_FOUND="$REPLY"; [[ "$REPLY" =~ ^[0-9]+$ ]]; }
+l6_gone() { ! kill -0 "$L6_CAT" 2>/dev/null; }
+# l6_release — a relay this test stopped is continued and killed (cleanup and
+# the EXIT hook; a stray otherwise)
+l6_release() {
+    if [[ -n "$L6_CAT" ]] && kill -0 "$L6_CAT" 2>/dev/null; then
+        kill -CONT "$L6_CAT" 2>/dev/null; kill -KILL "$L6_CAT" 2>/dev/null
+    fi
+    return 0
+}
+l6_rc() { return "$1"; }
+if ! ths_have_nc; then
+    ths_skip "${L6_TITLES[@]}"
+elif ! kt_proc_init; then
+    for t in "${L6_TITLES[@]}"; do kt_test_start "$t"; kt_test_pass "SKIP: no process backend: $KT_PROC_WHY"; done
+elif ! ths_start l6 "$SNIP_L6" RT=6 IDLE_BUDGET=60; then
+    for t in "${L6_TITLES[@]}"; do kt_test_start "$t"; kt_test_fail "l6 never listened: $(tr '\n' ' ' < "$THS_DIR/err" 2>/dev/null)"; done
+else
+    ths_mark
+    L6_CAT=""; L6_FOUND=""; why=""; gone=n; r1=""; r2=""
+    # the EXIT hook: l6_release, then the framework's own EXIT trap with $? kept
+    eval "L6_TA=($(trap -p EXIT))"; L6_OLDEXIT="${L6_TA[2]-}"
+    trap '_l6rc=$?; l6_release; l6_rc "$_l6rc"; eval "$L6_OLDEXIT"' EXIT
+    ths_retry_refused l6_client & L6_CP=$!
+    if ! ths_poll 10 l6_conn; then
+        why="the silent client was never accepted"
+    elif ! ths_poll 3 l6_one; then
+        why="expected one relay cat, found '$L6_FOUND'"
+    else
+        L6_CAT="$L6_FOUND"
+        kill -STOP "$L6_CAT" 2>/dev/null || why="kill -STOP $L6_CAT failed"
+    fi
+    wait "$L6_CP" 2>/dev/null
+    ths_raw "$TMP/l6.1" "GET /x HTTP/1.0${CRLF}${CRLF}"; r1="$(<"$TMP/l6.1")"
+    ths_raw "$TMP/l6.2" "GET /x HTTP/1.0${CRLF}${CRLF}"; r2="$(<"$TMP/l6.2")"
+    if [[ -n "$L6_CAT" ]]; then
+        kill -CONT "$L6_CAT" 2>/dev/null
+        if ths_poll 5 l6_gone; then gone=y; fi
+    fi
+    l6_release
+    if [[ -n "$L6_OLDEXIT" ]]; then trap -- "$L6_OLDEXIT" EXIT; else trap - EXIT; fi
+    ths_finish
+    ths_result rc; rc="$THS_V"
+    e="$(<"$THS_DIR/err")"
+    kt_test_start "${L6_TITLES[0]}"
+    if [[ -z "$why" && "$r1" == "HTTP/1.1 200 OK"*$'\r\n\r\n'six && "$r2" == "HTTP/1.1 200 OK"*$'\r\n\r\n'six \
+          && "$r1$r2" != *408* && $gone == y && $THS_RC -eq 0 && "$rc" == 0 && -z "$e" ]]; then
+        kt_test_pass "200 + 200, nothing stale; the continued relay ended by itself"
+    else
+        r1="${r1//$'\r'/}"; r2="${r2//$'\r'/}"
+        kt_test_fail "${why:+$why; }r1='${r1//$'\n'/|}' r2='${r2//$'\n'/|}' relay $L6_CAT gone-after-CONT=$gone exit=$THS_RC rc=$rc stderr='${e:0:200}'"
     fi
 fi

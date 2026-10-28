@@ -575,12 +575,12 @@ before it was written (PLAN §1.1, the critic's C1–C4) and re-proved inside a
 kklass class in P2:
 
 ```bash
-# _spawn SLOT   (o = the other slot)
+# _spawn SLOT   (o = the other slot; f = a FRESH FIFO, $dir/fifo.N — _newFifo)
 exec {rd}< <( [[ -n $wrO ]] && exec {wrO}>&- {rdO}<&-    # never inherit the live connection (C4)
               export LC_ALL=C                              # nc's -vv lines are classified by text
-              ths._relayExec "$dir/err$s" <(exec cat "$dir/fifo$s") nc -l -c -vv -n -w TTL -s ADDR -p PORT )
+              ths._relayExec "$dir/err$s" <(exec cat "$f") nc -l -c -vv -n -w TTL -s ADDR -p PORT )
 pid=$!                       # ths._relayExec: exec <RELAY; unlink RELAY if named sh-np.*/sh-np-N; exec nc 2>err
-exec {wr}>"$dir/fifo$s"      # O_WRONLY: an O_RDWR writer never lets nc see EOF (C1)
+exec {wr}>"$f"               # O_WRONLY: an O_RDWR writer never lets nc see EOF (C1)
 ```
 
 Where `<( )` is a FIFO in `TMPDIR` (FreeBSD's pkg bash, `sh-np.XXXXXX`), bash
@@ -607,10 +607,22 @@ ends.
 * **CloseConnection is a drained close** (C2): close the writer → read the
   reader to EOF (nc flushed, closed and exited) within `CloseTimeout` → close →
   kill **only** past the deadline → reap. Killing first truncated 5 of 5
-  responses in the planning probes.
+  responses in the planning probes. Then the slot's FIFO is dropped, never to
+  be opened again: **every listener gets a fresh FIFO** (`fifo.N`, N counted
+  up per transport; launch L3.5-10). The `cat` relay is the listener's child
+  — init reaps it, the server cannot wait for it — and a relay that has not
+  yet run since the writer closed has not seen its EOF. When a slot reused
+  one FIFO, the next spawn's writer open cleared that EOF and the old cat read
+  on beside the new one: it took the first `write(2)` of the next response on
+  that slot (bash's `printf` writes line by line where stdio is BSD's: on
+  FreeBSD, the status line alone; 2 of 36 kb-freebsd suite runs). On a FIFO
+  nobody reopens it sees EOF whenever it runs, and exits. No process that is
+  not the server's own child is ever signalled. The FIFOs come in batches of
+  16 (one `mkfifo`, and one `rm` of the dropped ones, per batch — each costs
+  ≈25–40 ms on msys, so ≈3–4 ms per request there).
 * **Shutdown** drains a slot that has *accepted* a client (review R1: killing
   it reset the client) and kills a slot that only listens; then removes the
-  FIFOs and the dir.
+  FIFOs (live and dropped) and the dir.
 * **Signals** (§2.6 as implemented): BeginServe traps INT/TERM with a bare
   assignment to a file-scope flag; the serving loop, ServeOne and Accept (every
   tick) look at it at safe points. A signal lets the current response finish,

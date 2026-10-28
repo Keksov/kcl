@@ -249,7 +249,7 @@ class TNetcatTransport : THttpTransport # GNU netcat 0.7.1, two alternating list
         override proc CloseConnection
         override proc Shutdown
     private
-        var _dir                        # mktemp -d under $TMPDIR: fifo0/1, err0/1
+        var _dir                        # mktemp -d under $TMPDIR: fifo.N (fresh per listener, launch L3.5-10), err0/1
         var _cur
         var _pid0
         var _pid1
@@ -509,9 +509,9 @@ critic's working variant (`scratchpad/critic/p7.sh`), measured on both bashes:
 ```bash
 # _spawn SLOT  (o = the other slot)
 exec {rd}< <( if [[ -n $wrO ]]; then exec {wrO}>&- {rdO}<&-; fi      # C4: never inherit the live connection
-              exec "${argv[@]}" < <(exec cat "$dir/fifo$s") 2>"$dir/err$s" )   # C3: cat relay (StdinRelay=1)
+              exec "${argv[@]}" < <(exec cat "$dir/fifo.$N") 2>"$dir/err$s" )   # C3: cat relay (StdinRelay=1)
 pid=$!
-exec {wr}>"$dir/fifo$s"      # C1: O_WRONLY — pairs with the relay's open; O_RDWR (<>) is FORBIDDEN
+exec {wr}>"$dir/fifo.$N"     # C1: O_WRONLY — pairs with the relay's open; O_RDWR (<>) is FORBIDDEN
 ```
 
 The spawn is synchronous (≈35–45 ms with the relay) and adds to the current request;

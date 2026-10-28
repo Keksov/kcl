@@ -148,7 +148,7 @@ ths._stopPid() {
 }
 
 # ths._relayExec ERRFILE RELAY CMD… — the end of a StdinRelay listener's
-# start: stdin from RELAY (the path of the `<(exec cat fifoS)` substitution
+# start: stdin from RELAY (the path of the `<(exec cat fifo.N)` substitution
 # the caller hands over), stderr to ERRFILE, then `exec CMD…`. Never returns;
 # rc 1 when RELAY cannot be opened. Where `<( )` is a FIFO in TMPDIR (FreeBSD's
 # pkg bash, PORTING H14) the shell that made it unlinks it only after its
@@ -532,7 +532,9 @@ build TReplayTransport
 #
 # A slot = a FIFO feeding nc's stdin, a process-substitution fd reading its
 # stdout, a `-vv` stderr file and a pid, under a `mktemp -d` dir (created at
-# the first Accept, removed by Shutdown). The mechanism is the P2 spike's,
+# the first Accept, removed by Shutdown). Every listener gets a FRESH FIFO
+# (`fifo.N`, N = a generation number of the transport, never reused — launch
+# L3.5-10, _newFifo). The mechanism is the P2 spike's,
 # measured on bash 5.2.37 and 5.3.9 (PLAN §1.1, ledger measured_p2):
 #   * the FIFO writer is opened O_WRONLY (`exec {wr}>fifo`) — an O_RDWR writer
 #     never lets nc see EOF (C1);
@@ -544,7 +546,14 @@ build TReplayTransport
 #     print `write error`);
 #   * CloseConnection DRAINS: close wr → read rd to EOF (nc flushed, closed
 #     and exited; unread request bytes are swallowed, no RST) within
-#     CloseTimeout → close rd → kill ONLY past that deadline → wait (C2).
+#     CloseTimeout → close rd → kill ONLY past that deadline → wait (C2);
+#     the slot's FIFO is then dropped (queued for unlinking) and never opened
+#     again: the `cat` relay is the listener's child, nothing can wait for
+#     it, and one that has not yet run since the writer closed has not seen
+#     its EOF — on a REUSED FIFO the next writer's open cleared that EOF and
+#     the old cat read on beside the new one, taking the first write(2) of
+#     the next response (launch L3.5-10). On its own inode it sees EOF and
+#     exits by itself.
 # nc's exit status is always 1: the state comes from its -vv stderr —
 # `Listening on` (bound), `Connection from A:P` (accepted), `Listen mode
 # failed: Connection timed out` (-w expired: respawn), anything else (bind
@@ -552,10 +561,15 @@ build TReplayTransport
 # never a silent respawn loop (C6). `-w ListenerTTL` limits accept only: it is
 # an orphan time-to-live, not a request timeout (C5).
 #
-# Per-request forks: the listener spawn only (fork + cat relay + nc, ≈35–45
-# ms, synchronous). mktemp/mkfifo once per dir, rm once per Shutdown.
+# Per-request forks: the listener spawn (fork + cat relay + nc, ≈35–45 ms,
+# synchronous). The FIFOs come in batches of __THS_FIFO_BATCH: one mkfifo,
+# and one rm of the dropped ones, per batch (each costs ≈25–40 ms on msys:
+# ≈3–4 ms per request there). mktemp once per dir, rm -rf once per Shutdown.
 # FD HYGIENE: a background process a handler starts inherits the current
-# connection's writer and holds the connection open until CloseTimeout.
+# connection's writer AND the other slot's (pre-spawned) writer: it holds the
+# connection open until CloseTimeout, and while it lives the `cat` relays of
+# those FIFOs never see EOF — they outlive the close (and Shutdown) as long as
+# that process does.
 # ===========================================================================
 class TNetcatTransport : THttpTransport
     public
@@ -582,10 +596,19 @@ class TNetcatTransport : THttpTransport
         var _wr1
         var _seen0
         var _seen1
+        var _fifo0
+        var _fifo1
+        var _gen
+        var _made
+        var _dead
+        proc _newFifo
         proc _spawn
         proc _closeSlot
         func _state
 end
+
+# FIFOs created by one mkfifo (TNetcatTransport._newFifo)
+declare -g __THS_FIFO_BATCH=16
 
 TNetcatTransport.Create() {
     inherited
@@ -605,6 +628,11 @@ TNetcatTransport.Create() {
     _wr1=""
     _seen0=""
     _seen1=""
+    _fifo0=""
+    _fifo1=""
+    _gen=0
+    _made=0
+    _dead=""
 }
 
 TNetcatTransport.Destroy() {
@@ -666,19 +694,74 @@ TNetcatTransport.BuildArgv() {
     return 0
 }
 
-# _spawn SLOT — start SLOT's listener (PLAN §2.5): the err file truncated, nc
-# started through a process substitution whose child closes the OTHER slot's
-# fds first, its stdin fed from the slot FIFO through `cat`, its -vv stderr to
-# the slot's err file; then the O_WRONLY writer (the open pairs with the
-# relay's and returns once it ran). rc 1 (LastError set) if no argv or no
-# child could be started.
+# _newFifo SLOT — a FRESH FIFO for SLOT's next listener into _fifoSLOT (launch
+# L3.5-10): `$_dir/fifo.N`, N = _gen, counted up and never reused, so the
+# relay of an earlier listener never shares a FIFO with a later one. The names
+# come from a pool: when it is used up, ONE `rm -f` unlinks the FIFOs that
+# _closeSlot dropped since the last batch (_dead: their numbers), then ONE
+# mkfifo creates the next __THS_FIFO_BATCH. A dropped FIFO may still be open
+# (by a relay that has not run yet); unlinking an open FIFO leaves its open
+# ends valid (measured on msys as well). A batch size that is not a positive
+# integer counts as 16; a name an earlier failed _spawn left in _fifoSLOT is
+# dropped too. rc 1 + LastError (mkfifo's message) when mkfifo fails; the
+# partial batch is removed.
+TNetcatTransport._newFifo() {
+    local __ths_s="$1" __ths_g __ths_e __ths_n="$__THS_FIFO_BATCH" IFS=' '
+    local -a __ths_l=()
+    local -n __ths_fS="_fifo$__ths_s"
+    [[ "$__ths_n" =~ ^[1-9][0-9]*$ ]] || __ths_n=16
+    # a name an earlier _spawn took but never opened (it failed after us)
+    if [[ "$__ths_fS" == "$_dir/fifo."* ]]; then
+        _dead+="${_dead:+ }${__ths_fS##*/fifo.}"
+    fi
+    __ths_fS=""
+    if (( _gen >= _made )); then
+        if [[ -n "$_dead" ]]; then
+            for __ths_g in $_dead; do
+                __ths_l+=("$_dir/fifo.$__ths_g")
+            done
+            command rm -f -- "${__ths_l[@]}" 2>/dev/null || :
+            _dead=""
+            __ths_l=()
+        fi
+        for (( __ths_g = _made; __ths_g < _made + __ths_n; __ths_g++ )); do
+            __ths_l+=("$_dir/fifo.$__ths_g")
+        done
+        if ! { command mkfifo -- "${__ths_l[@]}" 2>"$_dir/mkfifo.err"; } 2>/dev/null; then
+            # mkfifo makes what it can: the partial batch goes, so a retry
+            # after a transient failure (a full TMPDIR) can succeed
+            __ths_e=""
+            { IFS= read -r __ths_e < "$_dir/mkfifo.err"; } 2>/dev/null || :
+            command rm -f -- "${__ths_l[@]}" 2>/dev/null || :
+            _lastError="TNetcatTransport: cannot create the FIFOs under '$_dir'${__ths_e:+: $__ths_e}"
+            kk.debug "Error: $_lastError"
+            return 1
+        fi
+        _made=$(( _made + __ths_n ))
+    fi
+    __ths_fS="$_dir/fifo.$_gen"
+    _gen=$(( _gen + 1 ))
+    return 0
+}
+
+# _spawn SLOT — start SLOT's listener (PLAN §2.5) on a FRESH FIFO (_newFifo):
+# the err file truncated, nc started through a process substitution whose
+# child closes the OTHER slot's fds first, its stdin fed from the slot's FIFO
+# through `cat`, its -vv stderr to the slot's err file; then the O_WRONLY
+# writer (the open pairs with the relay's and returns once it ran — the FIFO
+# is new, so its only reader is this relay). rc 1 (LastError set) if no FIFO,
+# no argv or no child could be started.
 TNetcatTransport._spawn() {
-    local __ths_s="$1" __ths_dir="$_dir" __ths_rd="" __ths_wr="" __ths_wo __ths_ro __ths_pid
+    local __ths_s="$1" __ths_dir="$_dir" __ths_rd="" __ths_wr="" __ths_wo __ths_ro __ths_pid __ths_ff
     local -a ths_argv=()
     if ! "$__inst__.BuildArgv" ths_argv; then
         return 1
     fi
-    local -n __ths_rdS="_rd$__ths_s" __ths_wrS="_wr$__ths_s" __ths_pidS="_pid$__ths_s" __ths_seenS="_seen$__ths_s"
+    local -n __ths_rdS="_rd$__ths_s" __ths_wrS="_wr$__ths_s" __ths_pidS="_pid$__ths_s" __ths_seenS="_seen$__ths_s" __ths_fS="_fifo$__ths_s"
+    if ! "$__inst__._newFifo" "$__ths_s"; then
+        return 1
+    fi
+    __ths_ff="$__ths_fS"
     local -n __ths_rdO="_rd$(( 1 - __ths_s ))" __ths_wrO="_wr$(( 1 - __ths_s ))"
     __ths_wo="$__ths_wrO"
     __ths_ro="$__ths_rdO"
@@ -692,7 +775,7 @@ TNetcatTransport._spawn() {
                 if [[ -n "$__ths_wo" ]]; then exec {__ths_wo}>&-; fi
                 if [[ -n "$__ths_ro" ]]; then exec {__ths_ro}<&-; fi
                 export LC_ALL=C
-                exec "${ths_argv[@]}" <"$__ths_dir/fifo$__ths_s" 2>"$__ths_dir/err$__ths_s"
+                exec "${ths_argv[@]}" <"$__ths_ff" 2>"$__ths_dir/err$__ths_s"
             ); then
             _lastError="TNetcatTransport: cannot start the listener"
             kk.debug "Error: $_lastError"
@@ -703,7 +786,7 @@ TNetcatTransport._spawn() {
                 if [[ -n "$__ths_wo" ]]; then exec {__ths_wo}>&-; fi
                 if [[ -n "$__ths_ro" ]]; then exec {__ths_ro}<&-; fi
                 export LC_ALL=C
-                ths._relayExec "$__ths_dir/err$__ths_s" <(exec cat "$__ths_dir/fifo$__ths_s" 2>/dev/null) "${ths_argv[@]}"
+                ths._relayExec "$__ths_dir/err$__ths_s" <(exec cat "$__ths_ff" 2>/dev/null) "${ths_argv[@]}"
             ); then
             _lastError="TNetcatTransport: cannot start the listener"
             kk.debug "Error: $_lastError"
@@ -711,7 +794,7 @@ TNetcatTransport._spawn() {
         fi
     fi
     __ths_pid=$!
-    exec {__ths_wr}>"$__ths_dir/fifo$__ths_s"
+    exec {__ths_wr}>"$__ths_ff"
     __ths_rdS="$__ths_rd"
     __ths_wrS="$__ths_wr"
     __ths_pidS="$__ths_pid"
@@ -723,10 +806,20 @@ TNetcatTransport._spawn() {
 # close wr, drain rd to EOF within CloseTimeout (or until the absolute
 # DEADLINE_US a caller shares between slots), close rd, kill ONLY past the
 # deadline, wait. MODE eof: rd is already at EOF (nc exited) — close both, wait.
+# Then, both modes: the slot's FIFO is DROPPED — its number queued in _dead
+# for the next batch's unlink (_newFifo) — and never opened again (launch
+# L3.5-10). The `cat` relay reading it is the listener's child (init reaps
+# it; the server cannot wait for it), and one that has not yet run since the
+# writer closed has not seen its EOF. On a reused FIFO the next _spawn's
+# writer open cleared that EOF and the old cat read on as a SECOND reader: it
+# took the first write(2) of the next response on that slot — bash's printf
+# writes line by line where stdio is BSD's (FreeBSD: the status line alone)
+# — and lost it into its dead listener. On a FIFO nobody reopens it sees EOF
+# whenever it runs, and exits.
 TNetcatTransport._closeSlot() {
     local __ths_s="$1" __ths_mode="${2:-drain}" __ths_rd __ths_wr __ths_pid __ths_eof=0
     local __ths_x __ths_r __ths_left __ths_dl __ths_ct="$CloseTimeout"
-    local -n __ths_rdS="_rd$__ths_s" __ths_wrS="_wr$__ths_s" __ths_pidS="_pid$__ths_s" __ths_seenS="_seen$__ths_s"
+    local -n __ths_rdS="_rd$__ths_s" __ths_wrS="_wr$__ths_s" __ths_pidS="_pid$__ths_s" __ths_seenS="_seen$__ths_s" __ths_fS="_fifo$__ths_s"
     if ! kk.isInt "$__ths_ct" __ths_ct || (( __ths_ct < 0 )); then
         __ths_ct=2
     fi
@@ -765,6 +858,10 @@ TNetcatTransport._closeSlot() {
             ths._stopPid "$__ths_pid"
         fi
         wait "$__ths_pid" 2>/dev/null || :
+    fi
+    if [[ -n "$__ths_fS" ]]; then
+        _dead+="${_dead:+ }${__ths_fS##*/fifo.}"
+        __ths_fS=""
     fi
     __ths_rdS=""
     __ths_wrS=""
@@ -848,12 +945,11 @@ TNetcatTransport.Accept() {
             return 2
         fi
         _dir="$(mktemp -d "${TMPDIR:-/tmp}/thttpserver.XXXXXX" 2>/dev/null)" || _dir=""
-        if [[ -z "$_dir" ]] || ! mkfifo "$_dir/fifo0" "$_dir/fifo1" 2>/dev/null; then
-            if [[ -n "$_dir" ]]; then
-                rm -rf -- "$_dir" 2>/dev/null || :
-            fi
-            _dir=""
-            _lastError="TNetcatTransport: cannot create the temp dir / FIFOs under '${TMPDIR:-/tmp}'"
+        _gen=0
+        _made=0
+        _dead=""
+        if [[ -z "$_dir" ]]; then
+            _lastError="TNetcatTransport: cannot create the temp dir under '${TMPDIR:-/tmp}'"
             kk.debug "Error: $_lastError"
             kk._return ""
             return 2
@@ -994,7 +1090,9 @@ TNetcatTransport.CloseConnection() {
 #     now + CloseTimeout, so a Shutdown drains for at most one CloseTimeout;
 #   * a slot that is only listening (or failed / empty): fds closed, killed at
 #     once — closing its stdin would not end nc's accept, a drain there would
-#     cost the whole CloseTimeout.
+#     cost the whole CloseTimeout. Its relay sees its FIFO's EOF (the writer
+#     is closed) and exits by itself; every FIFO, dropped or live, goes with
+#     the dir, and the generation count starts again (launch L3.5-10).
 TNetcatTransport.Shutdown() {
     local __ths_s __ths_fd __ths_pid __ths_ct="$CloseTimeout" __ths_dl
     local -a __ths_conn=()
@@ -1054,6 +1152,11 @@ TNetcatTransport.Shutdown() {
         rm -rf -- "$_dir" 2>/dev/null || :
         _dir=""
     fi
+    _fifo0=""
+    _fifo1=""
+    _gen=0
+    _made=0
+    _dead=""
     return 0
 }
 

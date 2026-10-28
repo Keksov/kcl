@@ -202,13 +202,18 @@ for f in "${EXAMPLES[@]}"; do
 done
 if [[ -z "$bad" ]]; then kt_test_pass "both"; else kt_test_fail "$bad"; fi
 
-kt_test_start "the transport's mechanism (PLAN §2.5, C1–C4): the FIFO writer is opened O_WRONLY (never '<>'), nc's stdin through 'exec cat' (a FIFO relay unlinked after its open, L3.5-7), the child closes the other slot's fds, nc -vv"
+kt_test_start "the transport's mechanism (PLAN §2.5, C1–C4): the FIFO writer is opened O_WRONLY (never '<>'), nc's stdin through 'exec cat' (a FIFO relay unlinked after its open, L3.5-7), a FRESH FIFO per listener (L3.5-10), the child closes the other slot's fds, nc -vv"
 b="$(sed -n '/^TNetcatTransport._spawn()/,/^}/p' "$UNIT")"
 a="$(sed -n '/^TNetcatTransport.BuildArgv()/,/^}/p' "$UNIT")"
 bad=""
 [[ "$b" == *'exec {__ths_wr}>"'* ]] || bad+=" no-O_WRONLY-writer"
 [[ "$b" == *'<>'* ]] && bad+=" O_RDWR"
-[[ "$b" == *'ths._relayExec "$__ths_dir/err$__ths_s" <(exec cat '* ]] || bad+=" no-cat-relay"
+[[ "$b" == *'ths._relayExec "$__ths_dir/err$__ths_s" <(exec cat "$__ths_ff" '* ]] || bad+=" no-cat-relay"
+# launch L3.5-10: every listener gets a FRESH FIFO (_newFifo: fifo.N, N = _gen counted up, batch mkfifo) before the writer opens it
+nf="$(sed -n '/^TNetcatTransport._newFifo()/,/^}/p' "$UNIT")"
+[[ "$b" == *'"$__inst__._newFifo" "$__ths_s"'*'__ths_ff="$__ths_fS"'*'exec {__ths_wr}>"$__ths_ff"'* ]] || bad+=" no-fresh-fifo"
+[[ "$nf" == *'__ths_fS="$_dir/fifo.$_gen"'*'_gen=$(( _gen + 1 ))'* && "$nf" == *'command mkfifo -- "${__ths_l[@]}"'* && "$nf" == *'command rm -f -- "${__ths_l[@]}"'* ]] || bad+=" fifo-reused"
+if grep -n '/fifo\$__ths_s\|/fifo[01]"' "$UNIT" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then bad+=" fixed-fifo-name"; fi
 rx="$(sed -n '/^ths._relayExec()/,/^}/p' "$UNIT")"
 # launch L3.5-7: a FIFO relay (named like bash's sh-np.* / sh-np-N FIFOs) is unlinked right after its open, before the exec
 [[ "$rx" == *'exec <"$__ths_p"'*'== sh-np[.-]*'*'rm -f -- "$__ths_p"'*'exec "$@" 2>"$__ths_e"'* ]] || bad+=" relay-fifo-not-unlinked"
@@ -227,6 +232,10 @@ iw="${b%%'exec {__ths_wr}>&-'*}"; ir="${b%%'exec {__ths_rd}<&-'*}"; ik="${b%%ths
 [[ "$b" == *'if (( ! __ths_eof )); then'*'ths._stopPid "$__ths_pid"'* ]] || bad+=" kill-not-deadline-only"
 [[ "$b" == *'wait "$__ths_pid" 2>/dev/null ||'* ]] || bad+=" wait-not-silenced"
 [[ "$s" == *'ths._stopPid "$__ths_pid"'* && "$s" == *'wait "$__ths_pid" 2>/dev/null || :'* ]] || bad+=" shutdown-not-silenced"
+# launch L3.5-10: after the listener's wait the slot's FIFO is dropped (queued in _dead, never reopened); no relay is signalled (no pid of a process that is not ours)
+ir2="${b%%'wait "$__ths_pid"'*}"; ifd="${b%%'_dead+='*}"
+(( ${#ir2} < ${#ifd} )) && [[ "$b" == *'_dead+="${_dead:+ }${__ths_fS##*/fifo.}"'*'__ths_fS=""'* ]] || bad+=" fifo-not-dropped"
+if grep -n 'relay\$\|__ths_rp' "$UNIT" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then bad+=" relay-pid-signalled"; fi
 sp="$(sed -n '/^ths._stopPid()/,/^}/p' "$UNIT")"
 [[ "$sp" == *'kill -TERM'*'kill -KILL'*'/usr/bin/kill -f -9'* ]] || bad+=" stopPid-no-escalation"
 if [[ -z "$bad" ]]; then kt_test_pass "close wr → drain → close rd → ths._stopPid (TERM → KILL → kill -f -9) past deadline → wait"; else kt_test_fail "$bad"; fi
