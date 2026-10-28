@@ -4,7 +4,7 @@
 > option set, the pinned argv, the rc 2 list, the `mapRc` override, `paths`, the
 > destructor, the static `take`, the bench and the docs. Suite:
 > `tests/004_Argv.sh`, `tests/005_Run.sh`, `tests/006_Contract.sh`,
-> `tests/007_Bench.sh` — **182 checks green on bash 5.2.37 and 182 on bash
+> `tests/007_Bench.sh` — **188 checks green on bash 5.2.37 and 188 on bash
 > 5.3.9**, threaded and under `--mode single`, against **GNU coreutils 8.32**.
 > What the tests pin, case by case:
 > **[TEST_COVERAGE_NOTES.md](../docs/dev/thead/TEST_COVERAGE_NOTES.md)**. Design record:
@@ -41,7 +41,7 @@ h.delete
 
 What it buys over spelling the command out: a path with a space, a newline or a
 leading `-` is one word by construction, the count is validated before the tool
-sees it and then passed through **verbatim** (`+3` and `-0` mean what you wrote),
+sees it and then passed on with its sign and value kept (`+3` and `-0` mean what you wrote; only leading zeros are stripped),
 head's 0/1 collapses onto the kcl rc convention while the raw status stays
 readable, and the platform notes (the CR that head keeps, the `==> NAME <==`
 headers that arrive as records, `-z`) live here instead of in every script.
@@ -66,9 +66,29 @@ THead.new INST [N [PATH...]]          # N becomes `lines`
 | `mapRc RAW` | func | — | override; §3 |
 | `THead.take N PATH...` | static proc | — | `head -n N -- PATH...`, streamed; §7 |
 
-Inherited from [`TUtil`](../tutil/README.md) unchanged: `cmd` (`head`), `crlf`,
-`nul`, `_lastRc`, **`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`,
-`lastRc`, and the five sinks `each` / `toArray` / `toList` / `first` / `count`.
+Inherited from [`TUtil`](../tutil/README.md): `cmd` - **the absolute path of
+the head the kkore unit `ktool` resolved** (`/usr/bin/head` on Git-bash,
+`/usr/local/bin/ghead` on FreeBSD; `KCL_GNU_HEAD=/path` picks one, and `ktool`
+refuses a wrong one), set by the constructor; `crlf`, `nul`, `_lastRc`,
+**`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`, `lastRc`, and the
+five sinks `each` / `toArray` / `toList` / `first` / `count`. A `cmd` you set by
+hand afterwards is used as given (no identity check). The resolved instance is
+frozen: a later `PATH` or `KCL_GNU_HEAD` change reaches the next `.new`, not
+this one. The tool may be GNU coreutils or uutils >= 0.2.2 (`ktool` accepts
+both); the units read neither its version nor its stderr.
+
+**No usable head on the box?** `.new` still succeeds (rc 0, silent) with `cmd`
+`''`; the first member that builds the argv (`run`, a sink, or `argv`) and the
+static `THead.take` answer **rc 2** with one `kk.debug` line carrying ktool's
+reason, which names the package (`no GNU head: ...; FreeBSD: pkg install
+coreutils`, `Alpine: apk add coreutils`). Nothing runs. Setting `cmd` re-arms the
+instance; `_toolErr` keeps ktool's reason after the re-arm, so a later hand-set
+`cmd = ''` prints that reason again.
+
+**In `$( )`:** ktool's answer is cached per process, so a `.new` (or `take`)
+inside `$( ... )` in a shell that never resolved head pays the cold probe on
+**every** call. Call `ktool.gnu head` (or create one instance) once in the main
+shell before using THead inside `$( )`.
 
 `subshellOk` is the D6-final switch (default `0`): `h.subshellOk = 1` makes every
 sink pass `-s` to `TPipe`, which silences the subshell warning `$(h.toArray a)`
@@ -109,7 +129,8 @@ h.addArg -n 5                           # argv: head -n 3 -n 5 -- f  → head ta
 ```
 
 `h.argv NAME` builds the array and **runs nothing**, which is how the whole
-option set is pinned in `tests/004_Argv.sh` without executing head once.
+option set is pinned in `tests/004_Argv.sh` without executing head once. In the
+diagrams `head` stands for word 0, which is `cmd`: the resolved absolute path.
 
 ---
 
@@ -123,7 +144,7 @@ was executed.
 
 | refusal | why it is not left to head |
 |---|---|
-| `cmd` is empty | the instance was disarmed by hand |
+| `cmd` is empty | the instance was disarmed by hand, or no usable head was found at `.new` (the line is then ktool's reason, with the package hint) |
 | `lines` **and** `bytes` | head takes both and the **last one silently wins** |
 | `quiet` **and** `verbose` | head takes both, last flag wins — the answer would depend on this builder's fixed order, not on what the caller wrote |
 | `zeroTerminated` with **≥ 2 paths** | the `==> NAME <==` headers stay `\n`-terminated under `-z`, so the derived `-0` would frame a header **and its whole file** into one record (§5) |
@@ -159,7 +180,8 @@ h.lastRc                              # RESULT = 1 (head's raw status)
 
 **(b) head's own stderr passes through unconditionally.** `head: cannot open
 'missing' for reading: No such file or directory` is the **tool's** stream, not
-ours; it is not gated by `VERBOSE_KKLASS` and its quoting follows the locale
+ours (its prefix varies by build: the full path with gnulib on glibc/msys, the
+short name `ghead:` on FreeBSD, `head:` with uutils); it is not gated by `VERBOSE_KKLASS` and its quoting follows the locale
 (`'…'` under `LC_ALL=C`, `‘…’` under the unit's `C.UTF-8` self-heal). Redirect it
 where you do not want it (`h.count 2>/dev/null`), and match it by **prefix** in a
 test. Exactly **one** line of ours accompanies it.
@@ -178,11 +200,15 @@ write `h.count || rc=$?`. That is the caller rule, not a defect; it is pinned in
 
 ---
 
-## 4. The count: one regex, a 19-digit guard, and **verbatim**
+## 4. The count: one regex, a 19-digit guard, sign and value kept
 
-`lines` and `bytes` accept `^[+-]?[0-9]+$` with at most 19 digits, and the string
-reaches head **unchanged**. `kk.isInt` is deliberately **not** used: it
-normalises, and head reads the normalised value as a different request.
+`lines` and `bytes` accept `^[+-]?[0-9]+$` with at most 19 digits. The argv word
+is the string you wrote with the **leading zeros of its digit part stripped** and
+the sign kept (`08` -> `8`, `+007` -> `+7`, `-007` -> `-7`, `00` -> `0`, `-0`
+stays `-0`), done in pure bash (`thead._ncount`, no fork), so the count means the
+same to every head: uutils 0.2.2 refuses `-n 08`, GNU reads it as decimal 8.
+`kk.isInt` is deliberately **not** used: it normalises the sign away, and head
+reads the normalised value as a different request.
 
 | value | `head -n` / `-c` | `tail -n` / `-c` ([ttail](../ttail/README.md)) |
 |---|---|---|
@@ -193,8 +219,8 @@ normalises, and head reads the normalised value as a different request.
 | `-0` | **everything** ("all but the last 0") | nothing |
 
 `kk.isInt` would hand head `0` for `-0` — *everything* becomes *nothing*. `08`
-reaches head as `08` and head reads it as **decimal 8** (not octal); the property
-still reads `08` afterwards, because nothing is written back onto the instance.
+reaches head as `8` (decimal 8, not octal); the property still reads `08`
+afterwards, because nothing is written back onto the instance.
 
 The 19-digit guard is a magnitude bound, not a type check: a 20-digit count is
 **rc 2** here, while a 19-digit one is built and handed over. Whether head then
@@ -398,18 +424,31 @@ bash kcl/thead/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/thead/tests/tests.sh
 ```
 
-**182 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
-mode and under `--mode single`, against GNU coreutils 8.32. Case by case:
+**188 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+mode and under `--mode single`, against GNU coreutils 8.32 (the move onto ktool,
+launch L3.4, adds 5 cases to `004` and 1 to `006`). Case by case:
 [TEST_COVERAGE_NOTES.md](../docs/dev/thead/TEST_COVERAGE_NOTES.md).
 
 | file | cases | what it pins | runs head? |
 |---|---|---|---|
-| `004_Argv.sh` | 73 | the whole option set by **array comparison**: the lifecycle (every declared var in `${inst}_data` with its default, `${h}_args` empty after `new h N PATH`, `_paths` verbatim, a reused name starting clean, `delete` freeing all three arrays, `argv` running nothing); every option singly and combined in the pinned order; the boolean-is-exactly-`1` rule; `--` only with paths; extras after the options and before `--`, with `addArg -n 5` replacing `lines`; the rc 2 list — 13 refusals, each asserting rc 2 + `RESULT ''` + the caller's array untouched + an EMPTY `${inst}_argv` + exactly one `kk.debug` line, plus two cases proving the legal shapes still build; the count verbatim (`08`, `+3`, `-2`, `-0`, `+0`, `0`, 19 digits) with no write-back; the `-z` derivation's four states incl. `P3-F1`; and the out-name refusals for all four family prefixes (`H4b`) | **no** |
-| `005_Run.sh` | 50 | behaviour against the bare tool on a 9-file fixture tree: every sink and `run`; the unterminated last record; headers-as-records (**9** records for two terminated 3-line files under `-n 5`, **8** with the first unterminated, `first` = the header, `quiet`, `verbose` on one file); the partial failure (records kept, `RESULT` = the real count, rc 1, one line of ours, head's own matched by prefix); a directory operand; CRLF in line and byte mode; `-z` incl. the unterminated NUL record and a text file as one record; the sign table behaviourally incl. the 19-digit `-c -N` the tool itself refuses; and `THead.take` in three positions, with two paths, refused without a path, nested inside an outer `each` | yes (GNU banner gate first) |
-| `006_Contract.sh` | 50 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.` call, `parent.constructor` in the constructor and `inherited` in the destructor, no `kk.isInt`, the regex in a variable, no shadowed member name, exactly one `source` line); every shape from a child under `set -eu` — an instance, both TPipe forms, `take` as a producer, records, a tool error, a partial failure, four refused builds, a refused `take`, the stdin form, `run` streaming, `delete` — with every sink call guarded; the debug switch (exactly one line on each of the 11 rc 2 paths and the 2 tool-error paths, **none** on any rc 0 path); the **D6-final** `subshellOk` case; and `H12`, that an unguarded rc 1 aborts a `set -eu` caller | yes (gated) |
-| `007_Bench.sh` | 9 | the §5 P1 gate as assertions with a **10×** ceiling behind the same banner gate: `THead.take` against a bare `head -n` in both shapes (interleaved, medians, both sides asserted to deliver the same records), `new` + `argv` + `delete` under 50 ms, `h.count` against the `wc -l` equivalent; that 200 `buildArgv`/`argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback and `.Add` run in this process, and the seven builder members plus `run` and `take` leave `$BASHPID` untouched | yes (gated) |
+| `004_Argv.sh` | 78 | the whole option set by **array comparison** against a stub GNU head (word 0 is its path): the lifecycle (every declared var in `${inst}_data` with its default, `${h}_args` empty after `new h N PATH`, `_paths` verbatim, a reused name starting clean, `delete` freeing all three arrays, `argv` running nothing); every option singly and combined in the pinned order; the boolean-is-exactly-`1` rule; `--` only with paths; extras after the options and before `--`, with `addArg -n 5` replacing `lines`; the rc 2 list — 13 refusals, each asserting rc 2 + `RESULT ''` + the caller's array untouched + an EMPTY `${inst}_argv` + exactly one `kk.debug` line, plus two cases proving the legal shapes still build; the count with sign and value kept and leading zeros stripped (`08`, `+3`, `-2`, `-0`, `+0`, `0`, 19 digits) with no write-back; the `-z` derivation's four states incl. `P3-F1`; and the out-name refusals for all four family prefixes (`H4b`) | **no** |
+| `005_Run.sh` | 50 | behaviour against the bare tool on a 9-file fixture tree: every sink and `run`; the unterminated last record; headers-as-records (**9** records for two terminated 3-line files under `-n 5`, **8** with the first unterminated, `first` = the header, `quiet`, `verbose` on one file); the partial failure (records kept, `RESULT` = the real count, rc 1, one line of ours, head's own matched by prefix); a directory operand; CRLF in line and byte mode; `-z` incl. the unterminated NUL record and a text file as one record; the sign table behaviourally incl. the 19-digit `-c -N` the tool itself refuses; and `THead.take` in three positions, with two paths, refused without a path, nested inside an outer `each` | yes (ktool gate first) |
+| `006_Contract.sh` | 51 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.` call, `parent.constructor` + `tutil._gnu head` in the constructor and `inherited` in the destructor, no `kk.isInt`, the regex in a variable, no shadowed member name, exactly one `source` line); every shape from a child under `set -eu` — an instance, both TPipe forms, `take` as a producer, records, a tool error, a partial failure, four refused builds, a refused `take`, the stdin form, `run` streaming, `delete` — with every sink call guarded; the debug switch (exactly one line on each of the 11 rc 2 paths and the 2 tool-error paths, **none** on any rc 0 path); the **D6-final** `subshellOk` case; and `H12`, that an unguarded rc 1 aborts a `set -eu` caller | yes (gated) |
+| `007_Bench.sh` | 9 | the §5 P1 gate as assertions with a **10×** ceiling behind the same ktool gate: `THead.take` against a bare `head -n` in both shapes (interleaved, medians, both sides asserted to deliver the same records), `new` + `argv` + `delete` under 50 ms, `h.count` against the `wc -l` equivalent; that 200 `buildArgv`/`argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback and `.Add` run in this process, and the seven builder members plus `run` and `take` leave `$BASHPID` untouched | yes (gated) |
 
-The behavioural files open with a **GNU banner gate**: if `head --version` does
-not begin with `head (GNU coreutils) `, every case below it is a loud `SKIP`
-rather than a failure — D4 pins the dialect, not a binary, and the case **count
-is unchanged**.
+The behavioural files open with a **ktool gate**: one case asks the kkore unit
+ktool (through `kt_gnu_gate head HEAD_BIN`, `tutil/tests/gnu_helper.sh`) for a
+usable head; its path is `HEAD_BIN`, the very head THead resolves, and every
+oracle runs it. When ktool finds none, every case below it is a loud
+`SKIP: <ktool's reason>` (with the package hint) rather than a failure — D4 pins
+the dialect, not a binary, and the case **count is unchanged**. `004` never runs
+head: it selects a stub GNU head with `kt_gnu_stub` (`KCL_GNU_HEAD`), so it runs
+in full on a box without one, and its argv pins hold the stub's path as word 0.
+The tool's own stderr is matched by prefix in the forms `HEAD_BIN: `, the
+basename and `head: ` (the full path on glibc/msys, `ghead:` on FreeBSD,
+`head:` with uutils); no test pins message text of one build.
+
+Measured under uutils (launch L3.4 / L34-E, kb-ubuntu, the suite run through a
+PATH shim of the release binaries): **0.2.2 and 0.12.0 both pass all 188 cases
+with no `SKIP`**. The only uutils accommodations are the stderr prefix helper and
+the wrapper's own stripping of leading zeros from the count.

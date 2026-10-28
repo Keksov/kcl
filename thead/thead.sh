@@ -31,6 +31,9 @@ declare -g __TH_SEQ=0
 
 # ---------------------------------------------------------------------------
 # THead — the GNU coreutils 8.32 `head` wrapper over TUtil.
+# The tool is the GNU (or uutils >= 0.2.2) `head` ktool resolves (`cmd` = its
+# absolute path: `head`, or `ghead` on FreeBSD); with none, `.new` still works
+# and the first run/sink/argv answers rc 2 with ktool's reason.
 #
 #     source kcl/thead/thead.sh
 #
@@ -54,9 +57,11 @@ declare -g __TH_SEQ=0
 #
 # ---- The count (PLAN §2.2) ------------------------------------------------
 # `lines` and `bytes` are validated with ONE regex, `^[+-]?[0-9]+$`, plus a
-# magnitude guard of at most 19 digits, and passed to head VERBATIM. `kk.isInt`
-# is deliberately NOT used: it normalises, and head reads the normalised value as
-# a different request —
+# magnitude guard of at most 19 digits. The property keeps the caller's value; the
+# argv word is that value with the leading zeros of its digit part stripped and
+# the sign kept (`thead._ncount`, pure bash). `kk.isInt` is deliberately NOT used: it
+# normalises the SIGN away, and head reads the normalised value as a different
+# request —
 #
 #   value | head -n            | tail -n (ttail)
 #   ------+--------------------+---------------------------
@@ -67,10 +72,13 @@ declare -g __TH_SEQ=0
 #   -0    | EVERYTHING         | nothing
 #
 # so `kk.isInt` turning `-0` into `0` would swap "everything" for "nothing".
-# `08` reaches head as `08` and head reads it as decimal 8.
+# `08` reaches head as `8` (the wrapper strips the zeros: uutils 0.2.2 refuses
+# `08`, GNU reads it as decimal 8), `-007` as `-7`, `+00` as `+0`, `-0` stays `-0`.
 #
 # ---- rc 2 at buildArgv: nothing runs, one kk.debug line --------------------
-#   * `cmd` empty (the instance was disarmed by hand);
+#   * `cmd` empty: no usable head was found when the instance was created
+#     (`_toolErr` holds ktool's reason and is the line printed), or the
+#     instance was disarmed by hand;
 #   * `lines` AND `bytes` (head would silently take the last one);
 #   * `quiet` AND `verbose` (head accepts both, last flag wins — the answer
 #     would depend on this builder's fixed order rather than on the caller);
@@ -106,13 +114,15 @@ declare -g __TH_SEQ=0
 #  * The constructor calls `parent.constructor head` EXPLICITLY. `inherited` in
 #    a constructor body is rewritten to `parent.constructor "$@"`
 #    (kklass_pascal.sh:166) and would hand TUtil `cmd=N` plus every path as an
-#    extra argument — every path would then appear twice in the argv.
+#    extra argument — every path would then appear twice in the argv. It then
+#    calls `tutil._gnu head` (`cmd` = the head ktool resolved, or '' with the
+#    reason in `_toolErr`).
 #  * EVERY declared var is assigned in `Create`: kklass binds a property as a
 #    nameref onto `${inst}_data[NAME]`, an unassigned one is an unbound variable
 #    under `set -u`, and `.new` over a still-live instance does not clear
 #    `_data`.
 #  * No `var` here may be named like a TUtil member (`cmd crlf nul _lastRc
-#    subshellOk _textMode buildArgv addArg clearArgs argv run each toArray toList
+#    subshellOk _textMode _toolErr buildArgv addArg clearArgs argv run each toArray toList
 #    first count lastRc mapRc`) or a kklass one (`property call parent delete`): the
 #    method wrapper is generated after the property wrapper and wins silently.
 #    That is why the count properties are `lines`/`bytes` and never
@@ -146,6 +156,20 @@ class THead : TUtil
         static proc take    # N PATH... — `head -n N -- PATH...`, streamed
 end
 
+# thead._ncount VALUE — RESULT = VALUE (already validated as `[+-]?DIGITS`) with the
+# leading zeros of the digit part stripped and the sign kept: `08` -> `8`,
+# `+08` -> `+8`, `-007` -> `-7`, `00` -> `0`, `+00` -> `+0`, `-0` -> `-0`. Pure
+# bash, no fork. A plain function, never a member body.
+thead._ncount() {
+    local __th_s="$1" __th_g=''
+    case "$__th_s" in
+        [+-]*) __th_g="${__th_s:0:1}"; __th_s="${__th_s:1}" ;;
+    esac
+    while [[ "$__th_s" == 0?* ]]; do __th_s="${__th_s#0}"; done
+    RESULT="$__th_g$__th_s"
+    return 0
+}
+
 # ===========================================================================
 # Members
 # ===========================================================================
@@ -154,12 +178,15 @@ end
 #
 # `parent.constructor head` is spelled out: `inherited` would forward THIS
 # constructor's arguments to TUtil and make `cmd` the count while every path
-# became a TUtil extra arg — each path would then appear twice. After it, EVERY
-# declared var is assigned (booleans `0`, strings `''`), and the operand list
-# becomes a real global array next to `${inst}_data`, released by the destructor
-# (kcl/README.md §1.9).
+# became a TUtil extra arg — each path would then appear twice.
+# `tutil._gnu head` then resolves the tool into `cmd` (L3.4: no usable head =
+# `cmd` '' and `_toolErr`, `.new` still succeeds; the first buildArgv answers
+# rc 2). EVERY declared var is assigned (booleans `0`, strings `''`), and the
+# operand list becomes a real global array next to `${inst}_data`, released by
+# the destructor (kcl/README.md §1.9).
 THead.Create() {
     parent.constructor head
+    tutil._gnu head
     lines="${1:-}"
     bytes=''
     quiet=0
@@ -206,7 +233,7 @@ THead.buildArgv() {
 
     # ---- the rc 2 list, checked before a single word is built -------------
     if [[ -z "$cmd" ]]; then
-        kk.debug "Error: THead.buildArgv: cmd is empty; there is nothing to run"
+        kk.debug "Error: THead.buildArgv: ${_toolErr:-cmd is empty; there is nothing to run}"
         kk._return ""
         return 2
     fi
@@ -287,8 +314,8 @@ THead.buildArgv() {
     if [[ "$quiet"          == 1 ]]; then __th_v+=( -q ); fi
     if [[ "$verbose"        == 1 ]]; then __th_v+=( -v ); fi
     if [[ "$zeroTerminated" == 1 ]]; then __th_v+=( -z ); fi
-    if   [[ -n "$lines" ]]; then __th_v+=( -n "$lines" )
-    elif [[ -n "$bytes" ]]; then __th_v+=( -c "$bytes" )
+    if   [[ -n "$lines" ]]; then thead._ncount "$lines"; __th_v+=( -n "$RESULT" )
+    elif [[ -n "$bytes" ]]; then thead._ncount "$bytes"; __th_v+=( -c "$RESULT" )
     fi
 
     # The un-modelled-option hatch, verbatim, after the options and before the

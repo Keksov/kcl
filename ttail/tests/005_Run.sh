@@ -9,8 +9,13 @@
 # this file installs NO `trap … EXIT` of its own, which would replace ktests'
 # trap and swallow the `__COUNTS__` line the runner parses.
 #
-# THE GATE IS THE FIRST CASE: if `tail --version` does not begin with
-# `tail (GNU coreutils) `, every behavioural case below is a loud `SKIP`.
+# THE GATE IS THE FIRST CASE: `kt_gnu_gate tail TAIL_BIN` (ktool;
+# kcl/tutil/tests/gnu_helper.sh) resolves the tail TTail itself uses. With none,
+# every behavioural case below is a loud `SKIP: <ktool's reason>`. The resolved
+# tail may be GNU coreutils or uutils >= 0.2.2 (owner decision OG8): the tool's
+# own stderr is matched by the prefix helper `tt_pfx` (the path, the basename or
+# `tail:` - gnulib prints the full path on glibc/msys and the short name on
+# FreeBSD, uutils prints `tail:`), never by message text of one build.
 #
 # ---- `tail -f` hygiene (the reason §4 of the plan exists) ------------------
 # Leaked followers from earlier sessions were found on this box. Every case that
@@ -28,7 +33,7 @@
 # `trap … EXIT` is installed anywhere.
 #
 # Sections:
-#   Z        the GNU banner gate, and the fixture tree
+#   Z        the ktool gate, and the fixture tree
 #   A  H6    one file: `each` / `count` / `toArray` / `first` / `toList` / `run`
 #   B  H7    the `==> NAME <==` headers are RECORDS (9 / 8 / `quiet` / `verbose`)
 #   C  H8    a missing operand among good ones: records KEPT, rc 1, lastRc 1
@@ -46,6 +51,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/ttail.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -56,24 +62,15 @@ ERRF="$TMP/tt.err"
 kt_test_section "005: TTail against GNU tail on a real tree (P0)"
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and the fixture tree"
+kt_test_section "Z. the ktool gate, and the fixture tree"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`tail\` on PATH is GNU coreutils (D4 pins the DIALECT, not a binary)"
-TAIL_BIN="$(command -v tail 2>/dev/null || printf '(none)')"
-TAIL_VER="$(tail --version 2>/dev/null | head -1 || :)"
-if [[ "$TAIL_VER" == "tail (GNU coreutils) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$TAIL_BIN — $TAIL_VER"
-else
-    kt_test_pass "SKIP: non-GNU tail ($TAIL_BIN — '${TAIL_VER:-no banner}'); every behavioural case below is skipped"
-fi
+kt_gnu_gate tail TAIL_BIN
 
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU tail"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -159,6 +156,15 @@ oracle() {
     done < <( "$@" 2>/dev/null )
 }
 
+# tt_pfx LINE FRAGMENT - rc 0 iff LINE starts with the resolved tail's own
+# diagnostic prefix followed by FRAGMENT. The prefix is the full path (gnulib on
+# glibc/msys), the basename (gnulib on FreeBSD: `gtail:`) or `tail:` (uutils);
+# only the prefix varies by build, FRAGMENT is the part the tests pin.
+tt_pfx() {
+    local __l="$1" __f="$2"
+    [[ "$__l" == "$TAIL_BIN: $__f"* || "$__l" == "${TAIL_BIN##*/}: $__f"* || "$__l" == "tail: $__f"* ]]
+}
+
 TT_RC=0; TT_N=0; TT_1=''; TOOL_N=0; TOOL_1=''
 tt_dbg() {
     : > "$ERRF"
@@ -220,7 +226,7 @@ if tcase "H6: \`lines = 2\`, \`each\` delivers exactly \`tail -n 2\`'s records";
     TTail.new tA 2 "$FX/f5.txt"
     CB_RECS=()
     rc=0; tA.each cb_collect || rc=$?
-    oracle SWANT tail -n 2 -- "$FX/f5.txt"
+    oracle SWANT "$TAIL_BIN" -n 2 -- "$FX/f5.txt"
     tA.lastRc; lr="$RESULT"
     if [[ $rc -eq 0 && "$lr" == "0" ]] && arr_eq CB_RECS SWANT && arr_is CB_RECS 4 5; then
         kt_test_pass "2 records (4, 5), rc 0, lastRc 0"
@@ -231,7 +237,7 @@ if tcase "H6: \`lines = 2\`, \`each\` delivers exactly \`tail -n 2\`'s records";
 fi
 
 TTail.new tA 3 "$FX/f11.txt"
-same_as_bare "H6: \`toArray\` == \`tail -n 3\`" tA tail -n 3 -- "$FX/f11.txt"
+same_as_bare "H6: \`toArray\` == \`tail -n 3\`" tA "$TAIL_BIN" -n 3 -- "$FX/f11.txt"
 
 if tcase "H6: \`count\` is the record count, rc 0, \`lastRc\` 0"; then
     RESULT=sentinel
@@ -269,7 +275,7 @@ fi
 
 if tcase "H6: \`run\` streams tail's own bytes and leaves the raw rc readable"; then
     out="$(tA.run 2>/dev/null)"; rc=$?
-    want="$(tail -n 3 -- "$FX/f11.txt" 2>/dev/null)"
+    want="$("$TAIL_BIN" -n 3 -- "$FX/f11.txt" 2>/dev/null)"
     tA.run >/dev/null 2>&1
     tA.lastRc; lr="$RESULT"
     if [[ $rc -eq 0 && "$out" == "$want" && "$lr" == "0" ]]; then
@@ -331,7 +337,7 @@ if tcase "H7: two TERMINATED 3-line files under \`-n 5\` are 9 records"; then
     TTail.new tH 5 "$FX/a3.txt" "$FX/b3.txt"
     SGOT=()
     rc=0; tH.toArray SGOT || rc=$?
-    oracle SWANT tail -n 5 -- "$FX/a3.txt" "$FX/b3.txt"
+    oracle SWANT "$TAIL_BIN" -n 5 -- "$FX/a3.txt" "$FX/b3.txt"
     if [[ $rc -eq 0 && ${#SGOT[@]} -eq 9 && "${SGOT[4]}" == "" ]] && arr_eq SGOT SWANT; then
         kt_test_pass "9 records, the 5th empty — identical to the bare tool"
     else
@@ -344,7 +350,7 @@ if tcase "H7: the same pair with the FIRST file UNTERMINATED is 8 records"; then
     TTail.new tH 5 "$FX/unterm.txt" "$FX/b3.txt"
     SGOT=()
     rc=0; tH.toArray SGOT || rc=$?
-    oracle SWANT tail -n 5 -- "$FX/unterm.txt" "$FX/b3.txt"
+    oracle SWANT "$TAIL_BIN" -n 5 -- "$FX/unterm.txt" "$FX/b3.txt"
     if [[ $rc -eq 0 && ${#SGOT[@]} -eq 8 && "${SGOT[3]}" == "u3" ]] && arr_eq SGOT SWANT; then
         kt_test_pass "8 records — no empty one; 'u3' was terminated by the separator"
     else
@@ -413,7 +419,7 @@ if tcase "H8: \`toArray\` over good+MISSING+good — rc 1, RESULT = the real cou
     rc=0; tM.toArray SGOT 2>/dev/null || rc=$?
     n="$RESULT"
     tM.lastRc; lr="$RESULT"
-    oracle SWANT tail -n 1 -- "$FX/a3.txt" "$FX/no_such_file.txt" "$FX/b3.txt"
+    oracle SWANT "$TAIL_BIN" -n 1 -- "$FX/a3.txt" "$FX/no_such_file.txt" "$FX/b3.txt"
     if [[ $rc -eq 1 && "$lr" == "1" && "$n" == "${#SGOT[@]}" && ${#SGOT[@]} -gt 0 ]] \
        && arr_eq SGOT SWANT; then
         kt_test_pass "${#SGOT[@]} records kept, RESULT $n, rc 1, lastRc 1 — identical to the bare tool"
@@ -442,7 +448,7 @@ if tcase "H8: the partial-failure path emits exactly ONE line of ours; tail's ow
     tt_dbg tM.count
     if [[ "$TT_RC" == "1" && "$TT_N" == "1" && "$TOOL_N" -ge 1 \
           && "$TT_1" == *"TTail"* && "$TT_1" == *"tail exited 1"* \
-          && "$TOOL_1" == "tail: cannot open "* ]]; then
+          && -n "$TOOL_1" ]] && tt_pfx "$TOOL_1" "cannot open "; then
         kt_test_pass "ours: ${TT_1:0:56}… | tail's: '${TOOL_1:0:46}…'"
     else
         kt_test_fail "rc=$TT_RC ourLines=$TT_N first='$TT_1' toolLines=$TOOL_N toolFirst='$TOOL_1'"
@@ -565,7 +571,7 @@ sign() {
     SGOT=()
     local __rc=0
     tS.toArray SGOT || __rc=$?
-    oracle SWANT tail -n "$__n" -- "$FX/f5.txt"
+    oracle SWANT "$TAIL_BIN" -n "$__n" -- "$FX/f5.txt"
     if [[ $__rc -eq 0 ]] && arr_is SGOT "$@" && arr_eq SGOT SWANT; then
         kt_test_pass "${#SGOT[@]} records, identical to \`tail -n $__n\`"
     else
@@ -601,7 +607,7 @@ if tcase "T1: \`lines = 08\` is DECIMAL 8 (pinned on an 11-line file)"; then
     rc=0; tS.count || rc=$?
     n="$RESULT"
     if [[ $rc -eq 0 && "$n" == "8" ]]; then
-        kt_test_pass "8 records — tail's own decimal reading, passed through verbatim"
+        kt_test_pass "8 records — \`08\` normalised to 8 by the wrapper"
     else
         kt_test_fail "rc=$rc RESULT='$n'"
     fi
@@ -630,7 +636,7 @@ if tcase "T1: \`bytes = +3\` starts at BYTE 3"; then
     tS.bytes = +3
     SGOT=()
     rc=0; tS.toArray SGOT || rc=$?
-    oracle SWANT tail -c +3 -- "$FX/f5.txt"
+    oracle SWANT "$TAIL_BIN" -c +3 -- "$FX/f5.txt"
     if [[ $rc -eq 0 && ${#SGOT[@]} -gt 0 ]] && arr_eq SGOT SWANT; then
         kt_test_pass "${#SGOT[@]} records, identical to \`tail -c +3\`"
     else
@@ -645,7 +651,7 @@ kt_test_section "G. T4 — \`TTail.take N PATH...\`, the static one-liner"
 
 if tcase "T4: \`TTail.take 2 f\` == \`tail -n 2 -- f\`, DIRECT"; then
     got="$(TTail.take 2 "$FX/f5.txt" 2>/dev/null)"; rc=$?
-    want="$(tail -n 2 -- "$FX/f5.txt" 2>/dev/null)"; wrc=$?
+    want="$("$TAIL_BIN" -n 2 -- "$FX/f5.txt" 2>/dev/null)"; wrc=$?
     if [[ $rc -eq 0 && $wrc -eq 0 && "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "rc 0 and the same bytes as the bare tool"
     else
@@ -655,7 +661,7 @@ fi
 
 if tcase "T4: \`TTail.take +2 f\` == \`tail -n +2 -- f\` (the plan's own pin)"; then
     got="$(TTail.take +2 "$FX/f5.txt" 2>/dev/null)"; rc=$?
-    want="$(tail -n +2 -- "$FX/f5.txt" 2>/dev/null)"
+    want="$("$TAIL_BIN" -n +2 -- "$FX/f5.txt" 2>/dev/null)"
     if [[ $rc -eq 0 && "$got" == "$want" && "$got" == "2"* ]]; then
         kt_test_pass "lines 2..5, identical to the bare tool"
     else
@@ -665,7 +671,7 @@ fi
 
 if tcase "T4: the same through a PIPE (\`| od -c\`) — byte-identical"; then
     got="$(TTail.take 2 "$FX/f5.txt" 2>/dev/null | od -c)"
-    want="$(tail -n 2 -- "$FX/f5.txt" 2>/dev/null | od -c)"
+    want="$("$TAIL_BIN" -n 2 -- "$FX/f5.txt" 2>/dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -675,7 +681,7 @@ fi
 
 if tcase "T4: the same through \`< <( )\` — byte-identical"; then
     got="$(cat < <(TTail.take 2 "$FX/f5.txt" 2>/dev/null) | od -c)"
-    want="$(tail -n 2 -- "$FX/f5.txt" 2>/dev/null | od -c)"
+    want="$("$TAIL_BIN" -n 2 -- "$FX/f5.txt" 2>/dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -685,7 +691,7 @@ fi
 
 if tcase "T4: \`take\` with TWO paths carries the headers (tool parity)"; then
     got="$(TTail.take 1 "$FX/a3.txt" "$FX/b3.txt" 2>/dev/null)"; rc=$?
-    want="$(tail -n 1 -- "$FX/a3.txt" "$FX/b3.txt" 2>/dev/null)"
+    want="$("$TAIL_BIN" -n 1 -- "$FX/a3.txt" "$FX/b3.txt" 2>/dev/null)"
     if [[ $rc -eq 0 && "$got" == "$want" && "$got" == "==> "* ]]; then
         kt_test_pass "headers included, identical to the bare tool"
     else
@@ -763,7 +769,7 @@ if tcase "T4: a nested \`take\` inside an outer \`each\` — both complete, the 
     done
     if [[ $rc -eq 0 && ${#NEST_OUT[@]} -eq 3 && ${#NEST_IN[@]} -eq 3 && "$inner_ok" == "1" \
           && $arc -eq 0 && "$lr" == "0" ]] \
-       && arr_is SGOT tail -n 3 -- "$FX/a3.txt"; then
+       && arr_is SGOT "$TAIL_BIN" -n 3 -- "$FX/a3.txt"; then
         kt_test_pass "3 outer records, 3 nested takes, the outer instance untouched"
     else
         kt_test_fail "rc=$rc outer=${#NEST_OUT[@]} inner=${#NEST_IN[@]} ok=$inner_ok argvRc=$arc lastRc='$lr' argv=$(arr_show SGOT)"
@@ -1041,7 +1047,7 @@ if tcase "T2: no follower of ours survived the section"; then
     for tt_p in "${!KT_PROC_PP[@]}"; do
         [[ "${KT_PROC_PP[$tt_p]}" == "$$" ]] || continue
         tt_w="${KT_PROC_CMD[$tt_p]%% *}"; tt_w="${tt_w##*/}"
-        [[ "$tt_w" == tail || "$tt_w" == tail.exe ]] && mine+="$tt_p "
+        [[ "$tt_w" == tail || "$tt_w" == tail.exe || "$tt_w" == "${TAIL_BIN##*/}" ]] && mine+="$tt_p "
     done
     if (( ! tt_ok )); then
         kt_test_fail "no process table on this platform (KT_PROC_WHY='$KT_PROC_WHY'): the check cannot run"

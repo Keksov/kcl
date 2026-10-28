@@ -31,6 +31,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/ttail.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -78,6 +79,13 @@ if [[ "$ctor" == *"parent.constructor tail"* && "$ctor" != *inherited* ]]; then
     kt_test_pass "explicit \`parent.constructor tail\`, no \`inherited\`"
 else
     kt_test_fail "constructor body: ${ctor:0:200}"
+fi
+
+kt_test_start "the CONSTRUCTOR resolves its tool: \`tutil._gnu tail\` right after \`parent.constructor tail\` (L3.4 G1)"
+if [[ "$ctor" == *$'parent.constructor tail\n    tutil._gnu tail\n'* && "$ctor" != *inherited* ]]; then
+    kt_test_pass "\`tutil._gnu tail\` is the line after \`parent.constructor tail\`"
+else
+    kt_test_fail "constructor body: ${ctor:0:300}"
 fi
 
 kt_test_start "the DESTRUCTOR frees \`\${inst}_paths\` and then chains with \`inherited\`"
@@ -136,7 +144,7 @@ else
 fi
 
 kt_test_start "no \`var\` shadows a TUtil or kklass member name"
-RESERVED=" cmd crlf nul _lastRc subshellOk _textMode buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
+RESERVED=" cmd crlf nul _lastRc subshellOk _textMode _toolErr buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
 clash=""
 declared=""
 while IFS= read -r line; do
@@ -161,23 +169,15 @@ else
 fi
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and a small tree for the children"
+kt_test_section "Z. the ktool gate, and a small tree for the children"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`tail\` on PATH is GNU coreutils"
-TAIL_VER="$(tail --version 2>/dev/null | head -1 || :)"
-if [[ "$TAIL_VER" == "tail (GNU coreutils) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$TAIL_VER"
-else
-    kt_test_pass "SKIP: non-GNU tail ('${TAIL_VER:-no banner}'); every case that runs tail is skipped"
-fi
+kt_gnu_gate tail TAIL_BIN
 
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU tail"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0

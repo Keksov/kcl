@@ -9,11 +9,16 @@
 # trap and swallow the `__COUNTS__` line the runner parses.
 #
 # THE GATE IS THE FIRST CASE. D4 of the tpipe plan pins the GNU dialect, not a
-# binary: if `head --version` does not begin with `head (GNU coreutils) `, every
-# behavioural case below is a loud `SKIP`, so the suite stays honest.
+# binary: `kt_gnu_gate head HEAD_BIN` (ktool; kcl/tutil/tests/gnu_helper.sh)
+# resolves the head THead itself uses. With none, every behavioural case below is
+# a loud `SKIP: <ktool's reason>`, so the suite stays honest. The resolved head
+# may be GNU coreutils or uutils >= 0.2.2 (owner decision OG8): the tool's own
+# stderr is matched by the prefix helper `th_pfx` (the path, the basename or
+# `head:` — gnulib prints the full path on glibc/msys and the short name on
+# FreeBSD, uutils prints `head:`), never by message text of one build.
 #
 # Sections:
-#   Z        the GNU banner gate, and the fixture tree
+#   Z        the ktool gate, and the fixture tree
 #   A  H6    one file: `each` / `count` / `toArray` / `first` / `toList` / `run`
 #            against the bare tool; the unterminated last record
 #   B  H7    headers are RECORDS: 9 records for two terminated 3-line files
@@ -43,6 +48,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/thead.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -53,19 +59,10 @@ ERRF="$TMP/th.err"
 kt_test_section "005: THead against GNU head on a real tree (P0)"
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and the fixture tree"
+kt_test_section "Z. the ktool gate, and the fixture tree"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`head\` on PATH is GNU coreutils (D4 pins the DIALECT, not a binary)"
-HEAD_BIN="$(command -v head 2>/dev/null || printf '(none)')"
-HEAD_VER="$(head --version 2>/dev/null | head -1 || :)"
-if [[ "$HEAD_VER" == "head (GNU coreutils) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$HEAD_BIN — $HEAD_VER"
-else
-    kt_test_pass "SKIP: non-GNU head ($HEAD_BIN — '${HEAD_VER:-no banner}'); every behavioural case below is skipped"
-fi
+kt_gnu_gate head HEAD_BIN
 
 # tcase TITLE — start a case; rc 1 (already passed as a SKIP) when the gate is
 # closed, so a case body reads `if tcase "…"; then … fi` and the case COUNT is
@@ -73,7 +70,7 @@ fi
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU head"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -188,6 +185,15 @@ th_dbg() {
     return 0
 }
 
+# th_pfx LINE FRAGMENT — rc 0 iff LINE starts with the resolved head's own
+# diagnostic prefix followed by FRAGMENT. The prefix is the full path (gnulib on
+# glibc/msys), the basename (gnulib on FreeBSD: `ghead:`) or `head:` (uutils);
+# only the prefix varies by build, FRAGMENT is the part the tests pin.
+th_pfx() {
+    local __l="$1" __f="$2"
+    [[ "$__l" == "$HEAD_BIN: $__f"* || "$__l" == "${HEAD_BIN##*/}: $__f"* || "$__l" == "head: $__f"* ]]
+}
+
 CB_RECS=()
 cb_collect() { CB_RECS+=( "$1" ); return 0; }
 
@@ -228,7 +234,7 @@ if tcase "H6: \`lines = 2\`, \`each\` delivers exactly \`head -n 2\`'s records";
     THead.new hA 2 "$FX/f5.txt"
     CB_RECS=()
     rc=0; hA.each cb_collect || rc=$?
-    oracle SWANT head -n 2 -- "$FX/f5.txt"
+    oracle SWANT "$HEAD_BIN" -n 2 -- "$FX/f5.txt"
     hA.lastRc; lr="$RESULT"
     if [[ $rc -eq 0 && "$lr" == "0" ]] && arr_eq CB_RECS SWANT && (( ${#SWANT[@]} == 2 )); then
         kt_test_pass "2 records, rc 0, lastRc 0"
@@ -239,7 +245,7 @@ if tcase "H6: \`lines = 2\`, \`each\` delivers exactly \`head -n 2\`'s records";
 fi
 
 THead.new hA 3 "$FX/f11.txt"
-same_as_bare "H6: \`toArray\` == \`head -n 3\`" hA head -n 3 -- "$FX/f11.txt"
+same_as_bare "H6: \`toArray\` == \`head -n 3\`" hA "$HEAD_BIN" -n 3 -- "$FX/f11.txt"
 
 if tcase "H6: \`count\` is the record count, rc 0, \`lastRc\` 0"; then
     RESULT=sentinel
@@ -277,7 +283,7 @@ fi
 
 if tcase "H6: \`run\` streams head's own bytes and leaves the raw rc readable"; then
     out="$(hA.run 2>/dev/null)"; rc=$?
-    want="$(head -n 3 -- "$FX/f11.txt" 2>/dev/null)"
+    want="$("$HEAD_BIN" -n 3 -- "$FX/f11.txt" 2>/dev/null)"
     hA.run >/dev/null 2>&1
     hA.lastRc; lr="$RESULT"
     if [[ $rc -eq 0 && "$out" == "$want" && "$lr" == "0" ]]; then
@@ -339,7 +345,7 @@ if tcase "H7: two TERMINATED 3-line files under \`-n 5\` are 9 records"; then
     THead.new hH 5 "$FX/a3.txt" "$FX/b3.txt"
     SGOT=()
     rc=0; hH.toArray SGOT || rc=$?
-    oracle SWANT head -n 5 -- "$FX/a3.txt" "$FX/b3.txt"
+    oracle SWANT "$HEAD_BIN" -n 5 -- "$FX/a3.txt" "$FX/b3.txt"
     # header, a1, a2, a3, '' (the leading \n of the second header), header, b1, b2, b3
     if [[ $rc -eq 0 && ${#SGOT[@]} -eq 9 && "${SGOT[4]}" == "" ]] && arr_eq SGOT SWANT; then
         kt_test_pass "9 records, the 5th empty — identical to the bare tool"
@@ -353,7 +359,7 @@ if tcase "H7: the same pair with the FIRST file UNTERMINATED is 8 records"; then
     THead.new hH 5 "$FX/unterm.txt" "$FX/b3.txt"
     SGOT=()
     rc=0; hH.toArray SGOT || rc=$?
-    oracle SWANT head -n 5 -- "$FX/unterm.txt" "$FX/b3.txt"
+    oracle SWANT "$HEAD_BIN" -n 5 -- "$FX/unterm.txt" "$FX/b3.txt"
     # the separator's leading \n TERMINATES 'u3' instead of making an empty record
     if [[ $rc -eq 0 && ${#SGOT[@]} -eq 8 && "${SGOT[3]}" == "u3" ]] && arr_eq SGOT SWANT; then
         kt_test_pass "8 records — no empty one; 'u3' was terminated by the separator"
@@ -423,7 +429,7 @@ if tcase "H8: \`toArray\` over good+MISSING+good — rc 1, RESULT = the real cou
     rc=0; hM.toArray SGOT 2>/dev/null || rc=$?
     n="$RESULT"
     hM.lastRc; lr="$RESULT"
-    oracle SWANT head -n 1 -- "$FX/a3.txt" "$FX/no_such_file.txt" "$FX/b3.txt"
+    oracle SWANT "$HEAD_BIN" -n 1 -- "$FX/a3.txt" "$FX/no_such_file.txt" "$FX/b3.txt"
     if [[ $rc -eq 1 && "$lr" == "1" && "$n" == "${#SGOT[@]}" && ${#SGOT[@]} -gt 0 ]] \
        && arr_eq SGOT SWANT; then
         kt_test_pass "${#SGOT[@]} records kept, RESULT $n, rc 1, lastRc 1 — identical to the bare tool"
@@ -453,7 +459,7 @@ if tcase "H8: the partial-failure path emits exactly ONE line of ours; head's ow
     # the tool's diagnostic is unconditional and locale-quoted: match the PREFIX
     if [[ "$TH_RC" == "1" && "$TH_N" == "1" && "$TOOL_N" -ge 1 \
           && "$TH_1" == *"THead"* && "$TH_1" == *"head exited 1"* \
-          && "$TOOL_1" == "head: cannot open "* ]]; then
+          && -n "$TOOL_1" ]] && th_pfx "$TOOL_1" "cannot open "; then
         kt_test_pass "ours: ${TH_1:0:56}… | head's: '${TOOL_1:0:46}…'"
     else
         kt_test_fail "rc=$TH_RC ourLines=$TH_N first='$TH_1' toolLines=$TOOL_N toolFirst='$TOOL_1'"
@@ -478,7 +484,7 @@ fi
 if tcase "H8: a DIRECTORY operand is rc 1 with head's own message (never rc 2)"; then
     THead.new hM 1 "$FX"
     th_dbg hM.count
-    if [[ "$TH_RC" == "1" && "$TH_N" == "1" && "$TOOL_N" -ge 1 && "$TOOL_1" == "head: "* ]]; then
+    if [[ "$TH_RC" == "1" && "$TH_N" == "1" && "$TOOL_N" -ge 1 ]] && th_pfx "$TOOL_1" ""; then
         kt_test_pass "rc 1, one line of ours, head's own: '${TOOL_1:0:52}…'"
     else
         kt_test_fail "rc=$TH_RC ourLines=$TH_N toolLines=$TOOL_N toolFirst='$TOOL_1'"
@@ -589,7 +595,7 @@ sign() {
     SGOT=()
     local __rc=0
     hS.toArray SGOT || __rc=$?
-    oracle SWANT head -n "$__n" -- "$FX/f5.txt"
+    oracle SWANT "$HEAD_BIN" -n "$__n" -- "$FX/f5.txt"
     if [[ $__rc -eq 0 ]] && arr_is SGOT "$@" && arr_eq SGOT SWANT; then
         kt_test_pass "${#SGOT[@]} records, identical to \`head -n $__n\`"
     else
@@ -611,7 +617,7 @@ if tcase "H3: \`lines = 08\` is DECIMAL 8 (pinned on an 11-line file)"; then
     rc=0; hS.count || rc=$?
     n="$RESULT"
     if [[ $rc -eq 0 && "$n" == "8" ]]; then
-        kt_test_pass "8 records — head's own decimal reading, passed through verbatim"
+        kt_test_pass "8 records — \`08\` normalised to 8 by the wrapper"
     else
         kt_test_fail "rc=$rc RESULT='$n'"
     fi
@@ -641,7 +647,7 @@ if tcase "H1/§1.3: \`addArg -c 4\` after \`lines = 3\` even switches head to BY
     hS.addArg -c 4
     SGOT=()
     rc=0; hS.toArray SGOT || rc=$?
-    oracle SWANT head -n 3 -c 4 -- "$FX/f11.txt"
+    oracle SWANT "$HEAD_BIN" -n 3 -c 4 -- "$FX/f11.txt"
     if [[ $rc -eq 0 ]] && arr_is SGOT '1' '2' && arr_eq SGOT SWANT; then
         kt_test_pass "the first 4 bytes ('1\\n2\\n'), identical to the bare tool"
     else
@@ -655,7 +661,7 @@ if tcase "H3: \`bytes = -3\` is 'all but the last 3 bytes'"; then
     hS.bytes = -3
     SGOT=()
     rc=0; hS.toArray SGOT || rc=$?
-    oracle SWANT head -c -3 -- "$FX/f5.txt"
+    oracle SWANT "$HEAD_BIN" -c -3 -- "$FX/f5.txt"
     if [[ $rc -eq 0 && ${#SGOT[@]} -gt 0 ]] && arr_eq SGOT SWANT; then
         kt_test_pass "${#SGOT[@]} records, identical to \`head -c -3\`"
     else
@@ -669,14 +675,14 @@ if tcase "H3: a 19-digit \`bytes = -9999999999999999999\` reaches head unchanged
     # TOOL then answers. coreutils < 9.5 refuses it ('Value too large'): an
     # ordinary rc 1 with head's own message on stderr; >= 9.5 accepts it (rc 0,
     # nothing printed). Never a rc 2 (§2.5). The oracle first:
-    head -c -9999999999999999999 -- "$FX/f5.txt" >/dev/null 2>&1 </dev/null; th_w=$?
+    "$HEAD_BIN" -c -9999999999999999999 -- "$FX/f5.txt" >/dev/null 2>&1 </dev/null; th_w=$?
     THead.new hS '' "$FX/f5.txt"
     hS.bytes = -9999999999999999999
     th_dbg hS.count
     hS.lastRc; lr="$RESULT"
     if [[ "$th_w" == "1" ]]; then
         if [[ "$TH_RC" == "1" && "$TH_N" == "1" && "$TOOL_N" -ge 1 && "$lr" == "1" \
-              && "$TOOL_1" == "head: invalid number of bytes"* ]]; then
+              ]] && th_pfx "$TOOL_1" "invalid number of bytes"; then
             th_ok="rc 1, lastRc 1, one line of ours, head's: '${TOOL_1:0:56}…'"
         else
             th_ok=""
@@ -700,7 +706,7 @@ kt_test_section "G. H11 — \`THead.take N PATH...\`, the static one-liner (§2.
 
 if tcase "H11: \`THead.take 2 f\` == \`head -n 2 -- f\`, DIRECT"; then
     got="$(THead.take 2 "$FX/f5.txt" 2>/dev/null)"; rc=$?
-    want="$(head -n 2 -- "$FX/f5.txt" 2>/dev/null)"; wrc=$?
+    want="$("$HEAD_BIN" -n 2 -- "$FX/f5.txt" 2>/dev/null)"; wrc=$?
     if [[ $rc -eq 0 && $wrc -eq 0 && "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "rc 0 and the same bytes as the bare tool"
     else
@@ -710,7 +716,7 @@ fi
 
 if tcase "H11: the same through a PIPE (\`| od -c\`) — byte-identical"; then
     got="$(THead.take 2 "$FX/f5.txt" 2>/dev/null | od -c)"
-    want="$(head -n 2 -- "$FX/f5.txt" 2>/dev/null | od -c)"
+    want="$("$HEAD_BIN" -n 2 -- "$FX/f5.txt" 2>/dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -720,7 +726,7 @@ fi
 
 if tcase "H11: the same through \`< <( )\` — byte-identical"; then
     got="$(cat < <(THead.take 2 "$FX/f5.txt" 2>/dev/null) | od -c)"
-    want="$(head -n 2 -- "$FX/f5.txt" 2>/dev/null | od -c)"
+    want="$("$HEAD_BIN" -n 2 -- "$FX/f5.txt" 2>/dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -730,7 +736,7 @@ fi
 
 if tcase "H11: \`take\` with TWO paths carries the headers (tool parity, §2.7)"; then
     got="$(THead.take 1 "$FX/a3.txt" "$FX/b3.txt" 2>/dev/null)"; rc=$?
-    want="$(head -n 1 -- "$FX/a3.txt" "$FX/b3.txt" 2>/dev/null)"
+    want="$("$HEAD_BIN" -n 1 -- "$FX/a3.txt" "$FX/b3.txt" 2>/dev/null)"
     if [[ $rc -eq 0 && "$got" == "$want" && "$got" == "==> "* ]]; then
         kt_test_pass "headers included, identical to the bare tool"
     else
@@ -742,7 +748,7 @@ if tcase "H11: \`take\` accepts \`+N\` and \`-N\` verbatim"; then
     ok=1
     for v in +3 -2 -0 0; do
         got="$(THead.take "$v" "$FX/f5.txt" 2>/dev/null)"
-        want="$(head -n "$v" -- "$FX/f5.txt" 2>/dev/null)"
+        want="$("$HEAD_BIN" -n "$v" -- "$FX/f5.txt" 2>/dev/null)"
         [[ "$got" == "$want" ]] || ok=0
     done
     if [[ "$ok" == "1" ]]; then
@@ -822,7 +828,7 @@ if tcase "H11: a nested \`take\` inside an outer \`each\` — both complete, the
     done
     if [[ $rc -eq 0 && ${#NEST_OUT[@]} -eq 3 && ${#NEST_IN[@]} -eq 3 && "$inner_ok" == "1" \
           && $arc -eq 0 && "$lr" == "0" ]] \
-       && arr_is SGOT head -n 3 -- "$FX/a3.txt"; then
+       && arr_is SGOT "$HEAD_BIN" -n 3 -- "$FX/a3.txt"; then
         kt_test_pass "3 outer records, 3 nested takes, the outer instance untouched"
     else
         kt_test_fail "rc=$rc outer=${#NEST_OUT[@]} inner=${#NEST_IN[@]} ok=$inner_ok argvRc=$arc lastRc='$lr' argv=$(arr_show SGOT)"

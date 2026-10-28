@@ -127,15 +127,27 @@ gate_ratio() {  # label median_us base_median_us limit_tenths -> ratio + PASS/FA
         "$1" $(( r100/100 )) $(( r100%100 )) $(( $4/10 )) $(( $4%10 )) "$verdict"
 }
 
-# --- the GNU banner gate ----------------------------------------------------
-# D4 pins the DIALECT (GNU coreutils 8.32), not a binary. Every number below is
-# about that tool; on anything else they are not comparable, so say so loudly
-# instead of publishing a meaningless table.
-TAIL_BANNER="$(tail --version 2>/dev/null | sed -n 1p || true)"
-case "$TAIL_BANNER" in
-    "tail (GNU coreutils) "*) ;;
-    *) echo "ttail bench: SKIPPED — \`tail\` is not GNU coreutils: '$TAIL_BANNER'"; exit 0 ;;
-esac
+# --- the GNU gate (ktool) ---------------------------------------------------
+# D4 pins the DIALECT (GNU coreutils 8.32), not a binary. `ktool.gnu tail` (the
+# kkore unit ktool, loaded by tutil) answers the tail TTail itself resolves
+# (GNU coreutils or uutils >= 0.2.2): the path is TAIL_BIN, the bare baselines below
+# run it too. Every number below is about that tool; with none, say so loudly
+# (ktool's own text, which names the package) instead of publishing a
+# meaningless table.
+__kt_rc=0
+ktool.gnu tail || __kt_rc=$?
+if (( __kt_rc == 0 )); then
+    TAIL_BIN=$RESULT
+    TAIL_BANNER="$(LC_ALL=C "$TAIL_BIN" --version </dev/null 2>/dev/null | head -n 1 || true)"
+else
+    ktool.lastError
+    if (( __kt_rc == 2 )); then
+        echo "ttail bench: FAILED (ktool rc 2) - $RESULT"
+    else
+        echo "ttail bench: SKIPPED - $RESULT"
+    fi
+    exit 0
+fi
 
 # --- the corpus -------------------------------------------------------------
 BD="$(mktemp -d "${TMPDIR:-/tmp}/kbool_bench_ttail.XXXXXX")" || exit 1
@@ -189,7 +201,7 @@ pid_a="$BASHPID"
 for (( i = 0; i < ND; i++ )); do BT.argv BW; done
 n_follow="${BW[*]}"
 BT.follow = 0
-BT.cmd = tail
+BT.cmd = "$TAIL_BIN"
 if (( BENCH_RAN == 0 )) && [[ "$BASHPID" == "$pid_a" ]]; then
     echo "  RUNS NOTHING: with cmd pointed at a counting function, $ND builds invoked it 0 times"
     echo "  FORK-FREE:    BASHPID $pid_a unchanged across all $(( ND * 3 )) builds"
@@ -233,12 +245,12 @@ gate_shape() {
 
     # warm the page cache and every code path once, so neither side pays for the
     # first read of the corpus or the first bind of a member wrapper.
-    tail -n "$__n" -- "$BIG" >/dev/null 2>&1 || :
+    "$TAIL_BIN" -n "$__n" -- "$BIG" >/dev/null 2>&1 || :
     TTail.take "$__n" "$BIG" >/dev/null 2>&1 || :
 
     for (( __i = 0; __i < NR; __i++ )); do
         TStopwatch.getTimeStamp; __a0=$RESULT
-        tail -n "$__n" -- "$BIG" >/dev/null || :
+        "$TAIL_BIN" -n "$__n" -- "$BIG" >/dev/null || :
         TStopwatch.getTimeStamp; __a1=$RESULT
         __t_bare+=( $(( __a1 - __a0 )) ); __s_bare=$(( __s_bare + __a1 - __a0 ))
 
@@ -271,13 +283,13 @@ n_cnt=''
 
 # Warm both shapes, and take the record counts HERE, once. A `$( )` inside the
 # timed loop would add a fork to the baseline and dilute the very comparison.
-n_wc="$( tail -n "$HALF" -- "$BIG" | wc -l )"
+n_wc="$( "$TAIL_BIN" -n "$HALF" -- "$BIG" | wc -l )"
 n_wc="${n_wc//[[:space:]]/}"
 BQ.count >/dev/null 2>&1 || :
 
 for (( i = 0; i < NR; i++ )); do
     TStopwatch.getTimeStamp; t0=$RESULT
-    tail -n "$HALF" -- "$BIG" | wc -l >/dev/null || :
+    "$TAIL_BIN" -n "$HALF" -- "$BIG" | wc -l >/dev/null || :
     TStopwatch.getTimeStamp; t1=$RESULT
     T_WC+=( $(( t1 - t0 )) ); b_wc=$(( b_wc + t1 - t0 ))
 

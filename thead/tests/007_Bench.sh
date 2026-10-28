@@ -43,12 +43,12 @@
 # framework. This file installs NO `trap … EXIT` of its own — it would replace
 # ktests' trap and swallow the `__COUNTS__` line the runner parses.
 #
-# THE GNU BANNER GATE IS THE FIRST CASE, as in 005/006: D4 pins the DIALECT
-# (GNU coreutils 8.32), not a binary. Without the banner every timed case is a
-# loud SKIP and the case COUNT is unchanged.
+# THE KTOOL GATE IS THE FIRST CASE, as in 005/006: `kt_gnu_gate head HEAD_BIN`
+# (ktool; D4 pins the DIALECT, GNU coreutils 8.32, not a binary). With no usable
+# head every timed case is a loud SKIP and the case COUNT is unchanged.
 #
 # Sections:
-#   Z  the GNU banner gate and the corpus
+#   Z  the ktool gate and the corpus
 #   A  the take gate — `THead.take` against a bare `head -n` in the two shapes
 #      that bracket the tool's own work (`-n 1` and `-n 1000`), plus the
 #      wrapper's fixed delta (`new` + `argv` + `delete`) measured on its own
@@ -64,6 +64,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 
 TH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$TH_DIR/thead.sh"
+source "$TH_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 source "$TH_DIR/../tstopwatch/tstopwatch.sh"
 
 TEST_NAME="$(basename "$0" .sh)"
@@ -85,26 +86,17 @@ median() {
 }
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate and the corpus"
+kt_test_section "Z. the ktool gate and the corpus"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`head\` on PATH is GNU coreutils (D4 pins the DIALECT, not a binary)"
-HEAD_BIN="$(command -v head 2>/dev/null || printf '(none)')"
-HEAD_VER="$(head --version 2>/dev/null | sed -n 1p || :)"
-if [[ "$HEAD_VER" == "head (GNU coreutils) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$HEAD_BIN — $HEAD_VER"
-else
-    kt_test_pass "SKIP: non-GNU head ($HEAD_BIN — '${HEAD_VER:-no banner}'); every timed case below is skipped"
-fi
+kt_gnu_gate head HEAD_BIN
 
 # tcase TITLE — start a case; rc 1 (already passed as a SKIP) when the gate is
 # closed, so the case COUNT is the same on a box without GNU coreutils.
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU head"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -134,14 +126,14 @@ gate_case() {
     # would add a `$( )` and a `wc` fork to both sides and dilute the very ratio
     # the gate is about.
     local __nb __nw
-    __nb="$( head -n "$__n" -- "$BIG" | wc -l )"; __nb="${__nb//[[:space:]]/}"
+    __nb="$( "$HEAD_BIN" -n "$__n" -- "$BIG" | wc -l )"; __nb="${__nb//[[:space:]]/}"
     __nw="$( THead.take "$__n" "$BIG" | wc -l )"; __nw="${__nw//[[:space:]]/}"
 
     local -a __t_bare=() __t_take=()
     local __i __a0 __a1
     for (( __i = 0; __i < NR; __i++ )); do
         TStopwatch.getTimeStamp; __a0=$RESULT
-        head -n "$__n" -- "$BIG" >/dev/null || :
+        "$HEAD_BIN" -n "$__n" -- "$BIG" >/dev/null || :
         TStopwatch.getTimeStamp; __a1=$RESULT
         __t_bare+=( $(( __a1 - __a0 )) )
 
@@ -239,12 +231,12 @@ CNT_N=200
 if tcase "h.count over $CNT_N records costs at most 10x \`head -n $CNT_N | wc -l\` (published, not the gate)"; then
     THead.new BQ "$CNT_N" "$BIG"
     declare -a T_WC=() T_CNT=()
-    n_wc="$( head -n "$CNT_N" -- "$BIG" | wc -l )"; n_wc="${n_wc//[[:space:]]/}"
+    n_wc="$( "$HEAD_BIN" -n "$CNT_N" -- "$BIG" | wc -l )"; n_wc="${n_wc//[[:space:]]/}"
     BQ.count >/dev/null 2>&1 || :
     n_cnt=''
     for (( i = 0; i < NR; i++ )); do
         TStopwatch.getTimeStamp; t0=$RESULT
-        head -n "$CNT_N" -- "$BIG" | wc -l >/dev/null || :
+        "$HEAD_BIN" -n "$CNT_N" -- "$BIG" | wc -l >/dev/null || :
         TStopwatch.getTimeStamp; t1=$RESULT
         T_WC+=( $(( t1 - t0 )) )
 

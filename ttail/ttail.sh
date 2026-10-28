@@ -32,6 +32,9 @@ declare -g __TT_SEQ=0
 
 # ---------------------------------------------------------------------------
 # TTail — the GNU coreutils 8.32 `tail` wrapper over TUtil.
+# The tool is the GNU (or uutils >= 0.2.2) `tail` ktool resolves (`cmd` = its
+# absolute path: `tail`, or `gtail` on FreeBSD); with none, `.new` still works
+# and the first run/sink/argv answers rc 2 with ktool's reason.
 #
 #     source kcl/ttail/ttail.sh
 #
@@ -62,9 +65,11 @@ declare -g __TT_SEQ=0
 #
 # ---- The count (PLAN §2.2, the sibling plan's §2.2) -----------------------
 # `lines` and `bytes` are validated with ONE regex, `^[+-]?[0-9]+$`, plus a
-# magnitude guard of at most 19 digits, and passed to tail VERBATIM. `kk.isInt`
-# is deliberately NOT used: it normalises, and tail reads the normalised value as
-# a different request —
+# magnitude guard of at most 19 digits. The property keeps the caller's value; the
+# argv word is that value with the leading zeros of its digit part stripped and
+# the sign kept (`ttail._ncount`, pure bash). `kk.isInt` is deliberately NOT used: it
+# normalises the SIGN away, and tail reads the normalised value as a different
+# request —
 #
 #   value | tail -n           | the `head` wrapper's -n
 #   ------+-------------------+--------------------------
@@ -75,10 +80,13 @@ declare -g __TT_SEQ=0
 #   +0    | EVERYTHING        | nothing
 #
 # so `kk.isInt` turning `+2` into `2` would swap "from line 2" for "the last
-# two lines". `08` reaches tail as `08` and tail reads it as decimal 8.
+# two lines". `08` reaches tail as `8` (the wrapper strips the zeros: uutils 0.2.2 refuses
+# `08`, GNU reads it as decimal 8), `-007` as `-7`, `+00` as `+0`, `-0` stays `-0`.
 #
 # ---- rc 2 at buildArgv: nothing runs, one kk.debug line --------------------
-#   * `cmd` empty (the instance was disarmed by hand);
+#   * `cmd` empty: no usable tail was found when the instance was created
+#     (`_toolErr` holds ktool's reason and is the line printed), or the
+#     instance was disarmed by hand;
 #   * `lines` AND `bytes` (tail would silently take the last one);
 #   * `quiet` AND `verbose` (tail accepts both, last flag wins — the answer
 #     would depend on this builder's fixed order rather than on the caller);
@@ -136,7 +144,9 @@ declare -g __TT_SEQ=0
 #  * The constructor calls `parent.constructor tail` EXPLICITLY. `inherited` in
 #    a constructor body is rewritten to `parent.constructor "$@"` and would hand
 #    TUtil `cmd=N` plus every path as an extra argument — every path would then
-#    appear twice in the argv.
+#    appear twice in the argv. It then calls
+#    `tutil._gnu tail` (`cmd` = the tail ktool resolved, or '' with the reason
+#    in `_toolErr`).
 #  * EVERY declared var is assigned in `Create`.
 #  * An overridden `func` may NOT simply end on `inherited NAME "$@"`: `build`
 #    compiles a `kk._return "$RESULT"` trailer onto a `func`, and that trailer
@@ -144,7 +154,7 @@ declare -g __TT_SEQ=0
 #    The three sink overrides therefore capture the rc, save RESULT, and re-raise
 #    both: `inherited X "$@" || rc=$?; n="$RESULT"; kk._return "$n"; return "$rc"`.
 #  * No `var` here may be named like a TUtil member (`cmd crlf nul _lastRc
-#    subshellOk _textMode buildArgv addArg clearArgs argv run each toArray toList
+#    subshellOk _textMode _toolErr buildArgv addArg clearArgs argv run each toArray toList
 #    first count lastRc mapRc`) or a kklass one (`property call parent delete`).
 #  * Booleans are compared as strings (`[[ "$x" == 1 ]]`).
 #  * The count regex lives in a VARIABLE and is applied with `[[ =~ $re ]]`.
@@ -172,6 +182,20 @@ class TTail : TUtil
         static proc take    # N PATH... — `tail -n N -- PATH...`, streamed
 end
 
+# ttail._ncount VALUE — RESULT = VALUE (already validated as `[+-]?DIGITS`) with the
+# leading zeros of the digit part stripped and the sign kept: `08` -> `8`,
+# `+08` -> `+8`, `-007` -> `-7`, `00` -> `0`, `+00` -> `+0`, `-0` -> `-0`. Pure
+# bash, no fork. A plain function, never a member body.
+ttail._ncount() {
+    local __tt_s="$1" __tt_g=''
+    case "$__tt_s" in
+        [+-]*) __tt_g="${__tt_s:0:1}"; __tt_s="${__tt_s:1}" ;;
+    esac
+    while [[ "$__tt_s" == 0?* ]]; do __tt_s="${__tt_s#0}"; done
+    RESULT="$__tt_g$__tt_s"
+    return 0
+}
+
 # ===========================================================================
 # Members
 # ===========================================================================
@@ -180,12 +204,15 @@ end
 #
 # `parent.constructor tail` is spelled out: `inherited` would forward THIS
 # constructor's arguments to TUtil and make `cmd` the count while every path
-# became a TUtil extra arg — each path would then appear twice. After it, EVERY
-# declared var is assigned (booleans `0`, strings `''`), and the operand list
-# becomes a real global array next to `${inst}_data`, released by the destructor
-# (kcl/README.md §1.9).
+# became a TUtil extra arg — each path would then appear twice.
+# `tutil._gnu tail` then resolves the tool into `cmd` (L3.4: no usable tail =
+# `cmd` '' and `_toolErr`, `.new` still succeeds; the first buildArgv answers
+# rc 2). EVERY declared var is assigned (booleans `0`, strings `''`), and the
+# operand list becomes a real global array next to `${inst}_data`, released by
+# the destructor (kcl/README.md §1.9).
 TTail.Create() {
     parent.constructor tail
+    tutil._gnu tail
     lines="${1:-}"
     bytes=''
     quiet=0
@@ -231,7 +258,7 @@ TTail.buildArgv() {
 
     # ---- the rc 2 list, checked before a single word is built -------------
     if [[ -z "$cmd" ]]; then
-        kk.debug "Error: TTail.buildArgv: cmd is empty; there is nothing to run"
+        kk.debug "Error: TTail.buildArgv: ${_toolErr:-cmd is empty; there is nothing to run}"
         kk._return ""
         return 2
     fi
@@ -308,8 +335,8 @@ TTail.buildArgv() {
     if [[ "$verbose"        == 1 ]]; then __tt_v+=( -v ); fi
     if [[ "$zeroTerminated" == 1 ]]; then __tt_v+=( -z ); fi
     if [[ "$follow"         == 1 ]]; then __tt_v+=( -f ); fi
-    if   [[ -n "$lines" ]]; then __tt_v+=( -n "$lines" )
-    elif [[ -n "$bytes" ]]; then __tt_v+=( -c "$bytes" )
+    if   [[ -n "$lines" ]]; then ttail._ncount "$lines"; __tt_v+=( -n "$RESULT" )
+    elif [[ -n "$bytes" ]]; then ttail._ncount "$bytes"; __tt_v+=( -c "$RESULT" )
     fi
 
     # The un-modelled-option hatch, verbatim, after the options and before the

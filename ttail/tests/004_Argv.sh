@@ -8,7 +8,11 @@
 #   tail [-q|-v] [-z] [-f] [-n N | -c N] [EXTRA ARGS from addArg] [-- PATH...]
 #
 # so it is the fast half of the suite and it is true on a box where coreutils is
-# missing altogether. The behavioural half is `005_Run.sh`.
+# missing altogether: `kt_gnu_stub` (kcl/tutil/tests/gnu_helper.sh, launch L3.4
+# T5) writes a fake GNU tail and selects it through KCL_GNU_TAIL, so word 0 of
+# every argv here is the stub's path ("$STUB_TAIL") on every platform; the stub
+# never runs. The `tail` of the diagrams stands for that resolved path (A1).
+# The behavioural half is `005_Run.sh`.
 #
 # Sections:
 #   A       lifecycle — every declared var present in `${inst}_data` right after
@@ -28,11 +32,15 @@
 #           `zeroTerminated` with 2 paths / with `verbose`, a bad count — rc 2,
 #           RESULT '', the caller's array UNTOUCHED, `${inst}_argv` EMPTY, one
 #           `kk.debug` line
-#   F  T1   the count travels VERBATIM: `+2`, `08`, `-2`, `-0`, `+0`, `0` and a
+#   F  T1   the count keeps its SIGN and value; only leading zeros are stripped
+#           (`08` -> `8`, `+007` -> `+7`): `+2`, `-2`, `-0`, `+0`, `0` and a
 #           19-digit value reach the argv unchanged. `kk.isInt` would have turned
 #           `+2` (from line 2) into `2` (the LAST two lines) — a different
 #           request, which is why §2.2 forbids it
 #   G  H5   `zeroTerminated` derives the sinks' `-0`, with the P3-F1 guard
+#   T6      no usable tail found (KCL_GNU_TAIL=/nonexistent): `.new` rc 0, `cmd`
+#           '', `argv` rc 2 with ktool's line; `cmd = STUB` re-arms; the static
+#           (`take`) and a sink (`count`) answer rc 2, run nothing
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -41,11 +49,15 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/ttail.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
+
+# The fake GNU tail every `.new` below resolves (T5): word 0 / `cmd` everywhere.
+kt_gnu_stub tail "$TMP/stub" STUB_TAIL || { echo "004: kt_gnu_stub failed" >&2; exit 1; }
 
 kt_test_section "004: TTail — typed options to argv, nothing executed (P0)"
 
@@ -135,9 +147,9 @@ reset() {
 kt_test_section "A. lifecycle — Create assigns every var, the arrays are right"
 # ===========================================================================
 
-# TTail's own seven (PLAN §1.2 — THead's six plus `follow`) plus TUtil's five.
+# TTail's own seven (PLAN §1.2 — THead's six plus `follow`) plus TUtil's seven.
 TT_VARS=( lines bytes quiet verbose zeroTerminated follow _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode _toolErr )
 
 kt_test_start "every declared var is present in \`\${inst}_data\` right after \`new\`"
 TTail.new tA 2 f1
@@ -154,26 +166,27 @@ else
     kt_test_fail "missing:$missing"
 fi
 
-kt_test_start "the documented defaults: booleans 0 (\`follow\` included), cmd tail, _lastRc -1"
+kt_test_start "the documented defaults: booleans 0 (\`follow\` included), cmd = the resolved tail, _toolErr '', _lastRc -1"
 bad=""
 for v in quiet verbose zeroTerminated follow _nulDerived crlf nul subshellOk; do
     got="$(tA."$v")"
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
 done
 [[ "$(tA.bytes)" == "" ]]     || bad+=" bytes='$(tA.bytes)'"
-[[ "$(tA.cmd)" == "tail" ]]   || bad+=" cmd='$(tA.cmd)'"
+[[ "$(tA.cmd)" == "$STUB_TAIL" ]] || bad+=" cmd='$(tA.cmd)'"
+[[ "$(tA._toolErr)" == "" ]]  || bad+=" _toolErr='$(tA._toolErr)'"
 [[ "$(tA.lines)" == "2" ]]    || bad+=" lines='$(tA.lines)'"
 [[ "$(tA._lastRc)" == "-1" ]] || bad+=" _lastRc='$(tA._lastRc)'"
 if [[ -z "$bad" ]]; then
-    kt_test_pass "every default as documented; the constructor's N became \`lines\`"
+    kt_test_pass "every default as documented; cmd is the resolved tail; the constructor's N became \`lines\`"
 else
     kt_test_fail "$bad"
 fi
 
 kt_test_start "\`TTail.new t\` with no argument at all leaves \`lines\` '' (tail's own default of 10)"
 TTail.new tD
-if [[ "$(tD.lines)" == "" && "$(tD.bytes)" == "" && "$(tD.cmd)" == "tail" ]]; then
-    kt_test_pass "lines '', bytes '', cmd tail"
+if [[ "$(tD.lines)" == "" && "$(tD.bytes)" == "" && "$(tD.cmd)" == "$STUB_TAIL" ]]; then
+    kt_test_pass "lines '', bytes '', cmd = the resolved tail"
 else
     kt_test_fail "lines='$(tD.lines)' bytes='$(tD.bytes)' cmd='$(tD.cmd)'"
 fi
@@ -279,11 +292,11 @@ one() {   # one TITLE PROP VALUE WANTWORD...
     local __t="$1" __p="$2" __v="$3"; shift 3
     reset t1 '' f
     t1."$__p" = "$__v"
-    check_argv "$__t" t1 tail "$@" -- f
+    check_argv "$__t" t1 "$STUB_TAIL" "$@" -- f
 }
 
 reset t1 '' f
-check_argv "H1: no option at all — \`tail -- PATH\` (tail's own default of 10 lines)" t1 tail -- f
+check_argv "H1: no option at all — \`tail -- PATH\` (tail's own default of 10 lines)" t1 "$STUB_TAIL" -- f
 
 one "H1: \`quiet = 1\` -> -q"                                            quiet          1 -q
 one "H1: \`verbose = 1\` -> -v"                                          verbose        1 -v
@@ -298,14 +311,14 @@ kt_test_section "C. H1 — combinations, the pinned order, and the boolean rule"
 
 reset t2 5 f
 t2.follow = 1
-check_argv "H1: -f before -n, the pinned order" t2 tail -f -n 5 -- f
+check_argv "H1: -f before -n, the pinned order" t2 "$STUB_TAIL" -f -n 5 -- f
 
 reset t2 '' f
 t2.lines = 5
 t2.follow = 1
 t2.quiet = 1
 check_argv "H1: -q -f -n 5 — the ORDER is buildArgv's, not the caller's" t2 \
-    tail -q -f -n 5 -- f
+    "$STUB_TAIL" -q -f -n 5 -- f
 
 reset t2 '' f
 t2.quiet = 1
@@ -313,13 +326,13 @@ t2.zeroTerminated = 1
 t2.follow = 1
 t2.bytes = 12
 check_argv "H1: -q -z -f -c 12 — the full pinned order on one path" t2 \
-    tail -q -z -f -c 12 -- f
+    "$STUB_TAIL" -q -z -f -c 12 -- f
 
 reset t2 '' 'dir one' 'dir two'
 t2.verbose = 1
 t2.lines = +2
 check_argv "H1: -v with two paths and a \`+N\` count" t2 \
-    tail -v -n +2 -- 'dir one' 'dir two'
+    "$STUB_TAIL" -v -n +2 -- 'dir one' 'dir two'
 
 reset t2 7 f
 t2.quiet = 1
@@ -327,7 +340,7 @@ t2.zeroTerminated = 1
 t2.follow = 1
 t2.addArg --extra
 check_argv "H1: EVERYTHING compatible at once, extras last" t2 \
-    tail -q -z -f -n 7 --extra -- f
+    "$STUB_TAIL" -q -z -f -n 7 --extra -- f
 
 kt_test_start "T2: \`argv\` with \`follow = 1\` STILL yields \`-f\` (the refusal is a SINK rule, §2.1)"
 reset t2 5 f
@@ -335,7 +348,7 @@ t2.follow = 1
 GOT=()
 rc=0
 t2.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT tail -f -n 5 -- f; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_TAIL" -f -n 5 -- f; then
     kt_test_pass "rc 0 and \`-f\` in its slot — only toArray/count/toList refuse"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -349,7 +362,7 @@ for v in 2 yes true on TRUE -1 '1 ' ' 1' 01 '' 0; do
     t3.follow = "$v"
     GOT=()
     t3.argv GOT >/dev/null 2>&1 || :
-    if ! arr_is GOT tail -- f; then
+    if ! arr_is GOT "$STUB_TAIL" -- f; then
         allgood=0
         badv="'$v' -> $(arr_show GOT)"
         break
@@ -366,47 +379,47 @@ kt_test_section "D. H1 — \`--\` only with paths, extras in place, \`paths\`"
 # ===========================================================================
 
 reset t4 2
-check_argv "H1: \`TTail.new t N\` with no path is the STDIN form — no \`--\` at all" t4 tail -n 2
+check_argv "H1: \`TTail.new t N\` with no path is the STDIN form — no \`--\` at all" t4 "$STUB_TAIL" -n 2
 
 reset t4 2 'a b'
-check_argv "H1: one path -> \`-- 'a b'\`" t4 tail -n 2 -- 'a b'
+check_argv "H1: one path -> \`-- 'a b'\`" t4 "$STUB_TAIL" -n 2 -- 'a b'
 
 reset t4 2 a b c
-check_argv "H1: three paths, all after the one \`--\`" t4 tail -n 2 -- a b c
+check_argv "H1: three paths, all after the one \`--\`" t4 "$STUB_TAIL" -n 2 -- a b c
 
 reset t4 2 -weird.txt
 check_argv "H1: a path that starts with \`-\` is an operand, not a flag" t4 \
-    tail -n 2 -- -weird.txt
+    "$STUB_TAIL" -n 2 -- -weird.txt
 
 reset t4 2 f
 t4.addArg --zero-terminated
 check_argv "H1: an \`addArg\` extra lands AFTER the options and BEFORE \`--\`" t4 \
-    tail -n 2 --zero-terminated -- f
+    "$STUB_TAIL" -n 2 --zero-terminated -- f
 
 reset t4 '' f
 t4.lines = 3
 t4.addArg -n 5
 check_argv "H1: \`addArg -n 5\` after \`lines = 3\` yields BOTH — tail is last-flag-wins" t4 \
-    tail -n 3 -n 5 -- f
+    "$STUB_TAIL" -n 3 -n 5 -- f
 
 reset t4 2 f
 t4.addArg --pid=1234
 check_argv "H1: \`addArg --pid=PID\` (the only self-terminating \`-f\`, §2.1)" t4 \
-    tail -n 2 --pid=1234 -- f
+    "$STUB_TAIL" -n 2 --pid=1234 -- f
 
 reset t4 2 f
 t4.addArg -q
 t4.clearArgs
-check_argv "H1: \`clearArgs\` empties the extras again" t4 tail -n 2 -- f
+check_argv "H1: \`clearArgs\` empties the extras again" t4 "$STUB_TAIL" -n 2 -- f
 
 reset t4 2 old1 old2
 t4.paths new1 'new 2'
 check_argv "H1: \`t.paths new1 'new 2'\` replaced both old paths" t4 \
-    tail -n 2 -- new1 'new 2'
+    "$STUB_TAIL" -n 2 -- new1 'new 2'
 
 reset t4 2 old1
 t4.paths
-check_argv "H1: \`t.paths\` with no argument is the stdin form" t4 tail -n 2
+check_argv "H1: \`t.paths\` with no argument is the stdin form" t4 "$STUB_TAIL" -n 2
 
 kt_test_start "H1: rebuilding does not ACCUMULATE — two \`argv\` calls agree"
 reset t4 2 f
@@ -414,7 +427,7 @@ t4.follow = 1
 declare -a W1=() W2=()
 t4.argv W1 >/dev/null 2>&1 || :
 t4.argv W2 >/dev/null 2>&1 || :
-if arr_is W1 tail -f -n 2 -- f && arr_is W2 tail -f -n 2 -- f; then
+if arr_is W1 "$STUB_TAIL" -f -n 2 -- f && arr_is W2 "$STUB_TAIL" -f -n 2 -- f; then
     kt_test_pass "stable across rebuilds"
 else
     kt_test_fail "W1=$(arr_show W1) W2=$(arr_show W2)"
@@ -513,35 +526,51 @@ else
 fi
 
 # ===========================================================================
-kt_test_section "F. T1 — the count travels VERBATIM (§2.2, thead §2.2)"
+kt_test_section "F. T1 — the count keeps sign and value, the wrapper strips leading zeros (§2.2, thead §2.2)"
 # ===========================================================================
 
-verbatim() {   # verbatim PROP VALUE FLAG
-    local __p="$1" __v="$2" __f="$3"
+verbatim() {   # verbatim PROP VALUE FLAG [WANT] — WANT defaults to VALUE
+    local __p="$1" __v="$2" __f="$3" __w="${4-$2}"
     reset tF '' f
     tF."$__p" = "$__v"
-    check_argv "T1: \`$__p = $__v\` reaches tail as \`$__f $__v\`, unchanged" tF \
-        tail "$__f" "$__v" -- f
+    check_argv "T1: \`$__p = $__v\` reaches tail as \`$__f $__w\`" tF \
+        "$STUB_TAIL" "$__f" "$__w" -- f
 }
 
 verbatim lines +2  -n
-verbatim lines 08  -n
+verbatim lines 08  -n 8
 verbatim lines -2  -n
 verbatim lines -0  -n
 verbatim lines +0  -n
 verbatim lines 0   -n
 verbatim bytes +3  -c
-verbatim bytes 08  -c
+verbatim bytes 08  -c 8
 verbatim bytes -2  -c
 verbatim bytes -0  -c
 
-kt_test_start "T1: a 19-digit count PASSES the guard and reaches tail verbatim"
+kt_test_start "T1: the wrapper strips LEADING ZEROS itself, keeps the sign: \`lines = 08\` -> -n 8, \`bytes = +007\` -> -c +7, \`00\` -> 0, \`-007\` -> -7"
+ok=1; seen=''
+for pair in "lines:08:-n:8" "bytes:+007:-c:+7" "lines:00:-n:0" "lines:-007:-n:-7" "bytes:+00:-c:+0" "lines:-0:-n:-0" "lines:10:-n:10" "bytes:100:-c:100"; do
+    IFS=: read -r pp pv pf pw <<<"$pair"
+    reset tF '' f
+    tF."$pp" = "$pv"
+    GOT=()
+    tF.argv GOT >/dev/null 2>&1 || :
+    arr_is GOT "$STUB_TAIL" "$pf" "$pw" -- f || { ok=0; seen+=" $pv->$(arr_show GOT)"; }
+done
+if [[ "$ok" == "1" ]]; then
+    kt_test_pass "zeros stripped from the digit part only; the sign, \`0\`, \`-0\`, \`10\` and \`100\` kept"
+else
+    kt_test_fail "$seen"
+fi
+
+kt_test_start "T1: a 19-digit count PASSES the guard and reaches tail unchanged"
 reset tF '' f
 tF.lines = 9999999999999999999
 GOT=()
 rc=0
 tF.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT tail -n 9999999999999999999 -- f; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_TAIL" -n 9999999999999999999 -- f; then
     kt_test_pass "19 digits is the bound the guard allows; 20 is rc 2 (§E)"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -573,7 +602,7 @@ GOT=()
 rc=0
 tZ.argv GOT || rc=$?
 if [[ $rc -eq 0 && "$(tZ.nul)" == "1" && "$(tZ._nulDerived)" == "1" ]] \
-   && arr_is GOT tail -z -n 2 -- f; then
+   && arr_is GOT "$STUB_TAIL" -z -n 2 -- f; then
     kt_test_pass "nul = 1, _nulDerived = 1, argv has -z"
 else
     kt_test_fail "rc=$rc nul='$(tZ.nul)' drv='$(tZ._nulDerived)' GOT=$(arr_show GOT)"
@@ -642,3 +671,64 @@ t4.delete
 tE.delete
 tF.delete
 tZ.delete
+
+# ===========================================================================
+kt_test_section "T6. no usable tail found: .new succeeds, the first argv says why"
+# ===========================================================================
+
+NOEXEC_TXT="KCL_GNU_TAIL='/nonexistent' is not an executable file"
+
+kt_test_start "T6 (i): KCL_GNU_TAIL=/nonexistent — \`.new\` rc 0 and silent, \`cmd\` '', \`argv\` rc 2 with ONE line naming the override"
+KCL_GNU_TAIL=/nonexistent
+dbg_n TTail.new tNG 2 f
+nrc=$DBG_RC; nlines_new=$DBG_N
+GOT=( stale )
+dbg_n tNG.argv GOT
+if [[ $nrc -eq 0 && $nlines_new -eq 0 && "$(tNG.cmd)" == "" && $DBG_RC -eq 2 && $DBG_N -eq 1 \
+      && "$DBG_1" == *"$NOEXEC_TXT"* && "$RESULT" == "" ]] && arr_is GOT stale; then
+    kt_test_pass "new rc 0 silent; cmd ''; argv rc 2: ${DBG_1:0:100}"
+else
+    kt_test_fail "new rc=$nrc lines=$nlines_new cmd='$(tNG.cmd)'; argv rc=$DBG_RC lines=$DBG_N first='$DBG_1' got=$(arr_show GOT)"
+fi
+
+kt_test_start "T6 (ii): \`x.cmd = STUB\` re-arms the instance — \`argv\` rc 0, word 0 = the stub"
+tNG.cmd = "$STUB_TAIL"
+GOT=( stale )
+rc=0
+tNG.argv GOT || rc=$?
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_TAIL" -n 2 -- f; then
+    kt_test_pass "$(arr_show GOT)"
+else
+    kt_test_fail "rc=$rc got=$(arr_show GOT)"
+fi
+tNG.delete
+
+kt_test_start "T6 (iii): the static \`TTail.take\` with no usable tail — rc 2, the same ONE line, nothing printed or run"
+KCL_GNU_TAIL=/nonexistent
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+sout=$(TTail.take 2 "$TMP/nofile" 2>"$ERRF")
+src=$?
+VERBOSE_KKLASS=
+sn=0; sl=''
+while IFS= read -r l || [[ -n "$l" ]]; do sn=$(( sn + 1 )); sl=$l; done < "$ERRF"
+if [[ $src -eq 2 && $sn -eq 1 && "$sl" == *"$NOEXEC_TXT"* && -z "$sout" ]]; then
+    kt_test_pass "rc 2, empty stdout, one line: ${sl:0:100}"
+else
+    kt_test_fail "rc=$src out='$sout' lines=$sn last='$sl'"
+fi
+
+kt_test_start "T6 (iv): a SINK on the disarmed instance (\`count\`) — rc 2, RESULT '', ONE line with ktool's text"
+KCL_GNU_TAIL=/nonexistent
+TTail.new tNG 2 f
+RESULT=stale
+dbg_n tNG.count
+if [[ $DBG_RC -eq 2 && "$RESULT" == "" && $DBG_N -eq 1 && "$DBG_1" == *"$NOEXEC_TXT"* ]]; then
+    kt_test_pass "count rc 2, RESULT '', one line: ${DBG_1:0:100}"
+else
+    kt_test_fail "rc=$DBG_RC RESULT='$RESULT' lines=$DBG_N first='$DBG_1'"
+fi
+tNG.delete
+
+# the stub again for whoever follows
+KCL_GNU_TAIL="$STUB_TAIL"

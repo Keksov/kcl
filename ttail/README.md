@@ -4,8 +4,8 @@
 > option set (`follow` included), the pinned argv, the rc 2 list, the `mapRc`
 > override, the three overridden sinks, `paths`, the destructor, the static
 > `take`, the bench and the docs. Suite: `tests/004_Argv.sh`, `tests/005_Run.sh`,
-> `tests/006_Contract.sh`, `tests/007_Bench.sh` — **200 checks green on bash
-> 5.2.37 and 200 on bash 5.3.9**, threaded and under `--mode single`, against
+> `tests/006_Contract.sh`, `tests/007_Bench.sh` — **206 checks green on bash
+> 5.2.37 and 206 on bash 5.3.9**, threaded and under `--mode single`, against
 > **GNU coreutils 8.32**, with no follower of ours surviving a run. What the
 > tests pin, case by case:
 > **[TEST_COVERAGE_NOTES.md](../docs/dev/ttail/TEST_COVERAGE_NOTES.md)**. Design record:
@@ -65,9 +65,29 @@ TTail.new INST [N [PATH...]]          # N becomes `lines`
 | `toArray` / `toList` / `count` | func | — | **overridden**: rc 2 when `follow = 1` — §6 |
 | `TTail.take N PATH...` | static proc | — | `tail -n N -- PATH...`, streamed; §8 |
 
-Inherited from [`TUtil`](../tutil/README.md) unchanged: `cmd` (`tail`), `crlf`,
-`nul`, `_lastRc`, **`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`,
-`lastRc`, `each` and `first`.
+Inherited from [`TUtil`](../tutil/README.md): `cmd` - **the absolute path of
+the tail the kkore unit `ktool` resolved** (`/usr/bin/tail` on Git-bash,
+`/usr/local/bin/gtail` on FreeBSD; `KCL_GNU_TAIL=/path` picks one, and `ktool`
+refuses a wrong one), set by the constructor; `crlf`, `nul`, `_lastRc`,
+**`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`, `lastRc`, `each` and
+`first`. A `cmd` you set by hand afterwards is used as given (no identity
+check). The resolved instance is frozen: a later `PATH` or `KCL_GNU_TAIL` change
+reaches the next `.new`, not this one. The tool may be GNU coreutils or uutils
+>= 0.2.2 (`ktool` accepts both); the units read neither its version nor its
+stderr.
+
+**No usable tail on the box?** `.new` still succeeds (rc 0, silent) with `cmd`
+`''`; the first member that builds the argv (`run`, a sink, or `argv`) and the
+static `TTail.take` answer **rc 2** with one `kk.debug` line carrying ktool's
+reason, which names the package (`no GNU tail: ...; FreeBSD: pkg install
+coreutils`, `Alpine: apk add coreutils`). Nothing runs. Setting `cmd` re-arms the
+instance; `_toolErr` keeps ktool's reason after the re-arm, so a later hand-set
+`cmd = ''` prints that reason again.
+
+**In `$( )`:** ktool's answer is cached per process, so a `.new` (or `take`)
+inside `$( ... )` in a shell that never resolved tail pays the cold probe on
+**every** call. Call `ktool.gnu tail` (or create one instance) once in the main
+shell before using TTail inside `$( )`.
 
 A boolean is on for the exact string **`1`** and off for anything else — `2`,
 `yes`, `true`, `01` and `' 1'` are all off.
@@ -88,7 +108,8 @@ tail [-q|-v] [-z] [-f] [-n N | -c N] [EXTRA ARGS from addArg] [-- PATH...]
   rule, not an argv rule.
 
 `t.argv NAME` builds the array and **runs nothing**, which is how the whole
-option set is pinned in `tests/004_Argv.sh` without executing tail once.
+option set is pinned in `tests/004_Argv.sh` without executing tail once. In the
+diagrams `tail` stands for word 0, which is `cmd`: the resolved absolute path.
 
 ---
 
@@ -100,7 +121,7 @@ instance, because nothing was executed.
 
 | refusal | why it is not left to tail |
 |---|---|
-| `cmd` is empty | the instance was disarmed by hand |
+| `cmd` is empty | the instance was disarmed by hand, or no usable tail was found at `.new` (the line is then ktool's reason, with the package hint) |
 | `lines` **and** `bytes` | tail takes both and the **last one silently wins** |
 | `quiet` **and** `verbose` | tail takes both, last flag wins — the answer would depend on this builder's fixed order |
 | `zeroTerminated` with **≥ 2 paths** | the `==> NAME <==` headers stay `\n`-terminated under `-z`, so the derived `-0` would frame a header **and its whole file** into one record (§5) |
@@ -130,7 +151,9 @@ and anything else `→ 1` with one `kk.debug` line.
 they capture the base's rc and re-raise it, which is exactly what a body that
 merely ended on `inherited toArray "$@"` would have lost (see §6).
 
-**(b) tail's own stderr passes through unconditionally.** `tail: cannot open
+**(b) tail's own stderr passes through unconditionally** (its prefix varies by
+build: the full path with gnulib on glibc/msys, the short name `gtail:` on
+FreeBSD, `tail:` with uutils). `tail: cannot open
 'missing' for reading: No such file or directory` is the **tool's** stream; it is
 not gated by `VERBOSE_KKLASS` and its quoting follows the locale. Redirect it
 where you do not want it, and match it by **prefix** in a test.
@@ -140,12 +163,16 @@ with rc 1 aborts a `set -e` caller — write `t.count || rc=$?`.
 
 ---
 
-## 4. The count: one regex, a 19-digit guard, and **verbatim**
+## 4. The count: one regex, a 19-digit guard, sign and value kept
 
-`lines` and `bytes` accept `^[+-]?[0-9]+$` with at most 19 digits, and the string
-reaches tail **unchanged**. `kk.isInt` is deliberately **not** used, and for tail
-the reason bites twice: it would turn `+2` into `2`, and those are opposite ends
-of the file.
+`lines` and `bytes` accept `^[+-]?[0-9]+$` with at most 19 digits. The argv word
+is the string you wrote with the **leading zeros of its digit part stripped** and
+the sign kept (`08` -> `8`, `+007` -> `+7`, `-007` -> `-7`, `00` -> `0`, `-0`
+stays `-0`), done in pure bash (`ttail._ncount`, no fork), so the count means the
+same to every tail: uutils 0.2.2 refuses `-n 08`, GNU reads it as decimal 8; the
+property still reads what you wrote. `kk.isInt` is deliberately **not** used, and
+for tail the reason bites twice: it would turn `+2` into `2`, and those are
+opposite ends of the file.
 
 | value | `tail -n` / `-c` | `head -n` / `-c` ([thead](../thead/README.md)) |
 |---|---|---|
@@ -375,20 +402,36 @@ bash kcl/ttail/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/ttail/tests/tests.sh
 ```
 
-**200 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
-mode and under `--mode single`, against GNU coreutils 8.32. Case by case:
+**206 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+mode and under `--mode single`, against GNU coreutils 8.32 (the move onto ktool,
+launch L3.4, adds 5 cases to `004` and 1 to `006`). Case by case:
 [TEST_COVERAGE_NOTES.md](../docs/dev/ttail/TEST_COVERAGE_NOTES.md).
 
 | file | cases | what it pins | runs tail? |
 |---|---|---|---|
-| `004_Argv.sh` | 74 | the whole option set by **array comparison**, `-f` in its slot included: the lifecycle (every declared var with its default, `follow` among them, `${t}_args` empty after `new t N PATH`, `_paths` verbatim, a reused name starting clean, `delete` freeing all three arrays, `argv` running nothing); every option singly and combined in the pinned order; **T2** — `argv` with `follow = 1` STILL yields `-f`, because the refusal is a *sink* rule; the boolean rule; `--` only with paths; extras after the options, incl. `addArg --pid=PID`; the rc 2 list — 13 refusals, each asserting rc 2 + `RESULT ''` + the caller's array untouched + an EMPTY `${inst}_argv` + exactly one `kk.debug` line, plus two cases proving the legal shapes still build; **T1** — the count verbatim (`+2`, `08`, `-2`, `-0`, `+0`, `0`, 19 digits) with no write-back; the `-z` derivation's four states incl. `P3-F1`; the out-name refusals for all four family prefixes | **no** |
-| `005_Run.sh` | 61 | behaviour against the bare tool: every sink (the three **overridden** ones included) and `run`; the unterminated last record; headers-as-records (**9** / **8** records, `first` = the header, `quiet`, `verbose`); the partial failure; CRLF in line and byte mode; `-z`; **T1** — the sign table where `+N` means *from line N* (`+2` on a 5-line file counts 4, the pin `kk.isInt` would have broken); **T4** — `take` in three positions incl. `+2`, with two paths, refused without a path, nested; and the **`follow` block**: the three refusals with a flag-file proof that nothing ran and `lastRc` still `-1`, `each` + a stopping callback (rc 0 / `lastRc` **143** / one record), `first`, `run` on a file that grows, the rc-1-with-a-real-`RESULT` behaviour of the three overrides with `follow = 0`, and a final case asserting **no follower of ours survived** | yes (GNU banner gate first) |
-| `006_Contract.sh` | 55 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.`, `parent.constructor` in the constructor and `inherited` in the destructor, no `kk.isInt`, the regex in a variable, no shadowed member name, exactly one `source` line, and **the rc-preserving spelling of the three overrides**); every shape from a child under `set -eu` — both TPipe forms, `take` as a producer, records, a tool error, a partial failure, refused builds, **the follow refusal**, the stdin form, `run`, `delete` — with every sink call guarded; the debug switch (one line on each of the 14 rc 2 paths and the 2 tool-error paths, none on any rc 0 path); the **D6-final** `subshellOk` case; and `H12` | yes (gated) |
-| `007_Bench.sh` | 10 | the §4 P1 gate as assertions with a **10×** ceiling behind the same banner gate: `TTail.take` against a bare `tail -n` in both shapes (interleaved, medians), `new` + `argv` + `delete` under 50 ms, `t.count` against the `wc -l` equivalent; that 200 `buildArgv`/`argv` calls with `follow = 1` invoke the `cmd` **zero** times and build the 7 words with `-f` in its slot; and zero forks for every member, for `take`, and for the three `follow = 1` refusals — which are bash-only and start no process, so this file creates no follower at all | yes (gated) |
+| `004_Argv.sh` | 79 | the whole option set by **array comparison** against a stub GNU tail (word 0 is its path), `-f` in its slot included: the lifecycle (every declared var with its default, `follow` among them, `${t}_args` empty after `new t N PATH`, `_paths` verbatim, a reused name starting clean, `delete` freeing all three arrays, `argv` running nothing); every option singly and combined in the pinned order; **T2** — `argv` with `follow = 1` STILL yields `-f`, because the refusal is a *sink* rule; the boolean rule; `--` only with paths; extras after the options, incl. `addArg --pid=PID`; the rc 2 list — 13 refusals, each asserting rc 2 + `RESULT ''` + the caller's array untouched + an EMPTY `${inst}_argv` + exactly one `kk.debug` line, plus two cases proving the legal shapes still build; **T1** — the count with sign and value kept and leading zeros stripped (`+2`, `08`, `-2`, `-0`, `+0`, `0`, 19 digits) with no write-back; the `-z` derivation's four states incl. `P3-F1`; the out-name refusals for all four family prefixes | **no** |
+| `005_Run.sh` | 61 | behaviour against the bare tool: every sink (the three **overridden** ones included) and `run`; the unterminated last record; headers-as-records (**9** / **8** records, `first` = the header, `quiet`, `verbose`); the partial failure; CRLF in line and byte mode; `-z`; **T1** — the sign table where `+N` means *from line N* (`+2` on a 5-line file counts 4, the pin `kk.isInt` would have broken); **T4** — `take` in three positions incl. `+2`, with two paths, refused without a path, nested; and the **`follow` block**: the three refusals with a flag-file proof that nothing ran and `lastRc` still `-1`, `each` + a stopping callback (rc 0 / `lastRc` **143** / one record), `first`, `run` on a file that grows, the rc-1-with-a-real-`RESULT` behaviour of the three overrides with `follow = 0`, and a final case asserting **no follower of ours survived** | yes (ktool gate first) |
+| `006_Contract.sh` | 56 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.`, `parent.constructor` + `tutil._gnu tail` in the constructor and `inherited` in the destructor, no `kk.isInt`, the regex in a variable, no shadowed member name, exactly one `source` line, and **the rc-preserving spelling of the three overrides**); every shape from a child under `set -eu` — both TPipe forms, `take` as a producer, records, a tool error, a partial failure, refused builds, **the follow refusal**, the stdin form, `run`, `delete` — with every sink call guarded; the debug switch (one line on each of the 14 rc 2 paths and the 2 tool-error paths, none on any rc 0 path); the **D6-final** `subshellOk` case; and `H12` | yes (gated) |
+| `007_Bench.sh` | 10 | the §4 P1 gate as assertions with a **10×** ceiling behind the same ktool gate: `TTail.take` against a bare `tail -n` in both shapes (interleaved, medians), `new` + `argv` + `delete` under 50 ms, `t.count` against the `wc -l` equivalent; that 200 `buildArgv`/`argv` calls with `follow = 1` invoke the `cmd` **zero** times and build the 7 words with `-f` in its slot; and zero forks for every member, for `take`, and for the three `follow = 1` refusals — which are bash-only and start no process, so this file creates no follower at all | yes (gated) |
 
 Every follow case runs in a child under `timeout 20` and ends its own `tail`;
 the background appender the growing-file case needs is started by the test, its
 pid is recorded, and it is `kill -TERM`ed in the case's own teardown. No test
 file installs a `trap … EXIT` of its own. The behavioural files open with a
-**GNU banner gate**: without `tail (GNU coreutils) ` every case below it is a
-loud `SKIP` and the case **count is unchanged**.
+**ktool gate**: one case asks the kkore unit ktool (through `kt_gnu_gate tail
+TAIL_BIN`, `tutil/tests/gnu_helper.sh`) for a usable tail; its path is
+`TAIL_BIN`, the very tail TTail resolves, and every oracle runs it. When ktool
+finds none, every case below it is a loud `SKIP: <ktool's reason>` (with the
+package hint) and the case **count is unchanged**. `004` never runs tail: it
+selects a stub GNU tail with `kt_gnu_stub` (`KCL_GNU_TAIL`), so it runs in full
+on a box without one, and its argv pins hold the stub's path as word 0. The
+tool's own stderr is matched by prefix in the forms `TAIL_BIN: `, the basename
+and `tail: ` (the full path on glibc/msys, `gtail:` on FreeBSD, `tail:` with
+uutils); no test pins message text of one build.
+
+Measured under uutils (launch L3.4 / L34-E, kb-ubuntu, the suite run through a
+PATH shim of the release binaries): **0.2.2 and 0.12.0 both pass all 206
+cases with no `SKIP`**. The only uutils accommodations are the stderr prefix helper
+and the wrapper's own stripping of leading zeros from the count: uutils 0.2.2
+`tail -n 08` exits 1 (`invalid number of lines: '08'`) where GNU reads decimal 8,
+so the wrapper hands every tail `-n 8` (the property still reads `08`).

@@ -8,7 +8,11 @@
 #   head [-q|-v] [-z] [-n N | -c N] [EXTRA ARGS from addArg] [-- PATH...]
 #
 # so it is the fast half of the suite and it is true on a box where coreutils is
-# missing altogether. The behavioural half is `005_Run.sh`.
+# missing altogether: `kt_gnu_stub` (kcl/tutil/tests/gnu_helper.sh, launch L3.4
+# T5) writes a fake GNU head and selects it through KCL_GNU_HEAD, so word 0 of
+# every argv here is the stub's path ("$STUB_HEAD") on every platform; the stub
+# never runs. The `head` of the diagrams stands for that resolved path (A1).
+# The behavioural half is `005_Run.sh`.
 #
 # Sections:
 #   A       lifecycle — every declared var present in `${inst}_data` right after
@@ -26,11 +30,15 @@
 #           `zeroTerminated` with 2 paths / with `verbose`, a bad count — rc 2,
 #           RESULT '', the caller's array UNTOUCHED, `${inst}_argv` EMPTY, one
 #           `kk.debug` line
-#   F  H3   the count travels VERBATIM: `08`, `+3`, `-2`, `-0`, `+0`, `0` and a
+#   F  H3   the count keeps its SIGN and value; only leading zeros are stripped
+#           (`08` -> `8`, `+007` -> `+7`): `+3`, `-2`, `-0`, `+0`, `0` and a
 #           19-digit value reach the argv unchanged (NOT through `kk.isInt`,
 #           which would strip the sign and fold `-0` into `0`)
 #   G  H5   `zeroTerminated` derives the sinks' `-0`, with the P3-F1 guard —
 #           the four-state sequence of tgrep 004 §G
+#   T6      no usable head found (KCL_GNU_HEAD=/nonexistent): `.new` rc 0, `cmd`
+#           '', `argv` rc 2 with ktool's line; `cmd = STUB` re-arms; the static
+#           (`take`) and a sink (`count`) answer rc 2, run nothing
 #
 # The out-name refusals of `argv` itself are TUtil's and are pinned in
 # `tutil/tests/001_Core.sh`; this file adds only the `__th_` half (H4b).
@@ -42,11 +50,15 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/thead.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
+
+# The fake GNU head every `.new` below resolves (T5): word 0 / `cmd` everywhere.
+kt_gnu_stub head "$TMP/stub" STUB_HEAD || { echo "004: kt_gnu_stub failed" >&2; exit 1; }
 
 kt_test_section "004: THead — typed options to argv, nothing executed (P0)"
 
@@ -148,9 +160,9 @@ reset() {
 kt_test_section "A. lifecycle — Create assigns every var, the arrays are right"
 # ===========================================================================
 
-# THead's own six (PLAN §1.2) plus the five TUtil hands down.
+# THead's own six (PLAN §1.2) plus the seven TUtil hands down.
 TH_VARS=( lines bytes quiet verbose zeroTerminated _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode _toolErr )
 
 kt_test_start "every declared var is present in \`\${inst}_data\` right after \`new\` (§2.1)"
 THead.new hA 2 f1
@@ -167,26 +179,27 @@ else
     kt_test_fail "missing:$missing"
 fi
 
-kt_test_start "the documented defaults: booleans 0, \`bytes\` '', cmd head, _lastRc -1, lines = N"
+kt_test_start "the documented defaults: booleans 0, \`bytes\` '', cmd = the resolved head, _toolErr '', _lastRc -1, lines = N"
 bad=""
 for v in quiet verbose zeroTerminated _nulDerived crlf nul subshellOk; do
     got="$(hA."$v")"
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
 done
 [[ "$(hA.bytes)" == "" ]]    || bad+=" bytes='$(hA.bytes)'"
-[[ "$(hA.cmd)" == "head" ]]  || bad+=" cmd='$(hA.cmd)'"
+[[ "$(hA.cmd)" == "$STUB_HEAD" ]] || bad+=" cmd='$(hA.cmd)'"
+[[ "$(hA._toolErr)" == "" ]] || bad+=" _toolErr='$(hA._toolErr)'"
 [[ "$(hA.lines)" == "2" ]]   || bad+=" lines='$(hA.lines)'"
 [[ "$(hA._lastRc)" == "-1" ]] || bad+=" _lastRc='$(hA._lastRc)'"
 if [[ -z "$bad" ]]; then
-    kt_test_pass "every default as documented; the constructor's N became \`lines\`"
+    kt_test_pass "every default as documented; cmd is the resolved head; the constructor's N became \`lines\`"
 else
     kt_test_fail "$bad"
 fi
 
 kt_test_start "\`THead.new h\` with no argument at all leaves \`lines\` '' (head's own default of 10)"
 THead.new hD
-if [[ "$(hD.lines)" == "" && "$(hD.bytes)" == "" && "$(hD.cmd)" == "head" ]]; then
-    kt_test_pass "lines '', bytes '', cmd head"
+if [[ "$(hD.lines)" == "" && "$(hD.bytes)" == "" && "$(hD.cmd)" == "$STUB_HEAD" ]]; then
+    kt_test_pass "lines '', bytes '', cmd = the resolved head"
 else
     kt_test_fail "lines='$(hD.lines)' bytes='$(hD.bytes)' cmd='$(hD.cmd)'"
 fi
@@ -302,11 +315,11 @@ one() {   # one TITLE PROP VALUE WANTWORD...
     local __t="$1" __p="$2" __v="$3"; shift 3
     reset h1 '' f
     h1."$__p" = "$__v"
-    check_argv "$__t" h1 head "$@" -- f
+    check_argv "$__t" h1 "$STUB_HEAD" "$@" -- f
 }
 
 reset h1 '' f
-check_argv "H1: no option at all — \`head -- PATH\` (head's own default of 10 lines)" h1 head -- f
+check_argv "H1: no option at all — \`head -- PATH\` (head's own default of 10 lines)" h1 "$STUB_HEAD" -- f
 
 one "H1: \`quiet = 1\` -> -q (never print the \`==> NAME <==\` headers)" quiet          1 -q
 one "H1: \`verbose = 1\` -> -v (always print them)"                      verbose        1 -v
@@ -320,33 +333,33 @@ kt_test_section "C. H1 — combinations, the pinned order, and the boolean rule"
 
 reset h2 5 f
 h2.quiet = 1
-check_argv "H1: -q before -n, the pinned order" h2 head -q -n 5 -- f
+check_argv "H1: -q before -n, the pinned order" h2 "$STUB_HEAD" -q -n 5 -- f
 
 reset h2 '' f
 h2.lines = 5
 h2.quiet = 1
 check_argv "H1: the ORDER is buildArgv's, not the order the caller assigned in" h2 \
-    head -q -n 5 -- f
+    "$STUB_HEAD" -q -n 5 -- f
 
 reset h2 '' f
 h2.quiet = 1
 h2.zeroTerminated = 1
 h2.bytes = 12
 check_argv "H1: -q -z -c 12 — one path, so \`-z\` is allowed (§2.3)" h2 \
-    head -q -z -c 12 -- f
+    "$STUB_HEAD" -q -z -c 12 -- f
 
 reset h2 '' 'dir one' 'dir two'
 h2.verbose = 1
 h2.lines = -2
 check_argv "H1: -v with two paths and a negative count" h2 \
-    head -v -n -2 -- 'dir one' 'dir two'
+    "$STUB_HEAD" -v -n -2 -- 'dir one' 'dir two'
 
 reset h2 7 f
 h2.quiet = 1
 h2.zeroTerminated = 1
 h2.addArg --extra
 check_argv "H1: EVERYTHING compatible at once — the full pinned order" h2 \
-    head -q -z -n 7 --extra -- f
+    "$STUB_HEAD" -q -z -n 7 --extra -- f
 
 kt_test_start "H1: a boolean is ON only for the exact string \`1\` (never \`(( x ))\`)"
 allgood=1
@@ -356,7 +369,7 @@ for v in 2 yes true on TRUE -1 '1 ' ' 1' 01 '' 0; do
     h3.quiet = "$v"
     GOT=()
     h3.argv GOT >/dev/null 2>&1 || :
-    if ! arr_is GOT head -- f; then
+    if ! arr_is GOT "$STUB_HEAD" -- f; then
         allgood=0
         badv="'$v' -> $(arr_show GOT)"
         break
@@ -373,49 +386,49 @@ kt_test_section "D. H1 — \`--\` only with paths, extras in place, \`paths\`"
 # ===========================================================================
 
 reset h4 2
-check_argv "H1: \`THead.new h N\` with no path is the STDIN form — no \`--\` at all" h4 head -n 2
+check_argv "H1: \`THead.new h N\` with no path is the STDIN form — no \`--\` at all" h4 "$STUB_HEAD" -n 2
 
 reset h4 2 'a b'
 check_argv "H1: one path -> \`-- 'a b'\` (a space is safe by construction)" h4 \
-    head -n 2 -- 'a b'
+    "$STUB_HEAD" -n 2 -- 'a b'
 
 reset h4 2 a b c
-check_argv "H1: three paths, all after the one \`--\`" h4 head -n 2 -- a b c
+check_argv "H1: three paths, all after the one \`--\`" h4 "$STUB_HEAD" -n 2 -- a b c
 
 reset h4 2 -weird.txt
 check_argv "H1: a path that starts with \`-\` is an operand, not a flag" h4 \
-    head -n 2 -- -weird.txt
+    "$STUB_HEAD" -n 2 -- -weird.txt
 
 reset h4 2 f
 h4.addArg --zero-terminated
 check_argv "H1: an \`addArg\` extra lands AFTER the options and BEFORE \`--\`" h4 \
-    head -n 2 --zero-terminated -- f
+    "$STUB_HEAD" -n 2 --zero-terminated -- f
 
 reset h4 '' f
 h4.lines = 3
 h4.addArg -n 5
 check_argv "H1: \`addArg -n 5\` after \`lines = 3\` yields BOTH — head is last-flag-wins (§1.3)" h4 \
-    head -n 3 -n 5 -- f
+    "$STUB_HEAD" -n 3 -n 5 -- f
 
 reset h4 2 f
 h4.addArg -q
 h4.addArg -c 4
 check_argv "H1: several extras keep their order, still between the options and \`--\`" h4 \
-    head -n 2 -q -c 4 -- f
+    "$STUB_HEAD" -n 2 -q -c 4 -- f
 
 reset h4 2 f
 h4.addArg -q
 h4.clearArgs
-check_argv "H1: \`clearArgs\` empties the extras again" h4 head -n 2 -- f
+check_argv "H1: \`clearArgs\` empties the extras again" h4 "$STUB_HEAD" -n 2 -- f
 
 reset h4 2 old1 old2
 h4.paths new1 'new 2'
 check_argv "H1: \`h.paths new1 'new 2'\` replaced both old paths" h4 \
-    head -n 2 -- new1 'new 2'
+    "$STUB_HEAD" -n 2 -- new1 'new 2'
 
 reset h4 2 old1
 h4.paths
-check_argv "H1: \`h.paths\` with no argument is the stdin form" h4 head -n 2
+check_argv "H1: \`h.paths\` with no argument is the stdin form" h4 "$STUB_HEAD" -n 2
 
 kt_test_start "H1: rebuilding does not ACCUMULATE — two \`argv\` calls agree"
 reset h4 2 f
@@ -423,7 +436,7 @@ h4.quiet = 1
 declare -a W1=() W2=()
 h4.argv W1 >/dev/null 2>&1 || :
 h4.argv W2 >/dev/null 2>&1 || :
-if arr_is W1 head -q -n 2 -- f && arr_is W2 head -q -n 2 -- f; then
+if arr_is W1 "$STUB_HEAD" -q -n 2 -- f && arr_is W2 "$STUB_HEAD" -q -n 2 -- f; then
     kt_test_pass "stable across rebuilds"
 else
     kt_test_fail "W1=$(arr_show W1) W2=$(arr_show W2)"
@@ -523,38 +536,54 @@ else
 fi
 
 # ===========================================================================
-kt_test_section "F. H3 — the count travels VERBATIM (no \`kk.isInt\`, §2.2)"
+kt_test_section "F. H3 — the count keeps sign and value, the wrapper strips leading zeros (no \`kk.isInt\`, §2.2)"
 # ===========================================================================
 
 # `kk.isInt` normalises: it would hand head `3` for `+3` and `0` for `-0`, and
 # head reads those as entirely different requests (§2.2's sign table). The
 # wrapper therefore validates with a regex and passes the string through.
-verbatim() {   # verbatim PROP VALUE FLAG
-    local __p="$1" __v="$2" __f="$3"
+verbatim() {   # verbatim PROP VALUE FLAG [WANT] — WANT defaults to VALUE
+    local __p="$1" __v="$2" __f="$3" __w="${4-$2}"
     reset hF '' f
     hF."$__p" = "$__v"
-    check_argv "H3: \`$__p = $__v\` reaches head as \`$__f $__v\`, unchanged" hF \
-        head "$__f" "$__v" -- f
+    check_argv "H3: \`$__p = $__v\` reaches head as \`$__f $__w\`" hF \
+        "$STUB_HEAD" "$__f" "$__w" -- f
 }
 
-verbatim lines 08  -n
+verbatim lines 08  -n 8
 verbatim lines +3  -n
 verbatim lines -2  -n
 verbatim lines -0  -n
 verbatim lines +0  -n
 verbatim lines 0   -n
-verbatim bytes 08  -c
+verbatim bytes 08  -c 8
 verbatim bytes +3  -c
 verbatim bytes -2  -c
 verbatim bytes -0  -c
 
-kt_test_start "H3: a 19-digit count PASSES the guard and reaches head verbatim"
+kt_test_start "H3: the wrapper strips LEADING ZEROS itself, keeps the sign: \`lines = 08\` -> -n 8, \`bytes = +007\` -> -c +7, \`00\` -> 0, \`-007\` -> -7"
+ok=1; seen=''
+for pair in "lines:08:-n:8" "bytes:+007:-c:+7" "lines:00:-n:0" "lines:-007:-n:-7" "bytes:+00:-c:+0" "lines:-0:-n:-0" "lines:10:-n:10" "bytes:100:-c:100"; do
+    IFS=: read -r pp pv pf pw <<<"$pair"
+    reset hF '' f
+    hF."$pp" = "$pv"
+    GOT=()
+    hF.argv GOT >/dev/null 2>&1 || :
+    arr_is GOT "$STUB_HEAD" "$pf" "$pw" -- f || { ok=0; seen+=" $pv->$(arr_show GOT)"; }
+done
+if [[ "$ok" == "1" ]]; then
+    kt_test_pass "zeros stripped from the digit part only; the sign, \`0\`, \`-0\`, \`10\` and \`100\` kept"
+else
+    kt_test_fail "$seen"
+fi
+
+kt_test_start "H3: a 19-digit count PASSES the guard and reaches head unchanged"
 reset hF '' f
 hF.lines = 9999999999999999999
 GOT=()
 rc=0
 hF.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT head -n 9999999999999999999 -- f; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_HEAD" -n 9999999999999999999 -- f; then
     kt_test_pass "19 digits is the int64 bound the guard allows; 20 is rc 2 (§E)"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -566,7 +595,7 @@ hF.bytes = -9999999999999999999
 GOT=()
 rc=0
 hF.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT head -c -9999999999999999999 -- f; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_HEAD" -c -9999999999999999999 -- f; then
     kt_test_pass "\`-c -19digits\` built; the tool's own 'Value too large' is an rc 1 (005)"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -598,7 +627,7 @@ GOT=()
 rc=0
 hZ.argv GOT || rc=$?
 if [[ $rc -eq 0 && "$(hZ.nul)" == "1" && "$(hZ._nulDerived)" == "1" ]] \
-   && arr_is GOT head -z -n 2 -- f; then
+   && arr_is GOT "$STUB_HEAD" -z -n 2 -- f; then
     kt_test_pass "nul = 1, _nulDerived = 1, argv has -z"
 else
     kt_test_fail "rc=$rc nul='$(hZ.nul)' drv='$(hZ._nulDerived)' GOT=$(arr_show GOT)"
@@ -672,3 +701,64 @@ h4.delete
 hE.delete
 hF.delete
 hZ.delete
+
+# ===========================================================================
+kt_test_section "T6. no usable head found: .new succeeds, the first argv says why"
+# ===========================================================================
+
+NOEXEC_TXT="KCL_GNU_HEAD='/nonexistent' is not an executable file"
+
+kt_test_start "T6 (i): KCL_GNU_HEAD=/nonexistent — \`.new\` rc 0 and silent, \`cmd\` '', \`argv\` rc 2 with ONE line naming the override"
+KCL_GNU_HEAD=/nonexistent
+dbg_n THead.new hNG 2 f
+nrc=$DBG_RC; nlines_new=$DBG_N
+GOT=( stale )
+dbg_n hNG.argv GOT
+if [[ $nrc -eq 0 && $nlines_new -eq 0 && "$(hNG.cmd)" == "" && $DBG_RC -eq 2 && $DBG_N -eq 1 \
+      && "$DBG_1" == *"$NOEXEC_TXT"* && "$RESULT" == "" ]] && arr_is GOT stale; then
+    kt_test_pass "new rc 0 silent; cmd ''; argv rc 2: ${DBG_1:0:100}"
+else
+    kt_test_fail "new rc=$nrc lines=$nlines_new cmd='$(hNG.cmd)'; argv rc=$DBG_RC lines=$DBG_N first='$DBG_1' got=$(arr_show GOT)"
+fi
+
+kt_test_start "T6 (ii): \`x.cmd = STUB\` re-arms the instance — \`argv\` rc 0, word 0 = the stub"
+hNG.cmd = "$STUB_HEAD"
+GOT=( stale )
+rc=0
+hNG.argv GOT || rc=$?
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_HEAD" -n 2 -- f; then
+    kt_test_pass "$(arr_show GOT)"
+else
+    kt_test_fail "rc=$rc got=$(arr_show GOT)"
+fi
+hNG.delete
+
+kt_test_start "T6 (iii): the static \`THead.take\` with no usable head — rc 2, the same ONE line, nothing printed or run"
+KCL_GNU_HEAD=/nonexistent
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+sout=$(THead.take 2 "$TMP/nofile" 2>"$ERRF")
+src=$?
+VERBOSE_KKLASS=
+sn=0; sl=''
+while IFS= read -r l || [[ -n "$l" ]]; do sn=$(( sn + 1 )); sl=$l; done < "$ERRF"
+if [[ $src -eq 2 && $sn -eq 1 && "$sl" == *"$NOEXEC_TXT"* && -z "$sout" ]]; then
+    kt_test_pass "rc 2, empty stdout, one line: ${sl:0:100}"
+else
+    kt_test_fail "rc=$src out='$sout' lines=$sn last='$sl'"
+fi
+
+kt_test_start "T6 (iv): a SINK on the disarmed instance (\`count\`) — rc 2, RESULT '', ONE line with ktool's text"
+KCL_GNU_HEAD=/nonexistent
+THead.new hNG 2 f
+RESULT=stale
+dbg_n hNG.count
+if [[ $DBG_RC -eq 2 && "$RESULT" == "" && $DBG_N -eq 1 && "$DBG_1" == *"$NOEXEC_TXT"* ]]; then
+    kt_test_pass "count rc 2, RESULT '', one line: ${DBG_1:0:100}"
+else
+    kt_test_fail "rc=$DBG_RC RESULT='$RESULT' lines=$DBG_N first='$DBG_1'"
+fi
+hNG.delete
+
+# the stub again for whoever follows
+KCL_GNU_HEAD="$STUB_HEAD"
