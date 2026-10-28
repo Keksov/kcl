@@ -24,6 +24,13 @@ kk.uses kklass_pascal || return
 # nothing.
 kk.uses tpipe || return
 
+# ktool (kkore, launch L3.4 / design L3_4_design.md G4): the GNU tool resolver
+# behind `tutil._gnu`, the one line a wrapper's `Create` adds to find ITS GNU
+# tool (sed, gawk, grep, find, head, tail). Loaded here, once, so the six
+# wrappers keep `kk.uses tutil` as their only dependency; no fork at load, and
+# the generic `TUtil.new u git …` never calls it (C2).
+kk.uses ktool || return
+
 # ---------------------------------------------------------------------------
 # TUtil — the CLI-tool wrapper base, and a usable generic runner on its own.
 #
@@ -57,6 +64,9 @@ kk.uses tpipe || return
 #                   buildArgv: TGrep in text mode with file operands; TAwk only
 #                   in its `--posix` fallback; TSed never (TSed and TAwk strip
 #                   the CR on the INPUT side). 0 by default and for the base
+#   var  _toolErr   why a wrapper's `Create` found no GNU tool (ktool's text,
+#                   set by `tutil._gnu`); '' = none, and always '' for the
+#                   base. While `cmd` is empty, buildArgv's rc 2 line prints it
 #   Create [CMD [ARG...]]   assigns EVERY var; ARGs become ${inst}_args
 #   Destroy                 frees ${inst}_args and ${inst}_argv (§1.9)
 #   buildArgv               virtual; fills ${inst}_argv; RESULT = count
@@ -74,8 +84,8 @@ kk.uses tpipe || return
 #   mapRc RAW               virtual; RESULT = the normalised rc
 #
 # ---- Reserved member names (PLAN §1.2) -------------------------------------
-# TUtil owns `cmd crlf nul _lastRc subshellOk _textMode buildArgv addArg
-# clearArgs argv run each toArray toList first count lastRc mapRc`; kklass
+# TUtil owns `cmd crlf nul _lastRc subshellOk _textMode _toolErr buildArgv
+# addArg clearArgs argv run each toArray toList first count lastRc mapRc`; kklass
 # owns `property call parent delete` on every instance. A DESCENDANT must never declare a `var` with any of
 # those names: the method wrapper is generated after the property wrapper and
 # wins silently (kklass.sh:911), so `obj.count = 5` would be accepted and
@@ -143,6 +153,7 @@ class TUtil
         var  _lastRc
         var  subshellOk
         var  _textMode
+        var  _toolErr
         constructor Create
         destructor  Destroy
         func buildArgv
@@ -220,6 +231,10 @@ if [[ -z ${__TUTIL_TOOLS_STRIP_CR+x} ]]; then
         *)             declare -g __TUTIL_TOOLS_STRIP_CR=0 ;;
     esac
 fi
+# The filter runs plain `command sed`, NOT ktool's GNU sed (launch L3.4, D-L34-8,
+# rule C1): it is written for BSD and busybox sed too (raw CR, `-u` probed), and
+# routing it through ktool would make TGrep and TAwk's `--posix` fallback need
+# GNU sed besides their own tool.
 # The filter script, `s/<CR>$//`, built here with a RAW carriage return: an
 # ANSI-C quoted CR inside a member body does not survive `build` (trap 12), and
 # BSD sed does not know the backslash-r escape. Under `LC_ALL=C` it strips
@@ -416,6 +431,31 @@ tutil._prep() {
     return 0
 }
 
+# tutil._gnu FAMILY — called by a wrapper's Create right after
+# `parent.constructor` (launch L3.4, design L3_4_design.md G1, G5): `cmd` = the
+# absolute path of a GNU FAMILY (`ktool.gnu`: sed awk grep find head tail; the
+# override KCL_GNU_<FAMILY> first), `_toolErr` = ''. With none, `cmd` = '' and
+# `_toolErr` = ktool's reason (`no GNU sed: …; FreeBSD: pkg install gsed`, or
+# ktool's rc 2 text for an unknown FAMILY) — creation still succeeds (D-L34-3):
+# the instance is disarmed, and the first `run`/sink/`argv` answers rc 2 with
+# that text from buildArgv's `cmd`-empty branch (N2). rc 0 always, prints
+# nothing; RESULT is left set (the path, or the error text). Writes the member frame's `cmd`/`_toolErr` by dynamic scoping (as
+# `tutil._prep` writes `_lastRc`). The answer is frozen in `cmd` (G6): a later
+# PATH or KCL_GNU_<FAMILY> change reaches the next `.new`, not this instance;
+# a `cmd` the caller sets afterwards is used verbatim (G7). The generic
+# `TUtil.new u CMD …` never calls it (C2): its `cmd` is what the caller gave.
+tutil._gnu() {
+    if ktool.gnu "${1-}"; then
+        cmd=$RESULT
+        _toolErr=''
+    else
+        ktool.lastError
+        cmd=''
+        _toolErr=$RESULT
+    fi
+    return 0
+}
+
 # ===========================================================================
 # Members
 # ===========================================================================
@@ -434,6 +474,7 @@ TUtil.Create() {
     _lastRc=-1
     subshellOk=0
     _textMode=0
+    _toolErr=''
     declare -ga "${__inst__}_args=()"
     declare -ga "${__inst__}_argv=()"
     local -n __tu_a="${__inst__}_args"
@@ -456,12 +497,14 @@ TUtil.Destroy() {
 # override that runs. The base builds `cmd` + the caller's extras.
 #
 # RESULT = the number of words; rc 2 with RESULT='' when `cmd` is empty, and
-# then the caller runs NOTHING.
+# then the caller runs NOTHING. The one `kk.debug` line is `_toolErr` when a
+# wrapper's `tutil._gnu` found no GNU tool, else "cmd is empty" (N2; every
+# descendant's buildArgv carries the same `${_toolErr:-…}` line).
 TUtil.buildArgv() {
     local -n __tu_v="${__inst__}_argv"
     __tu_v=()
     if [[ -z "$cmd" ]]; then
-        kk.debug "Error: TUtil.buildArgv: cmd is empty; there is nothing to run"
+        kk.debug "Error: TUtil.buildArgv: ${_toolErr:-cmd is empty; there is nothing to run}"
         kk._return ""
         return 2
     fi

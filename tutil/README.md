@@ -5,8 +5,8 @@
 > `lastRc`, `mapRc`), the five **sinks** (`each`, `toArray`, `toList`, `first`,
 > `count`, each one a single [`TPipe`](../tpipe/README.md) call), the bench and
 > the docs are all in. Suite: `tests/001_Core.sh`, `tests/002_Sinks.sh`,
-> `tests/003_Contract.sh`, `tests/004_Bench.sh` — **172 checks green on bash
-> 5.2.37 and 172 on bash 5.3.9**, threaded and under `--mode single`.
+> `tests/003_Contract.sh`, `tests/004_Bench.sh` — **235 checks green on bash
+> 5.3.15 and 5.3.9 (Windows) and on the Linux/FreeBSD lab VMs** (launch L3.4).
 > Design record, the TProcess comparison and every measurement the design rests
 > on: **[docs/TUtil.md](docs/TUtil.md)**. What the tests pin, case by case:
 > **[TEST_COVERAGE_NOTES.md](../docs/dev/tutil/TEST_COVERAGE_NOTES.md)**. Phase history:
@@ -75,6 +75,7 @@ TUtil.new INST [CMD [ARG...]]    # cmd + the initial extra args
 | `_lastRc` | var | raw rc of the last `run`/sink; `-1` until one ran | — |
 | `subshellOk` | var | `1` → every sink passes `-s` to `TPipe`, i.e. "the subshell scope is **intended**"; silences TPipe's subshell warning for this instance (§3). Default `0` | — |
 | `_textMode` | var | **private.** `1` → the OUTPUT needs the line-end CR strip (§3, the CR contract): where the platform's tool keeps the CR, the sinks add `-c` and `run` filters its stdout. Set by a descendant's `buildArgv` — TGrep with file operands, TAwk only in its `--posix` fallback, TSed never (TSed and TAwk strip on the input side); `0` by default | — |
+| `_toolErr` | var | **private.** Why a wrapper's `Create` found no GNU tool: ktool's text, set by `tutil._gnu` (§5); `''` = none, and always `''` for the base. While `cmd` is empty, `buildArgv`'s rc 2 line prints it instead of "cmd is empty" | — |
 | `buildArgv` | func | **virtual.** Fills `${inst}_argv`. Base: `cmd` + the extras | word count |
 | `addArg ARG...` | proc | append to `${inst}_args` — the un-modelled-option hatch | — |
 | `clearArgs` | proc | empty `${inst}_args` | — |
@@ -446,7 +447,7 @@ call**, so setting the property back to `0` re-arms the warning immediately.
 `TUtil` owns
 
 ```
-cmd  crlf  nul  _lastRc  subshellOk  _textMode
+cmd  crlf  nul  _lastRc  subshellOk  _textMode  _toolErr
 buildArgv  addArg  clearArgs  argv  run
 each  toArray  toList  first  count  lastRc  mapRc
 ```
@@ -494,6 +495,53 @@ override is what runs and what decides the rc. There is nothing to re-implement.
 [`TGrep`](../tgrep/README.md) is the worked example, and
 [docs/TUtil.md §4](docs/TUtil.md#4-the-template-for-the-next-wrappers) is the
 template for the next five wrappers.
+
+**A GNU wrapper calls `tutil._gnu FAMILY` right after `parent.constructor`**
+(launch L3.4). FAMILY is a family of the kkore unit `ktool`, the GNU tool
+resolver (kkore README §7): `sed awk grep find head tail` (TAwk's is `awk`). `tutil.sh` loads ktool (`kk.uses ktool`), so the wrapper keeps
+`kk.uses tutil` as its only dependency:
+
+```bash
+TMyTool.Create() {
+    parent.constructor sed          # spelled out, never `inherited` (trap 3)
+    tutil._gnu sed                  # cmd = ktool's GNU sed (absolute path)
+    someOption=''                   # ... then every declared var (trap 4)
+}
+
+TMyTool.buildArgv() {
+    local -n __tm_v="${__inst__}_argv"
+    __tm_v=()
+    if [[ -z "$cmd" ]]; then
+        kk.debug "Error: TMyTool.buildArgv: ${_toolErr:-cmd is empty; there is nothing to run}"
+        kk._return ""
+        return 2
+    fi
+    ...
+```
+
+* `tutil._gnu` (rc 0 always; it prints nothing) sets `cmd` to the absolute path
+  `ktool.gnu FAMILY` answers (the override `KCL_GNU_<FAMILY>` first, then the
+  g-name, then the plain name on PATH) and `_toolErr` to `''`. With no GNU build it sets `cmd` to `''` and
+  `_toolErr` to ktool's reason — `no GNU sed: gsed not on PATH; /usr/bin/sed is
+  not GNU sed (--version: "sed: illegal option -- -"); FreeBSD: pkg install
+  gsed` — and **creation still succeeds** (rc 0, silent): the instance is
+  disarmed, and the first `run`, sink or `argv` (and so every static that
+  builds one) answers **rc 2** with that text as its one `kk.debug` line,
+  `lastRc` untouched (still `-1`), nothing run.
+* The `cmd`-empty branch of the descendant's `buildArgv` prints
+  `${_toolErr:-cmd is empty; there is nothing to run}` — the base's own branch
+  does the same.
+* The answer is **frozen** in `cmd`: a later `PATH` or `KCL_GNU_<FAMILY>` change
+  reaches the next `.new`, not this instance. A `cmd` the caller sets afterwards
+  is used **verbatim** (no identity check) and re-arms a disarmed instance;
+  `_toolErr` keeps its text but is not printed while `cmd` is non-empty. The
+  validated way to pick a build is `KCL_GNU_<FAMILY>` before `.new`.
+* `.new` inside `$( )` resolves in the child, and the cache dies with it: call
+  `ktool.gnu FAMILY` (or create one instance) once in the main shell first.
+* The generic runner never calls it: `TUtil.new u git …` keeps the `cmd` the
+  caller gave. TUtil's own CR filter (§3) stays on plain `command sed`, written
+  for BSD and busybox sed too — routing it through ktool would make TGrep and
+  TAwk's `--posix` fallback need GNU sed besides their own tool.
 
 **A new wrapper appends its own local prefix to the `TUTIL_OUT_PREFIXES`
 registry.** The helper that refuses an output-array name passes this family's
@@ -653,14 +701,44 @@ bash kcl/tutil/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tutil/tests/tests.sh
 ```
 
-**226 cases, green on bash 5.2.37 and on bash 5.3.9** (launch L2.7-C), in the default threaded
+**235 cases, green on bash 5.2.37 and on bash 5.3.9** (launch L2.7-C; +9 in launch L3.4), in the default threaded
 mode and under `--mode single`. Case-by-case:
 [TEST_COVERAGE_NOTES.md](../docs/dev/tutil/TEST_COVERAGE_NOTES.md).
 
 | File | Cases | What it pins |
 |---|---|---|
-| `001_Core.sh` | 86 | source integrity; the lifecycle (every var present in `${inst}_data` with its default, both arrays created and freed, every var readable under `set -u`); the argv model (`--format=%H` verbatim, `addArg`/`clearArgs`, `argv` is a copy and runs nothing, rebuild without accumulation); `argv`'s out-name validation (11 refusals, each rc 2 with `RESULT=''` and storage intact); `run` (cmd `''` runs nothing and leaves a here-string unread; a missing command is rc 1 + `lastRc` 127 + exactly one stderr line under the switch and none without; a tool exiting 3 is rc 1 + `lastRc` 3 and silent; two instances keep separate `_lastRc`); byte-identity of the stream in all three positions, including a producer emitting `-n`, a backslash, a glob, a CR and an unterminated tail; `mapRc`'s base table; the `set -eu` contract including a failing and a missing tool; and that the P0 sink stubs are **gone** (no member answers `__TUTIL_PENDING__`, the string is absent from the source, all 18 members of the surface are bound, `subshellOk` among them with its `0` default and `_textMode` since L2.7-C) |
+| `001_Core.sh` | 95 | source integrity; the lifecycle (every var present in `${inst}_data` with its default, both arrays created and freed, every var readable under `set -u`); the argv model (`--format=%H` verbatim, `addArg`/`clearArgs`, `argv` is a copy and runs nothing, rebuild without accumulation); `argv`'s out-name validation (11 refusals, each rc 2 with `RESULT=''` and storage intact); `run` (cmd `''` runs nothing and leaves a here-string unread; a missing command is rc 1 + `lastRc` 127 + exactly one stderr line under the switch and none without; a tool exiting 3 is rc 1 + `lastRc` 3 and silent; two instances keep separate `_lastRc`); byte-identity of the stream in all three positions, including a producer emitting `-n`, a backslash, a glob, a CR and an unterminated tail; `mapRc`'s base table; the `set -eu` contract including a failing and a missing tool; and that the P0 sink stubs are **gone** (no member answers `__TUTIL_PENDING__`, the string is absent from the source, all 19 members of the surface are bound, `subshellOk` among them with its `0` default, `_textMode` since L2.7-C and `_toolErr` since L3.4); and `tutil._gnu` (launch L3.4) through a descendant defined in the test file — a stub via `KCL_GNU_SED` (`cmd` = the stub path, `_toolErr` `''`), a second stub leaving a live instance alone while `.new` over its name re-resolves (frozen), `KCL_GNU_SED=/nonexistent` (`.new` rc 0 and silent, `cmd` `''`, `argv`, `run` and a sink (`count`) rc 2 with exactly one line = ktool's text, `lastRc` still `-1`, nothing run), re-armed by `cmd = …`, an unknown family (ktool's rc 2 text), and the generic `TUtil.new u printf …` never resolving |
 | `002_Sinks.sh` | 64 | U1 (`each` delivers, a plain function and an instance member both keep their state, `each` is rc-only); U8 (each `func` sink's RESULT **and** mapped rc, direct, under `$( )` and on the LHS of a pipe, with the value printed exactly once); every sink compared with `TPipe` called directly on the argv `u.argv` handed over, byte-exact over a producer emitting `-n`, `-neE`, a backslash, a glob, a space, UTF-8, a bare CR and an unterminated tail; `nul`→`-0` and `crlf`→`-c` (and off by default); three-frame dispatch `g.each → TPipe.each → r.onLine` and a nested sink inside a callback; zero forks per record (`$BASHPID`); a rejecting `.Add` (THashSet duplicates: 5 offered, 3 kept); the rc 1 + count-kept deviation for all five; `first` answering rc 1 with RESULT '' whenever there was no record, including a producer that SUCCEEDED silently, and staying quiet while doing it; U6 (`TPipe.stop` and `first` on `yes`, in a child under `timeout`, `lastRc` 141/143); every malformed shape (`cmd=''`, a missing command, a non-function CB, an INST without `.Add`, ten refused out-names) with rc, `RESULT`, an untouched `lastRc` and a flag file proving nothing ran; separate `_lastRc` per instance; and the three forms (`u.run \| TPipe.each cb` under `lastpipe` == the `--` form == `u.each cb`); and the **D6-final** matrix as it reaches a caller through a wrapper — `$(u.toArray NAME)` and `$(u.toList INST)` each warn ONCE with the `TPipe` line verbatim, `subshellOk = 1` silences every sink of that instance and is read per call (setting it back re-arms), `KK_SUBSHELL_OK=1 u.toArray …` silences through two wrapper frames, `VERBOSE_KKLASS=quiet` silences it, `$(u.count)` / `$(u.first)` never warn, and `$(u.each r.onLine)` warns while `$(u.each fn)` does not |
 | `003_Contract.sh` | 51 | `bash -n` + the open-quote and inline-`$'\r'` greps; every sink from a child script under `set -eu` — a succeeding tool, a tool exiting 3 (the child must die of the member's rc 1, never the tool's 3), a callback answering rc 1 on every record, a `TPipe.stop` where `wait` returns 141/143 while the member answers 0, a rejecting `.Add`, `cmd=''`, a missing command, a malformed CB/out-name/list, and the sinks under `$( )`; the zero-fork probe under `set -eu`; exactly ONE `kk.debug` line on each of the 15 rc 2 / `127` paths and **none** on any rc 0 or plain rc 1 path, with complete silence when the switch is off; and the **D6-final** rules at contract level — `$(u.count)`/`$(u.first)` never warn (switch on or off), `$(u.toArray NAME)` warns ONCE with the debug switch **off** and the same single line under `debug`, `subshellOk = 1` / `KK_SUBSHELL_OK=1` / `VERBOSE_KKLASS=quiet` each silence it with `RESULT` unchanged, and a DIRECT sink call warns about nothing |
 | `004_Bench.sh` | 8 | the PLAN §5 P3.1 gates as assertions with a 5× ceiling (`u.each` and `u.toArray` against `TPipe` called directly on the same argv, N = 2000, both shapes warmed first); that 200 `buildArgv` + `argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback, `.Add` and the `cmd` that `run` executes all report this process's `$BASHPID`, and the only extra pid in a sink call is the one producer |
 | `005_TextMode.sh` | 17 | the CR contract at the base (§3, owner DL11), both platform paths driven on any host by flipping `__TUTIL_TOOLS_STRIP_CR` and using a CR-writing function as the tool: `_textMode` is a var with default `0` and the global is `1` exactly on cygwin/msys; with `_textMode = 0` every CR survives every sink and `run` on both paths; the output-strip path drops ONE trailing CR per record in all five sinks (a CR inside a record and the second of two stay, an unterminated `c\r` becomes `c`), `run` streams LF-only lines, keeps a CR inside a line and an unterminated tail unterminated, still hands the caller's stdin to the tool, and reports the TOOL's raw rc (3 → rc 1, `lastRc` 3); the native path adds nothing (the tool's own CRs reach every sink, `run` is byte-identical and executes the tool in this shell); `nul = 1` is never stripped, by the sinks or by `run`; `crlf = 1` + text mode strips one CR, not two; `run` on the strip path under `set -euo pipefail` in a child; a FAILING filter (a fake `sed` exiting 4: `lastRc` 2, rc 1, one debug line; a tool rc 3 wins; `tutil._crStdin` answers 2); `tutil._crStdin` (LF lines reach the tool, its rc comes back, SIGPIPE is not an error); and `sed -u` exactly when this sed accepts it, probed once |
+
+**`tests/gnu_helper.sh`** (launch L3.4) is the shared
+GNU-tool helper of the wrapper family — a sourced library, not a test file (the
+runner collects `NNN_*.sh` only; precedent `kcl/tdirectory/tests/symlink_helper.sh`).
+A wrapper's test file sources it after its unit
+(`source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1`):
+
+* `kt_gnu_gate FAMILY VAR` — ONE case, "GNU FAMILY: ktool resolves it", run in
+  the test's main shell (the ktool cache is then warm for every `.new` in the
+  file). Found: `VAR` = the path, `GNU_OK=1`, `GNU_WHY=''`, the case passes
+  `PATH — BANNER`. None: `VAR=''`, `GNU_OK=0`, `GNU_WHY` = `ktool.lastError`'s
+  text, the case passes `SKIP: GNU_WHY` — and the file's `tcase` passes every
+  later case as `SKIP: $GNU_WHY`, so the count is the same either way. rc 2
+  from ktool (a FAMILY typo, or ktool not loaded): the gate case **FAILS** —
+  never a silent SKIP of a whole file — with `GNU_OK=0` and `GNU_WHY` set.
+* `kt_gnu_stub FAMILY DIR VAR` — writes `DIR/FAMILY`, a `#!/bin/sh` script that
+  answers `--version` with a GNU banner (`sed (GNU sed) 4.9`, `GNU Awk 5.3.0`,
+  `grep (GNU grep) 3.11`, `find (GNU findutils) 4.10.0`, `head (GNU coreutils)
+  9.4`, `tail (GNU coreutils) 9.4`) and anything else with `.:DIR/share/awk`
+  (TAwk's AWKPATH probe), creates an empty `DIR/share/awk/inplace.awk`, sets the
+  shell variable `KCL_GNU_<FAMILY>` and `VAR` to `DIR/FAMILY`.
+  A `.new` after it resolves the stub, so an argv-pin file (004) runs its full
+  count on every box and pins the same word 0 everywhere; the real tool never
+  runs. `KCL_GNU_<FAMILY>` is **not exported**: `$( )` sees the stub, but a
+  child PROCESS (`bash -c`, `timeout bash child.sh`, a contract test that runs
+  a child script) resolves the REAL tool. `DIR` must be absolute — start with
+  `/` and hold no `:` (a relative DIR makes `VAR` differ from the
+  `$PWD`-absolute path ktool answers; a `C:/…` DIR breaks the `.:DIR/share/awk`
+  answer, whose separator is `:`). rc 1 (nothing written) for an unknown
+  FAMILY, an empty `VAR` or a `DIR` that breaks that rule.

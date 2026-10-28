@@ -29,6 +29,11 @@
 #   G  the P0 sink STUBS are gone (P1.1): no member answers the
 #      `__TUTIL_PENDING__` sentinel, the string is absent from the source, and
 #      the whole PLAN §1.2 surface is bound to a real body
+#   H  launch L3.4 (docs/dev/launch/L3_4_design.md G3, G5, N1-N4, C2): a
+#      descendant defined HERE calls `tutil._gnu sed` — a ktool stub through
+#      KCL_GNU_SED (cmd = the stub path), `/nonexistent` (`.new` rc 0, the
+#      instance disarmed: `argv`/`run` rc 2 with ktool's text), re-armed by
+#      `cmd = …`; an unknown family; the generic runner never resolves
 #
 # U1, U6 and U8 — what the sinks DO — are 002_Sinks.sh's subject; the `set -eu`
 # and debug-switch contract for them is 003_Contract.sh's.
@@ -40,6 +45,8 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tutil.sh"
 source "$UNIT"
+# kt_gnu_stub (section H): the family's shared GNU-tool test helpers
+source "$SCRIPT_DIR/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -138,7 +145,7 @@ fi
 kt_test_section "A. U3 — lifecycle, and every declared var assigned"
 # ===========================================================================
 
-kt_test_start "U3: right after \`new\` \${inst}_data lists cmd/crlf/nul/_lastRc/subshellOk with the documented defaults"
+kt_test_start "U3: right after \`new\` \${inst}_data lists cmd/crlf/nul/_lastRc/subshellOk/_toolErr with the documented defaults"
 # `subshellOk` is the D6-final Q9 property: 1 makes every sink pass `-s` to
 # TPipe. Like every other declared var it MUST be assigned by the constructor —
 # kklass binds a property as a nameref onto `${inst}_data[NAME]`, and an
@@ -147,8 +154,8 @@ TUtil.new uL
 d="$(declare -p uL_data 2>&1)"
 if [[ "$d" == *'[cmd]=""'* && "$d" == *'[crlf]="0"'* \
    && "$d" == *'[nul]="0"'* && "$d" == *'[_lastRc]="-1"'* \
-   && "$d" == *'[subshellOk]="0"'* ]]; then
-    kt_test_pass "all five vars present: $d"
+   && "$d" == *'[subshellOk]="0"'* && "$d" == *'[_toolErr]=""'* ]]; then
+    kt_test_pass "all six vars present: $d"
 else
     kt_test_fail "declare -p uL_data = $d"
 fi
@@ -200,9 +207,10 @@ u.cmd    >/dev/null
 u.crlf   >/dev/null
 u.nul    >/dev/null
 u._lastRc >/dev/null
-u.subshellOk >/dev/null'
+u.subshellOk >/dev/null
+u._toolErr >/dev/null'
 if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" == "OK" && -z "$CHILD_ERRTXT" ]]; then
-    kt_test_pass "all five vars bound"
+    kt_test_pass "all six vars bound"
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
@@ -1024,13 +1032,167 @@ fi
 kt_test_start "every declared member exists as a real body (none is a bare rc 2 stub)"
 TUtil.new uR2 printf '%s\n' a b
 missing=""
-for m in cmd crlf nul _lastRc subshellOk _textMode buildArgv addArg clearArgs argv run \
+for m in cmd crlf nul _lastRc subshellOk _textMode _toolErr buildArgv addArg clearArgs argv run \
          each toArray toList first count lastRc mapRc; do
     declare -F -- "uR2.$m" >/dev/null 2>&1 || missing="$missing $m"
 done
 uR2.delete
 if [[ -z "$missing" ]]; then
-    kt_test_pass "all 18 members of the surface (PLAN §1.2 + L2.7-C _textMode) are bound"
+    kt_test_pass "all 19 members of the surface (PLAN §1.2 + L2.7-C _textMode + L3.4 _toolErr) are bound"
 else
     kt_test_fail "missing:$missing"
 fi
+
+# ===========================================================================
+kt_test_section "H. launch L3.4 — tutil._gnu, _toolErr (design G3, G5, N1-N4, C2)"
+# ===========================================================================
+
+# A wrapper in miniature: `parent.constructor sed` + `tutil._gnu FAMILY`, the
+# two lines every wrapper's Create carries (G1); FAMILY defaults to `sed`. No
+# buildArgv override: the base's `cmd`-empty branch is the one under test (N2).
+class TUtilGnuProbe : TUtil
+    public
+        constructor Create
+end
+TUtilGnuProbe.Create() {
+    parent.constructor sed
+    tutil._gnu "${1:-sed}"
+    return 0
+}
+build TUtilGnuProbe
+
+GSTUB_DIR="$TMP/gnu stub"
+NOEXEC_TXT="KCL_GNU_SED='/nonexistent' is not an executable file"
+
+kt_test_start "G3 + C2: the generic \`TUtil.new u printf …\` never resolves — cmd stays \`printf\`, \`_toolErr\` is '' after \`new\`, Create has no \`tutil._gnu\`"
+TUtil.new uH printf '%s\n' a
+d="$(declare -p uH_data 2>&1)"
+declare -a HOUT=()
+uH.argv HOUT; rc=$?
+cbody="$(sed -n '/^TUtil.Create()/,/^}/p' "$UNIT")"
+if [[ "$(uH.cmd)" == "printf" && "$d" == *'[_toolErr]=""'* && $rc -eq 0 \
+      && -n "$cbody" && "$cbody" != *tutil._gnu* ]] && arr_is HOUT printf '%s\n' a; then
+    kt_test_pass "cmd=printf, argv=$(arr_show HOUT), [_toolErr]=\"\""
+else
+    kt_test_fail "cmd='$(uH.cmd)' rc=$rc argv=$(arr_show HOUT) data=$d Create: ${cbody:0:200}"
+fi
+uH.delete
+
+kt_test_start "G5: \`tutil._gnu sed\` with KCL_GNU_SED = a stub — \`.new\` rc 0, cmd = the stub path, \`_toolErr\` '', argv word 0 = the stub"
+STUB_SED=""
+KCL_GNU_SED=""
+kt_gnu_stub sed "$GSTUB_DIR" STUB_SED; src=$?
+TUtilGnuProbe.new gS; rc=$?
+declare -a GOUT=()
+gS.argv GOUT; arc=$?
+if [[ $src -eq 0 && "$KCL_GNU_SED" == "$GSTUB_DIR/sed" && "$STUB_SED" == "$GSTUB_DIR/sed" \
+      && $rc -eq 0 && $arc -eq 0 && "$(gS.cmd)" == "$STUB_SED" && -z "$(gS._toolErr)" ]] \
+   && arr_is GOUT "$STUB_SED"; then
+    kt_test_pass "cmd=$(gS.cmd), argv=$(arr_show GOUT)"
+else
+    kt_test_fail "stub rc=$src KCL_GNU_SED='$KCL_GNU_SED' new rc=$rc argv rc=$arc cmd='$(gS.cmd)' _toolErr='$(gS._toolErr)' argv=$(arr_show GOUT)"
+fi
+
+kt_test_start "G6: a resolved instance is FROZEN — KCL_GNU_SED moved to a second stub leaves \`gS.cmd\` alone; \`.new\` over the same LIVE name re-resolves to the new stub"
+STUB_SED2=""
+kt_gnu_stub sed "$GSTUB_DIR-2" STUB_SED2; src=$?
+c_old="$(gS.cmd)"
+TUtilGnuProbe.new gS; rc=$?
+c_new="$(gS.cmd)"
+if [[ $src -eq 0 && "$STUB_SED2" == "$GSTUB_DIR-2/sed" && "$KCL_GNU_SED" == "$STUB_SED2" \
+      && "$c_old" == "$STUB_SED" && $rc -eq 0 && "$c_new" == "$STUB_SED2" ]]; then
+    kt_test_pass "before the re-new: $c_old; after: $c_new"
+else
+    kt_test_fail "stub2 rc=$src STUB_SED2='$STUB_SED2' KCL_GNU_SED='$KCL_GNU_SED' cmd before='$c_old' (want '$STUB_SED') new rc=$rc cmd after='$c_new'"
+fi
+gS.delete
+
+kt_test_start "N1: KCL_GNU_SED=/nonexistent — \`.new\` rc 0 and SILENT (debug on), cmd '', \`_toolErr\` = ktool's text"
+KCL_GNU_SED=/nonexistent
+ktool.gnu sed || :
+ktool.lastError; WANT_ERR="$RESULT"
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+TUtilGnuProbe.new gN 2>"$ERRF"; rc=$?
+VERBOSE_KKLASS=
+if [[ $rc -eq 0 && ! -s "$ERRF" && -z "$(gN.cmd)" && "$(gN._toolErr)" == "$WANT_ERR" \
+      && "$WANT_ERR" == "no GNU sed: $NOEXEC_TXT; "* ]]; then
+    kt_test_pass "rc 0, no stderr, _toolErr='$(gN._toolErr)'"
+else
+    kt_test_fail "rc=$rc stderr='$(<"$ERRF")' cmd='$(gN.cmd)' _toolErr='$(gN._toolErr)' want '$WANT_ERR'"
+fi
+
+kt_test_start "N2: the disarmed instance — \`argv\` rc 2, RESULT '', the caller's array untouched, EXACTLY ONE debug line = buildArgv + ktool's text"
+declare -a NOUT=( keep )
+: > "$ERRF"
+RESULT="sentinel"
+VERBOSE_KKLASS=debug
+gN.argv NOUT 2>"$ERRF"; rc=$?; r="$RESULT"
+VERBOSE_KKLASS=
+nlines "$ERRF"
+if [[ $rc -eq 2 && -z "$r" && $NLINES -eq 1 \
+      && "$(<"$ERRF")" == "Error: TUtil.buildArgv: $WANT_ERR" ]] && arr_is NOUT keep; then
+    kt_test_pass "rc 2, one line: $(<"$ERRF")"
+else
+    kt_test_fail "rc=$rc RESULT='$r' NOUT=$(arr_show NOUT) $NLINES line(s): $(<"$ERRF")"
+fi
+
+kt_test_start "N2 + D-L34-6: the disarmed instance — \`run\` rc 2 with the same ONE line, nothing runs, \`_lastRc\` stays -1"
+rm -f "$FLAG"
+gN.addArg "$BASH" -c ": > '$FLAG'"
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+gN.run >"$OUTF" 2>"$ERRF"; rc=$?
+VERBOSE_KKLASS=
+gN.lastRc; lr="$RESULT"
+nlines "$ERRF"
+if [[ $rc -eq 2 && "$lr" == "-1" && ! -e "$FLAG" && ! -s "$OUTF" && $NLINES -eq 1 \
+      && "$(<"$ERRF")" == "Error: TUtil.buildArgv: $WANT_ERR" ]]; then
+    kt_test_pass "rc 2, lastRc -1, nothing ran, one line"
+else
+    kt_test_fail "rc=$rc lastRc='$lr' flag=$( [[ -e "$FLAG" ]] && echo yes || echo no ) stdout='$(<"$OUTF")' $NLINES line(s): $(<"$ERRF")"
+fi
+
+kt_test_start "N2: the disarmed instance — a SINK (\`count\`) is rc 2, RESULT '', EXACTLY ONE debug line = buildArgv + ktool's text, \`_lastRc\` stays -1"
+: > "$ERRF"
+RESULT="sentinel"
+VERBOSE_KKLASS=debug
+gN.count >"$OUTF" 2>"$ERRF"; rc=$?; r="$RESULT"
+VERBOSE_KKLASS=
+gN.lastRc; lr="$RESULT"
+nlines "$ERRF"
+if [[ $rc -eq 2 && -z "$r" && "$lr" == "-1" && ! -s "$OUTF" && $NLINES -eq 1 \
+      && "$(<"$ERRF")" == "Error: TUtil.buildArgv: $WANT_ERR" ]]; then
+    kt_test_pass "rc 2, RESULT '', one line"
+else
+    kt_test_fail "rc=$rc RESULT='$r' lastRc='$lr' stdout='$(<"$OUTF")' $NLINES line(s): $(<"$ERRF")"
+fi
+
+kt_test_start "N4: \`x.cmd = …\` re-arms it — argv rc 0 with word 0 = that path and NO debug line; \`_toolErr\` keeps ktool's text"
+gN.clearArgs
+gN.cmd = "$STUB_SED"
+declare -a NOUT2=()
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+gN.argv NOUT2 2>"$ERRF"; rc=$?
+VERBOSE_KKLASS=
+if [[ $rc -eq 0 && ! -s "$ERRF" && "$(gN._toolErr)" == "$WANT_ERR" ]] && arr_is NOUT2 "$STUB_SED"; then
+    kt_test_pass "argv=$(arr_show NOUT2), silent, _toolErr kept"
+else
+    kt_test_fail "rc=$rc argv=$(arr_show NOUT2) stderr='$(<"$ERRF")' _toolErr='$(gN._toolErr)'"
+fi
+gN.delete
+unset -v KCL_GNU_SED
+
+kt_test_start "\`tutil._gnu\` with an UNKNOWN family — \`.new\` rc 0, cmd '', \`_toolErr\` = ktool's rc-2 text"
+krc=0
+ktool.gnu no_such_family_xyz || krc=$?
+ktool.lastError; WANT_ERR="$RESULT"
+TUtilGnuProbe.new gU no_such_family_xyz; rc=$?
+if [[ $krc -eq 2 && $rc -eq 0 && -z "$(gU.cmd)" && "$(gU._toolErr)" == "$WANT_ERR" \
+      && "$WANT_ERR" == "ktool.gnu: unknown tool family 'no_such_family_xyz'"* ]]; then
+    kt_test_pass "rc 0, _toolErr='$(gU._toolErr)'"
+else
+    kt_test_fail "ktool rc=$krc new rc=$rc cmd='$(gU.cmd)' _toolErr='$(gU._toolErr)' want '$WANT_ERR'"
+fi
+gU.delete

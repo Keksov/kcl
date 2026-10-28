@@ -1,11 +1,12 @@
 # tutil — test coverage notes
 
-**Status: refreshed 2026-10-22 (launch L2.7-C, the CR contract: `005_TextMode.sh`
+**Status: refreshed 2026-10-28 (launch L3.4: `tutil._gnu`, `_toolErr`,
+`001_Core.sh` §H); 2026-10-22 (launch L2.7-C, the CR contract: `005_TextMode.sh`
 added); before that 2026-09-24 (tawk P1); at P4 (D6 final, `subshellOk`,
-2026-09-15); FINALIZED at P3 (2026-09-11).** Suite `001`–`005` = **226 cases**,
+2026-09-15); FINALIZED at P3 (2026-09-11).** Suite `001`–`005` = **235 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single`. The per-file row counts below sum to
-226 — 86 + 64 + 51 + 8 + 17 — and **every case in the suite has a row**.
+235 — 95 + 64 + 51 + 8 + 17 — and **every case in the suite has a row**.
 
 **What changed since the P4 edition (184 cases).** Three descendants each
 changed `tutil._badOut` and added their cases to `001_Core.sh` §C; 002, 003 and
@@ -17,6 +18,7 @@ changed `tutil._badOut` and added their cases to `001_Core.sh` §C; 002, 003 and
 | tfind P0 (2026-09-16) | `c281d40` | +10 (187 → 197) | the **`TUTIL_OUT_PREFIXES` registry** and its two guards — the registry's own name reserved, fail closed when emptied / unset / scalar (tfind PLAN §2.6, critic blocker 1); 9 of the 10 were red against the pre-registry `_badOut` |
 | tsed P0 (2026-09-23) | `eafa7f7` | +12 (197 → 209) | the **`TUTIL_OUT_SUFFIXES` registry** (`_args _argv _paths`, `_exprs` appended by tsed) with the same two guards (tsed PLAN §2.1, critic major 3); 10 of the 12 were red against the unchanged tutil |
 | launch L2.7-C (2026-10-22) | — | +17 (209 → 226) | `005_TextMode.sh`, the CR contract (owner DL11): `_textMode`, `__TUTIL_TOOLS_STRIP_CR`, the sinks' `-c` and `run`'s filter on the strip path, nothing added on the native path; `001_Core.sh`'s member sweep lists `_textMode` (count unchanged) |
+| launch L3.4 (2026-10-28) | — | +9 (226 → 235) | `001_Core.sh` §H: `tutil._gnu` through a test-defined descendant and a ktool stub (resolved, frozen, disarmed with ktool's text on `argv`/`run`/a sink, re-armed, unknown family) and the generic runner never resolving; §A's defaults and `set -u` reads and §G's member sweep list `_toolErr` (counts unchanged) |
 
 tawk P0 (2026-09-23) appended `__taw_` and `_progs _vnames _vvals` to the two
 registries without touching tutil's code or tests; its registry cases live in
@@ -82,23 +84,23 @@ behaviour of this unit):
 
 ---
 
-## 001_Core.sh — the core: argv model, `run`, `mapRc`, lifecycle (P0; §C extended by thead/ttail, tfind and tsed P0) — 86 cases
+## 001_Core.sh — the core: argv model, `run`, `mapRc`, lifecycle (P0; §C extended by thead/ttail, tfind and tsed P0; §H launch L3.4) — 95 cases
 
 Sections: 0 source integrity (2), A lifecycle (6), B the argv model (11),
 C out-name validation (38: the plain refusals 16, the prefix registry 10, the
 suffix registry 12), D `run` (15), E `mapRc` (5), F `set -eu` (6), G the P0
-stubs gone (3). Rows are in file order.
+stubs gone (3), H `tutil._gnu` / `_toolErr` (9, launch L3.4). Rows are in file order.
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
 | 001.parse | — | the unit source parses (`bash -n`) | contract | §4 — two earlier sweeps corrupted sources while tests stayed green |
 | 001.openquote | — | no single-quoted `printf` format is left open at end of line | contract | §4 |
-| 001.data-defaults | Create | right after `new`, `${inst}_data` lists `cmd`/`crlf`/`nul`/`_lastRc`/**`subshellOk`** with the documented defaults (`subshellOk` = `0`) | contract | **U3**, **C3**, **D6 final Q9** |
+| 001.data-defaults | Create | right after `new`, `${inst}_data` lists `cmd`/`crlf`/`nul`/`_lastRc`/**`subshellOk`**/**`_toolErr`** with the documented defaults (`subshellOk` = `0`, `_toolErr` = `''`, L3.4) | contract | **U3**, **C3**, **D6 final Q9** |
 | 001.arrays-created | Create | `${inst}_args` and `${inst}_argv` exist as EMPTY indexed arrays right after `new` | contract | **U3**, §2.1 |
 | 001.lastrc-initial | lastRc | `lastRc` is `-1` until something ran | contract | §2.1 — `RESULT=-1` has corpus precedent (tarray, tlist) |
 | 001.delete-frees | Destroy | after `delete` neither `${inst}_args` nor `${inst}_argv` nor `${inst}_data` exists | contract | **U3**, §1.9 |
 | 001.reuse-clean | Create | a SECOND instance reusing the name starts empty — no storage left over | boundary | **C3** — `.new` over a live instance does not clear `_data` |
-| 001.setu-vars | Create | every declared var — `subshellOk` included — is readable under `set -u` right after `new` | bash-convention | **C3** — unbound on 5.3.9, silently empty on 5.2.37 ([docs §3.3](../../../tutil/docs/TUtil.md#33-c3--an-unassigned-var-is-unbound-under-set--u--and-the-two-bashes-disagree)) |
+| 001.setu-vars | Create | every declared var — `subshellOk` and `_toolErr` included — is readable under `set -u` right after `new` | bash-convention | **C3** — unbound on 5.3.9, silently empty on 5.2.37 ([docs §3.3](../../../tutil/docs/TUtil.md#33-c3--an-unassigned-var-is-unbound-under-set--u--and-the-two-bashes-disagree)) |
 | 001.ctor-verbatim | Create | constructor arguments reach `Create` verbatim, `--format=%H` included | representation | **U2**, §1.2 |
 | 001.buildargv-base | buildArgv | fills `${inst}_argv` with `cmd` + args; RESULT = the count | contract | **U2** |
 | 001.buildargv-rebuild | buildArgv | calling it twice does not accumulate | boundary | §2.2 |
@@ -176,7 +178,28 @@ stubs gone (3). Rows are in file order.
 | 001.eu-badcall | argv | a malformed CALL (bad out-name) does not abort a `set -eu` caller | contract | §1.2 |
 | 001.stub-gone | all | no member answers the `__TUTIL_PENDING__` sentinel any more | contract | **C23**, §5 P1.1 |
 | 001.stub-source | — | the string `__TUTIL_PENDING__` is not in the unit source at all | contract | **C23** |
-| 001.members-real | all | all **17** declared members exist as real bodies — none is a bare rc 2 stub | contract | §1.2 |
+| 001.members-real | all | all **19** declared members (`_textMode` since L2.7-C, `_toolErr` since L3.4) exist as real bodies — none is a bare rc 2 stub | contract | §1.2 |
+
+### §H — `tutil._gnu`, `_toolErr` (launch L3.4) — 9 cases
+
+A wrapper in miniature is defined in the test file: `TUtilGnuProbe`, whose
+`Create` is `parent.constructor sed` + `tutil._gnu "${1:-sed}"`, with no
+`buildArgv` override (the base's `cmd`-empty branch is the one under test). The
+GNU sed is a stub (`kt_gnu_stub`, `tests/gnu_helper.sh`) selected through the
+shell variable `KCL_GNU_SED`, so the section runs the same on every box; the
+expected error texts are ktool's own (`ktool.lastError` for the same input).
+
+| ID | Members | Case | Class | Basis |
+|---|---|---|---|---|
+| 001.h-generic | Create, argv | the generic `TUtil.new uH printf …` never resolves: `cmd` = `printf`, argv word 0 `printf`, `[_toolErr]=""`, and `TUtil.Create` has no `tutil._gnu` | contract | G3, C2 |
+| 001.h-stub | `tutil._gnu`, argv | `KCL_GNU_SED` = a stub: `.new` rc 0, `cmd` = the stub path, `_toolErr` `''`, argv word 0 = the stub | contract | G2, G5 |
+| 001.h-frozen | `tutil._gnu` | `KCL_GNU_SED` moved to a second stub: the live instance keeps its `cmd`; `.new` over the same live name re-resolves to the new stub | contract | G6 |
+| 001.h-none | `tutil._gnu` | `KCL_GNU_SED=/nonexistent`: `.new` rc 0 and silent under the switch, `cmd` `''`, `_toolErr` = ktool's text (`no GNU sed: KCL_GNU_SED='/nonexistent' is not an executable file; …`) | contract | N1, D-L34-3 |
+| 001.h-argv | argv, buildArgv | the disarmed instance: `argv` rc 2, RESULT `''`, the caller's array untouched, exactly ONE debug line `Error: TUtil.buildArgv: <ktool text>` | contract | N2, A2 |
+| 001.h-run | run | the disarmed instance: `run` rc 2, the same one line, nothing runs (flag file), `lastRc` stays `-1` | contract | N2, D-L34-6 |
+| 001.h-sink | count | the disarmed instance: a sink is rc 2, RESULT `''`, the same one line, `lastRc` stays `-1` | contract | N2, D-L34-3 |
+| 001.h-rearm | cmd, argv | `cmd = <stub>` re-arms it: argv rc 0, word 0 = that path, no debug line; `_toolErr` keeps ktool's text | contract | N4, G7 |
+| 001.h-unknown | `tutil._gnu` | an unknown family: `.new` rc 0, `cmd` `''`, `_toolErr` = ktool's rc 2 text (`ktool.gnu: unknown tool family '…'`) | contract | G5 |
 
 ## 002_Sinks.sh — the five sinks through TPipe (P1, §B extended at P4) — 64 cases
 
