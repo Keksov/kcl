@@ -38,12 +38,15 @@ fso_fmt() {
 
 # fso_epoch STRING [utc] -> epoch seconds of a date string (local time; utc:
 # read as UTC). `date -d` (GNU, busybox), else BSD `date -j -f`, which takes
-# the canonical `YYYY-MM-DD HH:MM:SS` form only.
+# the canonical `YYYY-MM-DD HH:MM:SS` form only. utc also runs date under
+# TZ=UTC0: uutils 0.2.2 (Ubuntu 25.10) ignores -u for a zone-less string and
+# reads local time (launch OG8).
 fso_epoch() {
-    local u=()
     if [[ "${2:-}" == "utc" ]]; then
-        u=(-u)
+        TZ=UTC0 date -u -d "$1" +%s 2>/dev/null \
+            || TZ=UTC0 date -u -j -f '%Y-%m-%d %H:%M:%S' "$1" +%s
+    else
+        date -d "$1" +%s 2>/dev/null \
+            || date -j -f '%Y-%m-%d %H:%M:%S' "$1" +%s
     fi
-    date "${u[@]}" -d "$1" +%s 2>/dev/null \
-        || date "${u[@]}" -j -f '%Y-%m-%d %H:%M:%S' "$1" +%s
 }

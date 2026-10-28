@@ -153,7 +153,8 @@ tpath._touchTime "$f" "2023-11-14 22:13:20" -a true
 eq "setter: a UTC date string goes to touch -t under TZ=UTC0 [R3]" \
    "TZ=UTC0 -a -t 202311142213.20 -- $f" "$got"
 
-# BSD date: no -d, the canonical string through -j -f.
+# BSD date: no -d, a NON-canonical string through -j -f (a canonical UTC
+# string never reaches `date`: OG8, the bash conversion below).
 want_e="$(fso_epoch "2023-11-14 22:13:20" utc)"
 date() {
     printf '%s\n' "$*" >> "$LOG"
@@ -168,11 +169,11 @@ date() {
 }
 : > "$LOG"
 got=''
-tpath._touchTime "$f" "2023-11-14 22:13:20" -m true
+tpath._touchTime "$f" "2023-11-14 22:13" -m true
 eq "setter: date -d fails, BSD date -j -f answers [R3]" \
    "TZ=UTC0 -m -t 202311142213.20 -- $f" "$got"
 kt_test_start "setter: the BSD date argv [R3]"
-if grep -qxF -- "-u -j -f %Y-%m-%d %H:%M:%S 2023-11-14 22:13:20 +%s" "$LOG"; then
+if grep -qxF -- "-u -j -f %Y-%m-%d %H:%M:%S 2023-11-14 22:13 +%s" "$LOG"; then
     kt_test_pass "BSD date argv"
 else
     kt_test_fail "argv log: $(tr '\n' '|' < "$LOG")"
@@ -195,8 +196,10 @@ f="$TMP/r4.txt"
 # Epoch -1 cannot be STORED everywhere: FreeBSD's VFS reads -1 as "no
 # change" (VNOVAL; touch then stores "now"), busybox touch refuses it and
 # busybox date neither parses a string that means it nor formats @-1. So -1
-# is checked on the argv (a `date` that answers -1) and through a stat that
-# answers it; -2 round-trips on the real filesystem.
+# is checked on the argv (the canonical UTC string passes through bash since
+# OG8, so the `date` stub below is never asked; it only proves that no `date`
+# answer is needed) and through a stat that answers it; -2 round-trips on the
+# real filesystem.
 got=''
 touch() { got="TZ=${TZ-unset} $*"; }
 function /usr/bin/touch { got="TZ=${TZ-unset} $*"; }
@@ -243,3 +246,50 @@ rc=0; tpath._touchTime "$f" 253402300800 -m || rc=$?
 eq "setter: an epoch past 9999-12-31 23:59:59 UTC is refused [round 2]" "1 8" "$rc $(fso_stat Y "$f")"
 rc=0; tpath._touchTime "$f" 9999999999999 -m || rc=$?
 eq "setter: an epoch of 13 digits is refused [round 2]" "1 8" "$rc $(fso_stat Y "$f")"
+
+# --- OG8: a canonical UTC string is converted in bash -----------------------
+# uutils coreutils 0.2.2 `date -u -d` ignores -u for a zone-less string and
+# reads local time (TZ=JST-9 here: 1699967600 instead of 1700000000), so the
+# *Utc setters never ask `date` for a string of the form YYYY-MM-DD HH:MM:SS.
+for c in "1970-01-01 00:00:00|0" "2023-11-14 22:13:20|1700000000" \
+         "1969-12-31 23:59:58|-2" "1000-01-01 00:00:00|-30610224000" \
+         "9999-12-31 23:59:59|253402300799" "2008-09-09 09:08:09|1220951289" \
+         "2000-02-29 12:00:00|951825600"; do
+    rc=0; REPLY=''; tpath._utcEpoch "${c%|*}" || rc=$?
+    eq "_utcEpoch: ${c%|*} is ${c#*|} [OG8]" "0 ${c#*|}" "$rc $REPLY"
+done
+for c in "1900-02-29 00:00:00" "2023-02-29 00:00:00" "2023-13-01 00:00:00" \
+         "2023-04-31 00:00:00" "2023-01-01 24:00:00" "2023-01-01 00:60:00" \
+         "2023-11-14 22:13"; do
+    rc=0; REPLY=''; tpath._utcEpoch "$c" || rc=$?
+    eq "_utcEpoch: '$c' is refused [OG8]" "1 " "$rc $REPLY"
+done
+
+f="$TMP/og8.txt"
+: > "$f"
+rc=0; tpath._touchTime "$f" "2023-11-14 22:13:20" -m true || rc=$?
+eq "setter: UTC 2023-11-14 22:13:20 stores 1700000000 [OG8]" "0 1700000000" "$rc $(fso_stat Y "$f")"
+rc=0; tpath._touchTime "$f" "2008-09-09 09:08:09" -m true || rc=$?
+eq "setter: UTC 2008-09-09 09:08:09 (octal trap) stores 1220951289 [OG8]" "0 1220951289" "$rc $(fso_stat Y "$f")"
+touch -m -t 202311142213.20 -- "$f" 2>/dev/null
+before="$(fso_stat Y "$f")"
+for c in "1900-02-29 00:00:00" "2023-02-29 00:00:00" "2023-13-01 00:00:00" \
+         "2023-04-31 00:00:00" "2023-01-01 24:00:00" "2023-01-01 00:60:00"; do
+    rc=0; tpath._touchTime "$f" "$c" -m true || rc=$?
+    eq "setter: invalid canonical UTC '$c' is refused, time unchanged [OG8]" \
+       "1 $before" "$rc $(fso_stat Y "$f")"
+done
+
+# No `date` at all for a canonical UTC string.
+rm -f "$TMP/date.og8"
+date() { echo x >> "$TMP/date.og8"; return 1; }
+: > "$f"
+rc=0; tpath._touchTime "$f" "2023-11-14 22:13:20" -m true || rc=$?
+unset -f date
+eq "setter: canonical UTC string needs no date [OG8]" "0 1700000000" "$rc $(fso_stat Y "$f")"
+kt_test_start "setter: date was never called for a canonical UTC string [OG8]"
+if [[ ! -e "$TMP/date.og8" ]]; then
+    kt_test_pass "no date call"
+else
+    kt_test_fail "date was called"
+fi

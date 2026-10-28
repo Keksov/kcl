@@ -458,10 +458,57 @@ tpath._statTime() {
     return 0
 }
 
+# Epoch seconds of a canonical UTC date string `YYYY-MM-DD HH:MM:SS` (years
+# 1000..9999), computed in bash: no `date`, no fork (launch OG8: uutils 0.2.2
+# `date -u -d` ignores -u for a zone-less string and reads local time).
+# rc 0 + REPLY = the epoch; rc 1 when $1 is not canonical or names a date that
+# does not exist (month 1-12, day within the month, Gregorian leap years,
+# hour 0-23, minute 0-59, second 0-59). Days-from-civil after H. Hinnant; for
+# years >= 1000 every operand is positive, so bash's truncating `/` is exact.
+tpath._utcEpoch() {
+    local __tp_s="${1:-}"
+    local __tp_re='^([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2}):([0-9]{2}):([0-9]{2})$'
+    if [[ ! "$__tp_s" =~ $__tp_re ]]; then
+        return 1
+    fi
+    local __tp_y=$((10#${BASH_REMATCH[1]})) __tp_mo=$((10#${BASH_REMATCH[2]}))
+    local __tp_d=$((10#${BASH_REMATCH[3]})) __tp_h=$((10#${BASH_REMATCH[4]}))
+    local __tp_mi=$((10#${BASH_REMATCH[5]})) __tp_se=$((10#${BASH_REMATCH[6]}))
+    local __tp_ml __tp_era __tp_yoe __tp_doy __tp_doe
+    if (( __tp_mo < 1 || __tp_mo > 12 || __tp_h > 23 || __tp_mi > 59 || __tp_se > 59 )); then
+        return 1
+    fi
+    case $__tp_mo in
+        4|6|9|11) __tp_ml=30 ;;
+        2)
+            if (( __tp_y % 4 == 0 && (__tp_y % 100 != 0 || __tp_y % 400 == 0) )); then
+                __tp_ml=29
+            else
+                __tp_ml=28
+            fi ;;
+        *) __tp_ml=31 ;;
+    esac
+    if (( __tp_d < 1 || __tp_d > __tp_ml )); then
+        return 1
+    fi
+    if (( __tp_mo <= 2 )); then
+        __tp_y=$(( __tp_y - 1 ))
+    fi
+    __tp_era=$(( __tp_y / 400 ))
+    __tp_yoe=$(( __tp_y - __tp_era * 400 ))
+    __tp_doy=$(( (153 * (__tp_mo > 2 ? __tp_mo - 3 : __tp_mo + 9) + 2) / 5 + __tp_d - 1 ))
+    __tp_doe=$(( __tp_yoe * 365 + __tp_yoe / 4 - __tp_yoe / 100 + __tp_doy ))
+    REPLY=$(( (__tp_era * 146097 + __tp_doe - 719468) * 86400 + __tp_h * 3600 + __tp_mi * 60 + __tp_se ))
+    return 0
+}
+
 # Set a timestamp of $1. $2 = epoch seconds or a date string, $3 = touch flag
 # (-a or -m), $4 == "true" reads a date STRING as UTC (an epoch is absolute
-# and never shifts). A date string is `YYYY-MM-DD HH:MM:SS` everywhere; other
-# forms only where `date -d` parses them (GNU, busybox; BSD has `date -j -f`).
+# and never shifts). A date string is `YYYY-MM-DD HH:MM:SS` everywhere; a
+# canonical UTC string is converted in bash without `date` (launch OG8: uutils
+# 0.2.2 `date -u -d` ignores -u for zone-less strings); every other form still
+# needs a `date` that parses it correctly (`date -d`: GNU, busybox; BSD has
+# `date -j -f`).
 #
 # G6-08: the old code went through `date +%Y%m%d%H%M.%S` and `touch -t`, and
 # `touch -t` reads LOCAL time - so every *Utc setter stored a value shifted by
@@ -481,9 +528,15 @@ tpath._touchTime() {
     if [[ "$__tp_v" =~ ^[0-9]+$ ]]; then
         __tp_e="$__tp_v"
     elif [[ "$__tp_utc" == "true" ]]; then
-        __tp_e=$(date -u -d "$__tp_v" +%s 2>/dev/null) \
-            || __tp_e=$(date -u -j -f '%Y-%m-%d %H:%M:%S' "$__tp_v" +%s 2>/dev/null) \
-            || return 1
+        if tpath._utcEpoch "$__tp_v"; then
+            __tp_e="$REPLY"
+        elif [[ "$__tp_v" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
+            return 1   # canonical but not a date (2023-02-29, hour 24, ...)
+        else
+            __tp_e=$(date -u -d "$__tp_v" +%s 2>/dev/null) \
+                || __tp_e=$(date -u -j -f '%Y-%m-%d %H:%M:%S' "$__tp_v" +%s 2>/dev/null) \
+                || return 1
+        fi
     else
         __tp_e=$(date -d "$__tp_v" +%s 2>/dev/null) \
             || __tp_e=$(date -j -f '%Y-%m-%d %H:%M:%S' "$__tp_v" +%s 2>/dev/null) \
