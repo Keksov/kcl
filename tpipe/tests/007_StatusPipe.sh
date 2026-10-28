@@ -14,13 +14,19 @@
 #   B  the EOF path recovers the RC of a function and of a builtin producer
 #      when `wait` answers 127, through count / toArray / each / toList, with
 #      NOTHING on stderr; a real status from `wait` (0, 143) is kept; a real
-#      127 and an `exit 4` stay themselves; an EXTERNAL producer is started as
-#      before and keeps wait's 127 (and bash's line). 5.2.37's -1 cannot be
+#      127 and an `exit 4` stay themselves; an EXTERNAL producer is recovered
+#      the same way through every sink (launch L34-F1: it runs in the
+#      reporting subshell instead of being exec'd). 5.2.37's -1 cannot be
 #      faked (a function returns 255 for -1); the load repro covers it.
-#   C  the stop path recovers it too (the callback waits until the producer's
-#      line is in the pipe, so the producer is certainly done before the kill),
-#      and an infinite function producer that the stop ends keeps 141/143 —
-#      its EXIT-trap report says 0 and must not win
+#   C  the stop path recovers it too, for a function and for an external
+#      producer (the callback waits until the producer's line is in the pipe,
+#      so the producer is certainly done before the kill), and an infinite
+#      producer that the stop ends keeps 141/143 — its EXIT-trap report says 0
+#      and must not win; an external producer keeps the stop semantics of
+#      the exec'd form (rule S, L34-F1 round 3): it is reached by the tree
+#      stop and gone afterwards — reaped, not a zombie — one with a slow TERM
+#      handler finishes its cleanup and its own exit code is lastRc, one that
+#      ignores TERM blocks the stop until it ends
 #   D  the pipe is drained on every close: nothing pending, nothing queued
 #   E  nesting: an inner sink that drains the OUTER producer's line keeps it for
 #      the outer close; a TPipe inside a producer opens that process's own pipe
@@ -29,7 +35,8 @@
 #   G  `set -eu` and IFS=':' in the caller change nothing
 #   H  guards: the claim rule called directly (-1 and 256 take the report — the
 #      only deterministic proof of the 5.2.37 branch — 127 too, a real 3
-#      stays); the script's own file on our fd number, after a call and during
+#      stays); only a tagged `__TPST PID RC` line counts, a record flushed in
+#      front of it (`y…`) and an untagged line are dropped (T2); the script's own file on our fd number, after a call and during
 #      one, is neither written nor read and a new pipe is opened; a producer
 #      that redirects that number gets no line in its log; user functions
 #      `printf` / `enable` change nothing; a producer with its own EXIT trap
@@ -61,6 +68,30 @@ p3()     { printf 'a\nb\nc\n'; }
 pfail6() { printf 'a\nb\n'; return 6; }
 p1rc5()  { printf 'a\n'; return 5; }
 p127()   { printf 'a\n'; return 127; }
+
+# EXTERNAL producers (another bash, never a function of this shell)
+X6=( "$BASH" -c 'printf "a\nb\n"; exit 6' )
+X0REC6=( "$BASH" -c 'exit 6' )
+X1RC5=( "$BASH" -c 'printf "a\n"; exit 5' )
+
+# gone_007 PID — rc 0 when PID is no live process: absent, or a zombie waiting
+# for init (busybox init on Alpine reaps about once a second; tpipe._ptAlive)
+gone_007() {
+    local l=''
+    kill -0 "$1" 2>/dev/null || return 0
+    { IFS= read -r l < "/proc/$1/stat"; } 2>/dev/null || return 0
+    l="${l##*) }"
+    [[ "${l%% *}" == Z ]]
+}
+
+# kill_007 PIDFILE — the failure path of a stop case: whatever the producer's
+# pid file names is KILLed, so a broken stop leaves no `sleep` behind
+kill_007() {
+    local x=''
+    [[ -s "$1" ]] && x="$(<"$1")"
+    [[ -n "$x" ]] && kill -KILL "$x" 2>/dev/null
+    return 0
+}
 
 # the race, simulated: reap for real, then answer like bash after a lost child
 fake_wait_on() {
@@ -223,16 +254,54 @@ else
     na
 fi
 
-kt_test_start "an EXTERNAL producer is started as before: wait's 127 and bash's line stand"
+kt_test_start "count on an EXTERNAL producer: wait says 127, lastRc is the real 6, stderr empty"
 if [[ "$ON" == 1 ]]; then
     fake_wait_on
-    TPipe.count -- "$BASH" -c 'printf "a\n"; exit 6' 2>"$ERRF"; rc=$?
+    TPipe.count -- "${X6[@]}" 2>"$ERRF"; rc=$?
+    res="$RESULT"
     fake_wait_off
     TPipe.lastRc; lr="$RESULT"
-    if [[ $rc -eq 1 && "$lr" == 127 ]] && grep -q 'is not a child' "$ERRF"; then
-        kt_test_pass "lastRc 127 (no status line for an exec'd producer), the line on stderr"
+    if [[ "$res" == 2 && $rc -eq 1 && "$lr" == 6 && ! -s "$ERRF" ]] && st_clean; then
+        kt_test_pass "RESULT 2, rc 1, lastRc 6 (the subshell's report), no stderr, queue empty"
     else
-        kt_test_fail "rc=$rc lastRc='$lr' stderr='$(<"$ERRF")'"
+        kt_test_fail "RESULT='$res' rc=$rc lastRc='$lr' queue=${#__TPIPE_STQ[@]} stderr='$(<"$ERRF")'"
+    fi
+else
+    na
+fi
+
+kt_test_start "toArray, each and toList on an EXTERNAL producer recover it too"
+if [[ "$ON" == 1 ]]; then
+    cb_x007() { return 0; }
+    TAdd007.new AX
+    fake_wait_on
+    GOT=()
+    TPipe.toArray GOT -- "${X6[@]}" 2>"$ERRF"; a_rc=$?; TPipe.lastRc; a_lr="$RESULT"
+    TPipe.each cb_x007 -- "${X6[@]}" 2>>"$ERRF"; e_rc=$?; e_n="$RESULT"; TPipe.lastRc; e_lr="$RESULT"
+    TPipe.toList AX -- "${X6[@]}" 2>>"$ERRF"; l_rc=$?; l_n="$RESULT"; TPipe.lastRc; l_lr="$RESULT"
+    fake_wait_off
+    AX.delete
+    if [[ $a_rc -eq 1 && "$a_lr" == 6 && "${GOT[*]}" == "a b" && $e_rc -eq 1 && "$e_n" == 2 && "$e_lr" == 6 \
+          && $l_rc -eq 1 && "$l_n" == 2 && "$l_lr" == 6 && ! -s "$ERRF" ]] && st_clean; then
+        kt_test_pass "toArray (a b) / each 2 / toList 2: rc 1, lastRc 6, no stderr"
+    else
+        kt_test_fail "toArray rc=$a_rc lr=$a_lr got=(${GOT[*]}) / each rc=$e_rc n=$e_n lr=$e_lr / toList rc=$l_rc n=$l_n lr=$l_lr / stderr='$(<"$ERRF")'"
+    fi
+else
+    na
+fi
+
+kt_test_start "first on an EXTERNAL producer that writes nothing: rc 1, lastRc the real 6 (EOF path)"
+if [[ "$ON" == 1 ]]; then
+    fake_wait_on
+    TPipe.first -- "${X0REC6[@]}" 2>"$ERRF"; rc=$?
+    res="$RESULT"
+    fake_wait_off
+    TPipe.lastRc; lr="$RESULT"
+    if [[ $rc -eq 1 && -z "$res" && "$lr" == 6 && ! -s "$ERRF" ]] && st_clean; then
+        kt_test_pass "rc 1, RESULT '', lastRc 6, no stderr"
+    else
+        kt_test_fail "rc=$rc RESULT='$res' lastRc='$lr' stderr='$(<"$ERRF")'"
     fi
 else
     na
@@ -276,6 +345,22 @@ else
     na
 fi
 
+kt_test_start "each + stop on an EXTERNAL producer that is already done: lastRc is its own 5"
+if [[ "$ON" == 1 ]]; then
+    fake_wait_on
+    TPipe.each stop_when_done_007 -- "${X1RC5[@]}" 2>"$ERRF"; rc=$?
+    res="$RESULT"
+    fake_wait_off
+    TPipe.lastRc; lr="$RESULT"
+    if [[ $rc -eq 0 && "$res" == 1 && "$lr" == 5 && ! -s "$ERRF" ]] && st_clean; then
+        kt_test_pass "rc 0, 1 record, lastRc 5, no stderr, pipe drained"
+    else
+        kt_test_fail "rc=$rc RESULT='$res' lastRc='$lr' queue=${#__TPIPE_STQ[@]} stderr='$(<"$ERRF")'"
+    fi
+else
+    na
+fi
+
 pinf_007() { while :; do printf 'y\n'; done; }
 
 kt_test_start "first on an INFINITE function producer: lastRc 141/143, not the trap's 0"
@@ -287,6 +372,83 @@ if [[ "$ON" == 1 ]]; then
         kt_test_pass "rc 0, RESULT y, lastRc $lr, queue empty"
     else
         kt_test_fail "rc=$rc RESULT='$res' lastRc='$lr' queue=${#__TPIPE_STQ[@]} stderr='$(<"$ERRF")'"
+    fi
+else
+    na
+fi
+
+kt_test_start "first on an infinite EXTERNAL producer: lastRc 141/143, and the producer is gone"
+if [[ "$ON" == 1 ]]; then
+    rm -f "$TMP/xpid"
+    TPipe.first -- "$BASH" -c 'echo $$ > "$1"; trap "" PIPE; printf "y\n"; exec sleep 30' _ "$TMP/xpid" 2>"$ERRF"; rc=$?
+    res="$RESULT"
+    TPipe.lastRc; lr="$RESULT"
+    xp="$(<"$TMP/xpid")"
+    if [[ $rc -eq 0 && "$res" == y && ( "$lr" == 141 || "$lr" == 143 ) && -n "$xp" && ! -s "$ERRF" ]] \
+       && gone_007 "$xp" && st_clean; then
+        kt_test_pass "rc 0, RESULT y, lastRc $lr; the external producer (pid $xp, PIPE ignored) is gone"
+    else
+        kt_test_fail "rc=$rc RESULT='$res' lastRc='$lr' xpid='$xp' gone=$(gone_007 "$xp" && echo yes || echo no) stderr='$(<"$ERRF")'"
+        kill_007 "$TMP/xpid"
+    fi
+else
+    na
+fi
+
+kt_test_start "a stopped EXTERNAL producer is reaped by its subshell: its pid is gone, not a zombie [rule S, R3]"
+if [[ "$ON" == 1 ]]; then
+    rm -f "$TMP/xpid"
+    TPipe.first -- "$BASH" -c 'echo $$ > "$1"; printf "y\n"; exec sleep 30' _ "$TMP/xpid" 2>"$ERRF"; rc=$?
+    res="$RESULT"
+    TPipe.lastRc; lr="$RESULT"
+    xp="$(<"$TMP/xpid")"
+    st=gone
+    [[ -n "$xp" && -e "/proc/$xp" ]] && st="present ($(gone_007 "$xp" && echo zombie || echo alive))"
+    if [[ $rc -eq 0 && "$res" == y && "$lr" == 143 && -n "$xp" && "$st" == gone && ! -s "$ERRF" ]] && st_clean; then
+        kt_test_pass "rc 0, lastRc 143, /proc/$xp is gone right after the stop"
+    else
+        kt_test_fail "rc=$rc RESULT='$res' lastRc='$lr' xpid='$xp' state=$st stderr='$(<"$ERRF")'"
+        kill_007 "$TMP/xpid"
+    fi
+else
+    na
+fi
+
+kt_test_start "an EXTERNAL producer with a slow TERM handler finishes it: lastRc is its own 130, its cleanup done [rule S, R1]"
+if [[ "$ON" == 1 ]]; then
+    rm -f "$TMP/xpid" "$TMP/xdone"
+    t0="${EPOCHREALTIME/[.,]/}"
+    TPipe.first -- "$BASH" -c 'exec 2>/dev/null; echo $$ > "$1"; trap "sleep 1; echo done > \"$2\"; exit 130" TERM; printf "y\n"; while :; do sleep 0.2; done' _ "$TMP/xpid" "$TMP/xdone" 2>"$ERRF"; rc=$?
+    res="$RESULT"
+    ms=$(( ( ${EPOCHREALTIME/[.,]/} - t0 ) / 1000 ))
+    TPipe.lastRc; lr="$RESULT"
+    xp="$(<"$TMP/xpid")"
+    if [[ $rc -eq 0 && "$res" == y && "$lr" == 130 && -s "$TMP/xdone" && -n "$xp" && ! -s "$ERRF" ]] \
+       && (( ms >= 900 && ms < 10000 )) && gone_007 "$xp" && st_clean; then
+        kt_test_pass "rc 0, lastRc 130 (the producer's own), cleanup marker written, ${ms} ms"
+    else
+        kt_test_fail "rc=$rc RESULT='$res' lastRc='$lr' marker=$([[ -s "$TMP/xdone" ]] && echo yes || echo no) ms=$ms xpid='$xp' stderr='$(<"$ERRF")'"
+        kill_007 "$TMP/xpid"
+    fi
+else
+    na
+fi
+
+kt_test_start "an EXTERNAL producer that ignores TERM blocks the stop until it ends: lastRc is its own 0 [rule S]"
+if [[ "$ON" == 1 ]]; then
+    rm -f "$TMP/xpid"
+    t0="${EPOCHREALTIME/[.,]/}"
+    TPipe.first -- "$BASH" -c 'echo $$ > "$1"; trap "" TERM PIPE; printf "y\n"; exec sleep 2' _ "$TMP/xpid" 2>"$ERRF"; rc=$?
+    res="$RESULT"
+    ms=$(( ( ${EPOCHREALTIME/[.,]/} - t0 ) / 1000 ))
+    TPipe.lastRc; lr="$RESULT"
+    xp="$(<"$TMP/xpid")"
+    if [[ $rc -eq 0 && "$res" == y && "$lr" == 0 && -n "$xp" && ! -s "$ERRF" ]] \
+       && (( ms >= 1500 && ms < 10000 )) && gone_007 "$xp" && st_clean; then
+        kt_test_pass "rc 0, lastRc 0 (its own), the stop waited ${ms} ms for the 2 s sleep"
+    else
+        kt_test_fail "rc=$rc RESULT='$res' lastRc='$lr' ms=$ms xpid='$xp' gone=$(gone_007 "$xp" && echo yes || echo no) stderr='$(<"$ERRF")'"
+        kill_007 "$TMP/xpid"
     fi
 else
     na
@@ -432,7 +594,7 @@ CL_RC=''
 # resulting rc
 claim_007() {
     local __tpi_sf="$__TPIPE_STFD" __tpi_pid=999991
-    builtin printf '%s %s\n' "$__tpi_pid" "$2" >&"$__tpi_sf"
+    builtin printf '\n__TPST %s %s\n' "$__tpi_pid" "$2" >&"$__tpi_sf"
     __TPIPE_RC="$1"
     tpipe._stClaim
     CL_RC="$__TPIPE_RC"
@@ -448,6 +610,28 @@ if [[ "$ON" == 1 ]]; then
         kt_test_pass "-1 -> 7, 256 -> 8, 127 -> 5, 3 stays 3; every line consumed"
     else
         kt_test_fail "-1 -> '$r1', 256 -> '$r2', 127 -> '$r3', 3 -> '$r4', queue=${#__TPIPE_STQ[@]}"
+    fi
+else
+    na
+fi
+
+kt_test_start "only a tagged __TPST line counts: a record flushed in front of it and an untagged line are dropped [T2]"
+T2_OUT=''
+t2_007() {
+    local __tpi_sf="$__TPIPE_STFD" __tpi_pid=999991
+    builtin printf 'y999992 4\n' >&"$__tpi_sf"                 # the old, untagged shape
+    builtin printf 'y\n__TPST 999991 5\n' >&"$__tpi_sf"        # a leftover `y`, then the report
+    builtin printf '__TPST 999993 x\n__TPST 999994\n' >&"$__tpi_sf"
+    __TPIPE_RC=127
+    tpipe._stClaim
+    T2_OUT="$__TPIPE_RC|${!__TPIPE_STQ[*]}"
+}
+if [[ "$ON" == 1 ]]; then
+    t2_007
+    if [[ "$T2_OUT" == "5|" ]] && st_clean; then
+        kt_test_pass "wait 127 -> 5 from the tagged line; 'y999992 4', 'y', '__TPST 999993 x', '__TPST 999994' dropped; queue empty"
+    else
+        kt_test_fail "got '$T2_OUT' (want '5|') queue=${#__TPIPE_STQ[@]} (${!__TPIPE_STQ[*]})"
     fi
 else
     na

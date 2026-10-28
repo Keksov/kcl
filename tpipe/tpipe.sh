@@ -140,32 +140,91 @@ fi
 # load (`: < <(exit 6); wait $!`, 4-8 copies in parallel): 0.03-0.3 % of the
 # calls on kb-alpine 5.3.9, kb-ubuntu 5.2.21 and kb-debian 5.2.37, rarely even
 # idle; 0 seen on kb-fedora 5.3.9, on FreeBSD (FIFO procsub) and on cygwin.
-# Only a FAST child that bash does not exec loses: a function or a builtin
-# producer (0 hits in 24000 for an exec'd `/bin/false`). bash 5.3.9 also keeps
-# a stale "running" entry for the lost child, on which a later `wait -n` spins
-# forever (README §4).
+# Any FAST child loses, exec'd or not. L3.5-8 believed an exec'd producer safe
+# (0 lost in 24000 `/bin/false`); launch L34-F measured otherwise with the
+# EOF path itself (`exec {fd}< <( "$@" )`, read to EOF, close, `wait $!`; 8 x
+# 5000 in parallel): an exec'd GNU `grep` lost 30 of 40000 on kb-alpine 5.3.9
+# and 35 of 40000 on kb-debian 5.2.37, an exec'd `/bin/false` 8 and 19, a
+# function producer 52 and 24 — so every wrapper sink (TUtil runs the GNU tool
+# as the producer) could report 127 / -1 for a tool that ran. bash 5.3.9 also
+# keeps a stale "running" entry for the lost child, on which a later `wait -n`
+# spins forever (README §4).
 #
-# The workaround: a FUNCTION or BUILTIN producer reports its own status. It is
-# started as `<( trap "printf 'PID RC\n' >&SFD" EXIT; "$@" )` — a builtin
-# printf in the subshell that already runs it, so no extra process — and when
-# `wait` answers what only a LOST status gives (127, or a value outside 0-255
-# such as 5.2.37's -1), the close takes the RC whose PID matches from the
-# status pipe. An EXIT trap, not a statement after "$@": it also reports a
-# producer that ends through `exit` or through the caller's inherited `set -e`,
-# where a trailing statement never runs (measured: a `set -eu` caller lost the
-# status that way). The trap replaces nothing of the caller's: a subshell does
-# not inherit the EXIT trap. An EXTERNAL producer keeps `<( "$@" )`: bash execs
-# it directly, and a trap would cost a fork per call.
+# The workaround: EVERY producer reports its own status. It is started as
+# `<( trap "printf '\n__TPST PID RC\n' >&SFD" EXIT; "$@" )`, and when `wait`
+# answers what only a LOST status gives (127, or a value outside 0-255 such as
+# 5.2.37's -1), the close takes the RC whose PID matches from the status pipe.
+# A function or a builtin runs in the subshell that writes the report (a
+# builtin printf, no extra process). An EXTERNAL producer is no longer exec'd:
+# with an EXIT trap set, bash forks it from the subshell, waits for it and
+# reports its status — one more fork per call (owner decision OG10, launch
+# L34-F1). Measured, unloaded, median of 5 interleaved runs x 1000 calls, the
+# previous tpipe.sh -> this one: `TPipe.count -- /bin/true` kb-alpine 2.56 ->
+# 3.80 ms (+49 %), kb-debian 2.40 -> 3.76 ms (+57 %); a wrapper sink, `TGrep`
+# count on a 3-line file, kb-alpine 5.84 -> 7.05 ms (+21 %), kb-debian 6.72 ->
+# 8.37 ms (+25 %) (the same VM varies by up to ~0.5 ms between sessions; the
+# interleaved pairs are what counts). The fork is the cost, not the traps: a
+# trap-free form of the same subshell measured the same (kb-debian, 3.86
+# against 3.96 ms), and so did the TERM handler of rule S below (switched off:
+# kb-alpine 3.85 / 7.12 ms, kb-ubuntu 3.60 / 8.92 ms, against 3.80 / 7.05 and
+# 3.54 / 8.88 ms with it). An EXIT
+# trap, not a statement after "$@": it also reports a producer that ends
+# through `exit` or through the caller's inherited `set -e`, where a trailing
+# statement never runs (measured: a `set -eu` caller lost the status that
+# way). The trap replaces nothing of the caller's: a subshell does not inherit
+# the EXIT trap.
+#
+# The stop semantics of an external producer stay those of the exec'd form
+# (rule S, launch L34-F1 round 3): its subshell also sets a no-op TERM handler,
+# `trap ':' TERM`. bash defers a trapped signal while it waits for a foreground
+# command, so a TERM to the subshell changes nothing until the external has
+# ended; the handler is reset to the default in the forked external (an
+# IGNORED TERM, `trap '' TERM`, would be inherited — hence a handler). The tree
+# stop (DL13, below) freezes `$!`, finds the external by the ppid walk and
+# TERMs both: the external gets its one TERM directly, as before; `wait $!`
+# returns when the external has ended, as before — a slow but cooperative TERM
+# handler finishes and its own exit code is lastRc, one that ignores TERM
+# blocks the stop until it ends (README §5); the subshell reaps it (no zombie
+# left to init) and reports its real status; tpipe._ptReap then finds nothing
+# alive. Without that handler the subshell died on the TERM at once, `wait`
+# answered 143 while the external still ran, and tpipe._ptReap cut a slow
+# handler short after the grace (SIGKILL at 1 s), orphaned an external it may
+# not signal (EPERM), and left every stopped external as a zombie of init.
+# A FUNCTION or BUILTIN producer gets no TERM handler: it RUNS in the
+# subshell, and a deferred TERM would make an infinite function loop immortal.
+# Telling them apart costs no fork (tpipe._stWrap): `declare -F` for a
+# function, the builtin set __TPIPE_BI (filled once, by the `<( )` that gives
+# the first process its pipe, and inherited) and the reserved words in
+# __TPIPE_KW are not external; any other name — a file, or a name that is not
+# found (it ends at once with 127) — is. With the `none` process table (a test
+# knob on Linux) only `$!` is TERMed: the subshell's handler is deferred, so an
+# external producer gets no TERM and the stop waits until it ends or dies of
+# SIGPIPE.
 #
 # Why the report does not simply win: bash runs the EXIT trap also when a TERM
 # or a SIGPIPE ends the subshell, and `$?` in there is then 0, not 143/141
-# (measured on 5.2.37: wait 143 / line 0, wait 141 / line 0). A lost child,
-# though, is one that ended BY ITSELF during its own creation — before any stop
-# path could signal it — so whenever `wait` lost the status the report is the
-# true one, and whenever `wait` has a real status it is kept.
+# (measured on 5.2.37 for a function producer: wait 143 / line 0, wait 141 /
+# line 0). A lost child, though, is one that ended BY ITSELF during its own
+# creation — before any stop path could signal it — so whenever `wait` lost
+# the status the report is the true one, and whenever `wait` has a real status
+# it is kept. (An external producer's report is its real status either way:
+# the subshell survives the TERM and reports what the external returned.)
+#
+# The report line is tagged and newline-led: `\n__TPST PID RC\n`, and only a
+# line that is exactly `__TPST <digits> <integer>` is taken; any other line is
+# dropped. Measured (kb-ubuntu 5.2.21, plain bash too): when the stop's signal
+# lands inside a function producer's own `printf 'y\n'`, bash runs the EXIT
+# trap with that record still in its stdout buffer, and the trap's printf
+# flushes it in front of the report — `y28786 0` (1-2 % of such stops). So
+# the trap of a function or builtin producer first flushes any such leftover
+# into /dev/null (`builtin printf '' >/dev/null`: measured on kb-ubuntu, 4 x
+# 2000 stops, 172 leftovers without it, 0 with it), and whatever might still
+# come is put on a line of its own by the leading newline and dropped by the
+# tag and the shape check (0 stale entries in the same loop). An external
+# producer's subshell prints nothing of its own and needs no flush.
 #
 # The status pipe is one anonymous pipe per shell PROCESS, opened read-write on
-# its first function/builtin producer: `exec {fd}<> <(...)` opens
+# its first producer: `exec {fd}<> <(...)` opens
 # /dev/fd/N -> /proc/self/fd/N with O_RDWR, which Linux answers with BOTH ends
 # of that pipe (verified on 5.2.37 and 5.3.9: no blocking, no EOF, it survives
 # the `<( )` child). A subshell opens its own (keyed by BASHPID): sharing the
@@ -188,6 +247,10 @@ declare -g __TPIPE_STFD=''          # the status pipe's fd in THIS process
 declare -g __TPIPE_STPID=''         # the BASHPID that opened __TPIPE_STFD
 declare -gA __TPIPE_STQ=()          # PID -> RC drained but not claimed yet
 declare -gA __TPIPE_BI=()           # the builtin names, filled once (inherited)
+declare -gA __TPIPE_KW=(            # bash's reserved words: never external
+    ['!']=1 [case]=1 [coproc]=1 [do]=1 [done]=1 [elif]=1 [else]=1 [esac]=1
+    [fi]=1 [for]=1 [function]=1 [if]=1 [in]=1 [select]=1 [then]=1 [time]=1
+    [until]=1 [while]=1 ['{']=1 ['}']=1 ['[[']=1 [']]']=1 )
 
 # ---------------------------------------------------------------------------
 # TPipe: run a producer and hand every record to a callback IN THIS SHELL.
@@ -442,15 +505,19 @@ tpipe._subshellWarn() {
 }
 
 # ---------------------------------------------------------------------------
-# tpipe._stWrap NAME — the status pipe (__TPIPE_ST): rc 0 when a producer named
-# NAME is a function or a builtin AND this process has a status pipe (opened
-# on first use by tpipe._stOpen), so the caller starts the reporting form.
-# rc 1: start the plain `<( "$@" )`.
+# tpipe._stWrap NAME — the status pipe (__TPIPE_ST): rc 0 when this process has
+# a status pipe (opened on first use by tpipe._stOpen), so the caller starts
+# the reporting form; rc 1: start the plain `<( "$@" )`. Every producer takes
+# the reporting form (launch L34-F1). It also sets the caller's `__tpi_ext`:
+# 1 when NAME is an EXTERNAL producer, whose subshell gets the no-op TERM
+# handler of rule S (see __TPIPE_ST), 0 for a function, a builtin or a reserved
+# word, and 0 when the builtin set never came (then a builtin cannot be told
+# from a file, and no handler is the safe side: it can never make a function
+# immortal).
 #
-# No fork per call: the __TPIPE_BI set for a builtin (an array lookup, asked
-# first), `declare -F` for a function (once). The set is filled ONCE, by the
-# very `<( )` that gives the first process its pipe, and a subshell inherits
-# it — so an external producer in a subshell costs nothing here.
+# No fork per call: an array lookup in __TPIPE_BI and __TPIPE_KW, then
+# `declare -F` for a function. The builtin set is filled ONCE, by the very
+# `<( )` that gives the first process its pipe, and a subshell inherits it.
 #
 # The fd is checked before every reuse (`[[ -p /dev/fd/N ]]`, no fork): a
 # script may close it or put its own file on that number (`exec 10<data`)
@@ -464,22 +531,17 @@ tpipe._subshellWarn() {
 # stays empty and nothing is retried in this process.
 # ---------------------------------------------------------------------------
 tpipe._stWrap() {
-    if [[ -z "$1" ]]; then
-        return 1
-    fi
-    if [[ -z "${__TPIPE_BI[$1]:-}" ]] && ! builtin declare -F -- "$1" >/dev/null; then
-        if (( ${#__TPIPE_BI[@]} > 0 )) || [[ "$__TPIPE_STPID" == "$BASHPID" ]]; then
-            return 1                        # external (or the set never came)
-        fi
-        tpipe._stOpen || return 1           # fills the builtin set, then ask
-        [[ -n "${__TPIPE_BI[$1]:-}" ]] || return 1
-    fi
+    __tpi_ext=0
     if [[ "$__TPIPE_STPID" != "$BASHPID" ]]; then
         tpipe._stOpen || return 1
     elif [[ -z "$__TPIPE_STFD" ]]; then
         return 1                            # tried and failed in this process
     elif [[ ! -p "/dev/fd/$__TPIPE_STFD" ]]; then
         tpipe._stOpen || return 1           # our number now names something else
+    fi
+    if (( ${#__TPIPE_BI[@]} > 0 )) && [[ -n "$1" && -z "${__TPIPE_BI[$1]:-}" \
+          && -z "${__TPIPE_KW[$1]:-}" ]] && ! builtin declare -F -- "$1" >/dev/null; then
+        __tpi_ext=1
     fi
     return 0
 }
@@ -525,16 +587,20 @@ tpipe._stOpen() {
 # when `wait` answered what a lost status looks like — 127 (5.3.9) or a value
 # outside 0-255 (5.2.37: -1) — take the RC reported by this producer's PID. A
 # real 127 is reported as 127, so it survives; any other answer of `wait` is a
-# real status and stays (the report of a TERMed or SIGPIPEd producer says 0,
-# see __TPIPE_ST). The producer's line is in the pipe by now: it writes it
-# before it exits, and `wait` returns (or gives up) only after the exit. A
-# producer that never wrote one (SIGKILL, `exec` inside the function, a
-# function that sets an EXIT trap of its own) leaves `wait`'s own answer in
+# real status and stays (the report of a subshell ended by a TERM, or of a
+# function producer ended by a SIGPIPE, says 0, see __TPIPE_ST). The
+# producer's line is in the pipe by now: it writes it before it exits, and
+# `wait` returns (or gives up) only after the exit. A producer that never
+# wrote one (SIGKILL, `exec` inside the function, a function that sets an
+# EXIT trap of its own) leaves `wait`'s own answer in
 # place; when that answer is a lost one, a `kk.debug` line says so (the
 # `wait` itself ran with stderr discarded). The own entry is always removed,
 # so the queue holds only lines of sinks still open — or, rarely, a stale one
 # (a sink interrupted between its open and its close), harmless unless that
 # pid is reused AND its new producer writes no line.
+# Only a line that is exactly `__TPST <pid> <rc>` counts (the tagged,
+# newline-led report, see __TPIPE_ST); an empty line and a function producer's
+# record flushed in front of the report (`y`) are dropped.
 # `read -t 0` only polls; the line read after it is whole (one printf of a few
 # bytes is one atomic write). The fd is checked first: when it no longer names
 # a pipe (the script closed it or opened its own file on that number) nothing
@@ -542,12 +608,12 @@ tpipe._stOpen() {
 # is forgotten, so the next producer gets a fresh pipe.
 # ---------------------------------------------------------------------------
 tpipe._stClaim() {
-    local __tpi_a='' __tpi_b=''
+    local __tpi_l=''
     if [[ -p "/dev/fd/$__tpi_sf" ]]; then
         while read -t 0 -u "$__tpi_sf" 2>/dev/null; do
-            IFS=' ' read -r -u "$__tpi_sf" __tpi_a __tpi_b || break
-            if [[ -n "$__tpi_a" ]]; then
-                __TPIPE_STQ[$__tpi_a]="$__tpi_b"
+            IFS= read -r -u "$__tpi_sf" __tpi_l || break
+            if [[ "$__tpi_l" =~ ^__TPST\ ([0-9]+)\ (-?[0-9]+)$ ]]; then
+                __TPIPE_STQ[${BASH_REMATCH[1]}]="${BASH_REMATCH[2]}"
             fi
         done
     elif [[ "$__tpi_sf" == "$__TPIPE_STFD" && "$__TPIPE_STPID" == "$BASHPID" ]]; then
@@ -591,7 +657,7 @@ tpipe._stClaim() {
 #   6. only now open
 # ---------------------------------------------------------------------------
 tpipe._open() {
-    local __tpi_m="$1" __tpi_v="$2" __tpi_sok=0 __tpi_form=''
+    local __tpi_m="$1" __tpi_v="$2" __tpi_sok=0 __tpi_form='' __tpi_ext=0
     shift 2
 
     # 1. flags
@@ -672,12 +738,16 @@ tpipe._open() {
     #    substitution expands it in the CHILD, where $BASHPID is the producer's
     #    own pid and `__tpi_pid` still holds this shell's, so the token is
     #    "<this shell>.<producer>" without a second local.
-    #    On Linux a function or builtin producer reports its own status through
-    #    the status pipe (__TPIPE_ST above). The fd NUMBER goes into the trap
-    #    text when the child sets the trap (the double quotes), so a producer
-    #    that runs a TPipe of its own — which opens that process's own pipe and
-    #    rewrites __TPIPE_STFD, and a nested `__tpi_sf`, in there — still
-    #    reports to THIS shell's pipe. `__tpi_sf` also tells tpipe._close which
+    #    On Linux every producer reports its own status through the status
+    #    pipe (__TPIPE_ST above); an external one is then forked by that
+    #    subshell instead of exec'd (one more fork per call), and its subshell
+    #    also gets the no-op TERM handler of rule S (`__tpi_ext`, set by
+    #    tpipe._stWrap), so a stop treats the external as it treated the
+    #    exec'd one. The report line is `\n__TPST PID RC\n`. The fd NUMBER
+    #    goes into the trap text when the child sets the trap (the double
+    #    quotes), so a producer that runs a TPipe of its own — which opens that
+    #    process's own pipe and rewrites __TPIPE_STFD, and a nested `__tpi_sf`,
+    #    in there — still reports to THIS shell's pipe. `__tpi_sf` also tells tpipe._close which
     #    form was started. The trap keeps `$?` first, writes only while that
     #    number still names a pipe (a function producer may `exec N>log` on it
     #    — its log must not get our line), and says `builtin` for `trap` and
@@ -688,7 +758,11 @@ tpipe._open() {
             exec {__tpi_fd}< <( export __TPIPE_TREE="${__TPIPE_TREE:+$__TPIPE_TREE:}$__tpi_pid.$BASHPID"; "$@" )
         elif (( __TPIPE_ST )) && tpipe._stWrap "$1"; then
             __tpi_sf="$__TPIPE_STFD"
-            exec {__tpi_fd}< <( builtin trap "__tpi_x=\$?; [[ -p /dev/fd/$__tpi_sf ]] && builtin printf '%s %s\\n' \"\$BASHPID\" \"\$__tpi_x\" 2>/dev/null >&$__tpi_sf" EXIT; "$@" )
+            if (( __tpi_ext )); then
+                exec {__tpi_fd}< <( builtin trap ':' TERM; builtin trap "__tpi_x=\$?; [[ -p /dev/fd/$__tpi_sf ]] && builtin printf '\\n__TPST %s %s\\n' \"\$BASHPID\" \"\$__tpi_x\" 2>/dev/null >&$__tpi_sf" EXIT; "$@" )
+            else
+                exec {__tpi_fd}< <( builtin trap "__tpi_x=\$?; builtin printf '' >/dev/null 2>&1; [[ -p /dev/fd/$__tpi_sf ]] && builtin printf '\\n__TPST %s %s\\n' \"\$BASHPID\" \"\$__tpi_x\" 2>/dev/null >&$__tpi_sf" EXIT; "$@" )
+            fi
         else
             exec {__tpi_fd}< <( "$@" )
         fi
@@ -796,7 +870,10 @@ tpipe._open() {
 # ---- What is NOT done, and why --------------------------------------------
 #   * the producer itself gets no KILL: it is our child, `wait` is the only
 #     honest way to learn its rc, and a producer that ignores TERM blocks the
-#     stop exactly as it did before (README §5).
+#     stop exactly as it did before (README §5). On __TPIPE_ST an EXTERNAL
+#     producer runs under a reporting subshell that defers the TERM until the
+#     external has ended (rule S, see __TPIPE_ST), so `wait` still waits for
+#     the external itself and the same holds for it.
 #   * no tree stop on the EOF path: a producer that finished on its own and
 #     left a background job behind is not stopped by TPipe (README §5).
 #

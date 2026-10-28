@@ -141,7 +141,10 @@ kt_test_section "B. the latency gate — first on an infinite producer"
 #
 # The baseline is TPipe.first's own mechanism written out in the test —
 #     exec {fd}< <( yes ); pid=$!; read -r -u fd; exec {fd}<&-; kill -TERM pid; wait pid
-# — the same process substitution (one fork, `yes` exec'd in it), the same one
+# — the same process substitution (one fork, `yes` exec'd in it, as TPipe
+# itself starts it on FreeBSD and cygwin; on Linux with /proc TPipe runs `yes`
+# from a reporting subshell instead — one more fork, the status pipe of
+# tpipe.sh "__TPIPE_ST", launch L34-F1; the ratio there includes that fork), the same one
 # record read, the same close -> kill -TERM -> wait stop path (tpipe.sh
 # tpipe._open / tpipe._close). `IFS= read -r x < <(yes)` would NOT do: it
 # neither kills nor waits, so it would leave out exactly the stop path this

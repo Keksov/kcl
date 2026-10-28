@@ -6,7 +6,7 @@
 > in (§3: nothing is refused because of a subshell; one `kk.warn` line where the
 > loss is certain; `each` never prints), `stop` ends the producer's **whole
 > process tree** (owner decision DL13, launch L2.7-P — §5), and the suite is
-> **229 checks, green on bash 5.2.37 and on bash 5.3.9** (and on the Linux and
+> **237 checks, green on bash 5.2.37 and on bash 5.3.9** (and on the Linux and
 > FreeBSD lab VMs). Design record and the measurements the unit is built on:
 > [docs/TPipe.md](docs/TPipe.md). What the tests pin, case by case:
 > [TEST_COVERAGE_NOTES.md](../docs/dev/tpipe/TEST_COVERAGE_NOTES.md). Numbers: `bench.sh`
@@ -355,23 +355,41 @@ answers 127 with `wait: pid N is not a child of this shell` (bash 5.3.9), or a
 silent -1 (5.2.37). This happens for about 0.03–0.3 % of the calls under a
 parallel load (measured on Alpine, Ubuntu and Debian; not seen on Fedora,
 FreeBSD or cygwin) and comes from bash, not from tpipe: it reproduces in a
-plain-bash loop. TPipe recovers the status. On Linux a **function or builtin**
-producer reports its own exit status through a per-process status pipe (an
-EXIT trap in the subshell that already runs it, so no extra process), and when
-`wait` answers 127 or -1 the close takes that report instead. An **external**
-producer is started as before: bash execs it directly, so it does not lose the
-race in practice (0 in 24000 measured), and wrapping it would cost a fork per
-call. Costs: one fork the
-first time a process uses TPipe, one fork per subshell on its first function or
-builtin producer, one fd per process (the producers inherit it), and about
-0.4 ms per call with a function or builtin producer (`TPipe.count`, unloaded,
-median of 5: kb-alpine 1.15 → 1.58 ms, kb-debian 1.35 → 1.75 ms; the EXIT
-trap is most of it). External producers and the cygwin path pay nothing. The
-cygwin and FreeBSD paths are unchanged. The status fd is checked before each
+plain-bash loop. It hits every fast producer, exec'd or not: launch L34-F
+measured 30 lost of 40000 for an exec'd GNU `grep` on Alpine and 35 on Debian
+(an exec'd `/bin/false` 8 and 19, a function 52 and 24; 8 × 5000 calls in
+parallel) — so a wrapper sink, whose producer is the GNU tool, could report
+"command not found" for a tool that ran. TPipe recovers the status. On Linux
+**every** producer reports its own exit status through a per-process status
+pipe (an EXIT trap in the `<( )` subshell), and when `wait` answers 127 or -1
+the close takes that report instead. A function or builtin producer runs in
+that subshell, so no extra process; an **external** producer is no longer
+exec'd by bash but forked from the subshell, which then reports its status
+(owner decision OG10, launch L34-F1). A stop treats it exactly as it treated
+the exec'd producer (§5): the subshell defers the `TERM` until the external
+has ended, so the external gets the `TERM` itself, `wait` waits for it, and
+`lastRc` is its own exit status — 143, or its own code when it handles `TERM`;
+the subshell reaps it, so nothing is left to `init`. Costs: one fork the first time a process
+uses TPipe, one fork per subshell on its first producer, one fd per process
+(the producers inherit it); about 0.4 ms per call with a function or builtin
+producer (`TPipe.count`, unloaded, median of 5: kb-alpine 1.15 → 1.58 ms,
+kb-debian 1.35 → 1.75 ms; the EXIT trap is most of it); and one more fork per
+call with an external producer (unloaded, median of 5 interleaved runs × 1000
+calls, the previous tpipe.sh against this one): `TPipe.count -- /bin/true`
+kb-alpine 2.56 → 3.80 ms (+49 %), kb-debian 2.40 → 3.76 ms (+57 %); a wrapper
+sink, `TGrep` count on a 3-line file, kb-alpine 5.84 → 7.05 ms (+21 %),
+kb-debian 6.72 → 8.37 ms (+25 %); the `TERM` handler of the stop rule above
+costs nothing measurable. The cygwin and FreeBSD
+paths are unchanged and pay nothing. The status fd is checked before each
 use: if the script closes that number or opens its own file on it after a
 TPipe call (`exec 10<data`), TPipe opens a new pipe on a free number and
 leaves the script's fd alone. A function producer that redirects that number
-(`exec 10>log`) gets no status line written into its file. Another **pipe** put
+(`exec 10>log`) gets no status line written into its file. The report line is
+tagged and newline-led (`\n__TPST PID RC\n`) and only a line of exactly that
+shape is taken: a function producer stopped in the middle of a `printf` could
+otherwise flush its buffered record into the pipe in front of the report
+(launch L34-F1 T2: about 1 % of the stops of a `printf` loop on kb-ubuntu,
+0 now). Another **pipe** put
 on the same number cannot be told from ours, and that case is not detected.
 **A hazard for callers:** after such a
 loss bash keeps a stale "running" entry for the lost child. A later bare
@@ -537,11 +555,17 @@ Costs and scope:
   (with the children files; a full `/proc` table instead cost ~39 ms there);
   on Windows 24–36 → 62–64 ms (5.2.37) and 18–25 → 47 ms (5.3.9), 50 calls
   each — the token pass ends with a second look one nap (one Windows timer
-  tick, ~15 ms) after the first. The §6 table below is the 2026-09-11
+  tick, ~15 ms) after the first. Since launch L34-F1 an external producer on
+  Linux runs under the reporting subshell of §4, so a stop freezes, signals
+  and waits for two processes: `TPipe.first -- yes` on kb-ubuntu 4.6 → 8.0 ms
+  (median of 5 runs × 50 calls, interleaved, the previous `tpipe.sh` against
+  this one). The §6 table below is the 2026-09-11
   measurement, before the tree stop;
 * a producer that **ignores `TERM`** still blocks the stop, as before — it is
   our child, and `wait` is the only honest way to learn its rc; a
-  *descendant* that ignores it is `SIGKILL`ed after the grace;
+  *descendant* that ignores it is `SIGKILL`ed after the grace. An external
+  producer on Linux blocks the stop the same way, although it runs under the
+  reporting subshell of §4: that subshell defers the `TERM` and waits for it;
 * the **EOF path stops nothing**: a producer that ends on its own and leaves a
   background job behind is not TPipe's to clean up (detach it, or end it in the
   producer);
@@ -610,7 +634,8 @@ Reading the table:
   threaded with 8 workers by default and a gate set at the measured value would
   flake for reasons that have nothing to do with this unit.
 - **Per call**: one fork — the producer — plus the process-substitution
-  plumbing. **Per record: zero forks**, one `read`, one function call and one
+  plumbing; on Linux with /proc an **external** producer costs two (the
+  reporting subshell forks it, §4). **Per record: zero forks**, one `read`, one function call and one
   arithmetic expansion, pinned with `$BASHPID` probes in `tests/003_Sinks.sh` §K
   and `tests/005_Bench.sh` §C.
 - **The reader costs almost nothing.** 183 µs/rec of the baseline is what a bare
@@ -730,7 +755,7 @@ bash kcl/tpipe/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tpipe/tests/tests.sh
 ```
 
-**229 checks**, green on bash 5.2.37 and on 5.3.9, in the default threaded mode
+**237 checks**, green on bash 5.2.37 and on 5.3.9, in the default threaded mode
 and under `--mode single`. Every case is indexed in
 [TEST_COVERAGE_NOTES.md](../docs/dev/tpipe/TEST_COVERAGE_NOTES.md).
 
@@ -742,6 +767,6 @@ and under `--mode single`. Every case is indexed in
 | `004_Contract.sh` | 59 | `bash -n` + the open-quote grep, every sink in both forms under `set -eu` (including the stop path, a rejecting `.Add`, a predicate callback and a producer exiting 4 — the child must die of the member's rc 1, not the producer's 4), exactly one `kk.debug` line per rc 2 path with the switch on and none with it off, §3 the whole D6-final matrix (both templates × `each`/`toArray`/`toList` byte-exact, `first`/`count` silent, a plain-function and a static-member callback silent, `-s` / a `KK_SUBSHELL_OK=1` prefix / `local KK_SUBSHELL_OK=1` / `VERBOSE_KKLASS=quiet` each silent, the line printed with the debug switch off, an rc 2 path in a subshell printing its `Error:` line and never a `Warning:`, and nothing at all at `BASH_SUBSHELL` 0), §4 the Q7 pins (`$( )` and a pipe carry only the callback's bytes, a direct call sets `RESULT`, rc 2 leaves it empty), and §6 `__TPIPE_QUIET`: the flag silences `tpipe._ret` only (a callback's and a `.Add`'s stdout still flow), the default is unchanged, a direct call is unaffected either way, and the load-time global is readable under `set -u` |
 | `005_Bench.sh` | 6 | the `PLAN.md` §2.6 gates as assertions with ceilings 3× looser than the measured values (the runner is threaded ×8), the `first`-on-`yes` latency in a child under `timeout`, and zero forks per record for every sink |
 | `006_TreeStop.sh` | 15 | DL13, the tree stop (§5): a depth-3 tree with background jobs through `first`, `each` + `stop` and a `toList` whose `.Add` stops — every recorded descendant gone, `lastRc` 143, nothing on stderr and the caller's stderr intact after the stop; a TPipe nested in the producer; ten stops racing a fork made right after the record; a `TERM`-ignoring subtree `SIGKILL`ed after the 1 s grace; a job the callback started survives; the EOF path stops nothing; `set -m` off and on (the same answer) and `set -euf`; the full-table `linux` backend (N/A where it is not the alternative), the `ps` backend (N/A where `ps -o` is missing) and the no-table fallback |
-| `007_StatusPipe.sh` | 24 | launch L3.5-8, the status pipe (§4): on exactly on Linux with /proc; with a `wait` function standing in for the bash race (127 plus the "not a child" line) a function and a builtin producer get their own rc back through `count`, `toArray`, `each` and `toList` with nothing on stderr, a real status from `wait` (0, 143) is kept, a real 127 and an `exit 4` stay themselves, an external producer keeps `wait`'s answer; the stop path recovers it, and an infinite function producer ended by the stop keeps 141/143; 200 calls leave the pipe drained and the queue empty; an inner sink that drains the outer line keeps it for the outer close; a TPipe inside the producer; a `$( )` opens its own pipe; `set -eu` and `IFS=':'`; the claim rule itself (-1, 256, 127 take the report, a real 3 stays); the script's own file on our fd number after or during a call stays intact and a new pipe is opened, a producer redirecting that number gets no line in its log; user functions `printf`/`enable` change nothing; a producer with its own EXIT trap keeps wait's 127 with one `kk.debug` line; an inherited `set -e` exit is reported; a failed open is not retried. N/A off Linux |
+| `007_StatusPipe.sh` | 32 | launch L3.5-8 and L34-F1, the status pipe (§4): on exactly on Linux with /proc; with a `wait` function standing in for the bash race (127 plus the "not a child" line) a function and a builtin producer get their own rc back through `count`, `toArray`, `each` and `toList` with nothing on stderr, a real status from `wait` (0, 143) is kept, a real 127 and an `exit 4` stay themselves; an external producer gets its rc back the same way through `count`, `toArray`, `each`, `toList` and `first`; the stop path recovers it for a function and for an external producer, an infinite function or external producer ended by the stop keeps 141/143 (the external one is gone afterwards), and an external producer keeps the exec'd form's stop semantics: reaped (gone, not a zombie) right after the stop, a slow `TERM` handler finishes and its own code is `lastRc`, a `TERM`-ignoring one blocks the stop until it ends; only a tagged `__TPST` report line counts (a record flushed in front of it is dropped); 200 calls leave the pipe drained and the queue empty; an inner sink that drains the outer line keeps it for the outer close; a TPipe inside the producer; a `$( )` opens its own pipe; `set -eu` and `IFS=':'`; the claim rule itself (-1, 256, 127 take the report, a real 3 stays); the script's own file on our fd number after or during a call stays intact and a new pipe is opened, a producer redirecting that number gets no line in its log; user functions `printf`/`enable` change nothing; a producer with its own EXIT trap keeps wait's 127 with one `kk.debug` line; an inherited `set -e` exit is reported; a failed open is not retried. N/A off Linux |
 
 The exact numbers come from `bench.sh`, run by hand — §6.
