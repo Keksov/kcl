@@ -1,9 +1,9 @@
 # thead — test coverage notes
 
-**Status: FINALIZED at P1 (2026-09-16).** Suite `004`–`007` = **182 cases**,
+**Status: FINALIZED at P1 (2026-09-16); counts refreshed at L3.4.** Suite `004`–`007` = **188 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single`, against **GNU coreutils 8.32**. The
-per-file row counts below sum to 182 — 73 + 50 + 50 + 9 — and **every case in
+per-file row counts below sum to 188 — 78 + 50 + 51 + 9 — and **every case in
 the suite has a row**.
 
 **Protocol.** `THead` has no FPC upstream: it is the third wrapper on
@@ -12,9 +12,10 @@ the suite has a row**.
 bare GNU tool on the same fixture**, run with the same argv, never a second call
 into the code under test. Decision **D4** (of the tpipe plan) pins the *dialect*
 — GNU coreutils 8.32, the build MSYS2 ships — not a binary, so every behavioural
-file opens with the **GNU banner gate**: if `head --version` does not begin with
-`head (GNU coreutils) `, every behavioural case is a loud SKIP and the case
-**count is unchanged**.
+file opens with the **ktool gate** (`kt_gnu_gate head HEAD_BIN`): the kkore unit
+`ktool` must resolve a `head` — GNU coreutils or an accepted uutils >= 0.2.2
+(it checks the `--version` banner itself) — otherwise every behavioural case is a
+loud `SKIP: <ktool's reason>` and the case **count is unchanged**.
 
 The suite splits in two on purpose:
 
@@ -79,7 +80,7 @@ both are now written into `PLAN.md` (§2.4/§2.5, H3/H7, §8) with the measureme
 
 ---
 
-## 004_Argv.sh — typed options to argv, nothing executed (P0) — 73 cases
+## 004_Argv.sh — typed options to argv, nothing executed (P0) — 78 cases
 
 **head is never started in this file.** Every case either compares the array
 `h.argv GOT` handed over, or asserts a refusal.
@@ -88,8 +89,8 @@ both are now written into `PLAN.md` (§2.4/§2.5, H3/H7, §8) with the measureme
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 004.a-vars-present | Create | every declared var (THead's 6 + TUtil's 5) is present in `${inst}_data` right after `new` | contract | **H4**, §2.1 |
-| 004.a-defaults | Create | the documented defaults: booleans `0`, `bytes` `''`, `cmd` `head`, `_lastRc` `-1`, and the constructor's N in `lines` | contract | **H4**, §2.1 |
+| 004.a-vars-present | Create | every declared var (THead's 6 + TUtil's 7: `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr`) is present in `${inst}_data` right after `new` | contract | **H4**, §2.1 |
+| 004.a-defaults | Create | the documented defaults: booleans `0`, `bytes` `''`, `cmd` = the resolved head (the stub), `_toolErr` `''`, `_lastRc` `-1`, and the constructor's N in `lines` | contract | **H4**, §2.1 |
 | 004.a-no-arg | Create | `THead.new h` with no argument leaves `lines` `''` — head's own default of 10 | boundary | §1.2 |
 | 004.a-args-empty | Create | `${h}_args` is EMPTY after `THead.new h N PATH` | contract | **H1**, §2.1 — the `inherited`-in-a-constructor trap would have doubled every path |
 | 004.a-paths-verbatim | Create | `${h}_paths` holds the constructor's paths verbatim, once each (a space, a leading `-`, a NEWLINE) | representation | §2.1 |
@@ -170,7 +171,7 @@ Every case asserts **all five**: rc 2, `RESULT ''`, the caller's array untouched
 | 004.e-halves-ok | each half of a refused pair on its OWN builds fine — only the COMBINATION is refused | §1.2 |
 | 004.e-z-legal | `zeroTerminated` with ONE path, with none, and with `-q` all build | §2.3 |
 
-### F. H3 — the count travels VERBATIM (13)
+### F. H3 — the count keeps its sign and value, the wrapper strips leading zeros (14)
 
 `kk.isInt` is deliberately not used: it strips the sign and folds `+0`/`-0` into
 `0`, and head reads those as opposite requests. Class `argv`, basis **H3**, §2.2,
@@ -178,16 +179,17 @@ Every case asserts **all five**: rc 2, `RESULT ''`, the caller's array untouched
 
 | ID | Case |
 |---|---|
-| 004.f-n-08 | `lines = 08` → `-n 08` |
+| 004.f-n-08 | `lines = 08` → `-n 8` (leading zeros stripped) |
 | 004.f-n-plus3 | `lines = +3` → `-n +3` |
 | 004.f-n-minus2 | `lines = -2` → `-n -2` |
 | 004.f-n-minus0 | `lines = -0` → `-n -0` |
 | 004.f-n-plus0 | `lines = +0` → `-n +0` |
 | 004.f-n-0 | `lines = 0` → `-n 0` |
-| 004.f-c-08 | `bytes = 08` → `-c 08` |
+| 004.f-c-08 | `bytes = 08` → `-c 8` (leading zeros stripped) |
 | 004.f-c-plus3 | `bytes = +3` → `-c +3` |
 | 004.f-c-minus2 | `bytes = -2` → `-c -2` |
 | 004.f-c-minus0 | `bytes = -0` → `-c -0` |
+| 004.f-strip-zeros | the wrapper strips LEADING ZEROS itself and keeps the sign: `lines = 08` → `-n 8`, `bytes = +007` → `-c +7`, `00` → `0`, `-007` → `-7`, `+00` → `+0`; `-0`, `10` and `100` unchanged |
 | 004.f-19digits | a 19-digit count PASSES the guard and reaches head verbatim (20 is rc 2, §E) |
 | 004.f-19digits-sign | a 19-digit count with a SIGN passes too — the sign is not a digit |
 | 004.f-no-writeback | the property still READS `08` / `-0` after a build (no write-back through a nameref) |
@@ -206,6 +208,17 @@ basis **H5**, §2.3, **P3-F1**.
 | 004.g-refused | a REFUSED build derives nothing (`-z` with two paths never reaches the rule) |
 | 004.g-crlf | `crlf` is never touched by `buildArgv` — the derivation mutates no other state |
 
+### T6. no usable head found: `.new` succeeds, the first argv says why (4)
+
+Launch L3.4 (`tutil._gnu head`). Class `contract`, basis **T6** throughout.
+
+| ID | Case |
+|---|---|
+| 004.t6-none | `KCL_GNU_HEAD=/nonexistent`: `.new` rc 0 and silent, `cmd` `''`, `argv` rc 2 with ONE line naming the override (`KCL_GNU_HEAD='/nonexistent' is not an executable file`), `RESULT ''`, the caller's array untouched |
+| 004.t6-rearm | `x.cmd = STUB` re-arms the instance: `argv` rc 0, word 0 = the stub |
+| 004.t6-static | the static `THead.take` with no usable head — rc 2, the same ONE line, nothing printed or run |
+| 004.t6-sink | a SINK on the disarmed instance (`count`): rc 2, `RESULT ''`, ONE line with ktool's text |
+
 ---
 
 ## 005_Run.sh — THead against GNU head on a real tree (P0) — 50 cases
@@ -218,7 +231,7 @@ matters the helper separates OUR lines from the tool's.
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 005.z-banner | the `head` on PATH is GNU coreutils — otherwise every case below is a loud SKIP | contract | **D4** |
+| 005.z-gate | ktool resolves a usable `head` (`kt_gnu_gate`) — otherwise every case below is a loud `SKIP: <ktool's reason>` | contract | **D4** |
 | 005.z-tree | the 9 fixture files are in place | contract | §4 |
 
 ### A. H6 — one file, every runner against the bare tool (9)
@@ -306,9 +319,9 @@ matters the helper separates OUR lines from the tool's.
 
 ---
 
-## 006_Contract.sh — the kcl contract for THead (P0) — 50 cases
+## 006_Contract.sh — the kcl contract for THead (P0) — 51 cases
 
-### 0. source integrity (10)
+### 0. source integrity (11)
 
 A sweeping mechanical edit must not silently mangle the file: two earlier kcl
 sweeps corrupted sources while the tests stayed green. Class `contract`
@@ -321,6 +334,7 @@ throughout.
 | 006.0-inline-cr | no member body carries an inline `$'…'` (it does not survive `build`'s `declare -f` round trip) | §6 |
 | 006.0-this | no internal member call is spelled `$this.NAME` | tutil PLAN §2.2 |
 | 006.0-ctor | the CONSTRUCTOR calls `parent.constructor head`, never `inherited` | §2.1 |
+| 006.0-ctor-gnu | the CONSTRUCTOR resolves its tool: `tutil._gnu head` is the line right after `parent.constructor head` (launch L3.4) | §2.1, **T6** |
 | 006.0-dtor | the DESTRUCTOR frees `${inst}_paths` and then chains with `inherited` | §2.1 |
 | 006.0-no-isint | the count is NOT validated with `kk.isInt` | §2.2, **C6** |
 | 006.0-regex-var | the count regex is held in a VARIABLE and applied with `[[ =~ ]]` | §6 |
@@ -331,7 +345,7 @@ throughout.
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 006.z-banner | the `head` on PATH is GNU coreutils | contract | **D4** |
+| 006.z-gate | ktool resolves a usable `head` | contract | **D4** |
 
 ### 1. `set -eu` — the instance and BOTH TPipe forms, every outcome (21)
 
@@ -405,7 +419,7 @@ ratio do not inflate together. Corpus: 2000 lines built with
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 007.z-banner | the `head` on PATH is GNU coreutils — otherwise every timed case is a loud SKIP | contract | **D4** |
+| 007.z-gate | ktool resolves a usable `head` — otherwise every timed case is a loud `SKIP: <ktool's reason>` | contract | **D4** |
 | 007.a-gate-1 | `THead.take 1` costs at most 10× a bare `head -n 1`, medians of 7 INTERLEAVED runs, both sides delivering 1 record | perf | §5 P1, **C7** |
 | 007.a-gate-half | `THead.take 1000` costs at most 10× a bare `head -n 1000`, same treatment, both sides delivering 1000 records | perf | §5 P1, **C7** |
 | 007.a-delta | the take delta IS one instance: `new` + `argv` + `delete` under 50 ms/call (3.1–3.3 ms idle) | perf | §5 P1 |

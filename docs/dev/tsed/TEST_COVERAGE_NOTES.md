@@ -1,12 +1,12 @@
 # tsed — test coverage notes
 
-**Status: FINALIZED at P1 (2026-09-23); extended at L2.7-C and H1.** Suite
-`004`–`008` = **402 cases**,
+**Status: FINALIZED at P1 (2026-09-23); extended at L2.7-C, H1 and L3.4.** Suite
+`004`–`008` = **408 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single` (5.2.37), against **GNU sed 4.9**
 (5.2.37 resolves Git for Windows' `sed.exe`, 5.3.9 msys64's). The per-file row
-counts below sum to **402** — 160 + 78 + 66 + 11 + 87 (`004`–`008`; 293 at
-P1, 315 after L2.7-C, 402 after H1) — and **every case in the suite has a
+counts below sum to **408** — 165 + 78 + 67 + 11 + 87 (`004`–`008`; 293 at
+P1, 315 after L2.7-C, 402 after H1, 408 after L3.4) — and **every case in the suite has a
 row**.
 
 **H1 (launch L2.7-H, 2026-10-22):** `008_Helpers.sh` adds **87 cases** (the
@@ -20,9 +20,10 @@ bare GNU tool on the same fixture**, run with the same arguments, never a second
 call into the code under test. Decision **D4** (of the tpipe plan) pins the
 *dialect* — GNU sed 4.9, identical under both target bashes although they
 resolve two different binaries — not a binary, so every behavioural file opens
-with the **GNU banner gate**: if `sed --version` does not begin with
-`sed (GNU sed) `, every behavioural case is a loud SKIP and the case **count is
-unchanged**.
+with the **ktool gate** (`kt_gnu_gate sed SED_BIN`): the kkore unit `ktool`
+must resolve a GNU sed (it checks the `--version` banner itself), otherwise
+every behavioural case is a loud `SKIP: <ktool's reason>` and the case **count
+is unchanged**.
 
 The suite splits in two on purpose:
 
@@ -112,7 +113,7 @@ is recorded here rather than edited.
 
 ---
 
-## 004_Argv.sh — typed options to argv, nothing executed (P0; §CR added at L2.7-C) — 160 cases
+## 004_Argv.sh — typed options to argv, nothing executed (P0; §CR added at L2.7-C) — 165 cases
 
 **sed is never started in this file.** Every case either compares the array
 `s.argv GOT` handed over, or asserts a refusal.
@@ -121,11 +122,11 @@ is recorded here rather than edited.
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 004.a-vars-present | Create | every declared var (TSed's 11 + TUtil's 5, incl. `subshellOk`) is present in `${inst}_data` right after `new` — none unbound under `set -u` | contract | **S3**, §2.1 |
-| 004.a-defaults | Create | the documented defaults: `expr` = argument 1, **`sandbox` 1**, the other flags `0`, strings `''`, `cmd` `sed`, `_lastRc` `-1`, `subshellOk` 0 | contract | **S3**, **Q1**, §2.1 |
+| 004.a-vars-present | Create | every declared var (TSed's 11 + TUtil's 7: `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr`) is present in `${inst}_data` right after `new` — none unbound under `set -u` | contract | **S3**, §2.1 |
+| 004.a-defaults | Create | the documented defaults: `expr` = argument 1, **`sandbox` 1**, the other flags `0`, strings `''`, `cmd` = the resolved sed (the stub), `_toolErr` `''`, `_lastRc` `-1`, `subshellOk` 0 | contract | **S3**, **Q1**, §2.1 |
 | 004.a-args-empty | Create | `${s}_args` is EMPTY after `TSed.new s EXPR PATH` — the `inherited`-in-a-constructor trap would have made EXPR the command | contract | **S1**, **S3**, §2.1 |
 | 004.a-paths-verbatim | Create | `${s}_paths` holds every argument after EXPR verbatim, once each (a space, `-dash`, a NEWLINE, `-`), and `${s}_exprs` is an EMPTY array | representation | **S3**, §2.1 |
-| 004.a-no-arg | Create | `TSed.new s` with no argument: `expr` `''`, no path, no expression, `cmd` `sed` | boundary | **S3** |
+| 004.a-no-arg | Create | `TSed.new s` with no argument: `expr` `''`, no path, no expression, `cmd` = the resolved sed (the stub) | boundary | **S3** |
 | 004.a-reuse-clean | Create | a REUSED instance name starts clean — `expr`, `quiet`, `sandbox` (back to 1), `inPlace`, `backupSuffix`, both lists and the three `addReplace` arrays (H1) re-assigned (`.new` does NOT clear `_data`) | boundary | **S3**, §2.1 |
 | 004.a-delete | Destroy | `delete` removes `_paths`, `_exprs`, `_rfrom`, `_rto`, `_rflags` (H1), `_args`, `_argv` and `_data` (the descendant destructor chains with `inherited`) | contract | **S3**, §2.1 |
 | 004.a-argv-nothing | argv | `argv` RUNS NOTHING — with `cmd` pointed at a function that would touch a flag file, the flag stays absent and the 6-word argv is still built | contract | **S1**, §1.2 |
@@ -349,17 +350,29 @@ The file pins `__TUTIL_TOOLS_STRIP_CR=1` at the top (every other pinned argv is 
 | 004.cr-native | the cygwin/msys path: no prelude, `#n` left to sed | contract | DL11 |
 | 004.cr-textmode | `_textMode` stays 0 on both paths | contract | DL11 |
 
+### G. T6 — no GNU sed found: `.new` succeeds, the first argv says why (5)
+
+Launch L3.4 (`tutil._gnu sed`). The expected text is ktool's own.
+
+| ID | Case | Class | Basis |
+|---|---|---|---|
+| 004.t6-none | `KCL_GNU_SED=/nonexistent`: `.new` rc 0 and silent, `cmd` `''`, `argv` rc 2 with ONE line naming the override (`KCL_GNU_SED='/nonexistent' is not an executable file`), `RESULT ''`, the caller's array untouched | contract | **T6** |
+| 004.t6-rearm | `x.cmd = STUB` re-arms the instance: `argv` rc 0, word 0 = the stub | contract | **T6** |
+| 004.t6-static | the static `TSed.edit` with no GNU sed — rc 2, the same ONE line, nothing printed or run | contract | **T6** |
+| 004.t6-sink | a SINK on the disarmed instance (`count`): rc 2, `RESULT ''`, ONE line with ktool's text | contract | **T6** |
+| 004.t6-replace | the static `TSed.replace` with no GNU sed — rc 2, the same ONE line, nothing printed or run | contract | **T6** |
+
 ## 005_Run.sh — TSed against GNU sed on a real tree (P0; §E extended at L2.7-C) — 78 cases
 
 Oracle = the bare tool on the same fixture. Records are compared as arrays
 (newline framed, the unterminated tail kept; NUL framed under `-z`), streams
 byte for byte with `cmp` or `od -c`.
 
-### Z. the banner gate and the fixture (2)
+### Z. the ktool gate and the fixture (2)
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 005.z-banner | the `sed` on PATH is GNU sed — otherwise every case below is a loud SKIP and the count is unchanged; the PASS line names the binary (Git for Windows' under 5.2.37, msys64's under 5.3.9) | contract | **D4**, **C16** |
+| 005.z-gate | ktool resolves a GNU sed (`kt_gnu_gate`) — otherwise every case below is a loud `SKIP: <ktool's reason>` and the count is unchanged; the PASS line names the resolved path and its banner (Git for Windows' under 5.2.37, msys64's under 5.3.9) | contract | **D4**, **C16** |
 | 005.z-fixture | the fixture tree is in place: a 3-line file, a CRLF file (a real `\r` in its bytes), NUL, unterminated, a script, exotic names, a directory | contract | §4 |
 
 ### A. S6 — every sink against the bare tool (12)
@@ -487,9 +500,9 @@ Every case works on a COPY and asserts its bytes afterwards.
 
 ---
 
-## 006_Contract.sh — the kcl contract for TSed (P0) — 66 cases
+## 006_Contract.sh — the kcl contract for TSed (P0) — 67 cases
 
-### 0. source integrity (13)
+### 0. source integrity (14)
 
 Two earlier mechanical sweeps corrupted kcl sources while tests stayed green, so
 this section reads the file itself. Class `contract` throughout.
@@ -502,6 +515,7 @@ this section reads the file itself. Class `contract` throughout.
 | 006.0-this | no internal member call is spelled `$this.NAME` | tutil PLAN §2.2 |
 | 006.0-sentinel | the red-first skeleton sentinel `__TSED_PENDING__` is GONE | §5 |
 | 006.0-ctor | the CONSTRUCTOR calls `parent.constructor sed`, never `inherited`, and assigns `sandbox=1` and `expr="${1:-}"` | §2.1, **Q1** |
+| 006.0-ctor-gnu | the CONSTRUCTOR resolves its tool: `tutil._gnu sed` is the line right after `parent.constructor sed` (launch L3.4) | §2.1, **T6** |
 | 006.0-dtor | the DESTRUCTOR frees `${__inst__}_paths` AND `${__inst__}_exprs` with `unset -v`, then chains with `inherited` | §2.1 |
 | 006.0-rc-preserving | the four overridden func sinks (`toArray`, `toList`, `first`, `count`) use the rc-PRESERVING spelling: a guarded `inherited X "$@" \|\| …`, RESULT saved, the rc re-raised, and no body ENDS on `inherited` | §2.4 (thead §6) |
 | 006.0-each-proc | the overridden PROC `each` re-raises the rc and never answers RESULT | §2.4, **C5** |
@@ -510,11 +524,11 @@ this section reads the file itself. Class `contract` throughout.
 | 006.0-one-source | the unit sources ONLY `../tutil/tutil.sh` | §1.2 |
 | 006.0-registered | the unit registered `__tsd_` and `_exprs` at load, once each | §2.1, **C3** |
 
-### Z. the banner gate (1)
+### Z. the ktool gate (1)
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 006.z-banner | the `sed` on PATH is GNU sed; otherwise every case that runs sed is a loud SKIP | contract | **D4** |
+| 006.z-gate | ktool resolves a GNU sed; otherwise every case that runs sed is a loud `SKIP: <ktool's reason>` | contract | **D4** |
 
 ### 1. `set -eu` — the instance, `s.each` and both TPipe forms, every outcome (22)
 
@@ -592,7 +606,7 @@ all. Class `contract`, basis **S13** and §1.2 of the kcl README.
 
 ## 007_Bench.sh — the PLAN §5 P1 performance gate (P1) — 11 cases
 
-Class `perf` throughout (except the banner gate). **Two sets of numbers on
+Class `perf` throughout (except the ktool gate). **Two sets of numbers on
 purpose**: [`../bench.sh`](../../../tsed/bench.sh) measures the real **1.5×** gate by hand on
 an idle box from the medians of 21 interleaved runs (README §10); this file
 asserts the same shapes with a **10×** ceiling, because ktests runs test files
@@ -605,7 +619,7 @@ installs no `EXIT` trap of its own.
 
 | ID | Case | Basis |
 |---|---|---|
-| 007.z-banner | the `sed` on PATH is GNU sed — otherwise every timed case is a loud SKIP, count unchanged | **D4** |
+| 007.z-gate | ktool resolves a GNU sed — otherwise every timed case is a loud `SKIP: <ktool's reason>`, count unchanged | **D4** |
 | 007.a-gate-big | `TSed.edit 's/a/A/'` over a 200-line file costs at most **10×** a bare `sed --sandbox -e 's/a/A/' --`, from the MEDIANS of 7 INTERLEAVED runs, with both sides' outputs asserted byte-identical (200 records) | §5 P1 |
 | 007.a-gate-one | the same over a **ONE-line** file — the shape that shows corpus size is not the knob (the fork dominates both sides) | §5 P1 |
 | 007.a-delta | the `edit` delta IS one instance: `new` + `addExpr` + `sandbox =` + `argv` + `delete` (fresh names, as `edit` uses) under 50 ms/call (~5 ms idle; eleven properties and two arrays), with the argv asserted | §5 P1 |
@@ -627,14 +641,14 @@ The five members of [`../tutil/HELPERS_PLAN.md`](../tutil/HELPERS_PLAN.md) §2.1
 escape — never the code under test's own escaper; the escaper cases compare
 against the reference sets written out by hand from the owner probe
 (`esc_probe.sh`: FROM `a.b*c[d]e^f$g\h/i+j?k|l(m){2}&`, TO `X&Y\1/Z<newline>W`).
-The GNU banner gate opens the file as in 005; the argv cases (B) pin the
+The ktool gate opens the file as in 005; the argv cases (B) pin the
 cygwin/msys argv (`__TUTIL_TOOLS_STRIP_CR = 1`, as 004) plus one case on the
 prelude path, and restore the platform value. D3 = `replaceInFile` makes no
 backup; DL11 = the CR contract (tutil README §3).
 
 | ID | Case | Basis |
 |---|---|---|
-| 008.z01 | the `sed` on PATH is GNU sed (D4 pins the DIALECT, not a binary) | **D4** |
+| 008.z01 | ktool resolves a GNU sed (D4 pins the DIALECT, not a binary) | **D4** |
 | 008.z02 | the fixture tree is in place | **D4** |
 | 008.a01 | quoteRe PROBE (BRE): `\ / . * [ ^ $` escaped, `+ ? \| ( ) { } &` left alone — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |
 | 008.a02 | quoteRe PROBE ere: also `+ ? ( ) { } \|` — direct call: RESULT byte-exact (`od -c`), stdout and stderr empty | HP §2.1, §2.3 |

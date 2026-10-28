@@ -1,9 +1,9 @@
 # tfind — test coverage notes
 
-**Status: FINALIZED at P1 (2026-09-16).** Suite `004`–`007` = **226 cases**,
+**Status: FINALIZED at P1 (2026-09-16); counts refreshed at L3.4.** Suite `004`–`007` = **231 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single`, against **GNU findutils 4.10.0**. The
-per-file row counts below sum to 226 — 110 + 49 + 57 + 10 — and **every case in
+per-file row counts below sum to 231 — 114 + 49 + 58 + 10 — and **every case in
 the suite has a row**.
 
 **Protocol.** `TFind` has no FPC upstream: it is the fourth wrapper on
@@ -12,9 +12,10 @@ the suite has a row**.
 bare GNU tool on the same fixture**, run with the same expression, never a second
 call into the code under test. Decision **D4** (of the tpipe plan) pins the
 *dialect* — GNU findutils 4.10.0, the build MSYS2 ships, identical under both
-target bashes — not a binary, so every behavioural file opens with the **GNU
-banner gate**: if `find --version` does not begin with `find (GNU findutils) `,
-every behavioural case is a loud SKIP and the case **count is unchanged**.
+target bashes — not a binary, so every behavioural file opens with the **ktool
+gate** (`kt_gnu_gate find FIND_BIN`): the kkore unit `ktool` must resolve a GNU
+find (it checks the `--version` banner itself), otherwise every behavioural case
+is a loud `SKIP: <ktool's reason>` and the case **count is unchanged**.
 
 The suite splits in two on purpose:
 
@@ -95,7 +96,7 @@ that `__tfd_` is registered, that the family prefixes are still refused through 
 
 ---
 
-## 004_Argv.sh — typed options to argv, nothing executed (P0) — 110 cases
+## 004_Argv.sh — typed options to argv, nothing executed (P0) — 114 cases
 
 **find is never started in this file.** Every case either compares the array
 `f.argv GOT` handed over, or asserts a refusal.
@@ -104,8 +105,8 @@ that `__tfd_` is registered, that the family prefixes are still refused through 
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 004.a-vars-present | Create | every declared var (TFind's 9 + TUtil's 5) is present in `${inst}_data` right after `new` | contract | **F4**, §2.1 |
-| 004.a-defaults | Create | the documented defaults: strings `''`, booleans `0`, `cmd` `find`, `_lastRc` `-1` | contract | **F4**, §1.2 |
+| 004.a-vars-present | Create | every declared var (TFind's 9 + TUtil's 7: `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr`) is present in `${inst}_data` right after `new` | contract | **F4**, §2.1 |
+| 004.a-defaults | Create | the documented defaults: strings `''`, booleans `0`, `cmd` = the resolved find (the stub), `_toolErr` `''`, `_lastRc` `-1` | contract | **F4**, §1.2 |
 | 004.a-args-empty | Create | `${f}_args` is EMPTY after `TFind.new f START` | contract | **F4**, §2.1 — the `inherited`-in-a-constructor trap would have made `cmd` the first start point and doubled the rest |
 | 004.a-paths-verbatim | Create | `${f}_paths` holds every constructor argument verbatim, once each (a space, `./-weird`, a NEWLINE, `)paren`) | representation | **F4**, §2.1 |
 | 004.a-no-arg | Create | `TFind.new f` with no argument leaves the start-point list empty — find's own `.` | boundary | **F4**, §2.1 |
@@ -255,6 +256,17 @@ a subshell — **C5**, D6). Basis **F5b**, **C15**, §2.2.
 | 004.h-quoted | `f.name = '*.txt'` QUOTED keeps the pattern, which reaches find as one argv element | representation |
 | 004.h-cd-undone | the `cd` was undone — this file's shell is back in its own directory | contract |
 
+### T6. no GNU find found: `.new` succeeds, the first argv says why (4)
+
+Launch L3.4 (`tutil._gnu find`). Class `contract`, basis **T6** throughout.
+
+| ID | Case |
+|---|---|
+| 004.t6-none | `KCL_GNU_FIND=/nonexistent`: `.new` rc 0 and silent, `cmd` `''`, `argv` rc 2 with ONE line naming the override (`KCL_GNU_FIND='/nonexistent' is not an executable file`), `RESULT ''`, the caller's array untouched |
+| 004.t6-rearm | `x.cmd = STUB` re-arms the instance: `argv` rc 0, word 0 = the stub |
+| 004.t6-static | the static `TFind.byName` with no GNU find — rc 2, the same ONE line, nothing printed or run |
+| 004.t6-sink | a SINK on the disarmed instance (`count`): rc 2, `RESULT ''`, ONE line with ktool's text |
+
 ---
 
 ## 005_Run.sh — TFind against GNU find on a real tree (P0) — 49 cases
@@ -262,11 +274,11 @@ a subshell — **C5**, D6). Basis **F5b**, **C15**, §2.2.
 Oracle = the bare tool on the same fixture. Every comparison is NUL framed and
 `sort -z`ed unless the case is *about* the `-print` framing.
 
-### Z. the banner gate and the fixture (2)
+### Z. the ktool gate and the fixture (2)
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 005.z-banner | the `find` on PATH is GNU findutils — otherwise every case below is a loud SKIP and the count is unchanged | contract | **D4** |
+| 005.z-gate | ktool resolves a GNU findutils `find` (`kt_gnu_gate`) — otherwise every case below is a loud `SKIP: <ktool's reason>` and the count is unchanged | contract | **D4** |
 | 005.z-fixture | the fixture tree is in place: 6 files incl. a space name, a newline name and `-weird/inside.txt`, plus (when the box allows) a real directory symlink and a broken one | contract | §4, **C19** |
 
 ### A. F6 — every typed option against the bare tool (13)
@@ -371,9 +383,9 @@ sink would fill its array where the assertion cannot see it and D6 would fire
 
 ---
 
-## 006_Contract.sh — the kcl contract for TFind (P0) — 57 cases
+## 006_Contract.sh — the kcl contract for TFind (P0) — 58 cases
 
-### 0. source integrity (14)
+### 0. source integrity (15)
 
 Two earlier mechanical sweeps corrupted kcl sources while tests stayed green, so
 this section reads the file itself. Class `contract` throughout.
@@ -386,6 +398,7 @@ this section reads the file itself. Class `contract` throughout.
 | 006.0-this | no internal member call is spelled `$this.NAME` | tutil PLAN §2.2 |
 | 006.0-sentinel | the red-first skeleton sentinel `__TFIND_PENDING__` is GONE | §5 |
 | 006.0-ctor | the CONSTRUCTOR calls `parent.constructor find`, never `inherited` — the front-end rewrites `inherited` to `parent.constructor "$@"` and would make `cmd` the first start point | §2.1 |
+| 006.0-ctor-gnu | the CONSTRUCTOR resolves its tool: `tutil._gnu find` is the line right after `parent.constructor find` (launch L3.4) | §2.1, **T6** |
 | 006.0-dtor | the DESTRUCTOR frees `${inst}_paths` and then chains with `inherited` | §2.1 |
 | 006.0-regex-var | the `type` regex is held in a VARIABLE and applied with `[[ =~ $re ]]` — an inline pattern does not survive `build`'s `declare -f` round trip | §6 |
 | 006.0-kkint | the depths are emitted from `$__KK_INT`, never from the property | §2.2, **C9** |
@@ -395,11 +408,11 @@ this section reads the file itself. Class `contract` throughout.
 | 006.0-one-source | the unit sources ONLY `../tutil/tutil.sh` | §1.4 |
 | 006.0-registered | the unit registered `__tfd_` in `TUTIL_OUT_PREFIXES` at load — exactly once, five entries | §2.6, **C1** |
 
-### Z. the banner gate (1)
+### Z. the ktool gate (1)
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 006.z-banner | the `find` on PATH is GNU findutils; otherwise every case that runs find is a loud SKIP | contract | **D4** |
+| 006.z-gate | ktool resolves a GNU findutils `find`; otherwise every case that runs find is a loud `SKIP: <ktool's reason>` | contract | **D4** |
 
 ### 1. `set -eu` — the instance and both TPipe forms, every outcome (21)
 
@@ -472,7 +485,7 @@ ours at all. Class `contract`, basis §1.2 of the kcl README.
 
 ## 007_Bench.sh — the PLAN §5 P1 performance gate (P1) — 10 cases
 
-Class `perf` throughout (except the banner gate). **Two sets of numbers on
+Class `perf` throughout (except the ktool gate). **Two sets of numbers on
 purpose**: [`../bench.sh`](../../../tfind/bench.sh) measures the real **1.5×** gate by hand on
 an idle box from the medians of 21 interleaved runs; this file asserts the same
 shapes with a **10×** ceiling, because ktests runs test files threaded (8
@@ -483,7 +496,7 @@ call on msys, paid twice per sample — **C17**).
 
 | ID | Case | Basis |
 |---|---|---|
-| 007.z-banner | the `find` on PATH is GNU findutils — otherwise every timed case is a loud SKIP, count unchanged | **D4** |
+| 007.z-gate | ktool resolves a GNU findutils `find` — otherwise every timed case is a loud `SKIP: <ktool's reason>`, count unchanged | **D4** |
 | 007.a-gate-tree | `TFind.byName '*.txt'` over a 20-file tree costs at most **10×** a bare `find … -name '*.txt'`, from the MEDIANS of 7 INTERLEAVED runs, with both sides asserted to deliver the same 20 records | §5 P1, **C17** |
 | 007.a-gate-one | the same over a **ONE-file** tree — the shape that shows corpus size is not the knob (the fork dominates both sides) | §5 P1, **C17** |
 | 007.a-delta | the `byName` delta IS one instance: `new` + `name =` + `argv` + `delete` under 50 ms/call (~4.7 ms idle; nine properties where thead has six) | §5 P1 |

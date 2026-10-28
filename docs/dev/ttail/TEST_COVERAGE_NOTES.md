@@ -1,9 +1,9 @@
 # ttail — test coverage notes
 
-**Status: FINALIZED at P1 (2026-09-16).** Suite `004`–`007` = **200 cases**,
+**Status: FINALIZED at P1 (2026-09-16); counts refreshed at L3.4.** Suite `004`–`007` = **206 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single`, against **GNU coreutils 8.32**. The
-per-file row counts below sum to 200 — 74 + 61 + 55 + 10 — and **every case in
+per-file row counts below sum to 206 — 79 + 61 + 56 + 10 — and **every case in
 the suite has a row**.
 
 **Protocol.** `TTail` has no FPC upstream: it is the fourth wrapper on
@@ -12,9 +12,10 @@ the suite has a row**.
 bare GNU tool on the same fixture**, run with the same argv, never a second call
 into the code under test. Decision **D4** (of the tpipe plan) pins the *dialect*
 — GNU coreutils 8.32, the build MSYS2 ships — not a binary, so every behavioural
-file opens with the **GNU banner gate**: if `tail --version` does not begin with
-`tail (GNU coreutils) `, every behavioural case is a loud SKIP and the case
-**count is unchanged**.
+file opens with the **ktool gate** (`kt_gnu_gate tail TAIL_BIN`): the kkore unit
+`ktool` must resolve a `tail` — GNU coreutils or an accepted uutils >= 0.2.2
+(it checks the `--version` banner itself) — otherwise every behavioural case is a
+loud `SKIP: <ktool's reason>` and the case **count is unchanged**.
 
 `TTail` is **not** a `THead` descendant and `ttail.sh` never sources `thead.sh`
 (`+N` means opposite things in the two tools), so the shared shape is tested
@@ -90,7 +91,7 @@ The Basis column cites one of:
 
 ---
 
-## 004_Argv.sh — typed options to argv, nothing executed (P0) — 74 cases
+## 004_Argv.sh — typed options to argv, nothing executed (P0) — 79 cases
 
 **tail is never started in this file.**
 
@@ -98,8 +99,8 @@ The Basis column cites one of:
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 004.a-vars-present | Create | every declared var (TTail's 7 + TUtil's 5) is present in `${inst}_data` right after `new` | contract | **H4**, §1.2 |
-| 004.a-defaults | Create | the documented defaults: booleans `0` (**`follow` included**), `cmd` `tail`, `_lastRc` `-1` | contract | **H4**, §1.2 |
+| 004.a-vars-present | Create | every declared var (TTail's 7 + TUtil's 7: `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr`) is present in `${inst}_data` right after `new` | contract | **H4**, §1.2 |
+| 004.a-defaults | Create | the documented defaults: booleans `0` (**`follow` included**), `cmd` = the resolved tail (the stub), `_toolErr` `''`, `_lastRc` `-1` | contract | **H4**, §1.2 |
 | 004.a-no-arg | Create | `TTail.new t` with no argument leaves `lines` `''` — tail's own default of 10 | boundary | §1.2 |
 | 004.a-args-empty | Create | `${t}_args` is EMPTY after `TTail.new t N PATH` | contract | **H1** — the `inherited`-in-a-constructor trap |
 | 004.a-paths-verbatim | Create | `${t}_paths` holds the constructor's paths verbatim, once each | representation | §1.2 |
@@ -181,7 +182,7 @@ Every case asserts rc 2, `RESULT ''`, the caller's array untouched,
 | 004.e-halves-ok | each half of a refused pair on its OWN builds fine, **`follow` too** | §2.1 |
 | 004.e-z-legal | `zeroTerminated` with ONE path and with none is accepted | thead §2.3 |
 
-### F. T1 — the count travels VERBATIM (12)
+### F. T1 — the count keeps its sign and value, the wrapper strips leading zeros (13)
 
 `kk.isInt` would turn `+2` into `2`, and for tail those are opposite ends of the
 file. Class `argv`, basis **T1**, §2.2, thead §2.2, **C6** throughout.
@@ -189,15 +190,16 @@ file. Class `argv`, basis **T1**, §2.2, thead §2.2, **C6** throughout.
 | ID | Case |
 |---|---|
 | 004.f-n-plus2 | `lines = +2` → `-n +2` |
-| 004.f-n-08 | `lines = 08` → `-n 08` |
+| 004.f-n-08 | `lines = 08` → `-n 8` (leading zeros stripped) |
 | 004.f-n-minus2 | `lines = -2` → `-n -2` |
 | 004.f-n-minus0 | `lines = -0` → `-n -0` |
 | 004.f-n-plus0 | `lines = +0` → `-n +0` |
 | 004.f-n-0 | `lines = 0` → `-n 0` |
 | 004.f-c-plus3 | `bytes = +3` → `-c +3` |
-| 004.f-c-08 | `bytes = 08` → `-c 08` |
+| 004.f-c-08 | `bytes = 08` → `-c 8` (leading zeros stripped) |
 | 004.f-c-minus2 | `bytes = -2` → `-c -2` |
 | 004.f-c-minus0 | `bytes = -0` → `-c -0` |
+| 004.f-strip-zeros | the wrapper strips LEADING ZEROS itself and keeps the sign: `lines = 08` → `-n 8`, `bytes = +007` → `-c +7`, `00` → `0`, `-007` → `-7`, `+00` → `+0`; `-0`, `10` and `100` unchanged |
 | 004.f-19digits | a 19-digit count PASSES the guard and reaches tail verbatim |
 | 004.f-no-writeback | the property still READS what the caller wrote (no write-back) |
 
@@ -214,6 +216,17 @@ Class `contract`, basis **H5**, thead §2.3, **P3-F1**.
 | 004.g-refused | a REFUSED build derives nothing |
 | 004.g-crlf | `crlf` is never touched by `buildArgv` |
 
+### T6. no usable tail found: `.new` succeeds, the first argv says why (4)
+
+Launch L3.4 (`tutil._gnu tail`). Class `contract`, basis **T6** throughout.
+
+| ID | Case |
+|---|---|
+| 004.t6-none | `KCL_GNU_TAIL=/nonexistent`: `.new` rc 0 and silent, `cmd` `''`, `argv` rc 2 with ONE line naming the override (`KCL_GNU_TAIL='/nonexistent' is not an executable file`), `RESULT ''`, the caller's array untouched |
+| 004.t6-rearm | `x.cmd = STUB` re-arms the instance: `argv` rc 0, word 0 = the stub |
+| 004.t6-static | the static `TTail.take` with no usable tail — rc 2, the same ONE line, nothing printed or run |
+| 004.t6-sink | a SINK on the disarmed instance (`count`): rc 2, `RESULT ''`, ONE line with ktool's text |
+
 ---
 
 ## 005_Run.sh — TTail against GNU tail on a real tree (P0) — 61 cases
@@ -222,7 +235,7 @@ Class `contract`, basis **H5**, thead §2.3, **P3-F1**.
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 005.z-banner | the `tail` on PATH is GNU coreutils — otherwise every case below is a loud SKIP | contract | **D4** |
+| 005.z-gate | ktool resolves a usable `tail` (`kt_gnu_gate`) — otherwise every case below is a loud `SKIP: <ktool's reason>` | contract | **D4** |
 | 005.z-tree | the fixture files are in place | contract | thead §4 |
 
 ### A. H6 — one file, every runner against the bare tool (9)
@@ -331,9 +344,9 @@ The block this unit exists for. Every case that starts a follower ends it.
 
 ---
 
-## 006_Contract.sh — the kcl contract for TTail (P0) — 55 cases
+## 006_Contract.sh — the kcl contract for TTail (P0) — 56 cases
 
-### 0. source integrity (11)
+### 0. source integrity (12)
 
 Class `contract` throughout.
 
@@ -344,6 +357,7 @@ Class `contract` throughout.
 | 006.0-inline-cr | no member body carries an inline `$'…'` | thead §6 |
 | 006.0-this | no internal member call is spelled `$this.NAME` | tutil PLAN §2.2 |
 | 006.0-ctor | the CONSTRUCTOR calls `parent.constructor tail`, never `inherited` | thead §2.1 |
+| 006.0-ctor-gnu | the CONSTRUCTOR resolves its tool: `tutil._gnu tail` is the line right after `parent.constructor tail` (launch L3.4) | §2.1, **T6** |
 | 006.0-dtor | the DESTRUCTOR frees `${inst}_paths` and then chains with `inherited` | thead §2.1 |
 | 006.0-no-isint | the count is NOT validated with `kk.isInt` — it would fold `+2` into `2` | §2.2, **C6** |
 | 006.0-regex-var | the count regex is held in a VARIABLE and applied with `[[ =~ ]]` | thead §6 |
@@ -355,7 +369,7 @@ Class `contract` throughout.
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 006.z-banner | the `tail` on PATH is GNU coreutils | contract | **D4** |
+| 006.z-gate | ktool resolves a usable `tail` | contract | **D4** |
 
 ### 1. `set -eu` — the instance and BOTH TPipe forms, every outcome (22)
 
@@ -430,7 +444,7 @@ ever started** — only the refusing path of the three overrides is touched.
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 007.z-banner | the `tail` on PATH is GNU coreutils — otherwise every timed case is a loud SKIP | contract | **D4** |
+| 007.z-gate | ktool resolves a usable `tail` — otherwise every timed case is a loud `SKIP: <ktool's reason>` | contract | **D4** |
 | 007.a-gate-1 | `TTail.take 1` costs at most 10× a bare `tail -n 1`, medians of 7 INTERLEAVED runs, both sides delivering 1 record | perf | §4 P1, **C7** |
 | 007.a-gate-half | `TTail.take 1000` costs at most 10× a bare `tail -n 1000`, same treatment, both sides delivering 1000 records | perf | §4 P1, **C7** |
 | 007.a-delta | the take delta IS one instance: `new` + `argv` + `delete` under 50 ms/call (3.2–3.4 ms idle) | perf | §4 P1 |

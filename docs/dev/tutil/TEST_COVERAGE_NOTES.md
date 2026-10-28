@@ -77,8 +77,8 @@ behaviour of this unit):
   stdin unread (001 §D);
 * **`CurrentDirectory` / `Environment` / the handle-and-lifecycle family** — not
   modelled at all, so there is no behaviour to assert;
-* **BSD/macOS flag dialects** (D4) — a wrapper's tests assert the GNU banner
-  first and are silent about anything else;
+* **BSD/macOS flag dialects** (D4) — a wrapper's tests open with the ktool gate
+  (`kt_gnu_gate`: a GNU tool or a SKIP) and are silent about anything else;
 * **a record containing a NUL byte** — no bash variable can hold one (`TPipe`'s
   own limit, tpipe `README.md` §7).
 
@@ -100,7 +100,7 @@ stubs gone (3), H `tutil._gnu` / `_toolErr` (9, launch L3.4). Rows are in file o
 | 001.lastrc-initial | lastRc | `lastRc` is `-1` until something ran | contract | §2.1 — `RESULT=-1` has corpus precedent (tarray, tlist) |
 | 001.delete-frees | Destroy | after `delete` neither `${inst}_args` nor `${inst}_argv` nor `${inst}_data` exists | contract | **U3**, §1.9 |
 | 001.reuse-clean | Create | a SECOND instance reusing the name starts empty — no storage left over | boundary | **C3** — `.new` over a live instance does not clear `_data` |
-| 001.setu-vars | Create | every declared var — `subshellOk` and `_toolErr` included — is readable under `set -u` right after `new` | bash-convention | **C3** — unbound on 5.3.9, silently empty on 5.2.37 ([docs §3.3](../../../tutil/docs/TUtil.md#33-c3--an-unassigned-var-is-unbound-under-set--u--and-the-two-bashes-disagree)) |
+| 001.setu-vars | Create | every declared var — `subshellOk` and `_toolErr` included — is readable under `set -u` right after `new` | bash-convention | **C3** — unbound on 5.3.9, silently empty on 5.2.37 ([docs §3.3](../../../tutil/docs/TUtil.md#33-c3--an-unassigned-var-is-unbound-under-set--u-and-the-two-bashes-disagree)) |
 | 001.ctor-verbatim | Create | constructor arguments reach `Create` verbatim, `--format=%H` included | representation | **U2**, §1.2 |
 | 001.buildargv-base | buildArgv | fills `${inst}_argv` with `cmd` + args; RESULT = the count | contract | **U2** |
 | 001.buildargv-rebuild | buildArgv | calling it twice does not accumulate | boundary | §2.2 |

@@ -1,10 +1,10 @@
 # tgrep — test coverage notes
 
-**Status: updated at tutil P4 (D6 final, `subshellOk`, 2026-09-15); previously
-FINALIZED at P3 (2026-09-11).** Suite `004`–`007` = **185 cases**,
+**Status: counts refreshed at L3.4 (2026-10-28); updated at tutil P4 (D6 final,
+`subshellOk`, 2026-09-15); previously FINALIZED at P3 (2026-09-11).** Suite `004`–`007` = **203 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single`, against **GNU grep 3.0**. The per-file
-row counts below sum to 185 — 74 + 53 + 49 + 9 — and **every case in the suite
+row counts below sum to 203 — 84 + 60 + 50 + 9 — and **every case in the suite
 has a row**.
 
 **Protocol.** `TGrep` has no FPC upstream: it is the first wrapper on
@@ -12,10 +12,12 @@ has a row**.
 [../tutil/docs/TUtil.md](../../../tutil/docs/TUtil.md)). The oracle is therefore **the
 bare GNU tool on the same fixture**, run with the same argv, never a second call
 into the code under test. Decision **D4** pins the *dialect* (GNU grep 3.0, the
-build MSYS2 ships), not a binary, so every behavioural file opens with the **GNU
-banner gate**: if `grep --version` does not begin with `grep (GNU grep) ` — this
-box also carries a non-GNU `grep` from Embarcadero that can win the PATH race —
-every behavioural case is a loud SKIP and the case **count is unchanged**.
+build MSYS2 ships), not a binary, so every behavioural file opens with the **ktool
+gate** (`kt_gnu_gate grep GREP_BIN`): the kkore unit `ktool` must resolve a GNU
+grep (it checks the `--version` banner itself, which matters because this box
+also carries a non-GNU `grep` from Embarcadero that can win the PATH race),
+otherwise every behavioural case is a loud `SKIP: <ktool's reason>` and the case
+**count is unchanged**.
 
 The suite splits in two on purpose:
 
@@ -77,7 +79,7 @@ before/after measurement is in
 
 ---
 
-## 004_Argv.sh — typed options to argv, nothing executed (P2; §CR added at L2.7-C) — 79 cases
+## 004_Argv.sh — typed options to argv, nothing executed (P2; §CR added at L2.7-C) — 84 cases
 
 **grep is never started in this file.** Every case either compares the array
 `g.argv GOT` handed over, or asserts a refusal.
@@ -86,8 +88,8 @@ before/after measurement is in
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 004.vars-present | Create | all 23 declared vars **plus TUtil's five** (`cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`) are present in `${inst}_data` right after `new` | contract | **C3**, §2.1, **D6 final Q9** |
-| 004.vars-defaults | Create | the documented defaults: booleans `0` (**`subshellOk` among them**), strings `''`, `cmd` `grep`, `_lastRc` `-1` | contract | §2.1 |
+| 004.vars-present | Create | all 23 declared vars **plus TUtil's seven** (`cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr`) are present in `${inst}_data` right after `new` | contract | **C3**, §2.1, **D6 final Q9** |
+| 004.vars-defaults | Create | the documented defaults: booleans `0` (**`subshellOk` among them**), strings `''`, `cmd` = the resolved grep (the stub), `_toolErr` `''`, `_lastRc` `-1` | contract | §2.1 |
 | 004.args-empty | Create | `${g}_args` is EMPTY after `TGrep.new g PAT PATH` | contract | **C2** — the `inherited` trap doubled every path ([docs §3.2](../../../tutil/docs/TUtil.md#32-c2--inherited-in-a-constructor-forwards-)) |
 | 004.paths-verbatim | Create | `${g}_paths` holds the constructor's paths verbatim, once each | representation | §2.1 |
 | 004.reuse-clean | Create | a REUSED instance name starts clean — every var re-assigned | boundary | **C3** |
@@ -211,13 +213,25 @@ The file pins `__TUTIL_TOOLS_STRIP_CR=1` at the top; this section flips it.
 | 004.cr-native | the cygwin/msys path, stdin: no filter | contract | DL11 |
 | 004.cr-textmode | `_textMode` per shape (files 1, stdin 0, `-r` 1, `-U` `-z` `-l` `-L` 0), identical on both paths | contract | DL11, critic B2 |
 
+### T6. no GNU grep found: `.new` succeeds, the first argv says why (5)
+
+Launch L3.4 (`tutil._gnu grep`).
+
+| ID | Case | Class | Basis |
+|---|---|---|---|
+| 004.t6-none | `KCL_GNU_GREP=/nonexistent`: `.new` rc 0 and silent, `cmd` `''`, `argv` rc 2 with ONE line naming the override (`KCL_GNU_GREP='/nonexistent' is not an executable file`), `RESULT ''`, the caller's array untouched | contract | **T6** |
+| 004.t6-rearm | `x.cmd = STUB` re-arms the instance: `argv` rc 0, word 0 = the stub | contract | **T6** |
+| 004.t6-static | the static `TGrep.search` with no GNU grep — rc 2, the same ONE line, nothing printed or run | contract | **T6** |
+| 004.t6-sink | a SINK on the disarmed instance (`count`): rc 2, `RESULT ''`, ONE line with ktool's text | contract | **T6** |
+| 004.t6-stdin | the STDIN form (no path, CR filter on): the empty `cmd` is refused BEFORE the `tutil._crStdin` prefix is added, with `RESULT ''` and the caller's array untouched; re-armed, the argv is `tutil._crStdin STUB …` | contract | **T6** |
+
 ## 005_Search.sh — TGrep against GNU grep on a real tree (P2; §I extended at L2.7-C) — 60 cases
 
 ### Z. the gate and the tree (2)
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 005.gnu-banner | the `grep` on PATH is GNU grep | tool-behaviour | **D4**, **C14** — a non-GNU grep is on PATH on this box |
+| 005.gnu-gate | ktool resolves a GNU grep (`kt_gnu_gate`); otherwise every case below is a loud `SKIP: <ktool's reason>` | tool-behaviour | **D4**, **C14** — a non-GNU grep is on PATH on this box |
 | 005.fixture | the fixture tree is in place (space, newline and leading-`-` names, UTF-8, CRLF, NUL, a subdir, real symlinks) | representation | §4, **C7** |
 
 ### A. G5 — no match is an ANSWER (6)
@@ -338,9 +352,9 @@ README §1, except where noted.
 
 ---
 
-## 006_Contract.sh — the kcl contract for TGrep (P2, one case added at tutil P4) — 49 cases
+## 006_Contract.sh — the kcl contract for TGrep (P2, one case added at tutil P4) — 50 cases
 
-### 0. source integrity (7)
+### 0. source integrity (8)
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
@@ -349,6 +363,7 @@ README §1, except where noted.
 | 006.inline-cr | no member body carries an inline `$'\r'` | bash-convention | §6 — it does not survive `declare -f`/`eval` |
 | 006.no-this | no internal member call is spelled `$this.NAME` | contract | **C1**, §2.2 |
 | 006.ctor-parent | the CONSTRUCTOR calls `parent.constructor grep`, never `inherited` | contract | **C2**, §2.1 |
+| 006.ctor-gnu | the CONSTRUCTOR resolves its tool: `tutil._gnu grep` is the line right after `parent.constructor grep` (launch L3.4) | contract | **T6**, §2.1 |
 | 006.dtor-inherited | the DESTRUCTOR frees `${inst}_paths` and then chains with `inherited` | contract | §2.1 — the rewrite that bites constructors does not apply here |
 | 006.no-shadow | no `var` shadows a TUtil or kklass member name | contract | **C16**, §1.2 |
 
@@ -356,9 +371,9 @@ README §1, except where noted.
 
 | ID | Case | Class | Basis |
 |---|---|---|---|
-| 006.gnu-banner | the `grep` on PATH is GNU grep | tool-behaviour | **D4**, **C14** |
+| 006.gnu-gate | ktool resolves a GNU grep | tool-behaviour | **D4**, **C14** |
 
-### 1. `set -eu` — the instance and BOTH TPipe forms (19)
+### 1. `set -eu` — the instance and BOTH TPipe forms (20)
 
 Each case runs in a CHILD script under `set -eu` with the unit freshly sourced;
 the child must end rc 0, print exactly `OK` and write nothing to stderr. Class
@@ -433,7 +448,7 @@ this repo.
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 007.gnu-banner | — | the `grep` on PATH is GNU grep; without it every timed case below is a loud SKIP and the count is unchanged | tool-behaviour | **D4**, **C14** |
+| 007.gnu-gate | — | ktool resolves a GNU grep; without it every timed case below is a loud `SKIP: <ktool's reason>` and the count is unchanged | tool-behaviour | **D4**, **C14** |
 | 007.gate-search | search | `TGrep.search` costs at most 10× a bare `grep -r` over the same tree, and both find the same 21 hits | perf | §5 P3.1 (idle: 1.17× / 1.23×, gate 1.3×) |
 | 007.ctor-cost | Create, Destroy | `TGrep.new` + `.delete` under 50 ms — the construction IS the search delta | perf | §2.5 (idle: ~2.5 ms; ~3.0 ms threaded) |
 | 007.argv-runs-nothing | buildArgv, argv | 200 `buildArgv`/`argv` calls with `cmd` pointed at a counting function invoke it ZERO times, leave `$BASHPID` unchanged, and produce the 11 words of the pinned order | contract | §1.2, §1.5 |
