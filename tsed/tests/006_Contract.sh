@@ -24,7 +24,7 @@
 #   D6 final          `$(s.toArray A)` warns about the subshell; `subshellOk = 1`
 #                     silences it.
 #
-# The GNU banner gate of 005 applies here too. Every child sets its own stdin
+# The GNU gate of 005 applies here too (`kt_gnu_gate sed SED_BIN`: ktool). Every child sets its own stdin
 # (`</dev/null`) and runs under `timeout 60`.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,6 +34,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tsed.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -91,6 +92,13 @@ else
     kt_test_fail "constructor body: ${ctor:0:300}"
 fi
 
+kt_test_start "the CONSTRUCTOR resolves its tool: \`tutil._gnu sed\` right after \`parent.constructor sed\` (L3.4 G1)"
+if [[ "$ctor" == *$'parent.constructor sed\n    tutil._gnu sed\n'* ]]; then
+    kt_test_pass "\`tutil._gnu sed\` is the line after \`parent.constructor sed\`"
+else
+    kt_test_fail "constructor body: ${ctor:0:300}"
+fi
+
 kt_test_start "the DESTRUCTOR frees \`_paths\` AND \`_exprs\`, then chains with \`inherited\`"
 dtor="$(sed -n '/^TSed.Destroy()/,/^}/p' "$UNIT")"
 if [[ "$dtor" == *'"${__inst__}_paths"'* && "$dtor" == *'"${__inst__}_exprs"'* \
@@ -140,7 +148,7 @@ else
 fi
 
 kt_test_start "no \`var\` shadows a TUtil or kklass member name; eleven vars declared"
-RESERVED=" cmd crlf nul _lastRc _textMode subshellOk buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
+RESERVED=" cmd crlf nul _lastRc _textMode subshellOk _toolErr buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
 clash=""
 declared=""
 while IFS= read -r line; do
@@ -184,23 +192,15 @@ else
 fi
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and a small tree for the children"
+kt_test_section "Z. the ktool gate, and a small tree for the children"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`sed\` on PATH is GNU sed"
-SED_VER="$(sed --version 2>/dev/null | head -1 || :)"
-if [[ "$SED_VER" == "sed (GNU sed) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$SED_VER"
-else
-    kt_test_pass "SKIP: non-GNU sed ('${SED_VER:-no banner}'); every case that runs sed is skipped"
-fi
+kt_gnu_gate sed SED_BIN
 
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU sed"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0

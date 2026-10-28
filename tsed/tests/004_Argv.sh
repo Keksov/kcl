@@ -8,8 +8,12 @@
 #   sed [--sandbox] [-E] [-n] [-s] [-z] [-b] [-i[SUFFIX]] [EXTRA OPTIONS]
 #       [-e EXPR] [-e X ...] [-f FILE] [-- PATH...]
 #
-# so it is the fast half of the suite and it holds on a box without GNU sed.
-# The behavioural half is `005_Run.sh`.
+# so it is the fast half of the suite and it holds on a box without GNU sed:
+# `kt_gnu_stub` (kcl/tutil/tests/gnu_helper.sh, launch L3.4 T5) writes a fake
+# GNU sed and selects it through KCL_GNU_SED, so word 0 of every argv here is
+# the stub's path ("$STUB_SED") on every platform; the stub never runs. The
+# `sed` of the diagrams stands for that resolved path (A1). The behavioural
+# half is `005_Run.sh`.
 #
 # Sections:
 #   A  S3  lifecycle — every declared var in `${inst}_data` after `new` (incl.
@@ -31,6 +35,9 @@
 #          `-b` for `inPlace` / `nullData` (the `binary` property never written)
 #   F  S5  every option precedes the first `-e`, whatever order the caller
 #          assigned in (the `-E` pin)
+#   G  T6  no GNU sed found (KCL_GNU_SED=/nonexistent): `.new` rc 0, `cmd` '',
+#          `argv` rc 2 with ktool's line; `cmd = STUB` re-arms; the statics
+#          (`edit`, `replace`) and a sink (`count`) answer rc 2, run nothing
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -39,6 +46,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tsed.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 # The CR contract (tutil README §3, L2.7-C) adds argv words on a platform whose
 # tools keep the line-end CR (TSed's prelude, TAwk's RS, TGrep's stdin filter).
 # Every pinned argv in this file is the cygwin/msys one, so the file pins that
@@ -50,6 +58,9 @@ TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
+
+# The fake GNU sed every `.new` below resolves (T5): word 0 / `cmd` everywhere.
+kt_gnu_stub sed "$TMP/stub" STUB_SED || { echo "004: kt_gnu_stub failed" >&2; exit 1; }
 
 kt_test_section "004: TSed — typed options to argv, nothing executed (P0)"
 
@@ -148,7 +159,7 @@ kt_test_section "A. S3 lifecycle — Create assigns every var, the arrays are ri
 # ===========================================================================
 
 TS_VARS=( expr scriptFile extended quiet separate nullData binary sandbox inPlace backupSuffix _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode _toolErr )
 
 kt_test_start "S3: every declared var is present in \`\${inst}_data\` right after \`new\`"
 TSed.new sA 's/a/A/' f.txt
@@ -165,7 +176,7 @@ else
     kt_test_fail "missing:$missing"
 fi
 
-kt_test_start "S3: the documented defaults — expr = arg 1, sandbox 1, the rest 0/'', cmd sed, _lastRc -1"
+kt_test_start "S3: the documented defaults — expr = arg 1, sandbox 1, the rest 0/'', cmd = the resolved sed, _lastRc -1"
 bad=""
 [[ "$(sA.expr)" == 's/a/A/' ]]     || bad+=" expr='$(sA.expr)'"
 for v in scriptFile backupSuffix; do
@@ -177,7 +188,8 @@ for v in extended quiet separate nullData binary inPlace _nulDerived crlf nul su
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
 done
 [[ "$(sA.sandbox)" == "1" ]]  || bad+=" sandbox='$(sA.sandbox)'"
-[[ "$(sA.cmd)" == "sed" ]]    || bad+=" cmd='$(sA.cmd)'"
+[[ "$(sA._toolErr)" == "" ]]  || bad+=" _toolErr='$(sA._toolErr)'"
+[[ "$(sA.cmd)" == "$STUB_SED" ]] || bad+=" cmd='$(sA.cmd)'"
 [[ "$(sA._lastRc)" == "-1" ]] || bad+=" _lastRc='$(sA._lastRc)'"
 if [[ -z "$bad" ]]; then
     kt_test_pass "every default as documented; sandbox ON (owner Q1); subshellOk inherited 0"
@@ -210,8 +222,8 @@ kt_test_start "S3: \`TSed.new s\` with NO argument — expr '', no path, no expr
 TSed.new sD
 declare -n DP=sD_paths
 declare -n DX=sD_exprs
-if (( ${#DP[@]} == 0 && ${#DX[@]} == 0 )) && [[ "$(sD.expr)" == "" && "$(sD.cmd)" == "sed" ]]; then
-    kt_test_pass "empty paths, empty exprs, expr '', cmd sed"
+if (( ${#DP[@]} == 0 && ${#DX[@]} == 0 )) && [[ "$(sD.expr)" == "" && "$(sD.cmd)" == "$STUB_SED" ]]; then
+    kt_test_pass "empty paths, empty exprs, expr '', cmd = the resolved sed"
 else
     kt_test_fail "paths=$(arr_show DP) exprs=$(arr_show DX) expr='$(sD.expr)'"
 fi
@@ -337,7 +349,7 @@ kt_test_start "S3: an ordinary out-name still fills after every refusal"
 declare -a OKARR=()
 rc=0
 sA.argv OKARR || rc=$?
-if [[ $rc -eq 0 ]] && arr_is OKARR sed --sandbox -e 's/a/A/' -e 's/b/B/' -e p -- f.txt; then
+if [[ $rc -eq 0 ]] && arr_is OKARR "$STUB_SED" --sandbox -e 's/a/A/' -e 's/b/B/' -e p -- f.txt; then
     kt_test_pass "argv=$(arr_show OKARR)"
 else
     kt_test_fail "rc=$rc OKARR=$(arr_show OKARR)"
@@ -356,53 +368,53 @@ one() {   # one TITLE PROP VALUE WANT...  (on `new s1 's/a/A/' f.txt`)
 
 reset s1 's/a/A/' f.txt
 check_argv "S1: no option at all — \`sed --sandbox -e EXPR -- PATH\` (sandbox by default)" s1 \
-    sed --sandbox -e 's/a/A/' -- f.txt
+    "$STUB_SED" --sandbox -e 's/a/A/' -- f.txt
 
-one "S1: \`sandbox = 0\` drops \`--sandbox\`"        sandbox  0   sed -e 's/a/A/' -- f.txt
-one "S1: \`extended = 1\` -> -E"                     extended 1   sed --sandbox -E -e 's/a/A/' -- f.txt
-one "S1: \`quiet = 1\` -> -n"                        quiet    1   sed --sandbox -n -e 's/a/A/' -- f.txt
-one "S1: \`separate = 1\` -> -s"                     separate 1   sed --sandbox -s -e 's/a/A/' -- f.txt
-one "S1: \`nullData = 1\` -> -z AND the derived -b"  nullData 1   sed --sandbox -z -b -e 's/a/A/' -- f.txt
-one "S1: \`binary = 1\` -> -b"                       binary   1   sed --sandbox -b -e 's/a/A/' -- f.txt
-one "S1: \`inPlace = 1\` -> the derived -b, then -i" inPlace  1   sed --sandbox -b -i -e 's/a/A/' -- f.txt
+one "S1: \`sandbox = 0\` drops \`--sandbox\`"        sandbox  0   "$STUB_SED" -e 's/a/A/' -- f.txt
+one "S1: \`extended = 1\` -> -E"                     extended 1   "$STUB_SED" --sandbox -E -e 's/a/A/' -- f.txt
+one "S1: \`quiet = 1\` -> -n"                        quiet    1   "$STUB_SED" --sandbox -n -e 's/a/A/' -- f.txt
+one "S1: \`separate = 1\` -> -s"                     separate 1   "$STUB_SED" --sandbox -s -e 's/a/A/' -- f.txt
+one "S1: \`nullData = 1\` -> -z AND the derived -b"  nullData 1   "$STUB_SED" --sandbox -z -b -e 's/a/A/' -- f.txt
+one "S1: \`binary = 1\` -> -b"                       binary   1   "$STUB_SED" --sandbox -b -e 's/a/A/' -- f.txt
+one "S1: \`inPlace = 1\` -> the derived -b, then -i" inPlace  1   "$STUB_SED" --sandbox -b -i -e 's/a/A/' -- f.txt
 one "S1: \`scriptFile = s.sed\` -> -f AFTER the expressions" scriptFile s.sed \
-                                                     sed --sandbox -e 's/a/A/' -f s.sed -- f.txt
+                                                     "$STUB_SED" --sandbox -e 's/a/A/' -f s.sed -- f.txt
 
 reset s1 's/a/A/' f.txt
 s1.inPlace = 1
 s1.backupSuffix = .bak
 check_argv "S1: \`backupSuffix = .bak\` is ATTACHED to -i (one word, \`-i.bak\`)" s1 \
-    sed --sandbox -b -i.bak -e 's/a/A/' -- f.txt
+    "$STUB_SED" --sandbox -b -i.bak -e 's/a/A/' -- f.txt
 
 reset s1 's/a/A/' f.txt
 s1.inPlace = 1
 s1.backupSuffix = 'bak_*'
 check_argv "S1: \`backupSuffix = 'bak_*'\` passes (base-name substitution, documented)" s1 \
-    sed --sandbox -b '-ibak_*' -e 's/a/A/' -- f.txt
+    "$STUB_SED" --sandbox -b '-ibak_*' -e 's/a/A/' -- f.txt
 
 reset s1 's/a/A/' f.txt
 s1.inPlace = 1
 s1.backupSuffix = 'bk/*'
 check_argv "S1: \`backupSuffix = 'bk/*'\` passes (a directory; missing -> the tool's rc 4)" s1 \
-    sed --sandbox -b '-ibk/*' -e 's/a/A/' -- f.txt
+    "$STUB_SED" --sandbox -b '-ibk/*' -e 's/a/A/' -- f.txt
 
 reset s1 's/a/A/' f.txt
 s1.inPlace = 1
 s1.backupSuffix = ' my bak'
 check_argv "S1: a suffix with a space stays ONE argv word" s1 \
-    sed --sandbox -b '-i my bak' -e 's/a/A/' -- f.txt
+    "$STUB_SED" --sandbox -b '-i my bak' -e 's/a/A/' -- f.txt
 
 reset s1 '' f.txt
 s1.scriptFile = s.sed
 check_argv "S1: \`scriptFile\` ALONE (expr '') — no \`-e\` at all" s1 \
-    sed --sandbox -f s.sed -- f.txt
+    "$STUB_SED" --sandbox -f s.sed -- f.txt
 
 reset s1 's/a/A/'
-check_argv "S1: no path — no \`--\` (sed reads stdin)" s1 sed --sandbox -e 's/a/A/'
+check_argv "S1: no path — no \`--\` (sed reads stdin)" s1 "$STUB_SED" --sandbox -e 's/a/A/'
 
 reset s1 's/a/A/' '-weird' '-' 'a b'
 check_argv "S1: paths after \`--\`, verbatim — \`-weird\`, \`-\` (stdin) and a space" s1 \
-    sed --sandbox -e 's/a/A/' -- '-weird' '-' 'a b'
+    "$STUB_SED" --sandbox -e 's/a/A/' -- '-weird' '-' 'a b'
 
 # ===========================================================================
 kt_test_section "C. S1 — the expressions, the extras, the pinned order"
@@ -412,70 +424,70 @@ reset s2 'E0' f.txt
 s2.addExpr 'E1'
 s2.addExpr 'E2' 'E3'
 check_argv "S1: \`expr\` FIRST, then every \`addExpr\` item in call order" s2 \
-    sed --sandbox -e E0 -e E1 -e E2 -e E3 -- f.txt
+    "$STUB_SED" --sandbox -e E0 -e E1 -e E2 -e E3 -- f.txt
 
 reset s2 '' f.txt
 s2.addExpr 'X1' 'X2'
 check_argv "S1: \`expr = ''\` means NONE — only the list is emitted" s2 \
-    sed --sandbox -e X1 -e X2 -- f.txt
+    "$STUB_SED" --sandbox -e X1 -e X2 -- f.txt
 
 reset s2 '' f.txt
 s2.addExpr ''
 check_argv "S1: \`addExpr ''\` is a REAL element — \`-e ''\`, sed's identity" s2 \
-    sed --sandbox -e '' -- f.txt
+    "$STUB_SED" --sandbox -e '' -- f.txt
 
 reset s2 's/a/A/' f.txt
 s2.addExpr '' 'p'
 check_argv "S1: an empty element INSIDE the list keeps its slot" s2 \
-    sed --sandbox -e 's/a/A/' -e '' -e p -- f.txt
+    "$STUB_SED" --sandbox -e 's/a/A/' -e '' -e p -- f.txt
 
 reset s2 '1{' f.txt
 s2.addExpr $'s/a/J/\np' '}'
 check_argv "S1: an expression holding a newline is ONE word" s2 \
-    sed --sandbox -e '1{' -e $'s/a/J/\np' -e '}' -- f.txt
+    "$STUB_SED" --sandbox -e '1{' -e $'s/a/J/\np' -e '}' -- f.txt
 
 reset s2 'E0' f.txt
 s2.addExpr 'E1' 'E2'
 s2.clearExprs
 check_argv "S1: \`clearExprs\` empties the list and keeps \`expr\`" s2 \
-    sed --sandbox -e E0 -- f.txt
+    "$STUB_SED" --sandbox -e E0 -- f.txt
 
 reset s2 'E0' f.txt
 s2.addExpr
-check_argv "S1: \`addExpr\` with no argument is a no-op" s2 sed --sandbox -e E0 -- f.txt
+check_argv "S1: \`addExpr\` with no argument is a no-op" s2 "$STUB_SED" --sandbox -e E0 -- f.txt
 
 reset s2 'E0' f.txt
 s2.scriptFile = s.sed
 s2.addExpr 'E1'
 check_argv "S1: \`-f\` comes after ALL the expressions" s2 \
-    sed --sandbox -e E0 -e E1 -f s.sed -- f.txt
+    "$STUB_SED" --sandbox -e E0 -e E1 -f s.sed -- f.txt
 
 reset s2 'E0' f.txt
 s2.addArg --posix
 s2.extended = 1
 check_argv "S1: an extra lands AFTER the typed options and BEFORE the first \`-e\`" s2 \
-    sed --sandbox -E --posix -e E0 -- f.txt
+    "$STUB_SED" --sandbox -E --posix -e E0 -- f.txt
 
 reset s2 'E0' f.txt
 s2.addArg -u
 s2.addArg -l 40
 s2.addArg --follow-symlinks
 check_argv "S1: several extras keep their order and their words" s2 \
-    sed --sandbox -u -l 40 --follow-symlinks -e E0 -- f.txt
+    "$STUB_SED" --sandbox -u -l 40 --follow-symlinks -e E0 -- f.txt
 
 reset s2 'E0' f.txt
 s2.addArg -u
 s2.clearArgs
-check_argv "S1: \`clearArgs\` empties the extras again" s2 sed --sandbox -e E0 -- f.txt
+check_argv "S1: \`clearArgs\` empties the extras again" s2 "$STUB_SED" --sandbox -e E0 -- f.txt
 
 reset s2 'E0' old1 old2
 s2.paths new1 'new 2'
 check_argv "S1: \`s.paths new1 'new 2'\` replaced both old paths" s2 \
-    sed --sandbox -e E0 -- new1 'new 2'
+    "$STUB_SED" --sandbox -e E0 -- new1 'new 2'
 
 reset s2 'E0' old1
 s2.paths
-check_argv "S1: \`s.paths\` with NO argument is the stdin form — no \`--\`" s2 sed --sandbox -e E0
+check_argv "S1: \`s.paths\` with NO argument is the stdin form — no \`--\`" s2 "$STUB_SED" --sandbox -e E0
 
 reset s2 'E0' p1 'p 2'
 s2.extended = 1
@@ -489,7 +501,7 @@ s2.scriptFile = 'my script.sed'
 s2.addArg --posix -u -l 40
 s2.addExpr 'X1' 'X2'
 check_argv "S1: EVERYTHING at once — the full pinned order, ONE \`-b\`" s2 \
-    sed --sandbox -E -n -s -z -b -i.bak --posix -u -l 40 -e E0 -e X1 -e X2 \
+    "$STUB_SED" --sandbox -E -n -s -z -b -i.bak --posix -u -l 40 -e E0 -e X1 -e X2 \
     -f 'my script.sed' -- p1 'p 2'
 
 kt_test_start "S1: a boolean is ON only for the exact string \`1\` (never \`(( x ))\`) — every flag but \`sandbox\`"
@@ -502,7 +514,7 @@ for v in 2 yes true on TRUE -1 '1 ' ' 1' 01 '' 0; do
     done
     GOT=()
     s3.argv GOT >/dev/null 2>&1 || :
-    if ! arr_is GOT sed --sandbox -e E0 -- f.txt; then
+    if ! arr_is GOT "$STUB_SED" --sandbox -e E0 -- f.txt; then
         allgood=0
         badv="'$v' -> $(arr_show GOT)"
         break
@@ -522,20 +534,20 @@ sbx() {   # sbx VALUE WANT...
     local __v="$1"; shift
     reset s3 'E0' f.txt
     s3.sandbox = "$__v"
-    check_argv "S1 (Q1, fail closed): \`sandbox = $(printf '%q' "$__v")\` -> $( [[ "$1 $2" == "sed --sandbox" ]] && printf 'SANDBOXED' || printf 'open' )" s3 "$@"
+    check_argv "S1 (Q1, fail closed): \`sandbox = $(printf '%q' "$__v")\` -> $( [[ "$2" == --sandbox ]] && printf 'SANDBOXED' || printf 'open' )" s3 "$@"
 }
 
-sbx ''      sed --sandbox -e E0 -- f.txt
-sbx yes     sed --sandbox -e E0 -- f.txt
-sbx 2       sed --sandbox -e E0 -- f.txt
-sbx ' 0'    sed --sandbox -e E0 -- f.txt
-sbx '0 '    sed --sandbox -e E0 -- f.txt
-sbx 00      sed --sandbox -e E0 -- f.txt
-sbx false   sed --sandbox -e E0 -- f.txt
-sbx off     sed --sandbox -e E0 -- f.txt
-sbx -0      sed --sandbox -e E0 -- f.txt
-sbx 1       sed --sandbox -e E0 -- f.txt
-sbx 0       sed -e E0 -- f.txt
+sbx ''      "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx yes     "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx 2       "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx ' 0'    "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx '0 '    "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx 00      "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx false   "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx off     "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx -0      "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx 1       "$STUB_SED" --sandbox -e E0 -- f.txt
+sbx 0       "$STUB_SED" -e E0 -- f.txt
 
 kt_test_start "S1: rebuilding does not ACCUMULATE — two \`argv\` calls agree"
 reset s2 'E0' f.txt
@@ -543,7 +555,7 @@ s2.addExpr E1
 declare -a W1=() W2=()
 s2.argv W1 >/dev/null 2>&1 || :
 s2.argv W2 >/dev/null 2>&1 || :
-if arr_is W1 sed --sandbox -e E0 -e E1 -- f.txt && arr_is W2 sed --sandbox -e E0 -e E1 -- f.txt; then
+if arr_is W1 "$STUB_SED" --sandbox -e E0 -e E1 -- f.txt && arr_is W2 "$STUB_SED" --sandbox -e E0 -e E1 -- f.txt; then
     kt_test_pass "stable across rebuilds"
 else
     kt_test_fail "W1=$(arr_show W1) W2=$(arr_show W2)"
@@ -700,7 +712,7 @@ pass_extra() {   # pass_extra WORD...
     reset sE 's/a/A/' f.txt
     sE.addArg "$@"
     check_argv "S2 (Q6): \`addArg $(printf '%q ' "$@")\` PASSES — not a typed property" sE \
-        sed --sandbox "$@" -e 's/a/A/' -- f.txt
+        "$STUB_SED" --sandbox "$@" -e 's/a/A/' -- f.txt
 }
 
 pass_extra --posix
@@ -737,7 +749,7 @@ GOT=()
 rc=0
 sZ.argv GOT || rc=$?
 if [[ $rc -eq 0 && "$(sZ.nul)" == "1" && "$(sZ._nulDerived)" == "1" ]] \
-   && arr_is GOT sed --sandbox -z -b -e p -- f.txt; then
+   && arr_is GOT "$STUB_SED" --sandbox -z -b -e p -- f.txt; then
     kt_test_pass "nul = 1, _nulDerived = 1, argv has -z -b"
 else
     kt_test_fail "rc=$rc nul='$(sZ.nul)' drv='$(sZ._nulDerived)' GOT=$(arr_show GOT)"
@@ -804,7 +816,7 @@ derived_b() {
     for __w in "${__g1[@]}"; do [[ "$__w" == "-b" ]] && __has1=$(( __has1 + 1 )); done
     for __w in "${__g2[@]}"; do [[ "$__w" == "-b" ]] && __has2=$(( __has2 + 1 )); done
     if [[ "$__has1" == "1" && "$__has2" == "0" && "$__bin1" == "0" && "$__bin2" == "0" ]] \
-       && arr_is __g2 sed --sandbox -e p -- f.txt; then
+       && arr_is __g2 "$STUB_SED" --sandbox -e p -- f.txt; then
         kt_test_pass "on: $(arr_show __g1)| off: $(arr_show __g2)| binary stayed 0"
     else
         kt_test_fail "on=$(arr_show __g1) off=$(arr_show __g2) binary='$__bin1'/'$__bin2'"
@@ -819,14 +831,14 @@ sB.binary = 1
 sB.inPlace = 1
 sB.nullData = 1
 check_argv "S4: \`binary\` + \`inPlace\` + \`nullData\` — still exactly ONE \`-b\`" sB \
-    sed --sandbox -z -b -i -e p -- f.txt
+    "$STUB_SED" --sandbox -z -b -i -e p -- f.txt
 
 reset sB 'p' f.txt
 sB.binary = 1
 sB.inPlace = 1
 sB.inPlace = 0
 check_argv "S4: a caller's own \`binary = 1\` survives \`inPlace\` going 1 -> 0" sB \
-    sed --sandbox -b -e p -- f.txt
+    "$STUB_SED" --sandbox -b -e p -- f.txt
 
 kt_test_start "S4: \`crlf\` is never touched by buildArgv"
 reset sZ 'p' f.txt
@@ -873,7 +885,7 @@ reset sF 's/(a)1/[\1]/' a1.txt
 sF.addExpr 'p'
 sF.extended = 1                       # assigned AFTER the expressions
 check_argv "S5: \`extended\` set AFTER the expressions still emits \`-E\` BEFORE the first \`-e\`" sF \
-    sed --sandbox -E -e 's/(a)1/[\1]/' -e p -- a1.txt
+    "$STUB_SED" --sandbox -E -e 's/(a)1/[\1]/' -e p -- a1.txt
 
 kt_test_start "S5: across every option shape, no option word follows the first \`-e\`"
 okall=1
@@ -936,57 +948,133 @@ __TUTIL_TOOLS_STRIP_CR=0
 TSed.new sCR 's/a/A/' f1
 sCR.addArg -u
 cr_case "CR: text mode — the prelude follows the extras and precedes the first -e of the script" sCR \
-    sed --sandbox -u -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e s/a/A/ -- f1
+    "$STUB_SED" --sandbox -u -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e s/a/A/ -- f1
 sCR.clearArgs
 sCR.binary = 1
-cr_case "CR: \`binary = 1\` — no prelude" sCR sed --sandbox -b -e s/a/A/ -- f1
+cr_case "CR: \`binary = 1\` — no prelude" sCR "$STUB_SED" --sandbox -b -e s/a/A/ -- f1
 sCR.binary = 0
 sCR.nullData = 1
-cr_case "CR: \`nullData = 1\` — no prelude" sCR sed --sandbox -z -b -e s/a/A/ -- f1
+cr_case "CR: \`nullData = 1\` — no prelude" sCR "$STUB_SED" --sandbox -z -b -e s/a/A/ -- f1
 sCR.nullData = 0
 sCR.inPlace = 1
-cr_case "CR: \`inPlace = 1\` — no prelude" sCR sed --sandbox -b -i -e s/a/A/ -- f1
+cr_case "CR: \`inPlace = 1\` — no prelude" sCR "$STUB_SED" --sandbox -b -i -e s/a/A/ -- f1
 sCR.inPlace = 0
 cr_case "CR: back to text mode — the prelude again" sCR \
-    sed --sandbox -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e s/a/A/ -- f1
+    "$STUB_SED" --sandbox -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e s/a/A/ -- f1
 sCR.delete
 
 TSed.new sCR '#n' f1
 sCR.addExpr p
 cr_case "CR: \`expr\` = '#n' — the build adds -n" sCR \
-    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#n' -e p -- f1
+    "$STUB_SED" --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#n' -e p -- f1
 sCR.expr = $'#n\np'
 sCR.clearExprs
 cr_case "CR: a multi-line \`expr\` whose FIRST line is '#n' — -n" sCR \
-    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e $'#n\np' -- f1
+    "$STUB_SED" --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e $'#n\np' -- f1
 sCR.expr = '#np'
 cr_case "CR: '#np' is not '#n' — no -n" sCR \
-    sed --sandbox -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#np' -- f1
+    "$STUB_SED" --sandbox -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#np' -- f1
 sCR.expr = '#n'
 sCR.quiet = 1
 cr_case "CR: \`quiet = 1\` + '#n' — one -n, not two" sCR \
-    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#n' -- f1
+    "$STUB_SED" --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#n' -- f1
 sCR.delete
 
 TSed.new sCR '' f1
 sCR.addExpr '#n'
 sCR.addExpr p
 cr_case "CR: the FIRST \`addExpr\` is '#n' (expr empty) — -n" sCR \
-    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#n' -e p -- f1
+    "$STUB_SED" --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -e '#n' -e p -- f1
 sCR.clearExprs
 sCR.scriptFile = "$TMP/hashn.sed"
 cr_case "CR: line 1 of \`scriptFile\` is '#n' — -n" sCR \
-    sed --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -f "$TMP/hashn.sed" -- f1
+    "$STUB_SED" --sandbox -n -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -f "$TMP/hashn.sed" -- f1
 sCR.scriptFile = "$TMP/plain.sed"
 cr_case "CR: a \`scriptFile\` without '#n' — no -n" sCR \
-    sed --sandbox -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -f "$TMP/plain.sed" -- f1
+    "$STUB_SED" --sandbox -e "$CRSED" -e t__tsd_cr -e :__tsd_cr -f "$TMP/plain.sed" -- f1
 __TUTIL_TOOLS_STRIP_CR=1
 sCR.scriptFile = "$TMP/hashn.sed"
 cr_case "CR: the cygwin/msys path — no prelude, and '#n' is left to sed itself" sCR \
-    sed --sandbox -f "$TMP/hashn.sed" -- f1
+    "$STUB_SED" --sandbox -f "$TMP/hashn.sed" -- f1
 kt_test_start "CR: \`_textMode\` stays 0 for TSed on both paths (no output strip: the script's own CRs survive)"
 tm=""
 __TUTIL_TOOLS_STRIP_CR=0; sCR.argv GOT >/dev/null; tm+="$(sCR._textMode)"
 __TUTIL_TOOLS_STRIP_CR=1; sCR.argv GOT >/dev/null; tm+="$(sCR._textMode)"
 if [[ "$tm" == "00" ]]; then kt_test_pass "00"; else kt_test_fail "got $tm"; fi
 sCR.delete
+
+# ===========================================================================
+kt_test_section "G. T6 — no GNU sed found: .new succeeds, the first argv says why"
+# ===========================================================================
+
+NOEXEC_TXT="KCL_GNU_SED='/nonexistent' is not an executable file"
+
+kt_test_start "T6 (i): KCL_GNU_SED=/nonexistent — \`.new\` rc 0 and silent, \`cmd\` '', \`argv\` rc 2 with ONE line naming the override"
+KCL_GNU_SED=/nonexistent
+dbg_n TSed.new sNG 's/a/A/' f.txt
+nrc=$DBG_RC; nlines_new=$DBG_N
+GOT=( stale )
+dbg_n sNG.argv GOT
+if [[ $nrc -eq 0 && $nlines_new -eq 0 && "$(sNG.cmd)" == "" && $DBG_RC -eq 2 && $DBG_N -eq 1 \
+      && "$DBG_1" == *"$NOEXEC_TXT"* && "$RESULT" == "" ]] && arr_is GOT stale; then
+    kt_test_pass "new rc 0 silent; cmd ''; argv rc 2: ${DBG_1:0:100}"
+else
+    kt_test_fail "new rc=$nrc lines=$nlines_new cmd='$(sNG.cmd)'; argv rc=$DBG_RC lines=$DBG_N first='$DBG_1' got=$(arr_show GOT)"
+fi
+
+kt_test_start "T6 (ii): \`x.cmd = STUB\` re-arms the instance — \`argv\` rc 0, word 0 = the stub"
+sNG.cmd = "$STUB_SED"
+GOT=( stale )
+rc=0
+sNG.argv GOT || rc=$?
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_SED" --sandbox -e 's/a/A/' -- f.txt; then
+    kt_test_pass "$(arr_show GOT)"
+else
+    kt_test_fail "rc=$rc got=$(arr_show GOT)"
+fi
+sNG.delete
+
+kt_test_start "T6 (iii): the static \`TSed.edit\` with no GNU sed — rc 2, the same ONE line, nothing printed or run"
+KCL_GNU_SED=/nonexistent
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+sout=$(TSed.edit 's/a/A/' "$TMP/none.txt" 2>"$ERRF")
+src=$?
+VERBOSE_KKLASS=
+sn=0; sl=''
+while IFS= read -r l || [[ -n "$l" ]]; do sn=$(( sn + 1 )); sl=$l; done < "$ERRF"
+if [[ $src -eq 2 && $sn -eq 1 && "$sl" == *"$NOEXEC_TXT"* && -z "$sout" ]]; then
+    kt_test_pass "rc 2, empty stdout, one line: ${sl:0:100}"
+else
+    kt_test_fail "rc=$src out='$sout' lines=$sn last='$sl'"
+fi
+
+kt_test_start "T6 (iv): a SINK on the disarmed instance (\`count\`) — rc 2, RESULT '', ONE line with ktool's text"
+KCL_GNU_SED=/nonexistent
+TSed.new sNG 's/a/A/' f.txt
+RESULT=stale
+dbg_n sNG.count
+if [[ $DBG_RC -eq 2 && "$RESULT" == "" && $DBG_N -eq 1 && "$DBG_1" == *"$NOEXEC_TXT"* ]]; then
+    kt_test_pass "count rc 2, RESULT '', one line: ${DBG_1:0:100}"
+else
+    kt_test_fail "rc=$DBG_RC RESULT='$RESULT' lines=$DBG_N first='$DBG_1'"
+fi
+sNG.delete
+
+kt_test_start "T6 (v): the static \`TSed.replace\` with no GNU sed — rc 2, the same ONE line, nothing printed or run"
+KCL_GNU_SED=/nonexistent
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+sout=$(TSed.replace a b "$TMP/none.txt" 2>"$ERRF")
+src=$?
+VERBOSE_KKLASS=
+sn=0; sl=''
+while IFS= read -r l || [[ -n "$l" ]]; do sn=$(( sn + 1 )); sl=$l; done < "$ERRF"
+if [[ $src -eq 2 && $sn -eq 1 && "$sl" == *"$NOEXEC_TXT"* && -z "$sout" ]]; then
+    kt_test_pass "rc 2, empty stdout, one line: ${sl:0:100}"
+else
+    kt_test_fail "rc=$src out='$sout' lines=$sn last='$sl'"
+fi
+
+# the stub again for whoever follows
+KCL_GNU_SED="$STUB_SED"

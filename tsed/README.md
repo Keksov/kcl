@@ -115,8 +115,27 @@ TSed.new INST [EXPR [PATH...]]         # EXPR -> expr, the rest are paths
 | `TSed.quoteRe TEXT [ere]` | static proc | — | RESULT: TEXT as a literal regex — §7a |
 | `TSed.quoteRepl TEXT` | static proc | — | RESULT: TEXT as a literal replacement — §7a |
 
-Inherited from TUtil unchanged: `cmd` (`sed`), `crlf`, `nul`, `_lastRc`,
-**`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`, `lastRc`.
+Inherited from TUtil: `cmd` — **the absolute path of the GNU sed the kkore unit
+`ktool` resolved** (`/usr/bin/sed` on Git-bash, `/usr/local/bin/gsed` on
+FreeBSD; `KCL_GNU_SED=/path` picks one, and `ktool` refuses a wrong one), set
+by the constructor; `crlf`, `nul`, `_lastRc`, **`subshellOk`**, `addArg`,
+`clearArgs`, `argv NAME`, `run`, `lastRc`. A `cmd` you set by hand afterwards
+is used as given (no identity check). The resolved instance is frozen: a later
+`PATH` or `KCL_GNU_SED` change reaches the next `.new`, not this one.
+
+**No GNU sed on the box?** `.new` still succeeds (rc 0, silent) with `cmd` `''`;
+the first member that builds the argv (`run`, a sink — after a sink's own
+in-place refusal — or `argv`) — and the statics
+`TSed.edit` / `replace` / `replaceInFile` — answer **rc 2** with one `kk.debug`
+line carrying ktool's reason, which names the package (`no GNU sed: gsed not on
+PATH; /usr/bin/sed is not GNU sed …; FreeBSD: pkg install gsed`). Nothing runs.
+Setting `cmd` re-arms the instance; `_toolErr` keeps ktool's reason after the
+re-arm, so a later hand-set `cmd = ''` prints that reason again.
+
+**In `$( )`:** ktool's answer is cached per process, so a `.new` (or a static)
+inside `$( … )` in a shell that never resolved sed pays the cold probe on
+**every** call. Call `ktool.gnu sed` (or create one instance) once in the main
+shell before using TSed inside `$( )`.
 
 **`subshellOk` (D6 final)** is inherited, not redeclared, default `0`:
 `s.subshellOk = 1` makes every sink pass `-s` to `TPipe`, which silences the
@@ -156,7 +175,8 @@ sed [--sandbox] [-E] [-n] [-s] [-z] [-b] [-i[SUFFIX]] [EXTRA OPTIONS from addArg
   ends in `a\` swallows the next chunk (even a `-f` script) as text.
 
 `s.argv NAME` builds the array and **runs nothing** — that is how
-`tests/004_Argv.sh` pins every option without executing sed.
+`tests/004_Argv.sh` pins every option without executing sed. In the diagrams
+`sed` stands for word 0, which is `cmd`: the resolved absolute path.
 
 ---
 
@@ -174,7 +194,7 @@ and `lastRc` stays `-1` on a fresh instance.
 
 | refusal | why |
 |---|---|
-| `cmd` is empty | the instance was disarmed by hand |
+| `cmd` is empty | the instance was disarmed by hand, or no GNU sed was found at `.new` (the line is then ktool's reason, with the package hint) |
 | **no script at all** — `expr` `''`, the list empty, `scriptFile` `''` | sed would take the first path **as the script** (`unknown command`) |
 | `inPlace = 1` with no path, or with the path `-` anywhere | sed cannot edit stdin in place |
 | `backupSuffix` set with `inPlace = 0` | the suffix only means something to `-i` |
@@ -612,23 +632,29 @@ bash kcl/tsed/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tsed/tests/tests.sh
 ```
 
-**402 checks, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+**408 checks, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
 mode and (5.2.37) under `--mode single`, against GNU sed 4.9 (315 before H1;
-`008_Helpers.sh` adds 87). Case by case:
+`008_Helpers.sh` adds 87; the move onto ktool, launch L3.4, adds 5 cases to
+`004` and 1 to `006`). Case by case:
 [TEST_COVERAGE_NOTES.md](../docs/dev/tsed/TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | runs sed? |
 |---|---|---|---|
-| `004_Argv.sh` | 160 | S1–S5 by array comparison, sed never runs: lifecycle and both registries; every option singly and combined; the boolean-is-exactly-`1` rule and the fail-closed `sandbox` (eleven values); the rc 2 list incl. every deny-list spelling (short, bundled, attached, long, abbreviated, `=VALUE`), `--` in three positions, and the extras that pass; the `-0` four-state sequence and the derived `-b`; every option before the first `-e` | **no** |
-| `005_Run.sh` | 78 | S5–S12 against bare sed on a fixture tree behind the banner gate: every sink, multi-`-e`, `-f`, `-n`, `-s`, the unterminated line, the identity, stdin, exotic names; partial / rc 4 / `q N`; the sandbox with marker files; CR and `-z` byte assertions (`od -c`); in-place on copies (backups, `bak_*` both shapes, the truncation trap, every sink refused, `--debug`); `TSed.edit` in three positions, nested, composed | yes (GNU banner gate first) |
-| `006_Contract.sh` | 66 | S13: source integrity (incl. the rc-preserving overrides and no `-b` bookkeeping var), `set -eu` children through `s.each` and both TPipe forms with every sink call guarded, one debug line per rc 2 / sed-error path and silence on rc 0 and on a `q N` status, D6 + `subshellOk`, the unguarded-sink rule | yes (gated) |
-| `007_Bench.sh` | 11 | the §10 gate as assertions with a **10×** ceiling behind the same banner gate: `TSed.edit` vs bare `sed --sandbox -e … --` over a 200-line and a one-line file (interleaved, medians, byte-identical outputs asserted), the edit delta under 50 ms, `s.count` vs `sed … \| wc -l`; 200 builds invoke the `cmd` zero times, fork nothing and do not accumulate; a refused (deny-list) build is the cheap path too; zero forks for every property, every builder member, `run`, `edit`, the five sinks' callback and `.Add`, and four rc 2 paths | yes (gated) |
+| `004_Argv.sh` | 165 | S1–S5 by array comparison, sed never runs: lifecycle and both registries; every option singly and combined; the boolean-is-exactly-`1` rule and the fail-closed `sandbox` (eleven values); the rc 2 list incl. every deny-list spelling (short, bundled, attached, long, abbreviated, `=VALUE`), `--` in three positions, and the extras that pass; the `-0` four-state sequence and the derived `-b`; every option before the first `-e`; no GNU sed found (`KCL_GNU_SED=/nonexistent`: `.new` rc 0, `argv`, a sink and the statics rc 2 with ktool's line, `cmd = …` re-arms) | **no** (a stub GNU sed; word 0 is its path) |
+| `005_Run.sh` | 78 | S5–S12 against bare sed on a fixture tree behind the ktool gate: every sink, multi-`-e`, `-f`, `-n`, `-s`, the unterminated line, the identity, stdin, exotic names; partial / rc 4 / `q N`; the sandbox with marker files; CR and `-z` byte assertions (`od -c`); in-place on copies (backups, `bak_*` both shapes, the truncation trap, every sink refused, `--debug`); `TSed.edit` in three positions, nested, composed | yes (ktool gate first) |
+| `006_Contract.sh` | 67 | S13: source integrity (incl. the rc-preserving overrides and no `-b` bookkeeping var), `set -eu` children through `s.each` and both TPipe forms with every sink call guarded, one debug line per rc 2 / sed-error path and silence on rc 0 and on a `q N` status, D6 + `subshellOk`, the unguarded-sink rule | yes (gated) |
+| `007_Bench.sh` | 11 | the §10 gate as assertions with a **10×** ceiling behind the same ktool gate: `TSed.edit` vs bare `sed --sandbox -e … --` over a 200-line and a one-line file (interleaved, medians, byte-identical outputs asserted), the edit delta under 50 ms, `s.count` vs `sed … \| wc -l`; 200 builds invoke the `cmd` zero times, fork nothing and do not accumulate; a refused (deny-list) build is the cheap path too; zero forks for every property, every builder member, `run`, `edit`, the five sinks' callback and `.Add`, and four rc 2 paths | yes (gated) |
 | `008_Helpers.sh` | 87 | H1 literal replace (§7, §7a): `quoteRe`/`quoteRepl` on the owner probe strings byte-exact (`od -c`), BRE and `ere`, direct call silent, `$( )` once, the round trip through real sed; `addReplace` argv by array comparison (the flags, call order with `addExpr`, `extended` before/after, the -E escapes, the storage shape); every sink and `run` against bare sed with a hand-written escape, zero matches, the metachar soup, `& \1 / newline` in TO, multibyte under C.UTF-8 and C (and `rfIgnoreCase` folding non-ASCII only under UTF-8), a TAB; `quoteRe` refusing any dialect word but `ere`; CR in text mode vs `binary`, `nullData` + a newline in FROM; in place with CRLF kept, `replaceInFile` without backup; the rc 2 list with storage intact and stdin unread, the `addReplace` arity refusal, no scratch global left behind; `TSed.replace` in three positions and nested; `delete`/`clearExprs` and the registries, also across `kk.unit --forget tsed` | yes (gated) |
 
-The behavioural files open with a **GNU banner gate**: if `sed --version` does
-not begin with `sed (GNU sed) `, every case below it is a loud `SKIP` rather
-than a failure — D4 pins the dialect, not a binary, and the case **count is
-unchanged**.
+The behavioural files open with a **ktool gate**: one case asks the kkore unit
+ktool (through `kt_gnu_gate sed SED_BIN`, `tutil/tests/gnu_helper.sh`) for a GNU
+sed; its path is `SED_BIN`, the very sed TSed resolves, and every oracle runs
+it. When ktool finds none, every case below it is a loud `SKIP: <ktool's
+reason>` (with the package hint) rather than a failure — D4 pins the dialect,
+not a binary, and the case **count is unchanged**. `004` and the argv-only
+blocks of `008` never run sed: they select a stub GNU sed with `kt_gnu_stub`
+(`KCL_GNU_SED`), so they run in full on a box without one, and their argv pins
+hold the stub's path as word 0.
 
 ---
 

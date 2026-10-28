@@ -7,17 +7,19 @@
 # built under `$_KT_TMPDIR` with `kt_fixture_tmpdir_create`, so the framework
 # tears it down; this file installs NO `trap … EXIT` of its own.
 #
-# THE GATE IS THE FIRST CASE. D4 pins the GNU dialect, not a binary (5.2.37
-# resolves Git for Windows' sed, 5.3.9 msys64's; both 4.9): if `sed --version`
-# does not begin with `sed (GNU sed) `, every behavioural case below is a loud
-# `SKIP`, so the case COUNT is the same either way.
+# THE GATE IS THE FIRST CASE. `kt_gnu_gate sed SED_BIN` (kcl/tutil/tests/
+# gnu_helper.sh, launch L3.4 T2) asks the kkore unit ktool for a GNU sed (D4
+# pins the GNU dialect, not a binary) and SED_BIN is the path it answers - the
+# very sed TSed resolves, so every oracle below runs "$SED_BIN". With none,
+# every behavioural case below is a loud `SKIP: <ktool's reason>`, so the case
+# COUNT is the same either way.
 #
 # In-place cases work on COPIES made inside `_KT_TMPDIR` and assert the bytes
 # with `od -c` afterwards. CR fixtures are written with `printf`, never through
 # an array literal (tutil README trap 18).
 #
 # Sections:
-#   Z        the banner gate and the fixture tree
+#   Z        the ktool gate and the fixture tree
 #   A  S6    every sink vs bare sed; multi-`-e`; `-f`; `-n` + `p`; `-s` vs the
 #            default one stream; the unterminated last line; `addExpr ''` is the
 #            identity; stdin; exotic path names behind `--`
@@ -50,6 +52,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tsed.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -60,24 +63,15 @@ ERRF="$TMP/ts.err"
 kt_test_section "005: TSed against GNU sed on a real tree (P0)"
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and the fixture tree"
+kt_test_section "Z. the ktool gate, and the fixture tree"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`sed\` on PATH is GNU sed (D4 pins the DIALECT, not a binary)"
-SED_BIN="$(command -v sed 2>/dev/null || printf '(none)')"
-SED_VER="$(sed --version 2>/dev/null | head -1 || :)"
-if [[ "$SED_VER" == "sed (GNU sed) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$SED_BIN — $SED_VER"
-else
-    kt_test_pass "SKIP: non-GNU sed ($SED_BIN — '${SED_VER:-no banner}'); every behavioural case below is skipped"
-fi
+kt_gnu_gate sed SED_BIN
 
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU sed"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -177,8 +171,8 @@ oracle0() {
 odf() { od -c < "$1"; }
 
 # ts_dbg COMMAND... — the switch ON, stderr SPLIT: TS_N/TS_1 are OUR lines
-# (`Error:`/`Warning:`), TOOL_N/TOOL_1 sed's own (matched by the `sed: `
-# PREFIX — its quoting follows the locale).
+# (`Error:`/`Warning:`), TOOL_N/TOOL_1 sed's own: every other line (the tests
+# then match its `$SED_BIN: ` prefix; the quoting after it follows the locale).
 TS_RC=0; TS_N=0; TS_1=''; TOOL_N=0; TOOL_1=''
 ts_dbg() {
     : > "$ERRF"
@@ -224,7 +218,7 @@ kt_test_section "A. S6 — every sink against the bare tool"
 
 if tcase "S6: toArray / each / count / first / toList / run on \`s/a/A/\` all agree with bare sed"; then
     TSed.new sK 's/a/A/' "$FX/f3.txt"
-    oracleL SWANT sed --sandbox -e 's/a/A/' -- "$FX/f3.txt"
+    oracleL SWANT "$SED_BIN" --sandbox -e 's/a/A/' -- "$FX/f3.txt"
     SGOT=()
     arc=0; sK.toArray SGOT || arc=$?; an="$RESULT"
     CB_RECS=()
@@ -234,7 +228,7 @@ if tcase "S6: toArray / each / count / first / toList / run on \`s/a/A/\` all ag
     TSTestList.new sKL
     lrc=0; sK.toList sKL || lrc=$?; ln="$RESULT"
     rrc=0; sK.run > "$TMP/run.out" 2>/dev/null || rrc=$?
-    sed --sandbox -e 's/a/A/' -- "$FX/f3.txt" > "$TMP/bare.out"
+    "$SED_BIN" --sandbox -e 's/a/A/' -- "$FX/f3.txt" > "$TMP/bare.out"
     sK.lastRc; lr="$RESULT"
     if [[ $arc -eq 0 && $erc -eq 0 && $crc -eq 0 && $frc -eq 0 && $lrc -eq 0 && $rrc -eq 0 \
           && "$an" == "3" && "$cn" == "3" && "$ln" == "3" && "$(sKL.N)" == "3" && "$fv" == "A1" \
@@ -270,19 +264,19 @@ same_as_bare() {
 TSed.new sM '2{' "$FX/f3.txt"
 sM.addExpr 's/b/J/' '}'
 same_as_bare "S6: a multi-\`-e\` block (\`2{\` + \`s/b/J/\` + \`}\`) — the chunks join into ONE script" sM \
-    sed --sandbox -e '2{' -e 's/b/J/' -e '}' -- "$FX/f3.txt"
+    "$SED_BIN" --sandbox -e '2{' -e 's/b/J/' -e '}' -- "$FX/f3.txt"
 sM.delete
 
 TSed.new sM '' "$FX/f3.txt"
 sM.scriptFile = "$FX/s.sed"
 same_as_bare "S6: \`scriptFile\` — the script from a file (\`-f\`)" sM \
-    sed --sandbox -f "$FX/s.sed" -- "$FX/f3.txt"
+    "$SED_BIN" --sandbox -f "$FX/s.sed" -- "$FX/f3.txt"
 sM.delete
 
 TSed.new sM 's/a/A/' "$FX/f3.txt"
 sM.scriptFile = "$FX/s.sed"
 same_as_bare "S6: \`expr\` + \`scriptFile\` — both apply, \`-e\` first" sM \
-    sed --sandbox -e 's/a/A/' -f "$FX/s.sed" -- "$FX/f3.txt"
+    "$SED_BIN" --sandbox -e 's/a/A/' -f "$FX/s.sed" -- "$FX/f3.txt"
 sM.delete
 
 if tcase "S6: \`quiet = 1\` + \`2p\` — exactly the printed line"; then
@@ -290,7 +284,7 @@ if tcase "S6: \`quiet = 1\` + \`2p\` — exactly the printed line"; then
     sM.quiet = 1
     SGOT=()
     rc=0; sM.toArray SGOT || rc=$?
-    oracleL SWANT sed --sandbox -n -e 2p -- "$FX/f3.txt"
+    oracleL SWANT "$SED_BIN" --sandbox -n -e 2p -- "$FX/f3.txt"
     if [[ $rc -eq 0 ]] && arr_is SGOT b2 && arr_eq SGOT SWANT; then
         kt_test_pass "(b2)"
     else
@@ -316,7 +310,7 @@ if tcase "S6: two files are ONE stream by default (\`\$\` = the last line of the
     TSed.new sM '$s/$/!/' "$FX/f3.txt" "$FX/f3b.txt"
     SGOT=()
     rc=0; sM.toArray SGOT || rc=$?
-    oracleL SWANT sed --sandbox -e '$s/$/!/' -- "$FX/f3.txt" "$FX/f3b.txt"
+    oracleL SWANT "$SED_BIN" --sandbox -e '$s/$/!/' -- "$FX/f3.txt" "$FX/f3b.txt"
     if [[ $rc -eq 0 ]] && arr_is SGOT a1 b2 c3 d4 'e5!' && arr_eq SGOT SWANT; then
         kt_test_pass "$(arr_show SGOT)"
     else
@@ -330,7 +324,7 @@ if tcase "S6: \`separate = 1\` makes them separate (\`\$\` = the last line of EA
     sM.separate = 1
     SGOT=()
     rc=0; sM.toArray SGOT || rc=$?
-    oracleL SWANT sed --sandbox -s -e '$s/$/!/' -- "$FX/f3.txt" "$FX/f3b.txt"
+    oracleL SWANT "$SED_BIN" --sandbox -s -e '$s/$/!/' -- "$FX/f3.txt" "$FX/f3b.txt"
     if [[ $rc -eq 0 ]] && arr_is SGOT a1 b2 'c3!' d4 'e5!' && arr_eq SGOT SWANT; then
         kt_test_pass "$(arr_show SGOT)"
     else
@@ -342,7 +336,7 @@ fi
 if tcase "S6: an unterminated last line stays unterminated (\`run | od -c\` == bare) and is ONE record"; then
     TSed.new sM 's/u/U/' "$FX/unterm.txt"
     got="$(sM.run | od -c)"
-    want="$(sed --sandbox -e 's/u/U/' -- "$FX/unterm.txt" | od -c)"
+    want="$("$SED_BIN" --sandbox -e 's/u/U/' -- "$FX/unterm.txt" | od -c)"
     SGOT=()
     rc=0; sM.toArray SGOT || rc=$?
     if [[ "$got" == "$want" && "$got" == *'U   2'* && "$got" != *'2  \n'* && $rc -eq 0 ]] \
@@ -358,7 +352,7 @@ if tcase "S6: \`addExpr ''\` is the IDENTITY — byte-identical to the file and 
     TSed.new sM '' "$FX/unterm.txt" "$FX/f3.txt"
     sM.addExpr ''
     sM.run > "$TMP/id.out" 2>/dev/null
-    sed --sandbox -e '' -- "$FX/unterm.txt" "$FX/f3.txt" > "$TMP/id.bare"
+    "$SED_BIN" --sandbox -e '' -- "$FX/unterm.txt" "$FX/f3.txt" > "$TMP/id.bare"
     cat "$FX/unterm.txt" "$FX/f3.txt" > "$TMP/id.cat"
     sM.lastRc; lr="$RESULT"
     if [[ "$lr" == "0" ]] && cmp -s "$TMP/id.out" "$TMP/id.bare"; then
@@ -374,7 +368,7 @@ if tcase "S6: no path — \`run\` reads stdin; the path \`-\` is stdin explicitl
     sM.run < "$FX/f3.txt" > "$TMP/stdin1.out" 2>/dev/null
     TSed.new sM2 's/a/A/' '-'
     sM2.run < "$FX/f3.txt" > "$TMP/stdin2.out" 2>/dev/null
-    sed --sandbox -e 's/a/A/' < "$FX/f3.txt" > "$TMP/stdin.bare"
+    "$SED_BIN" --sandbox -e 's/a/A/' < "$FX/f3.txt" > "$TMP/stdin.bare"
     if cmp -s "$TMP/stdin1.out" "$TMP/stdin.bare" && cmp -s "$TMP/stdin2.out" "$TMP/stdin.bare" \
        && [[ -s "$TMP/stdin.bare" ]]; then
         kt_test_pass "both identical to bare sed on stdin"
@@ -418,9 +412,9 @@ if tcase "S5: \`extended = 1\` + \`s/(a)1/[\\1]/\` on \`a1\` -> \`[a]\` (assigne
 fi
 
 if tcase "S5: the reason — bare \`sed -e 's/(a)1/[\\1]/' -E\` is rc 1 (each \`-e\` compiles when read)"; then
-    sed -e 's/(a)1/[\1]/' -E -- "$FX/a1.txt" >/dev/null 2>"$ERRF"; brc=$?
+    "$SED_BIN" -e 's/(a)1/[\1]/' -E -- "$FX/a1.txt" >/dev/null 2>"$ERRF"; brc=$?
     berr="$(<"$ERRF")"
-    if [[ $brc -eq 1 && "$berr" == "sed: "* ]]; then
+    if [[ $brc -eq 1 && "$berr" == "$SED_BIN: "* ]]; then
         kt_test_pass "rc 1: ${berr:0:70}"
     else
         kt_test_fail "rc=$brc err='$berr'"
@@ -440,7 +434,7 @@ if tcase "S7: missing file among good ones — \`toArray\` rc 1, RESULT = the re
     rc=0; sP.toArray SGOT 2>/dev/null || rc=$?
     n="$RESULT"
     sP.lastRc; lr="$RESULT"
-    oracleL SWANT sed --sandbox -e 's/a/A/' -- "$FX/f3.txt" "$FX/no_such.txt"
+    oracleL SWANT "$SED_BIN" --sandbox -e 's/a/A/' -- "$FX/f3.txt" "$FX/no_such.txt"
     if [[ $rc -eq 1 && "$n" == "3" && "$lr" == "2" ]] && arr_is SGOT A1 b2 c3 && arr_eq SGOT SWANT; then
         kt_test_pass "rc 1, RESULT 3, lastRc 2 — the good file's records identical to the bare tool"
     else
@@ -487,7 +481,7 @@ fi
 
 if tcase "S7: the partial path says ONE line of ours, worded per Q3; sed's own line passes through"; then
     ts_dbg sP.count
-    if [[ "$TS_RC" == "1" && "$TS_N" == "1" && "$TOOL_N" == "1" && "$TOOL_1" == "sed: "* \
+    if [[ "$TS_RC" == "1" && "$TS_N" == "1" && "$TOOL_N" == "1" && "$TOOL_1" == "$SED_BIN: "* \
           && "$TS_1" == *"TSed"* && "$TS_1" == *"sed exited 2 (a sed error, or the script's q/Q 2)"* ]]; then
         kt_test_pass "ours: ${TS_1:0:80} | sed's: '${TOOL_1:0:50}'"
     else
@@ -502,7 +496,7 @@ if tcase "S7: a DIRECTORY operand — rc 1, lastRc 4, earlier records kept, the 
     rc=0; sD.toArray SGOT 2>/dev/null || rc=$?
     n="$RESULT"
     sD.lastRc; lr="$RESULT"
-    oracleL SWANT sed --sandbox -e 's/a/A/' -- "$FX/f3.txt" "$FX/dir" "$FX/f3b.txt"
+    oracleL SWANT "$SED_BIN" --sandbox -e 's/a/A/' -- "$FX/f3.txt" "$FX/dir" "$FX/f3b.txt"
     if [[ $rc -eq 1 && "$n" == "3" && "$lr" == "4" ]] && arr_is SGOT A1 b2 c3 && arr_eq SGOT SWANT; then
         kt_test_pass "(A1 b2 c3), no d4/e5 — rc 4 STOPS at the operand (not partial like rc 2)"
     else
@@ -518,7 +512,7 @@ if tcase "S7: a MISSING \`-f\` script — rc 1, lastRc 4, zero records, one line
     ts_dbg sD.toArray SGOT
     sD.lastRc; lr="$RESULT"
     if [[ "$TS_RC" == "1" && "$lr" == "4" && ${#SGOT[@]} -eq 0 && "$TS_N" == "1" \
-          && "$TS_1" == *"sed exited 4"* && "$TOOL_1" == "sed: "* ]]; then
+          && "$TS_1" == *"sed exited 4"* && "$TOOL_1" == "$SED_BIN: "* ]]; then
         kt_test_pass "rc 1, lastRc 4, nothing read: ${TS_1:0:60}"
     else
         kt_test_fail "rc=$TS_RC lastRc='$lr' got=$(arr_show SGOT) ourLines=$TS_N first='$TS_1' tool='$TOOL_1'"
@@ -535,7 +529,7 @@ if tcase "S7: a BAD script (\`s/a\`) — rc 1, lastRc 1, zero records, one line 
     # (tutil README §3), the caller's first expression is #4.
     s7n=1; if tutil._keepsCr; then s7n=4; fi
     if [[ "$TS_RC" == "1" && "$lr" == "1" && ${#SGOT[@]} -eq 0 && "$TS_N" == "1" \
-          && "$TS_1" == *"sed exited 1 (a sed error, or the script's q/Q 1)"* && "$TOOL_1" == "sed: -e expression #$s7n"* ]]; then
+          && "$TS_1" == *"sed exited 1 (a sed error, or the script's q/Q 1)"* && "$TOOL_1" == "$SED_BIN: -e expression #$s7n"* ]]; then
         kt_test_pass "rc 1, lastRc 1: ${TS_1:0:70}"
     else
         kt_test_fail "rc=$TS_RC lastRc='$lr' got=$(arr_show SGOT) ourLines=$TS_N first='$TS_1' tool='$TOOL_1'"
@@ -616,7 +610,7 @@ sbox() {
     sS.lastRc
     local __zlr="$RESULT"
     if [[ "$TS_RC" == "1" && "$__zlr" == "1" && ${#SGOT[@]} -eq 0 && "$TS_N" == "1" \
-          && "$TOOL_1" == "sed: "*"disabled in sandbox mode"* && ! -e "$__zm" ]]; then
+          && "$TOOL_1" == "$SED_BIN: "*"disabled in sandbox mode"* && ! -e "$__zm" ]]; then
         kt_test_pass "refused at compile time: '${TOOL_1:0:70}'; no marker"
     else
         kt_test_fail "rc=$TS_RC lastRc='$__zlr' got=$(arr_show SGOT) ourLines=$TS_N tool='$TOOL_1' marker=$([[ -e $__zm ]] && echo present || echo absent)"
@@ -673,7 +667,7 @@ if tcase "S8: \`sandbox = 0\` + \`s/a/X/w /dev/stdout\` doubles the line, exactl
     sS.sandbox = 0
     SGOT=()
     rc=0; sS.toArray SGOT || rc=$?
-    oracleL SWANT sed -e 's/a/X/w /dev/stdout' -- "$FX/f3.txt"
+    oracleL SWANT "$SED_BIN" -e 's/a/X/w /dev/stdout' -- "$FX/f3.txt"
     if [[ $rc -eq 0 ]] && arr_is SGOT X1 X1 b2 c3 && arr_eq SGOT SWANT; then
         kt_test_pass "(X1 X1 b2 c3)"
     else
@@ -765,7 +759,7 @@ if tcase "S9: \`nullData = 1\` keeps a CR embedded in a NUL record, on every pla
     sC.nullData = 1
     SGOT=()
     rc=0; sC.toArray SGOT || rc=$?
-    oracle0 SWANT sed -z -b -e '' -- "$FX/nul.bin"
+    oracle0 SWANT "$SED_BIN" -z -b -e '' -- "$FX/nul.bin"
     if [[ $rc -eq 0 ]] && arr_is SGOT a "x$CR"$'\n'"y" last && arr_is SWANT a "x$CR"$'\n'"y" last; then
         kt_test_pass "(a 'x\\r\\ny' last), == the bare -b run"
     else
@@ -953,7 +947,7 @@ if tcase "S10: \`nullData = 1\` — NUL records through the derived \`-0\`, the 
     rc=0; sZ.toArray SGOT || rc=$?
     crc=0; sZ.count || crc=$?; cn="$RESULT"
     frc=0; sZ.first || frc=$?; fv="$RESULT"
-    oracle0 SWANT sed --sandbox -z -b -e 's/^/>/' -- "$FX/nul.bin"
+    oracle0 SWANT "$SED_BIN" --sandbox -z -b -e 's/^/>/' -- "$FX/nul.bin"
     if [[ $rc -eq 0 && $crc -eq 0 && "$cn" == "3" && $frc -eq 0 && "$fv" == ">a" \
           && "$(sZ.nul)" == "1" ]] && arr_eq SGOT SWANT && arr_is SGOT '>a' ">x$CR"$'\n'"y" '>last'; then
         kt_test_pass "3 records, nul = 1 derived, first '>a'"
@@ -967,7 +961,7 @@ if tcase "S10: the unterminated last NUL record stays unterminated (\`run | od -
     TSed.new sZ 's/^/>/' "$FX/nul.bin"
     sZ.nullData = 1
     sZ.run > "$TMP/z.out" 2>/dev/null
-    sed --sandbox -z -b -e 's/^/>/' -- "$FX/nul.bin" > "$TMP/z.bare"
+    "$SED_BIN" --sandbox -z -b -e 's/^/>/' -- "$FX/nul.bin" > "$TMP/z.bare"
     last="$(tail -c 4 "$TMP/z.out")"
     if cmp -s "$TMP/z.out" "$TMP/z.bare" && [[ "$last" == "last" ]]; then
         kt_test_pass "byte-identical; the stream ends in 'last' with no NUL"
@@ -1076,7 +1070,7 @@ if tcase "S11: a MISSING backup directory (\`nodir/*\`) — rc 1, lastRc 4, the 
     sI.backupSuffix = 'nodir/*'
     ts_dbg sI.run
     sI.lastRc; lr="$RESULT"
-    if [[ "$TS_RC" == "1" && "$lr" == "4" && "$TS_N" == "1" && "$TOOL_1" == "sed: "* \
+    if [[ "$TS_RC" == "1" && "$lr" == "4" && "$TS_N" == "1" && "$TOOL_1" == "$SED_BIN: "* \
           && "$(odf "$FX/ip5.txt")" == "$F3_OD" ]]; then
         kt_test_pass "rc 1, lastRc 4, bytes unchanged; sed: '${TOOL_1:0:50}'"
     else
@@ -1216,7 +1210,7 @@ kt_test_section "H. S12 — \`TSed.edit EXPR PATH...\`, the static one-liner (§
 
 if tcase "S12: \`TSed.edit 's/a/A/' f\` == \`sed --sandbox -e 's/a/A/' -- f\`, DIRECT (bytes)"; then
     rc=0; TSed.edit 's/a/A/' "$FX/f3.txt" > "$TMP/e1.out" 2>/dev/null || rc=$?
-    sed --sandbox -e 's/a/A/' -- "$FX/f3.txt" > "$TMP/e1.bare"
+    "$SED_BIN" --sandbox -e 's/a/A/' -- "$FX/f3.txt" > "$TMP/e1.bare"
     if [[ $rc -eq 0 && -s "$TMP/e1.bare" ]] && cmp -s "$TMP/e1.out" "$TMP/e1.bare"; then
         kt_test_pass "rc 0 and the same bytes as the bare tool"
     else
@@ -1226,7 +1220,7 @@ fi
 
 if tcase "S12: the same through a PIPE (\`| od -c\`) — byte-identical"; then
     got="$(TSed.edit 's/a/A/' "$FX/f3.txt" "$FX/unterm.txt" 2>/dev/null | od -c)"
-    want="$(sed --sandbox -e 's/a/A/' -- "$FX/f3.txt" "$FX/unterm.txt" | od -c)"
+    want="$("$SED_BIN" --sandbox -e 's/a/A/' -- "$FX/f3.txt" "$FX/unterm.txt" | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream (two files, the unterminated tail kept)"
     else
@@ -1236,7 +1230,7 @@ fi
 
 if tcase "S12: the same through \`< <( )\` — byte-identical"; then
     got="$(od -c < <(TSed.edit 's/a/A/' "$FX/f3.txt" 2>/dev/null))"
-    want="$(sed --sandbox -e 's/a/A/' -- "$FX/f3.txt" | od -c)"
+    want="$("$SED_BIN" --sandbox -e 's/a/A/' -- "$FX/f3.txt" | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -1246,7 +1240,7 @@ fi
 
 if tcase "S12: \`TSed.edit '' f\` is the IDENTITY (== \`sed --sandbox -e '' -- f\` == the file)"; then
     rc=0; TSed.edit '' "$FX/unterm.txt" > "$TMP/e2.out" 2>/dev/null || rc=$?
-    sed --sandbox -e '' -- "$FX/unterm.txt" > "$TMP/e2.bare"
+    "$SED_BIN" --sandbox -e '' -- "$FX/unterm.txt" > "$TMP/e2.bare"
     if [[ $rc -eq 0 ]] && cmp -s "$TMP/e2.out" "$TMP/e2.bare" && cmp -s "$TMP/e2.out" "$FX/unterm.txt"; then
         kt_test_pass "rc 0; the file's own bytes (an empty EXPR is a real \`-e ''\`, not 'no script')"
     else
@@ -1285,7 +1279,7 @@ fi
 
 if tcase "S12: \`edit\` on a MISSING file is rc 1 with one line of ours (sed's 2, mapped)"; then
     ts_dbg TSed.edit 's/a/A/' "$FX/no_such.txt"
-    if [[ "$TS_RC" == "1" && "$TS_N" == "1" && "$TS_1" == *"sed exited 2"* && "$TOOL_1" == "sed: "* ]]; then
+    if [[ "$TS_RC" == "1" && "$TS_N" == "1" && "$TS_1" == *"sed exited 2"* && "$TOOL_1" == "$SED_BIN: "* ]]; then
         kt_test_pass "rc 1: ${TS_1:0:60}"
     else
         kt_test_fail "rc=$TS_RC lines=$TS_N first='$TS_1' tool='$TOOL_1'"
@@ -1334,7 +1328,7 @@ if tcase "S12: a nested \`edit\` inside an outer \`each\` — both complete, the
         [[ "$x" == $'d4\ne5' ]] || inner_ok=0
     done
     # the CR contract's prelude where sed keeps the CR (tutil README §3)
-    S12W=( sed --sandbox )
+    S12W=( "$SED_BIN" --sandbox )
     if tutil._keepsCr; then S12W+=( -e "$__TUTIL_CR_SED" -e t__tsd_cr -e :__tsd_cr ); fi
     S12W+=( -e 's/a/A/' -- "$FX/f3.txt" )
     if [[ $rc -eq 0 && ${#NEST_IN[@]} -eq 3 && "$inner_ok" == "1" && $arc -eq 0 && "$lr" == "0" ]] \

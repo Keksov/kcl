@@ -50,12 +50,12 @@
 # framework. This file installs NO `trap … EXIT` of its own — it would replace
 # ktests' trap and swallow the `__COUNTS__` line the runner parses.
 #
-# THE GNU BANNER GATE IS THE FIRST CASE, as in 005/006: D4 pins the DIALECT
-# (GNU sed 4.9), not a binary. Without the banner every timed case is a loud
-# SKIP and the case COUNT is unchanged.
+# THE GNU GATE IS THE FIRST CASE, as in 005/006: `kt_gnu_gate sed SED_BIN`
+# (ktool; D4 pins the DIALECT, not a binary). Without a GNU sed every timed
+# case is a loud SKIP and the case COUNT is unchanged.
 #
 # Sections:
-#   Z  the GNU banner gate and the corpus
+#   Z  the ktool gate and the corpus
 #   A  the edit gate — `TSed.edit` against a bare `sed --sandbox -e … --` in the
 #      two shapes that bracket the tool's own work (a 200-line file and a
 #      ONE-line file), plus the wrapper's fixed delta measured on its own
@@ -71,6 +71,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 
 TS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$TS_DIR/tsed.sh"
+source "$TS_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 # The argv shapes this file asserts (and the builds it times) are the
 # cygwin/msys ones, so the file pins that path of the CR contract (tutil
 # README §3, L2.7-C). The extra words of the other path are pinned in
@@ -97,26 +98,17 @@ median() {
 }
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate and the corpus"
+kt_test_section "Z. the ktool gate and the corpus"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`sed\` on PATH is GNU sed (D4 pins the DIALECT, not a binary)"
-SED_BIN="$(command -v sed 2>/dev/null || printf '(none)')"
-SED_VER="$(sed --version 2>/dev/null | sed -n 1p || :)"
-if [[ "$SED_VER" == "sed (GNU sed) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$SED_BIN — $SED_VER"
-else
-    kt_test_pass "SKIP: non-GNU sed ($SED_BIN — '${SED_VER:-no banner}'); every timed case below is skipped"
-fi
+kt_gnu_gate sed SED_BIN
 
 # tcase TITLE — start a case; rc 1 (already passed as a SKIP) when the gate is
 # closed, so the case COUNT is the same on a box without GNU sed.
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU sed"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -149,7 +141,7 @@ gate_case() {
     # loop would add a `$( )` and a `cmp` fork to both sides and dilute the very
     # ratio the gate is about.
     local __ob="$FX/bare.out" __oe="$FX/edit.out" __same=0 __nb
-    sed --sandbox -e 's/a/A/' -- "$__file" > "$__ob" 2>/dev/null || :
+    "$SED_BIN" --sandbox -e 's/a/A/' -- "$__file" > "$__ob" 2>/dev/null || :
     TSed.edit 's/a/A/' "$__file" > "$__oe" 2>/dev/null || :
     if cmp -s "$__ob" "$__oe"; then
         __same=1
@@ -160,7 +152,7 @@ gate_case() {
     local __i __a0 __a1
     for (( __i = 0; __i < NR; __i++ )); do
         TStopwatch.getTimeStamp; __a0=$RESULT
-        sed --sandbox -e 's/a/A/' -- "$__file" >/dev/null || :
+        "$SED_BIN" --sandbox -e 's/a/A/' -- "$__file" >/dev/null || :
         TStopwatch.getTimeStamp; __a1=$RESULT
         __t_bare+=( $(( __a1 - __a0 )) )
 
@@ -201,7 +193,7 @@ if tcase "the edit delta IS one instance: new + addExpr + sandbox + argv + delet
     # an order of magnitude above that, for the same reason as the ratios
     # above; what it catches is a construction that grew an ORDER of magnitude —
     # a fork, or a re-`build` of the class per instance.
-    if (( per <= 50000 )) && [[ "${BV[*]}" == "sed --sandbox -e s/a/A/ -- $ONE" ]]; then
+    if (( per <= 50000 )) && [[ "${BV[*]}" == "$SED_BIN --sandbox -e s/a/A/ -- $ONE" ]]; then
         kt_test_pass "new + addExpr + sandbox + argv + delete ${per}us/call over $ND calls (ceiling 50000us; ~5000us idle)"
     else
         kt_test_fail "new + addExpr + sandbox + argv + delete ${per}us/call over $ND calls (ceiling 50000us) argv=(${BV[*]})"
@@ -297,13 +289,13 @@ kt_test_section "C. counting — the \`count\` sink vs \`sed … | wc -l\`"
 if tcase "s.count over $NL records costs at most 10x \`sed --sandbox -e … -- FILE | wc -l\` (published, not the gate)"; then
     TSed.new BQ 's/a/A/' "$BIG"
     declare -a T_WC=() T_CNT=()
-    n_wc="$( sed --sandbox -e 's/a/A/' -- "$BIG" | wc -l )"
+    n_wc="$( "$SED_BIN" --sandbox -e 's/a/A/' -- "$BIG" | wc -l )"
     n_wc="${n_wc//[[:space:]]/}"
     BQ.count >/dev/null 2>&1 || :
     n_cnt=''
     for (( i = 0; i < NR; i++ )); do
         TStopwatch.getTimeStamp; t0=$RESULT
-        sed --sandbox -e 's/a/A/' -- "$BIG" | wc -l >/dev/null || :
+        "$SED_BIN" --sandbox -e 's/a/A/' -- "$BIG" | wc -l >/dev/null || :
         TStopwatch.getTimeStamp; t1=$RESULT
         T_WC+=( $(( t1 - t0 )) )
 
@@ -397,7 +389,7 @@ if tcase "the ONLY fork per call is sed: every property, every builder member, \
     TSed.edit 's/a/A/' "$ONE" >/dev/null; rce=$?
     [[ "$BASHPID" == "$p0" ]] || ok=0
     if (( ok == 1 )) && [[ "$m4" == "1" && "$m7" == "1" && $rcr -eq 0 && $rce -eq 0 \
-          && "${FW[*]}" == "sed --sandbox -e s/a/A/ -- $ONE" ]]; then
+          && "${FW[*]}" == "$SED_BIN --sandbox -e s/a/A/ -- $ONE" ]]; then
         kt_test_pass "BASHPID $p0 unchanged across ten property writes, nine builder members (mapRc twice), run and edit"
     else
         kt_test_fail "ok=$ok mapRc4='$m4' mapRc7='$m7' run rc=$rcr edit rc=$rce argv=(${FW[*]}) ours=$p0 now=$BASHPID"

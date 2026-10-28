@@ -10,12 +10,12 @@
 # CR fixtures are written with `printf`, never through an array literal (tutil
 # README trap 18).
 #
-# THE GATE IS THE FIRST CASE, as in 005: if `sed --version` does not begin with
-# `sed (GNU sed) `, every case that runs sed is a loud `SKIP`, so the case COUNT
-# is the same either way. The escaper and argv cases (A, B, F, H) never run sed.
+# THE GATE IS THE FIRST CASE, as in 005 (`kt_gnu_gate sed SED_BIN`, ktool): with
+# no GNU sed every case that runs sed is a loud `SKIP: <ktool's reason>`, so the
+# case COUNT is the same either way. The escaper and argv cases (A, B, F, H) never run sed.
 #
 # Sections:
-#   Z  the banner gate and the fixture tree
+#   Z  the ktool gate and the fixture tree
 #   A  quoteRe / quoteRepl on the owner probe strings, byte-exact (`od -c`), BRE
 #      and `ere`; direct call silent + RESULT, `$( )` prints once; the escapes
 #      round-trip through real sed (BRE and -E)
@@ -45,6 +45,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tsed.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -59,24 +60,25 @@ H_NAT="$__TUTIL_TOOLS_STRIP_CR"
 kt_test_section "008: TSed — the literal-replace helpers (H1)"
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and the fixture tree"
+kt_test_section "Z. the ktool gate, and the fixture tree"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`sed\` on PATH is GNU sed (D4 pins the DIALECT, not a binary)"
-SED_BIN="$(command -v sed 2>/dev/null || printf '(none)')"
-SED_VER="$(sed --version 2>/dev/null | head -1 || :)"
-if [[ "$SED_VER" == "sed (GNU sed) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$SED_BIN — $SED_VER"
-else
-    kt_test_pass "SKIP: non-GNU sed ($SED_BIN — '${SED_VER:-no banner}'); every behavioural case below is skipped"
-fi
+kt_gnu_gate sed SED_BIN
+
+# Sections B and F (and the child of H) never run sed: they use the stub of
+# `kt_gnu_stub` (launch L3.4 D-L34-7), so they hold on a box without GNU sed.
+# The real-tool sections restore KCL_GNU_SED to what the gate left (set or not).
+if [[ -v KCL_GNU_SED ]]; then H_KGS_SET=1; H_KGS=$KCL_GNU_SED; else H_KGS_SET=0; H_KGS=''; fi
+use_stub() { kt_gnu_stub sed "$TMP/stub" STUB_SED || { echo "008: kt_gnu_stub failed" >&2; exit 1; }; }
+use_real() {
+    if [[ "$H_KGS_SET" == 1 ]]; then KCL_GNU_SED=$H_KGS; else unset -v KCL_GNU_SED; fi
+    ktool.gnu sed >/dev/null || :     # re-warm ktool's cache in the main shell (an override change re-keys it)
+}
 
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU sed"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -348,7 +350,7 @@ fi
 if tcase "the probe round-trips through REAL sed (BRE): \`s/<quoteRe FROM>/<quoteRepl TO>/g\` — FROM replaced, \`axb\` and \`a.b\` untouched"; then
     TSed.quoteRe "$P_FROM"; qf="$RESULT"
     TSed.quoteRepl "$P_TO"; qt="$RESULT"
-    got="$(sed --sandbox -e "s/$qf/$qt/g" -- "$FX/soup.txt" | od -c)"
+    got="$("$SED_BIN" --sandbox -e "s/$qf/$qt/g" -- "$FX/soup.txt" | od -c)"
     want="$(printf '%s\naxb\na.b\n' "$P_TO" | od -c)"
     if [[ "$got" == "$want" ]]; then
         kt_test_pass "byte-exact"
@@ -360,7 +362,7 @@ fi
 if tcase "the probe round-trips through REAL sed -E: \`quoteRe FROM ere\`"; then
     TSed.quoteRe "$P_FROM" ere; qf="$RESULT"
     TSed.quoteRepl "$P_TO"; qt="$RESULT"
-    got="$(sed --sandbox -E -e "s/$qf/$qt/g" -- "$FX/soup.txt" | od -c)"
+    got="$("$SED_BIN" --sandbox -E -e "s/$qf/$qt/g" -- "$FX/soup.txt" | od -c)"
     want="$(printf '%s\naxb\na.b\n' "$P_TO" | od -c)"
     if [[ "$got" == "$want" ]]; then
         kt_test_pass "byte-exact"
@@ -374,33 +376,34 @@ kt_test_section "B. addReplace -> the argv (sed never runs)"
 # ===========================================================================
 
 __TUTIL_TOOLS_STRIP_CR=1
+use_stub
 
 TSed.new hB '' f.txt
 hB.addReplace 'a.b' 'x&y'
 check_argv "no FLAGS = every occurrence: \`s/a\\.b/x\\&y/g\`" hB \
-    sed --sandbox -e 's/a\.b/x\&y/g' -- f.txt
+    "$STUB_SED" --sandbox -e 's/a\.b/x\&y/g' -- f.txt
 
 TSed.new hB '' f.txt
 hB.addReplace 'a.b' 'x' rfIgnoreCase
 check_argv "FLAGS \`rfIgnoreCase\` = ONLY what it names: \`I\` (no \`g\` — TStringHelper's rule)" hB \
-    sed --sandbox -e 's/a\.b/x/I' -- f.txt
+    "$STUB_SED" --sandbox -e 's/a\.b/x/I' -- f.txt
 
 TSed.new hB '' f.txt
 hB.addReplace 'a.b' 'x' ''
 check_argv "FLAGS \`''\` (given, empty): neither \`g\` nor \`I\` — the first occurrence" hB \
-    sed --sandbox -e 's/a\.b/x/' -- f.txt
+    "$STUB_SED" --sandbox -e 's/a\.b/x/' -- f.txt
 
 TSed.new hB '' f.txt
 hB.addReplace 'a.b' 'x' rfReplaceAll
 check_argv "FLAGS \`rfReplaceAll\`: \`g\`" hB \
-    sed --sandbox -e 's/a\.b/x/g' -- f.txt
+    "$STUB_SED" --sandbox -e 's/a\.b/x/g' -- f.txt
 
 TSed.new hB '' f.txt
 hB.addReplace 'a' 'x' 'rfReplaceAll rfIgnoreCase'
 hB.addReplace 'b' 'y' 'rfIgnoreCase rfReplaceAll'
 hB.addReplace 'c' 'z' "  rfIgnoreCase${TAB}rfReplaceAll${NL}"
 check_argv "\`rfReplaceAll rfIgnoreCase\` in any order and with any blanks: \`gI\`" hB \
-    sed --sandbox -e 's/a/x/gI' -e 's/b/y/gI' -e 's/c/z/gI' -- f.txt
+    "$STUB_SED" --sandbox -e 's/a/x/gI' -e 's/b/y/gI' -e 's/c/z/gI' -- f.txt
 
 TSed.new hB 'E0' f.txt
 hB.addExpr '1d'
@@ -408,7 +411,7 @@ hB.addReplace '/' '\'
 hB.addExpr '' 'p'
 hB.addReplace 'q' 'r'
 check_argv "call order with interleaved addExpr (expr first; an empty addExpr keeps its slot)" hB \
-    sed --sandbox -e E0 -e 1d -e 's/\//\\/g' -e '' -e p -e 's/q/r/g' -- f.txt
+    "$STUB_SED" --sandbox -e E0 -e 1d -e 's/\//\\/g' -e '' -e p -e 's/q/r/g' -- f.txt
 
 TSed.new hB '' f.txt
 hB.extended = 1
@@ -418,7 +421,7 @@ TSed.new hB '' f.txt
 hB.addReplace 'a+b(c)|{2}?' 'R'
 hB.extended = 1
 check_argv "-E: \`+?(){}|\` escaped, and the SAME argv whether \`extended = 1\` came before or after addReplace" hB \
-    sed --sandbox -E -e 's/a\+b\(c\)\|\{2\}\?/R/g' -- f.txt
+    "$STUB_SED" --sandbox -E -e 's/a\+b\(c\)\|\{2\}\?/R/g' -- f.txt
 kt_test_start "... the \`extended\`-before build is identical word for word"
 if arr_eq GOT_BEFORE GOT; then
     kt_test_pass "$(arr_show GOT_BEFORE)"
@@ -428,34 +431,34 @@ fi
 
 hB.extended = 0
 check_argv "the dialect is read at BUILD time: \`extended\` back to 0 -> the BRE escape again" hB \
-    sed --sandbox -e 's/a+b(c)|{2}?/R/g' -- f.txt
+    "$STUB_SED" --sandbox -e 's/a+b(c)|{2}?/R/g' -- f.txt
 
 TSed.new hB '' f.txt
 hB.addReplace "$P_FROM" "$P_TO"
 check_argv "the owner probe: FROM and TO escaped exactly like the hand-written reference" hB \
-    sed --sandbox -e "s/$P_BRE/$P_REP/g" -- f.txt
+    "$STUB_SED" --sandbox -e "s/$P_BRE/$P_REP/g" -- f.txt
 
 TSed.new hB '' f.txt
 hB.nullData = 1
 hB.addReplace "x${NL}y" 'Q'
 check_argv "\`nullData = 1\`: a newline in FROM is legal and becomes \`\\n\` (+ the derived -z -b)" hB \
-    sed --sandbox -z -b -e 's/x\ny/Q/g' -- f.txt
+    "$STUB_SED" --sandbox -z -b -e 's/x\ny/Q/g' -- f.txt
 
 TSed.new hB '' f.txt
 hB.addReplace 'a' "b${NL}c"
 check_argv "a newline in TO is fine in line mode: backslash + newline, ONE word" hB \
-    sed --sandbox -e "s/a/b\\${NL}c/g" -- f.txt
+    "$STUB_SED" --sandbox -e "s/a/b\\${NL}c/g" -- f.txt
 
 TSed.new hB '' f.txt
 hB.addReplace "a${CR}" 'b'
 check_argv "a CR in FROM is passed through (text mode strips the line-end CR before the script — §D)" hB \
-    sed --sandbox -e "s/a${CR}/b/g" -- f.txt
+    "$STUB_SED" --sandbox -e "s/a${CR}/b/g" -- f.txt
 
 TSed.new hB '' f.txt
 hB.inPlace = 1
 hB.addReplace 'a' 'b'
 check_argv "\`inPlace = 1\` + addReplace: -b -i, then the expression" hB \
-    sed --sandbox -b -i -e 's/a/b/g' -- f.txt
+    "$STUB_SED" --sandbox -b -i -e 's/a/b/g' -- f.txt
 
 kt_test_start "the prelude path (__TUTIL_TOOLS_STRIP_CR = 0): the CR prelude first, then the literal s///"
 __TUTIL_TOOLS_STRIP_CR=0
@@ -463,7 +466,7 @@ TSed.new hB '' f.txt
 hB.addReplace 'a.b' 'c'
 GOT=(); rc=0; hB.argv GOT || rc=$?
 __TUTIL_TOOLS_STRIP_CR=1
-if [[ $rc -eq 0 ]] && arr_is GOT sed --sandbox -e "$__TUTIL_CR_SED" -e t__tsd_cr -e :__tsd_cr -e 's/a\.b/c/g' -- f.txt; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_SED" --sandbox -e "$__TUTIL_CR_SED" -e t__tsd_cr -e :__tsd_cr -e 's/a\.b/c/g' -- f.txt; then
     kt_test_pass "$(arr_show GOT)"
 else
     kt_test_fail "rc=$rc got=$(arr_show GOT)"
@@ -500,7 +503,7 @@ hS.delete
 TSed.new hB '' f.txt
 hB.addReplace 'a.b'
 check_argv "\`addReplace FROM\` with NO TO: TO is '' — the text is deleted (\`s/a\\.b//g\`)" hB \
-    sed --sandbox -e 's/a\.b//g' -- f.txt
+    "$STUB_SED" --sandbox -e 's/a\.b//g' -- f.txt
 
 kt_test_start "buildArgv leaves NO \`__tsd_\` scratch variable behind (a success and a refused build)"
 v_before="$(compgen -v | grep '^__tsd_' | tr '\n' ' ' || :)"
@@ -523,6 +526,7 @@ hG.delete
 hB.delete
 
 __TUTIL_TOOLS_STRIP_CR="$H_NAT"
+use_real
 
 # ===========================================================================
 kt_test_section "C. behaviour against the bare tool"
@@ -531,7 +535,7 @@ kt_test_section "C. behaviour against the bare tool"
 if tcase "every sink and \`run\` agree with bare sed: \`addReplace a.b Q\` on (a.b xax 'a.b a.b')"; then
     TSed.new hK '' "$FX/lit.txt"
     hK.addReplace 'a.b' 'Q'
-    oracleL SWANT sed --sandbox -e 's/a\.b/Q/g' -- "$FX/lit.txt"
+    oracleL SWANT "$SED_BIN" --sandbox -e 's/a\.b/Q/g' -- "$FX/lit.txt"
     SGOT=()
     arc=0; hK.toArray SGOT || arc=$?; an="$RESULT"
     CB_RECS=()
@@ -541,7 +545,7 @@ if tcase "every sink and \`run\` agree with bare sed: \`addReplace a.b Q\` on (a
     THTestList.new hKL
     lrc=0; hK.toList hKL || lrc=$?; ln="$RESULT"
     rrc=0; hK.run > "$TMP/run.out" 2>/dev/null || rrc=$?
-    sed --sandbox -e 's/a\.b/Q/g' -- "$FX/lit.txt" > "$TMP/bare.out"
+    "$SED_BIN" --sandbox -e 's/a\.b/Q/g' -- "$FX/lit.txt" > "$TMP/bare.out"
     if [[ "$arc$erc$crc$frc$lrc$rrc" == "000000" && "$an" == "3" && "$cn" == "3" && "$ln" == "3" \
           && "$(hKL.N)" == "3" && "$fv" == "Q" ]] \
        && arr_is SWANT Q xax 'Q Q' && arr_eq SGOT SWANT && arr_eq CB_RECS SWANT \
@@ -571,7 +575,7 @@ if tcase "the metachar soup FROM is matched LITERALLY, TO with \`& \\1 / newline
     TSed.new hP '' "$FX/soup.txt"
     hP.addReplace "$P_FROM" "$P_TO"
     got="$(hP.run 2>/dev/null | od -c)"
-    want="$(sed --sandbox -e "s/$P_BRE/$P_REP/g" -- "$FX/soup.txt" | od -c)"
+    want="$("$SED_BIN" --sandbox -e "s/$P_BRE/$P_REP/g" -- "$FX/soup.txt" | od -c)"
     lit="$(printf '%s\naxb\na.b\n' "$P_TO" | od -c)"
     SGOT=(); hP.toArray SGOT
     if [[ "$got" == "$want" && "$got" == "$lit" ]] && arr_is SGOT 'X&Y\1/Z' W axb a.b; then
@@ -587,7 +591,7 @@ if tcase "the same under \`extended = 1\` (the -E escape set) — the same bytes
     hP.addReplace "$P_FROM" "$P_TO"
     hP.extended = 1
     got="$(hP.run 2>/dev/null | od -c)"
-    want="$(sed --sandbox -E -e "s/$P_ERE/$P_REP/g" -- "$FX/soup.txt" | od -c)"
+    want="$("$SED_BIN" --sandbox -E -e "s/$P_ERE/$P_REP/g" -- "$FX/soup.txt" | od -c)"
     lit="$(printf '%s\naxb\na.b\n' "$P_TO" | od -c)"
     if [[ "$got" == "$want" && "$got" == "$lit" ]]; then
         kt_test_pass "byte-exact"
@@ -609,10 +613,10 @@ if tcase "the flags against the text \`A.B a.b a.b A.b\`: default, \`''\`, rfIgn
         hF.first; out+="[$RESULT]"
         hF.delete
     done
-    b1="$(sed --sandbox -e 's/a\.b/Q/g'  -- "$FX/case.txt")"
-    b2="$(sed --sandbox -e 's/a\.b/Q/'   -- "$FX/case.txt")"
-    b3="$(sed --sandbox -e 's/a\.b/Q/I'  -- "$FX/case.txt")"
-    b4="$(sed --sandbox -e 's/a\.b/Q/gI' -- "$FX/case.txt")"
+    b1="$("$SED_BIN" --sandbox -e 's/a\.b/Q/g'  -- "$FX/case.txt")"
+    b2="$("$SED_BIN" --sandbox -e 's/a\.b/Q/'   -- "$FX/case.txt")"
+    b3="$("$SED_BIN" --sandbox -e 's/a\.b/Q/I'  -- "$FX/case.txt")"
+    b4="$("$SED_BIN" --sandbox -e 's/a\.b/Q/gI' -- "$FX/case.txt")"
     if [[ "$out" == "[A.B Q Q A.b][A.B Q a.b A.b][Q a.b a.b A.b][Q Q Q Q]" && "$out" == "[$b1][$b2][$b3][$b4]" ]]; then
         kt_test_pass "$out"
     else
@@ -626,7 +630,7 @@ if tcase "a multibyte FROM under LC_CTYPE=C.UTF-8 AND under C — the same bytes
         TSed.new hM '' "$FX/mb.txt"
         hM.addReplace "$EAC" 'E'
         g="$(LC_ALL="$loc" hM.run 2>/dev/null | od -c)"
-        b="$(LC_ALL="$loc" sed --sandbox -e "s/$EAC/E/g" -- "$FX/mb.txt" | od -c)"
+        b="$(LC_ALL="$loc" "$SED_BIN" --sandbox -e "s/$EAC/E/g" -- "$FX/mb.txt" | od -c)"
         w="$(printf 'cafE crEme E\n' | od -c)"
         if [[ "$g" == "$b" && "$g" == "$w" ]]; then out+="ok:$loc "; else out+="BAD:$loc:${g//$'\n'/|} "; fi
         hM.delete
@@ -642,7 +646,7 @@ if tcase "a FROM with a TAB: \`a<TAB>b\` replaced, \`a b\` untouched"; then
     TSed.new hT '' "$FX/tab.txt"
     hT.addReplace "a${TAB}b" 'T'
     SGOT=(); rc=0; hT.toArray SGOT || rc=$?
-    oracleL SWANT sed --sandbox -e "s/a${TAB}b/T/g" -- "$FX/tab.txt"
+    oracleL SWANT "$SED_BIN" --sandbox -e "s/a${TAB}b/T/g" -- "$FX/tab.txt"
     if [[ $rc -eq 0 ]] && arr_is SGOT 'T a b' && arr_eq SGOT SWANT; then
         kt_test_pass "(T a b)"
     else
@@ -657,7 +661,7 @@ if tcase "addReplace and addExpr in one script, in call order: \`addExpr 2d\` + 
     hO.addReplace 'a.b' 'Q'
     hO.addExpr 's/Q/R/'
     SGOT=(); rc=0; hO.toArray SGOT || rc=$?
-    oracleL SWANT sed --sandbox -e 2d -e 's/a\.b/Q/g' -e 's/Q/R/' -- "$FX/lit.txt"
+    oracleL SWANT "$SED_BIN" --sandbox -e 2d -e 's/a\.b/Q/g' -e 's/Q/R/' -- "$FX/lit.txt"
     if [[ $rc -eq 0 ]] && arr_is SGOT R 'R Q' && arr_eq SGOT SWANT; then
         kt_test_pass "(R 'R Q')"
     else
@@ -675,7 +679,7 @@ if tcase "\`rfIgnoreCase\` folds non-ASCII ONLY under a UTF-8 locale: \`é.\`->X
         hU.addReplace "${EAC}." 'X' 'rfReplaceAll rfIgnoreCase'
         hU.addReplace "$CYa" 'Y' 'rfReplaceAll rfIgnoreCase'
         g="$( export LC_ALL="$loc"; hU.run 2>/dev/null )"
-        b="$( export LC_ALL="$loc"; sed --sandbox -e "s/${EAC}\./X/gI" -e "s/${CYa}/Y/gI" -- "$FX/mbci.txt" 2>/dev/null )"
+        b="$( export LC_ALL="$loc"; "$SED_BIN" --sandbox -e "s/${EAC}\./X/gI" -e "s/${CYa}/Y/gI" -- "$FX/mbci.txt" 2>/dev/null )"
         if [[ "$g" == "$b" ]]; then out+="[$loc:$g]"; else out+="[$loc:DIFF:$g|bare:$b]"; fi
         hU.delete
     done
@@ -720,7 +724,7 @@ if tcase "\`binary = 1\`: the same FROM MATCHES — records (Z b2\\r), == bare \
     hC.binary = 1
     SGOT=(); rc=0; hC.toArray SGOT || rc=$?
     g="$(hC.run 2>/dev/null | od -c)"
-    b="$(sed --sandbox -b -e "s/a1${CR}/Z/g" -- "$FX/crlf.txt" | od -c)"
+    b="$("$SED_BIN" --sandbox -b -e "s/a1${CR}/Z/g" -- "$FX/crlf.txt" | od -c)"
     if [[ $rc -eq 0 && "$g" == "$b" && "$g" == "$(printf 'Z\nb2\r\n' | od -c)" ]] && arr_is SGOT Z "b2$CR"; then
         kt_test_pass "(Z b2\\r); run == bare -b"
     else
@@ -734,7 +738,7 @@ if tcase "\`nullData = 1\`: a newline inside FROM is legal and matches across th
     hN.nullData = 1
     hN.addReplace "x${NL}y" 'Q'
     SGOT=(); rc=0; hN.toArray SGOT || rc=$?
-    oracle0 SWANT sed --sandbox -z -b -e 's/x\ny/Q/g' -- "$FX/nul2.bin"
+    oracle0 SWANT "$SED_BIN" --sandbox -z -b -e 's/x\ny/Q/g' -- "$FX/nul2.bin"
     if [[ $rc -eq 0 ]] && arr_is SGOT Q z && arr_eq SGOT SWANT; then
         kt_test_pass "(Q z) == bare sed -z"
     else
@@ -801,6 +805,8 @@ fi
 # ===========================================================================
 kt_test_section "F. the rc 2 list"
 # ===========================================================================
+
+use_stub
 
 TSed.new hR '' "$FX/lit.txt"
 hR.addExpr 'p'
@@ -907,12 +913,13 @@ ay="$(store_of hY)"
 GOT=(); arc=0; hY.argv GOT || arc=$?
 __TUTIL_TOOLS_STRIP_CR="$H_NAT"
 if [[ "$TS_RC" == "2" && "$TS_N" == "1" && "$TS_1" == *"addReplace FROM TO [FLAGS]"* && "$by" == "$ay" && $arc -eq 0 ]] \
-   && arr_is hY_exprs __tsd_r__ && arr_is GOT sed --sandbox -e 's/a\.b/c/g' -- f.txt; then
+   && arr_is hY_exprs __tsd_r__ && arr_is GOT "$STUB_SED" --sandbox -e 's/a\.b/c/g' -- f.txt; then
     kt_test_pass "${TS_1:0:80}"
 else
     kt_test_fail "rc=$TS_RC lines=$TS_N first='$TS_1' storage-same=$([[ "$by" == "$ay" ]] && echo yes || echo no) argvRc=$arc argv=$(arr_show GOT)"
 fi
 hY.delete
+use_real
 
 # ===========================================================================
 kt_test_section "G. \`TSed.replace FROM TO PATH...\` — the stream one-liner"
@@ -920,7 +927,7 @@ kt_test_section "G. \`TSed.replace FROM TO PATH...\` — the stream one-liner"
 
 if tcase "\`TSed.replace\` DIRECT == bare sed with the hand escape (bytes), rc 0"; then
     rc=0; TSed.replace "$P_FROM" "$P_TO" "$FX/soup.txt" "$FX/lit.txt" > "$TMP/r1.out" 2>/dev/null || rc=$?
-    sed --sandbox -e "s/$P_BRE/$P_REP/g" -- "$FX/soup.txt" "$FX/lit.txt" > "$TMP/r1.bare"
+    "$SED_BIN" --sandbox -e "s/$P_BRE/$P_REP/g" -- "$FX/soup.txt" "$FX/lit.txt" > "$TMP/r1.bare"
     if [[ $rc -eq 0 && -s "$TMP/r1.bare" ]] && cmp -s "$TMP/r1.out" "$TMP/r1.bare"; then
         kt_test_pass "rc 0 and the same bytes as the bare tool (two files)"
     else
@@ -941,7 +948,7 @@ fi
 if tcase "\`TSed.replace\` through a PIPE (\`| od -c\`) and through \`< <( )\` — byte-identical"; then
     g1="$(TSed.replace 'a.b' 'Q' "$FX/lit.txt" 2>/dev/null | od -c)"
     g2="$(od -c < <(TSed.replace 'a.b' 'Q' "$FX/lit.txt" 2>/dev/null))"
-    want="$(sed --sandbox -e 's/a\.b/Q/g' -- "$FX/lit.txt" | od -c)"
+    want="$("$SED_BIN" --sandbox -e 's/a\.b/Q/g' -- "$FX/lit.txt" | od -c)"
     if [[ "$g1" == "$want" && "$g2" == "$want" && -n "$want" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -971,7 +978,7 @@ fi
 
 if tcase "\`TSed.replace\` on a MISSING file is rc 1 with one line of ours (sed's 2, mapped)"; then
     ts_dbg TSed.replace 'a' 'b' "$FX/no_such.txt"
-    if [[ "$TS_RC" == "1" && "$TS_N" == "1" && "$TS_1" == *"sed exited 2"* && "$TOOL_1" == "sed: "* ]]; then
+    if [[ "$TS_RC" == "1" && "$TS_N" == "1" && "$TS_1" == *"sed exited 2"* && "$TOOL_1" == "$SED_BIN: "* ]]; then
         kt_test_pass "rc 1: ${TS_1:0:60}"
     else
         kt_test_fail "rc=$TS_RC lines=$TS_N first='$TS_1' tool='$TOOL_1'"
@@ -1111,7 +1118,7 @@ else
 fi
 
 kt_test_start "... still exactly once after a re-source AND after \`kk.unit --forget tsed\` + a re-source (a child under set -eu)"
-out="$(UNIT="$UNIT" timeout -k 5 60 "$BASH" -c '
+out="$(KCL_GNU_SED="$STUB_SED" UNIT="$UNIT" timeout -k 5 60 "$BASH" -c '
 set -eu
 source "$UNIT"
 source "$UNIT"

@@ -147,7 +147,8 @@ declare -g __TSD_SEQ=0
 #
 # ---- Traps this unit is written around ------------------------------------
 #  * The constructor calls `parent.constructor sed` EXPLICITLY (`inherited` in
-#    a constructor forwards "$@" and would make EXPR the command).
+#    a constructor forwards "$@" and would make EXPR the command), then
+#    `tutil._gnu sed` (cmd = the GNU sed ktool resolved, or '' with the reason).
 #  * EVERY declared var is assigned in `Create`; `sandbox` to 1.
 #  * No `var` is named like a TUtil or kklass member.
 #  * Booleans are compared as strings (`[[ "$x" == 1 ]]`) — except `sandbox`,
@@ -385,11 +386,14 @@ tsed._rflags() {
 
 # Create [EXPR [PATH...]] — PLAN §1.2, §2.1. EXPR becomes `expr`, every further
 # argument a path. `parent.constructor sed` is spelled out, EVERY declared var
-# is assigned (`sandbox` = 1, the owner's Q1 default), and the five per-instance
+# is assigned (`sandbox` = 1, the owner's Q1 default), `tutil._gnu sed` resolves
+# the tool into `cmd` (L3.4: no GNU sed = `cmd` '' and `_toolErr`, `.new` still
+# succeeds; the first buildArgv answers rc 2), and the five per-instance
 # arrays (`_paths`, `_exprs` and the three `addReplace` arrays) are real globals
 # next to `${inst}_data`, released by the destructor.
 TSed.Create() {
     parent.constructor sed
+    tutil._gnu sed
     expr="${1:-}"
     scriptFile=''
     extended=0
@@ -509,7 +513,7 @@ TSed.buildArgv() {
 
     # ---- the rc 2 list, checked before a single word is built -------------
     if [[ -z "$cmd" ]]; then
-        kk.debug "Error: TSed.buildArgv: cmd is empty; there is nothing to run"
+        kk.debug "Error: TSed.buildArgv: ${_toolErr:-cmd is empty; there is nothing to run}"
         kk._return ""
         return 2
     fi

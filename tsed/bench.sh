@@ -132,17 +132,26 @@ gate_ratio() {  # label median_us base_median_us limit_tenths -> ratio + PASS/FA
         "$1" $(( r100/100 )) $(( r100%100 )) $(( $4/10 )) $(( $4%10 )) "$verdict"
 }
 
-# --- the GNU banner gate ----------------------------------------------------
-# D4 pins the DIALECT (GNU sed 4.9 — 5.2.37 resolves Git for Windows' sed.exe,
-# 5.3.9 msys64's), not a binary. Every number below is about that tool; on
-# anything else they are not comparable, so say so loudly instead of publishing
-# a meaningless table.
-SED_BANNER="$(sed --version 2>/dev/null | sed -n 1p || true)"
-case "$SED_BANNER" in
-    "sed (GNU sed) "*) ;;
-    *) echo "tsed bench: SKIPPED — \`sed\` is not GNU sed: '$SED_BANNER'"; exit 0 ;;
-esac
-SED_BIN="$(command -v sed 2>/dev/null || printf '(none)')"
+# --- the GNU gate (ktool) ---------------------------------------------------
+# D4 pins the DIALECT (GNU sed 4.9), not a binary. `ktool.gnu sed` (the kkore
+# unit ktool, loaded by tutil) answers the GNU sed TSed itself resolves: the
+# path is SED_BIN, the bare baseline below runs it too. Every number below is
+# about that tool; with none, say so loudly (ktool's own text, which names the
+# package) instead of publishing a meaningless table.
+__kt_rc=0
+ktool.gnu sed || __kt_rc=$?
+if (( __kt_rc == 0 )); then
+    SED_BIN=$RESULT
+    SED_BANNER="$(LC_ALL=C "$SED_BIN" --version </dev/null 2>/dev/null | head -n 1 || true)"
+else
+    ktool.lastError
+    if (( __kt_rc == 2 )); then
+        echo "tsed bench: FAILED (ktool rc 2) - $RESULT"
+    else
+        echo "tsed bench: SKIPPED - $RESULT"
+    fi
+    exit 0
+fi
 
 # --- the corpus -------------------------------------------------------------
 # Two files, both under one `mktemp -d`: BIG holds NL lines `aNNNNN xyz` (every
@@ -201,7 +210,7 @@ BF.cmd = bench_counted
 pid_a="$BASHPID"
 for (( i = 0; i < ND; i++ )); do BF.buildArgv; done
 for (( i = 0; i < ND; i++ )); do BF.argv BW; done
-BF.cmd = sed
+BF.cmd = "$SED_BIN"
 if (( BENCH_RAN == 0 )) && [[ "$BASHPID" == "$pid_a" && "${BW[0]}" == "bench_counted" ]]; then
     echo "  RUNS NOTHING: with cmd pointed at a counting function, $(( ND * 2 )) builds invoked it 0 times"
     echo "  FORK-FREE:    BASHPID $pid_a unchanged across all $(( ND * 4 )) builds"
@@ -297,12 +306,12 @@ gate_shape() {
 
     # warm the file cache and every code path once, so neither side pays for
     # the first read of the corpus or the first bind of a member wrapper.
-    sed --sandbox -e 's/a/A/' -- "$__file" >/dev/null 2>&1 || :
+    "$SED_BIN" --sandbox -e 's/a/A/' -- "$__file" >/dev/null 2>&1 || :
     TSed.edit 's/a/A/' "$__file" >/dev/null 2>&1 || :
 
     for (( __i = 0; __i < NR; __i++ )); do
         TStopwatch.getTimeStamp; __a0=$RESULT
-        sed --sandbox -e 's/a/A/' -- "$__file" >/dev/null || :
+        "$SED_BIN" --sandbox -e 's/a/A/' -- "$__file" >/dev/null || :
         TStopwatch.getTimeStamp; __a1=$RESULT
         __t_bare+=( $(( __a1 - __a0 )) ); __s_bare=$(( __s_bare + __a1 - __a0 ))
 
@@ -352,14 +361,14 @@ n_wc=''; n_cnt=''
 
 # Warm both shapes, and take the record counts HERE, once. A `$( )` inside the
 # timed loop would add a fork to the baseline and dilute the very comparison.
-n_wc="$( sed --sandbox -e 's/a/A/' -- "$BIG" | wc -l )"
+n_wc="$( "$SED_BIN" --sandbox -e 's/a/A/' -- "$BIG" | wc -l )"
 n_wc="${n_wc//[[:space:]]/}"
 BQ.count >/dev/null 2>&1 || :
 BQ1.count >/dev/null 2>&1 || :
 
 for (( i = 0; i < NR; i++ )); do
     TStopwatch.getTimeStamp; t0=$RESULT
-    sed --sandbox -e 's/a/A/' -- "$BIG" | wc -l >/dev/null || :
+    "$SED_BIN" --sandbox -e 's/a/A/' -- "$BIG" | wc -l >/dev/null || :
     TStopwatch.getTimeStamp; t1=$RESULT
     T_WC+=( $(( t1 - t0 )) ); b_wc=$(( b_wc + t1 - t0 ))
 
