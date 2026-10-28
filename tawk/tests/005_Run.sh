@@ -9,19 +9,23 @@
 #
 # TWO gawk versions: bash 5.2.37 resolves Git for Windows' gawk 5.0.0, bash
 # 5.3.9 msys64's 5.4.0. Their message texts differ, so gawk's own lines are
-# matched by the `gawk: ` PREFIX — except the directory warning, identical on
-# both and pinned exactly. Behaviour, not text, is what the cases pin.
+# matched by the `$AWK_BIN: ` / `${AWK_BIN##*/}: ` PREFIX (gawk prints its
+# basename; `awk: ` for /usr/bin/awk) — except the directory warning, identical
+# on both and pinned exactly with the basename. Behaviour, not text, is what the
+# cases pin.
 #
-# THE GATE IS THE FIRST CASE. D4 pins the GNU dialect, not a binary: if
-# `gawk --version` does not begin with `GNU Awk `, every behavioural case below
-# is a loud `SKIP`, so the case COUNT is the same either way.
+# THE GATE IS THE FIRST CASE. D4 pins the GNU dialect, not a binary:
+# `kt_gnu_gate awk AWK_BIN` (kcl/tutil/tests/gnu_helper.sh, ktool) finds the GNU
+# awk TAwk itself resolves; with none, every behavioural case below is a loud
+# `SKIP: <ktool's reason>`, so the case COUNT is the same either way. AWK_BIN is
+# the oracle in every bare comparison.
 #
 # STDIN IS CLOSED for the whole file (`exec </dev/null`): gawk with no program
 # operand, or with a path it takes for the program, reads stdin and would HANG.
 # A case that means to feed stdin redirects it explicitly.
 #
 # Sections:
-#   Z        the banner gate and the fixture tree
+#   Z        the ktool gate and the fixture tree
 #   A  A6    every sink vs bare gawk; multi-chunk programs in order; `-f` after
 #            `-e`; `-F` (a regex, escapes processed); the unterminated last
 #            line; stdin; exotic path names incl. `./k=v` and `a::b=v`
@@ -66,24 +70,16 @@ ERRF="$TMP/ta.err"
 kt_test_section "005: TAwk against GNU Awk on a real tree (P0)"
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and the fixture tree"
+kt_test_section "Z. the ktool gate, and the fixture tree"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`gawk\` on PATH is GNU Awk (D4 pins the DIALECT, not a binary)"
-AWK_BIN="$(command -v gawk 2>/dev/null || printf '(none)')"
-AWK_VER="$(timeout 20 gawk --version 2>/dev/null </dev/null | head -1 || :)"
-if [[ "$AWK_VER" == "GNU Awk "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$AWK_BIN — $AWK_VER"
-else
-    kt_test_pass "SKIP: non-GNU awk ($AWK_BIN — '${AWK_VER:-no banner}'); every behavioural case below is skipped"
-fi
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
+kt_gnu_gate awk AWK_BIN
 
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU awk"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -99,7 +95,32 @@ mkdir -p "$_bsp/q"
 : > "$_bsp/q${BS}f" 2>/dev/null
 [[ -e "$_bsp/q/f" ]] && BS_SEP=1
 unset _bsp
-IPA=/usr/share/awk/inplace.awk
+# IPA = gawk's own inplace.awk: the first ABSOLUTE entry of the default AWKPATH of
+# the resolved gawk holding a readable inplace.awk (the same probe as
+# tawk._inplace; `/usr/share/awk` on Linux and msys, `/usr/local/share/awk` on
+# FreeBSD). '' while the gate is closed (every case that uses it is skipped).
+# Then TAwk's cache is warmed in THIS shell, once, so the `out="$(aI.run)"` cases
+# below do not pay the probe in every `$( )` child.
+IPA=''
+if [[ "$GNU_OK" == "1" ]]; then
+    _ipr="$(env -u AWKPATH "$AWK_BIN" 'BEGIN { print ENVIRON["AWKPATH"] }' </dev/null 2>/dev/null)" || :
+    _ipr="${_ipr//$CR/}:"
+    while [[ -n "$_ipr" ]]; do
+        _ipe="${_ipr%%:*}"
+        _ipr="${_ipr#*:}"
+        if [[ "$_ipe" == /* && -r "$_ipe/inplace.awk" ]]; then
+            IPA="$_ipe/inplace.awk"
+            break
+        fi
+    done
+    unset _ipr _ipe
+    TAwk.new aWarm 'p' warm.txt
+    aWarm.sandbox = 0
+    aWarm.inPlace = 1
+    aWarm.argv _warm >/dev/null 2>&1 || :
+    aWarm.delete
+    unset _warm
+fi
 
 FX="$(cd "$(kt_fixture_tmpdir_create tree)" && pwd)"
 mkdir -p "$FX/dir" "$FX/markers" "$FX/plant"
@@ -244,7 +265,7 @@ kt_test_section "A. A6 — every sink against the bare tool"
 
 if tcase "A6: toArray / each / count / first / toList / run on \`{print \$2}\` all agree with bare gawk"; then
     TAwk.new aK '{print $2}' "$FX/f3.txt"
-    oracleL SWANT gawk --sandbox -e '{print $2}' -- "$FX/f3.txt"
+    oracleL SWANT "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt"
     SGOT=()
     arc=0; aK.toArray SGOT || arc=$?; an="$RESULT"
     CB_RECS=()
@@ -254,7 +275,7 @@ if tcase "A6: toArray / each / count / first / toList / run on \`{print \$2}\` a
     TATestList.new aKL
     lrc=0; aK.toList aKL || lrc=$?; ln="$RESULT"
     rrc=0; aK.run > "$TMP/run.out" 2>/dev/null || rrc=$?
-    timeout 20 gawk --sandbox -e '{print $2}' -- "$FX/f3.txt" > "$TMP/bare.out"
+    timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" > "$TMP/bare.out"
     aK.lastRc; lr="$RESULT"
     if [[ $arc -eq 0 && $erc -eq 0 && $crc -eq 0 && $frc -eq 0 && $lrc -eq 0 && $rrc -eq 0 \
           && "$an" == "3" && "$cn" == "3" && "$ln" == "3" && "$(aKL.N)" == "3" && "$fv" == "1" \
@@ -292,33 +313,33 @@ TAwk.new aM 'BEGIN{printf "1"}' "$FX/f3.txt"
 aM.addProgram 'BEGIN{printf "2"}' '' 'BEGIN{print "3"}'
 W_123=( 123 )
 same_as_bare "A6: \`program\` + \`addProgram\` chunks run IN ORDER (the empty chunk skipped)" aM W_123 \
-    gawk --sandbox -e 'BEGIN{printf "1"}' -e 'BEGIN{printf "2"}' -e 'BEGIN{print "3"}' -- "$FX/f3.txt"
+    "$AWK_BIN" --sandbox -e 'BEGIN{printf "1"}' -e 'BEGIN{printf "2"}' -e 'BEGIN{print "3"}' -- "$FX/f3.txt"
 aM.delete
 
 TAwk.new aM 'BEGIN{printf "e"}' "$FX/f3.txt"
 aM.programFile = "$FX/prog.awk"
 W_EF=( ef )
 same_as_bare "A6: \`programFile\` after the \`-e\` chunks — \`-e\` text first, then the file" aM W_EF \
-    gawk --sandbox -e 'BEGIN{printf "e"}' -f "$FX/prog.awk" -- "$FX/f3.txt"
+    "$AWK_BIN" --sandbox -e 'BEGIN{printf "e"}' -f "$FX/prog.awk" -- "$FX/f3.txt"
 aM.delete
 
 TAwk.new aM '' "$FX/f3.txt"
 aM.programFile = "$FX/prog.awk"
 W_F=( f )
-same_as_bare "A6: \`programFile\` ALONE" aM W_F gawk --sandbox -f "$FX/prog.awk" -- "$FX/f3.txt"
+same_as_bare "A6: \`programFile\` ALONE" aM W_F "$AWK_BIN" --sandbox -f "$FX/prog.awk" -- "$FX/f3.txt"
 aM.delete
 
 TAwk.new aM '{print $2}' "$FX/colon.txt"
 aM.fieldSep = :
 W_Y=( y )
-same_as_bare "A6: \`fieldSep = :\` -> \`-F :\`" aM W_Y gawk --sandbox -F : -e '{print $2}' -- "$FX/colon.txt"
+same_as_bare "A6: \`fieldSep = :\` -> \`-F :\`" aM W_Y "$AWK_BIN" --sandbox -F : -e '{print $2}' -- "$FX/colon.txt"
 aM.delete
 
 TAwk.new aM '{print $2}' "$FX/tab.txt"
 aM.fieldSep = "${BS}t"
 W_TAB=( 'q r' )
 same_as_bare "A6: \`fieldSep = '\\t'\` is escape-processed by gawk (a TAB), awk semantics" aM W_TAB \
-    gawk --sandbox -F "${BS}t" -e '{print $2}' -- "$FX/tab.txt"
+    "$AWK_BIN" --sandbox -F "${BS}t" -e '{print $2}' -- "$FX/tab.txt"
 aM.delete
 
 TAwk.new aM '{print $1}' "$FX/tab.txt"
@@ -326,7 +347,7 @@ if tcase "A6: \`fieldSep\` is a REGEX (\`[rq]\`)"; then
     aM.fieldSep = '[rq]'
     SGOT=()
     rc=0; aM.toArray SGOT 2>/dev/null || rc=$?
-    oracleL SWANT gawk --sandbox -F '[rq]' -e '{print $1}' -- "$FX/tab.txt"
+    oracleL SWANT "$AWK_BIN" --sandbox -F '[rq]' -e '{print $1}' -- "$FX/tab.txt"
     if [[ $rc -eq 0 ]] && arr_is SGOT "$(printf 'p\t')" && arr_eq SGOT SWANT; then
         kt_test_pass "(p\\t) — the field ended at the first q or r"
     else
@@ -338,7 +359,7 @@ aM.delete
 if tcase "A6: an unterminated last line comes out TERMINATED (\`print\` appends ORS) — == bare"; then
     TAwk.new aM '{print}' "$FX/unterm.txt"
     got="$(aM.run | od -c)"
-    want="$(timeout 20 gawk --sandbox -e '{print}' -- "$FX/unterm.txt" | od -c)"
+    want="$(timeout 20 "$AWK_BIN" --sandbox -e '{print}' -- "$FX/unterm.txt" | od -c)"
     exp="$(printf 'u1\nu2\n' | od -c)"
     SGOT=()
     rc=0; aM.toArray SGOT || rc=$?
@@ -355,7 +376,7 @@ if tcase "A6: no path — \`run\` reads stdin; the path \`-\` is stdin explicitl
     aM.run < "$FX/f3.txt" > "$TMP/stdin1.out" 2>/dev/null
     TAwk.new aM2 '{print $2}' '-'
     aM2.run < "$FX/f3.txt" > "$TMP/stdin2.out" 2>/dev/null
-    timeout 20 gawk --sandbox -e '{print $2}' < "$FX/f3.txt" > "$TMP/stdin.bare"
+    timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' < "$FX/f3.txt" > "$TMP/stdin.bare"
     if cmp -s "$TMP/stdin1.out" "$TMP/stdin.bare" && cmp -s "$TMP/stdin2.out" "$TMP/stdin.bare" \
        && [[ "$(<"$TMP/stdin.bare")" == $'1\n2\n3' ]]; then
         kt_test_pass "both identical to bare gawk on stdin"
@@ -470,7 +491,7 @@ for (( k = 0; k < ${#SV_VALS[@]}; k++ )); do
 done
 
 if tcase "A5: WHY — bare \`-v x='\\u0041'\` is NOT verbatim (5.4 decodes it, 5.0 warns and drops the backslash)"; then
-    bare="$(timeout 20 gawk -v "x=${BS}u0041" -e 'BEGIN{printf "%s", x}' 2>/dev/null </dev/null)"
+    bare="$(timeout 20 "$AWK_BIN" -v "x=${BS}u0041" -e 'BEGIN{printf "%s", x}' 2>/dev/null </dev/null)"
     TAwk.new aV 'BEGIN{printf "%s", x}'
     aV.setVar x "${BS}u0041"
     mine="$(aV.run 2>/dev/null)"
@@ -486,7 +507,7 @@ if tcase "A5: \`typeof\` is preserved — \`' 010 '\` is a strnum through setVar
     TAwk.new aV 'BEGIN{print typeof(x)}'
     aV.setVar x ' 010 '
     mine="$(aV.run 2>/dev/null)"
-    bare="$(timeout 20 gawk -v 'x= 010 ' -e 'BEGIN{print typeof(x)}' 2>/dev/null </dev/null)"
+    bare="$(timeout 20 "$AWK_BIN" -v 'x= 010 ' -e 'BEGIN{print typeof(x)}' 2>/dev/null </dev/null)"
     if [[ "$mine" == "strnum" && "$bare" == "strnum" ]]; then
         kt_test_pass "strnum / strnum"
     else
@@ -548,7 +569,7 @@ sv_bad() {   # sv_bad NAME
     local __zrc="$TA_RC" __zl="$TA_1" __zc="$TA_N"
     local __zout; __zout="$(aV.run 2>/dev/null)"
     local __zb=0
-    timeout 20 gawk -v "$__zn=1" -e 'BEGIN{print "ran"}' >/dev/null 2>&1 </dev/null || __zb=$?
+    timeout 20 "$AWK_BIN" -v "$__zn=1" -e 'BEGIN{print "ran"}' >/dev/null 2>&1 </dev/null || __zb=$?
     if [[ "$__zrc" == "2" && "$__zc" == "1" && "$__zl" == "Error: TAwk.setVar: "* && "$__zout" == "ran" && "$__zb" == "2" ]] \
        && arr_is aV_vnames; then
         kt_test_pass "rc 2; bare rc $__zb: ${__zl:0:70}"
@@ -574,7 +595,7 @@ if tcase "A7: a missing file in the MIDDLE — \`toArray\` rc 1, only the EARLIE
     rc=0; aP.toArray SGOT 2>/dev/null || rc=$?
     n="$RESULT"
     aP.lastRc; lr="$RESULT"
-    oracleL SWANT gawk --sandbox -e '{print}' -- "$FX/f3.txt" "$FX/no_such.txt" "$FX/f3b.txt"
+    oracleL SWANT "$AWK_BIN" --sandbox -e '{print}' -- "$FX/f3.txt" "$FX/no_such.txt" "$FX/f3b.txt"
     if [[ $rc -eq 1 && "$n" == "3" && "$lr" == "2" ]] && arr_is SGOT 'a 1' 'b 2' 'c 3' && arr_eq SGOT SWANT; then
         kt_test_pass "rc 1, RESULT 3, lastRc 2 — f3b.txt NEVER read (FATAL), identical to the bare tool"
     else
@@ -621,7 +642,7 @@ fi
 
 if tcase "A7: the partial path says ONE line of ours, worded per Q3; gawk's own line passes through"; then
     ta_dbg aP.count
-    if [[ "$TA_RC" == "1" && "$TA_N" == "1" && "$TOOL_N" == "1" && "$TOOL_1" == "gawk: "* \
+    if [[ "$TA_RC" == "1" && "$TA_N" == "1" && "$TOOL_N" == "1" && ( "$TOOL_1" == "$AWK_BIN: "* || "$TOOL_1" == "${AWK_BIN##*/}: "* ) \
           && "$TA_1" == "Error: TAwk.mapRc: gawk exited 2 (a gawk error, or the program's exit 2)" ]]; then
         kt_test_pass "ours: $TA_1 | gawk's: '${TOOL_1:0:50}'"
     else
@@ -649,7 +670,7 @@ if tcase "A7: a SYNTAX error — rc 1, lastRc 1, zero records, one line of ours 
     ta_dbg aD.toArray SGOT
     aD.lastRc; lr="$RESULT"
     if [[ "$TA_RC" == "1" && "$lr" == "1" && ${#SGOT[@]} -eq 0 && "$TA_N" == "1" \
-          && "$TA_1" == *"gawk exited 1 (a gawk error, or the program's exit 1)"* && "$TOOL_1" == "gawk: "* ]]; then
+          && "$TA_1" == *"gawk exited 1 (a gawk error, or the program's exit 1)"* && ( "$TOOL_1" == "$AWK_BIN: "* || "$TOOL_1" == "${AWK_BIN##*/}: "* ) ]]; then
         kt_test_pass "rc 1, lastRc 1: ${TA_1:0:70}"
     else
         kt_test_fail "rc=$TA_RC lastRc='$lr' got=$(arr_show SGOT) ourLines=$TA_N first='$TA_1' tool='$TOOL_1'"
@@ -662,7 +683,7 @@ if tcase "A7: a chunk must be COMPLETE — \`-e 'BEGIN{'\` + \`-e 'print 1}'\` i
     aD.addProgram 'print 1}'
     ta_dbg aD.run
     aD.lastRc; lr="$RESULT"
-    if [[ "$TA_RC" == "1" && "$lr" == "1" && "$TOOL_1" == "gawk: "* ]]; then
+    if [[ "$TA_RC" == "1" && "$lr" == "1" && ( "$TOOL_1" == "$AWK_BIN: "* || "$TOOL_1" == "${AWK_BIN##*/}: "* ) ]]; then
         kt_test_pass "rc 1, lastRc 1 — each -e is its own source"
     else
         kt_test_fail "rc=$TA_RC lastRc='$lr' tool='$TOOL_1'"
@@ -677,7 +698,7 @@ if tcase "A7: a MISSING \`-f\` file — rc 1, lastRc 2, zero records, one line o
     ta_dbg aD.toArray SGOT
     aD.lastRc; lr="$RESULT"
     if [[ "$TA_RC" == "1" && "$lr" == "2" && ${#SGOT[@]} -eq 0 && "$TA_N" == "1" \
-          && "$TA_1" == *"gawk exited 2"* && "$TOOL_1" == "gawk: "* ]]; then
+          && "$TA_1" == *"gawk exited 2"* && ( "$TOOL_1" == "$AWK_BIN: "* || "$TOOL_1" == "${AWK_BIN##*/}: "* ) ]]; then
         kt_test_pass "rc 1, lastRc 2, nothing read: ${TA_1:0:60}"
     else
         kt_test_fail "rc=$TA_RC lastRc='$lr' got=$(arr_show SGOT) ourLines=$TA_N first='$TA_1' tool='$TOOL_1'"
@@ -736,7 +757,7 @@ if tcase "A7: a DIRECTORY operand — rc 0, skipped with the EXACT warning (iden
     rc=0; aD.toArray SGOT 2>"$ERRF" || rc=$?
     err="$(<"$ERRF")"
     aD.lastRc; lr="$RESULT"
-    want="gawk: cmd. line:1: warning: command line argument \`$FX/dir' is a directory: skipped"
+    want="${AWK_BIN##*/}: cmd. line:1: warning: command line argument \`$FX/dir' is a directory: skipped"
     if [[ $rc -eq 0 && "$lr" == "0" && "$err" == "$want" ]] && arr_is SGOT 'a 1' 'b 2' 'c 3' 'd 4' 'e 5'; then
         kt_test_pass "rc 0, lastRc 0, five records; '${err:0:60}…'"
     else
@@ -764,7 +785,7 @@ sbox() {
     aS.lastRc
     local __zlr="$RESULT"
     if [[ "$TA_RC" == "1" && "$__zlr" == "2" && ${#SGOT[@]} -eq 0 && "$TA_N" == "1" \
-          && "$TOOL_1" == "gawk: "*"sandbox mode"* && ! -e "$__zm" ]]; then
+          && ( "$TOOL_1" == "$AWK_BIN: "*"sandbox mode"* || "$TOOL_1" == "${AWK_BIN##*/}: "*"sandbox mode"* ) && ! -e "$__zm" ]]; then
         kt_test_pass "refused: '${TOOL_1:0:70}'; no marker"
     else
         kt_test_fail "rc=$TA_RC lastRc='$__zlr' got=$(arr_show SGOT) ourLines=$TA_N tool='$TOOL_1' marker=$([[ -e $__zm ]] && echo present || echo absent)"
@@ -920,7 +941,7 @@ if tcase "A9: \`nullData = 1\` keeps a CR embedded in a NUL record, on every pla
     aC.nullData = 1
     SGOT=()
     rc=0; aC.toArray SGOT || rc=$?
-    oracle0 SWANT gawk -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- "$FX/nul.bin"
+    oracle0 SWANT "$AWK_BIN" -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- "$FX/nul.bin"
     if [[ $rc -eq 0 ]] && arr_is SGOT a "x$CR"$'\n'"y" last && arr_is SWANT a "x$CR"$'\n'"y" last; then
         kt_test_pass "(a 'x\\r\\ny' last), == the bare binary-mode run"
     else
@@ -1100,7 +1121,7 @@ if tcase "A10: \`nullData = 1\` — NUL records through the derived \`-0\`, the 
     rc=0; aZ.toArray SGOT || rc=$?
     crc=0; aZ.count || crc=$?; cn="$RESULT"
     frc=0; aZ.first || frc=$?; fv="$RESULT"
-    oracle0 SWANT gawk --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print ">" $0}' -- "$FX/nul.bin"
+    oracle0 SWANT "$AWK_BIN" --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print ">" $0}' -- "$FX/nul.bin"
     if [[ $rc -eq 0 && $crc -eq 0 && "$cn" == "3" && $frc -eq 0 && "$fv" == ">a" \
           && "$(aZ.nul)" == "1" ]] && arr_eq SGOT SWANT && arr_is SGOT '>a' ">x$CR"$'\n'"y" '>last'; then
         kt_test_pass "3 records, nul = 1 derived, first '>a'"
@@ -1114,7 +1135,7 @@ if tcase "A10: the unterminated last NUL record comes out TERMINATED (\`run | od
     TAwk.new aZ '{print}' "$FX/nul.bin"
     aZ.nullData = 1
     aZ.run > "$TMP/z.out" 2>/dev/null
-    timeout 20 gawk --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- "$FX/nul.bin" > "$TMP/z.bare" </dev/null
+    timeout 20 "$AWK_BIN" --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- "$FX/nul.bin" > "$TMP/z.bare" </dev/null
     last="$(tail -c 5 "$TMP/z.out" | od -c | head -1)"
     if cmp -s "$TMP/z.out" "$TMP/z.bare" && [[ "$last" == *'l   a   s   t  \0'* ]]; then
         kt_test_pass "byte-identical; the stream ends in 'last\\0'"
@@ -1186,10 +1207,10 @@ if tcase "A11: a PLANTED \`./inplace.awk\` in the cwd is NOT loaded (the include
     TAwk.new aI '{print toupper($0)}' c.txt
     aI.sandbox = 0
     aI.inPlace = 1
-    rc=0; AWKPATH=".:/usr/share/awk" aI.run >/dev/null 2>&1 || rc=$?
+    rc=0; AWKPATH=".:${IPA%/*}" aI.run >/dev/null 2>&1 || rc=$?
     ours_planted=0; [[ -e PLANTED ]] && ours_planted=1
     rm -f PLANTED
-    AWKPATH=".:/usr/share/awk" timeout 20 gawk -i inplace -e '{print}' -- bare.txt >/dev/null 2>&1 </dev/null
+    AWKPATH=".:${IPA%/*}" timeout 20 "$AWK_BIN" -i inplace -e '{print}' -- bare.txt >/dev/null 2>&1 </dev/null
     bare_planted=0; [[ -e PLANTED ]] && bare_planted=1
     cd "$SCRIPT_DIR" || :
     if [[ $rc -eq 0 && "$PWD" == "$SCRIPT_DIR" && "$ours_planted" == "0" && "$bare_planted" == "1" \
@@ -1233,7 +1254,7 @@ if tcase "A11: \`backupSuffix\` with a BACKSLASH (\`.b\\k\`) names the backup ex
     aI.backupSuffix = ".b${BS}k"
     rc=0; aI.run 2>"$ERRF" || rc=$?
     err="$(<"$ERRF")"
-    timeout 20 gawk -v BINMODE=3 -i "$IPA" -v "inplace::suffix=.b${BS}k" -e '{print toupper($0)}' -- "$FX/ipraw.txt" >/dev/null 2>&1 </dev/null
+    timeout 20 "$AWK_BIN" -v BINMODE=3 -i "$IPA" -v "inplace::suffix=.b${BS}k" -e '{print toupper($0)}' -- "$FX/ipraw.txt" >/dev/null 2>&1 </dev/null
     # BS_SEP=1 (MSYS2/Cygwin): the backslash is a separator, the backup is ipbs.txt.b/k;
     # BS_SEP=0: it is a filename character and ipbs.txt.b stays the empty directory.
     if (( BS_SEP )); then bs_k_ok=0; [[ -f "$FX/ipbs.txt.b/k" ]] && bs_k_ok=1
@@ -1258,7 +1279,7 @@ if tcase "A11: \`backupSuffix = '.b\\k'\` with NO \`FILE.b\` directory — gawk'
     err="$(<"$ERRF")"
     aI.lastRc; lr="$RESULT"
     if (( BS_SEP )); then
-        if [[ $rc -eq 1 && "$lr" == "2" && "$err" == "gawk: "*"ipbn.txt.b${BS}k"* && "$(odf "$FX/ipbn.txt")" == "$F3_OD" \
+        if [[ $rc -eq 1 && "$lr" == "2" && ( "$err" == "$AWK_BIN: "*"ipbn.txt.b${BS}k"* || "$err" == "${AWK_BIN##*/}: "*"ipbn.txt.b${BS}k"* ) && "$(odf "$FX/ipbn.txt")" == "$F3_OD" \
               && ! -e "$FX/ipbn.txt.bk" ]]; then
             bs_n_ok="rc 1, lastRc 2, untouched; gawk names 'ipbn.txt.b\\k'"
         else bs_n_ok=""; fi
@@ -1386,7 +1407,7 @@ kt_test_section "H. A12 — \`TAwk.apply PROGRAM PATH...\`, the static one-liner
 
 if tcase "A12: \`TAwk.apply '{print \$2}' f\` == \`gawk --sandbox -e '{print \$2}' -- f\`, DIRECT (bytes)"; then
     rc=0; TAwk.apply '{print $2}' "$FX/f3.txt" > "$TMP/e1.out" 2>/dev/null || rc=$?
-    timeout 20 gawk --sandbox -e '{print $2}' -- "$FX/f3.txt" > "$TMP/e1.bare" </dev/null
+    timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" > "$TMP/e1.bare" </dev/null
     if [[ $rc -eq 0 && -s "$TMP/e1.bare" ]] && cmp -s "$TMP/e1.out" "$TMP/e1.bare"; then
         kt_test_pass "rc 0 and the same bytes as the bare tool"
     else
@@ -1396,7 +1417,7 @@ fi
 
 if tcase "A12: the same through a PIPE (\`| od -c\`) — byte-identical"; then
     got="$(TAwk.apply '{print $2}' "$FX/f3.txt" "$FX/unterm.txt" 2>/dev/null | od -c)"
-    want="$(timeout 20 gawk --sandbox -e '{print $2}' -- "$FX/f3.txt" "$FX/unterm.txt" </dev/null | od -c)"
+    want="$(timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" "$FX/unterm.txt" </dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream (two files)"
     else
@@ -1406,7 +1427,7 @@ fi
 
 if tcase "A12: the same through \`< <( )\` — byte-identical"; then
     got="$(od -c < <(TAwk.apply '{print $2}' "$FX/f3.txt" 2>/dev/null))"
-    want="$(timeout 20 gawk --sandbox -e '{print $2}' -- "$FX/f3.txt" </dev/null | od -c)"
+    want="$(timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" </dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -1456,7 +1477,7 @@ fi
 if tcase "A12: \`apply\` with \`system()\` is REFUSED (sandbox forced) — rc 1, no marker"; then
     rm -f "$MK/m_apply"
     ta_dbg TAwk.apply "BEGIN{system(\"touch $MK/m_apply\")}" "$FX/f3.txt"
-    if [[ "$TA_RC" == "1" && "$TOOL_1" == "gawk: "*"sandbox mode"* && ! -e "$MK/m_apply" ]]; then
+    if [[ "$TA_RC" == "1" && ( "$TOOL_1" == "$AWK_BIN: "*"sandbox mode"* || "$TOOL_1" == "${AWK_BIN##*/}: "*"sandbox mode"* ) && ! -e "$MK/m_apply" ]]; then
         kt_test_pass "rc 1; '${TOOL_1:0:60}'"
     else
         kt_test_fail "rc=$TA_RC tool='$TOOL_1' marker=$([[ -e $MK/m_apply ]] && echo present || echo absent)"
@@ -1465,7 +1486,7 @@ fi
 
 if tcase "A12: \`apply\` on a MISSING file is rc 1 with one line of ours (gawk's 2, mapped)"; then
     ta_dbg TAwk.apply '{print}' "$FX/no_such.txt"
-    if [[ "$TA_RC" == "1" && "$TA_N" == "1" && "$TA_1" == *"gawk exited 2"* && "$TOOL_1" == "gawk: "* ]]; then
+    if [[ "$TA_RC" == "1" && "$TA_N" == "1" && "$TA_1" == *"gawk exited 2"* && ( "$TOOL_1" == "$AWK_BIN: "* || "$TOOL_1" == "${AWK_BIN##*/}: "* ) ]]; then
         kt_test_pass "rc 1: ${TA_1:0:60}"
     else
         kt_test_fail "rc=$TA_RC lines=$TA_N first='$TA_1' tool='$TOOL_1'"
@@ -1514,7 +1535,7 @@ if tcase "A12: a nested \`apply\` inside an outer \`each\` — both complete, th
         [[ "$x" == $'d\ne' ]] || inner_ok=0
     done
     # the CR contract's RS where gawk keeps the CR (tutil README §3)
-    A12W=( gawk --sandbox ); if tutil._keepsCr; then A12W+=( -v 'RS=\r?\n' ); fi
+    A12W=( "$AWK_BIN" --sandbox ); if tutil._keepsCr; then A12W+=( -v 'RS=\r?\n' ); fi
     A12W+=( -e '{print $2}' -- "$FX/f3.txt" )
     if [[ $rc -eq 0 && ${#NEST_IN[@]} -eq 3 && "$inner_ok" == "1" && $arc -eq 0 && "$lr" == "0" ]] \
        && arr_is NEST_OUT 1 2 3 && arr_is SGOT "${A12W[@]}"; then

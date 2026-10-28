@@ -7,13 +7,16 @@
 #   source integrity  `bash -n`, no single-quoted printf format left open, no
 #                     inline `$'\r'`, no `$this.` internal call, the skeleton
 #                     sentinel gone, `parent.constructor gawk` (never
-#                     `inherited` in the constructor), the destructor freeing
+#                     `inherited` in the constructor; then `tutil._gnu awk`),
+#                     the destructor freeing
 #                     `_paths`, `_progs`, `_vnames` AND `_vvals`, the five
 #                     overridden sinks in the rc-PRESERVING spelling (the proc
 #                     `each` too), no `var` shadowing an inherited member, no
 #                     bookkeeping var for the derived BINMODE, the inplace
-#                     include only by its ABSOLUTE path, no env route, one
-#                     `source` line, both registries extended.
+#                     include only by the ABSOLUTE path `tawk._inplace` found
+#                     (the AWKPATH probe lives there, never in buildArgv; a
+#                     LIVE case checks the built `-i` word), one `source` line,
+#                     both registries extended.
 #   set -eu           TAwk from a script under `set -eu`, as an instance, through
 #                     `a.each` and BOTH TPipe forms, on every outcome: records
 #                     (rc 0), a gawk error, the fatal missing file, an `exit N`
@@ -27,8 +30,8 @@
 #   D6 final          `$(a.toArray A)` warns about the subshell; `subshellOk = 1`
 #                     silences it.
 #
-# The GNU banner gate of 005 applies here too. Stdin is closed for the whole
-# file; every child sets its own stdin (`</dev/null`) and runs under `timeout 60`.
+# The GNU gate of 005 applies here too (`kt_gnu_gate awk AWK_BIN`: ktool). Stdin
+# is closed for the whole file; every child sets its own stdin (`</dev/null`) and runs under `timeout 60`.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -37,6 +40,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tawk.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -98,6 +102,13 @@ else
     kt_test_fail "constructor body: ${ctor:0:400}"
 fi
 
+kt_test_start "the CONSTRUCTOR resolves its tool: \`tutil._gnu awk\` right after \`parent.constructor gawk\` (L3.4 G1)"
+if [[ "$ctor" == *$'parent.constructor gawk\n    tutil._gnu awk\n'* ]]; then
+    kt_test_pass "\`tutil._gnu awk\` is the line after \`parent.constructor gawk\`"
+else
+    kt_test_fail "constructor body: ${ctor:0:300}"
+fi
+
 kt_test_start "the DESTRUCTOR frees \`_paths\`, \`_progs\`, \`_vnames\`, \`_vvals\`, then chains with \`inherited\`"
 dtor="$(sed -n '/^TAwk.Destroy()/,/^}/p' "$UNIT")"
 if [[ "$dtor" == *'"${__inst__}_paths"'* && "$dtor" == *'"${__inst__}_progs"'* \
@@ -145,17 +156,17 @@ else
     kt_test_fail "buildArgv body: ${bav:0:200}"
 fi
 
-kt_test_start "the inplace extension is included by its ABSOLUTE path only; no env / ENVIRON route (Q2)"
-if [[ "$bav" == *'-i /usr/share/awk/inplace.awk'* ]] \
+kt_test_start "the inplace extension is included by the ABSOLUTE path \`tawk._inplace\` found (\`-i \"\$__taw_ip\"\`); never \`-i inplace\`; the AWKPATH probe (ENVIRON, env) is not in buildArgv"
+if [[ "$bav" == *'-i "$__taw_ip"'* && "$bav" == *'tawk._inplace'* ]] \
    && ! grep -nE '(-i|--include)[= ]+inplace([^.]|$)' <<< "$bav" >/dev/null \
    && [[ "$bav" != *ENVIRON* && "$bav" != *' env '* ]]; then
-    kt_test_pass "\`-i /usr/share/awk/inplace.awk\`; never \`-i inplace\`; no ENVIRON prologue"
+    kt_test_pass "\`-i \"\$__taw_ip\"\` after \`tawk._inplace\`; never \`-i inplace\`; no ENVIRON / env in the body"
 else
     kt_test_fail "buildArgv body: ${bav:0:300}"
 fi
 
 kt_test_start "no \`var\` shadows a TUtil or kklass member name; nine vars declared"
-RESERVED=" cmd crlf nul _lastRc _textMode subshellOk buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
+RESERVED=" cmd crlf nul _lastRc _textMode subshellOk _toolErr buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
 clash=""
 declared=""
 while IFS= read -r line; do
@@ -204,23 +215,15 @@ else
 fi
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and a small tree for the children"
+kt_test_section "Z. the ktool gate, and a small tree for the children"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`gawk\` on PATH is GNU Awk"
-AWK_VER="$(timeout 20 gawk --version 2>/dev/null </dev/null | head -1 || :)"
-if [[ "$AWK_VER" == "GNU Awk "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$AWK_VER"
-else
-    kt_test_pass "SKIP: non-GNU awk ('${AWK_VER:-no banner}'); every case that runs gawk is skipped"
-fi
+kt_gnu_gate awk AWK_BIN
 
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU awk"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -228,6 +231,27 @@ tcase() {
 
 FX="$(cd "$(kt_fixture_tmpdir_create tree)" && pwd)"
 printf 'a 1\nb 2\nc 3\n' > "$FX/f3.txt"
+
+if tcase "LIVE: \`.argv\` of an \`inPlace = 1\`, \`sandbox = 0\` instance on the real gawk — the word after \`-i\` is an absolute path ending in \`/inplace.awk\`, never \`inplace\`"; then
+    TAwk.new aLive '{print}' "$FX/f3.txt"
+    aLive.sandbox = 0
+    aLive.inPlace = 1
+    LIVE_W=()
+    live_rc=0
+    aLive.argv LIVE_W || live_rc=$?
+    live_ip=''
+    for (( live_i = 0; live_i < ${#LIVE_W[@]}; live_i++ )); do
+        if [[ "${LIVE_W[$live_i]}" == -i ]]; then
+            live_ip="${LIVE_W[$(( live_i + 1 ))]-}"
+        fi
+    done
+    if [[ $live_rc -eq 0 && "${LIVE_W[0]}" == "$AWK_BIN" && "$live_ip" == /*/inplace.awk && -r "$live_ip" ]]; then
+        kt_test_pass "cmd $AWK_BIN; -i $live_ip"
+    else
+        kt_test_fail "rc=$live_rc -i='$live_ip' argv=${LIVE_W[*]}"
+    fi
+    aLive.delete
+fi
 
 # ===========================================================================
 kt_test_section "1. set -eu — the instance, \`a.each\` and BOTH TPipe forms"

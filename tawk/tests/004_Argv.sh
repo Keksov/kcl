@@ -6,12 +6,17 @@
 # `a.argv NAME` hands over, byte for byte, against the argv the plan spells out:
 #
 #   gawk [--sandbox] [-F FS] [-v RS=\0 -v ORS=\0] [-v BINMODE=3]
-#        [-i /usr/share/awk/inplace.awk [-v inplace::suffix=SFX]]
+#        [-i ABSOLUTE/inplace.awk [-v inplace::suffix=SFX]]
 #        [EXTRA OPTIONS] [-v NAME=enc(VALUE) ...] [-e program] [-e chunk ...]
 #        [-f FILE] [-- PATH...]
 #
-# so it is the fast half of the suite and it holds on a box without gawk. The
-# behavioural half is `005_Run.sh`.
+# so it is the fast half of the suite and it holds on a box without gawk:
+# `kt_gnu_stub` (kcl/tutil/tests/gnu_helper.sh, launch L3.4 T5) writes a fake
+# GNU awk and selects it through KCL_GNU_AWK, so word 0 of every argv here is
+# the stub's path ("$STUB_AWK") on every platform, and the `-i` path is the
+# stub's own `share/awk/inplace.awk` ("$IPA": the stub answers the AWKPATH probe
+# with `.:DIR/share/awk`); the stub never runs. The `gawk` of the diagrams
+# stands for that resolved path (A1). The behavioural half is `005_Run.sh`.
 #
 # Sections:
 #   A  A3  lifecycle — every declared var in `${inst}_data` after `new` (incl.
@@ -32,6 +37,10 @@
 #          while binary mode is derived; and the extras that PASS
 #   E  A4  `nullData` -> `nul` (the four-state P3-F1 sequence) and the derived
 #          `BINMODE=3` (the `binary` property never written)
+#   I  I4  inPlace with no inplace.awk in the AWKPATH: rc 2, one line naming it
+#   G  T6  no GNU awk found (KCL_GNU_AWK=/nonexistent): `.new` rc 0, `cmd` '',
+#          `argv` rc 2 with ktool's line; `cmd = STUB` re-arms; a sink (`count`)
+#          and the static (`apply`) answer rc 2, run nothing
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -40,6 +49,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tawk.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 # The CR contract (tutil README §3, L2.7-C) adds argv words on a platform whose
 # tools keep the line-end CR (TSed's prelude, TAwk's RS, TGrep's stdin filter).
 # Every pinned argv in this file is the cygwin/msys one, so the file pins that
@@ -51,6 +61,9 @@ TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
+
+# The fake GNU awk every `.new` below resolves (T5): word 0 / `cmd` everywhere.
+kt_gnu_stub awk "$TMP/stub" STUB_AWK || { echo "004: kt_gnu_stub failed" >&2; exit 1; }
 
 kt_test_section "004: TAwk — typed options to argv, nothing executed (P0)"
 
@@ -85,7 +98,7 @@ arr_show() {
 ERRF="$TMP/argv.err"
 FLAG="$TMP/ran.flag"
 BS='\'
-IPA=/usr/share/awk/inplace.awk
+IPA="$TMP/stub/share/awk/inplace.awk"
 P='{print}'
 
 # dbg_n COMMAND... -> DBG_RC / DBG_N / DBG_1, with the switch ON.
@@ -152,7 +165,7 @@ kt_test_section "A. A3 lifecycle — Create assigns every var, the arrays are ri
 # ===========================================================================
 
 TA_VARS=( program programFile fieldSep nullData binary sandbox inPlace backupSuffix _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode _toolErr )
 
 kt_test_start "A3: every declared var is present in \`\${inst}_data\` right after \`new\`"
 TAwk.new aA "$P" f.txt
@@ -169,7 +182,7 @@ else
     kt_test_fail "missing:$missing"
 fi
 
-kt_test_start "A3: the documented defaults — program = arg 1, sandbox 1, the rest 0/'', cmd gawk, _lastRc -1"
+kt_test_start "A3: the documented defaults — program = arg 1, sandbox 1, the rest 0/'', cmd = the resolved gawk, _lastRc -1"
 bad=""
 [[ "$(aA.program)" == "$P" ]]     || bad+=" program='$(aA.program)'"
 for v in programFile fieldSep backupSuffix; do
@@ -181,7 +194,8 @@ for v in nullData binary inPlace _nulDerived crlf nul subshellOk _textMode; do
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
 done
 [[ "$(aA.sandbox)" == "1" ]]  || bad+=" sandbox='$(aA.sandbox)'"
-[[ "$(aA.cmd)" == "gawk" ]]   || bad+=" cmd='$(aA.cmd)'"
+[[ "$(aA._toolErr)" == "" ]]  || bad+=" _toolErr='$(aA._toolErr)'"
+[[ "$(aA.cmd)" == "$STUB_AWK" ]] || bad+=" cmd='$(aA.cmd)'"
 [[ "$(aA._lastRc)" == "-1" ]] || bad+=" _lastRc='$(aA._lastRc)'"
 if [[ -z "$bad" ]]; then
     kt_test_pass "every default as documented; sandbox ON (owner Q1); subshellOk inherited 0"
@@ -212,7 +226,7 @@ aP.delete
 kt_test_start "A3: \`TAwk.new a\` with NO argument — program '', no path, no chunk, no variable"
 TAwk.new aD
 if declare -p aD_paths >/dev/null 2>&1 && arr_is aD_paths && arr_is aD_progs && arr_is aD_vnames && arr_is aD_vvals \
-   && [[ "$(aD.program)" == "" && "$(aD.cmd)" == "gawk" ]]; then
+   && [[ "$(aD.program)" == "" && "$(aD.cmd)" == "$STUB_AWK" ]]; then
     kt_test_pass "empty paths, progs, vnames, vvals; program ''; cmd gawk"
 else
     kt_test_fail "paths=$(declare -p aD_paths 2>&1) program='$(aD.program)' cmd='$(aD.cmd)'"
@@ -337,7 +351,7 @@ kt_test_start "A3: an ordinary out-name still fills after every refusal"
 declare -a OKARR=()
 rc=0
 aA.argv OKARR || rc=$?
-if [[ $rc -eq 0 ]] && arr_is OKARR gawk --sandbox -v x=1 -v y=two -e "$P" -e 'END{print NR}' -e 'BEGIN{}' -- f.txt; then
+if [[ $rc -eq 0 ]] && arr_is OKARR "$STUB_AWK" --sandbox -v x=1 -v y=two -e "$P" -e 'END{print NR}' -e 'BEGIN{}' -- f.txt; then
     kt_test_pass "argv=$(arr_show OKARR)"
 else
     kt_test_fail "rc=$rc OKARR=$(arr_show OKARR)"
@@ -356,16 +370,16 @@ one() {   # one TITLE PROP VALUE WANT...  (on `new a1 '{print}' f.txt`)
 
 reset a1 "$P" f.txt
 check_argv "A1: no option at all — \`gawk --sandbox -e PROGRAM -- PATH\` (sandbox by default)" a1 \
-    gawk --sandbox -e "$P" -- f.txt
+    "$STUB_AWK" --sandbox -e "$P" -- f.txt
 
-one "A1: \`sandbox = 0\` drops \`--sandbox\`"          sandbox  0   gawk -e "$P" -- f.txt
-one "A1: \`fieldSep = :\` -> \`-F :\` (two words)"      fieldSep :   gawk --sandbox -F : -e "$P" -- f.txt
-one "A1: \`fieldSep\` with a space stays ONE word"      fieldSep ' , ' gawk --sandbox -F ' , ' -e "$P" -- f.txt
+one "A1: \`sandbox = 0\` drops \`--sandbox\`"          sandbox  0   "$STUB_AWK" -e "$P" -- f.txt
+one "A1: \`fieldSep = :\` -> \`-F :\` (two words)"      fieldSep :   "$STUB_AWK" --sandbox -F : -e "$P" -- f.txt
+one "A1: \`fieldSep\` with a space stays ONE word"      fieldSep ' , ' "$STUB_AWK" --sandbox -F ' , ' -e "$P" -- f.txt
 one "A1: \`nullData = 1\` -> RS/ORS NUL AND the derived BINMODE=3" nullData 1 \
-    gawk --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e "$P" -- f.txt
-one "A1: \`binary = 1\` -> \`-v BINMODE=3\`"            binary   1   gawk --sandbox -v BINMODE=3 -e "$P" -- f.txt
+    "$STUB_AWK" --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e "$P" -- f.txt
+one "A1: \`binary = 1\` -> \`-v BINMODE=3\`"            binary   1   "$STUB_AWK" --sandbox -v BINMODE=3 -e "$P" -- f.txt
 one "A1: \`programFile = p.awk\` -> \`-f\` AFTER the program" programFile p.awk \
-                                                         gawk --sandbox -e "$P" -f p.awk -- f.txt
+                                                         "$STUB_AWK" --sandbox -e "$P" -f p.awk -- f.txt
 
 kt_test_start "A1: the NUL words are the four bytes \`RS=\\0\` / \`ORS=\\0\` (a real backslash, for gawk to process)"
 reset a1 "$P" f.txt
@@ -382,21 +396,21 @@ reset a1 "$P" f.txt
 a1.sandbox = 0
 a1.inPlace = 1
 check_argv "A1: \`inPlace = 1\` (sandbox 0) -> BINMODE=3, then the inplace include by ABSOLUTE path" a1 \
-    gawk -v BINMODE=3 -i "$IPA" -e "$P" -- f.txt
+    "$STUB_AWK" -v BINMODE=3 -i "$IPA" -e "$P" -- f.txt
 
 reset a1 "$P" f.txt
 a1.sandbox = 0
 a1.inPlace = 1
 a1.backupSuffix = .bak
 check_argv "A1: \`backupSuffix = .bak\` -> \`-v inplace::suffix=.bak\` right after the include" a1 \
-    gawk -v BINMODE=3 -i "$IPA" -v inplace::suffix=.bak -e "$P" -- f.txt
+    "$STUB_AWK" -v BINMODE=3 -i "$IPA" -v inplace::suffix=.bak -e "$P" -- f.txt
 
 reset a1 "$P" f.txt
 a1.sandbox = 0
 a1.inPlace = 1
 a1.backupSuffix = ' my bak'
 check_argv "A1: a suffix with a space stays ONE argv word" a1 \
-    gawk -v BINMODE=3 -i "$IPA" -v 'inplace::suffix= my bak' -e "$P" -- f.txt
+    "$STUB_AWK" -v BINMODE=3 -i "$IPA" -v 'inplace::suffix= my bak' -e "$P" -- f.txt
 
 # backupSuffix goes through the SAME enc() as setVar (reviewer ruling on P0,
 # question 6): `-v` escape-processes it, so it is encoded to arrive verbatim.
@@ -405,7 +419,7 @@ sfx_case() {   # sfx_case TITLE SUFFIX WANT_WORD
     a1.sandbox = 0
     a1.inPlace = 1
     a1.backupSuffix = "$2"
-    check_argv "$1" a1 gawk -v BINMODE=3 -i "$IPA" -v "inplace::suffix=$3" -e "$P" -- f.txt
+    check_argv "$1" a1 "$STUB_AWK" -v BINMODE=3 -i "$IPA" -v "inplace::suffix=$3" -e "$P" -- f.txt
 }
 sfx_case "A1 enc: a backslash in \`backupSuffix\` is doubled"          ".b${BS}k"       ".b${BS}${BS}k"
 sfx_case "A1 enc: \`backupSuffix\` \`\\t\` (two bytes) stays two bytes" ".${BS}t"        ".${BS}${BS}t"
@@ -425,23 +439,23 @@ fi
 reset a1 '' f.txt
 a1.programFile = p.awk
 check_argv "A1: \`programFile\` ALONE (program '') — no \`-e\` at all" a1 \
-    gawk --sandbox -f p.awk -- f.txt
+    "$STUB_AWK" --sandbox -f p.awk -- f.txt
 
 reset a1 "$P"
-check_argv "A1: no path — no \`--\` (gawk reads stdin)" a1 gawk --sandbox -e "$P"
+check_argv "A1: no path — no \`--\` (gawk reads stdin)" a1 "$STUB_AWK" --sandbox -e "$P"
 
 reset a1 "$P" '-weird' '-' 'a b'
 check_argv "A1: paths after \`--\`, verbatim — \`-weird\`, \`-\` (stdin) and a space" a1 \
-    gawk --sandbox -e "$P" -- '-weird' '-' 'a b'
+    "$STUB_AWK" --sandbox -e "$P" -- '-weird' '-' 'a b'
 
 reset a1 "$P" ./k=v ./a::b=v 1x=v 'é=v' x.y=v C:/x=y "C:${BS}x=y" /abs/k=v =v
 check_argv "A1: paths that are NOT assignments pass verbatim (\`./k=v\`, \`1x=v\`, \`é=v\`, \`x.y=v\`, \`C:/x=y\`, …)" a1 \
-    gawk --sandbox -e "$P" -- ./k=v ./a::b=v 1x=v 'é=v' x.y=v C:/x=y "C:${BS}x=y" /abs/k=v =v
+    "$STUB_AWK" --sandbox -e "$P" -- ./k=v ./a::b=v 1x=v 'é=v' x.y=v C:/x=y "C:${BS}x=y" /abs/k=v =v
 
 reset a1 "$P" f.txt
 a1.setVar x 1
 check_argv "A1: \`setVar x 1\` -> \`-v x=1\` before the program" a1 \
-    gawk --sandbox -v x=1 -e "$P" -- f.txt
+    "$STUB_AWK" --sandbox -v x=1 -e "$P" -- f.txt
 
 # ===========================================================================
 kt_test_section "C. A1 — the chunks, the extras, the variables, the pinned order"
@@ -451,89 +465,89 @@ reset a2 'E0' f.txt
 a2.addProgram 'E1'
 a2.addProgram 'E2' 'E3'
 check_argv "A1: \`program\` FIRST, then every \`addProgram\` chunk in call order" a2 \
-    gawk --sandbox -e E0 -e E1 -e E2 -e E3 -- f.txt
+    "$STUB_AWK" --sandbox -e E0 -e E1 -e E2 -e E3 -- f.txt
 
 reset a2 '' f.txt
 a2.addProgram 'X1' 'X2'
 check_argv "A1: \`program = ''\` means NONE — only the list is emitted" a2 \
-    gawk --sandbox -e X1 -e X2 -- f.txt
+    "$STUB_AWK" --sandbox -e X1 -e X2 -- f.txt
 
 reset a2 'E0' f.txt
 a2.addProgram '' 'X1' ''
 check_argv "A1: an EMPTY chunk is NEVER emitted (gawk drops \`-e ''\` with a warning)" a2 \
-    gawk --sandbox -e E0 -e X1 -- f.txt
+    "$STUB_AWK" --sandbox -e E0 -e X1 -- f.txt
 
 reset a2 ' ' f.txt
 check_argv "A1: a whitespace program is a real (empty) program and IS emitted" a2 \
-    gawk --sandbox -e ' ' -- f.txt
+    "$STUB_AWK" --sandbox -e ' ' -- f.txt
 
 reset a2 'BEGIN{' f.txt
 a2.addProgram $'x=1\nprint x}'
 check_argv "A1: a chunk holding a newline is ONE word" a2 \
-    gawk --sandbox -e 'BEGIN{' -e $'x=1\nprint x}' -- f.txt
+    "$STUB_AWK" --sandbox -e 'BEGIN{' -e $'x=1\nprint x}' -- f.txt
 
 reset a2 'E0' f.txt
 a2.addProgram 'E1' 'E2'
 a2.clearPrograms
 check_argv "A1: \`clearPrograms\` empties the list and keeps \`program\`" a2 \
-    gawk --sandbox -e E0 -- f.txt
+    "$STUB_AWK" --sandbox -e E0 -- f.txt
 
 reset a2 'E0' f.txt
 a2.addProgram
-check_argv "A1: \`addProgram\` with no argument is a no-op" a2 gawk --sandbox -e E0 -- f.txt
+check_argv "A1: \`addProgram\` with no argument is a no-op" a2 "$STUB_AWK" --sandbox -e E0 -- f.txt
 
 reset a2 'E0' f.txt
 a2.programFile = p.awk
 a2.addProgram 'E1'
 check_argv "A1: \`-f\` comes after ALL the chunks" a2 \
-    gawk --sandbox -e E0 -e E1 -f p.awk -- f.txt
+    "$STUB_AWK" --sandbox -e E0 -e E1 -f p.awk -- f.txt
 
 reset a2 'E0' f.txt
 a2.setVar x 1
 a2.addArg --lint
 a2.fieldSep = :
 check_argv "A1: an extra lands AFTER the typed options and BEFORE the setVar words" a2 \
-    gawk --sandbox -F : --lint -v x=1 -e E0 -- f.txt
+    "$STUB_AWK" --sandbox -F : --lint -v x=1 -e E0 -- f.txt
 
 reset a2 'E0' f.txt
 a2.addArg -v x=extra
 a2.setVar x mine
 check_argv "A1: \`setVar x\` comes after an \`addArg -v x=…\` (so it wins in gawk)" a2 \
-    gawk --sandbox -v x=extra -v x=mine -e E0 -- f.txt
+    "$STUB_AWK" --sandbox -v x=extra -v x=mine -e E0 -- f.txt
 
 reset a2 'E0' f.txt
 a2.addArg --lint=fatal
 a2.addArg -n -v a=1
 check_argv "A1: several extras keep their order and their words" a2 \
-    gawk --sandbox --lint=fatal -n -v a=1 -e E0 -- f.txt
+    "$STUB_AWK" --sandbox --lint=fatal -n -v a=1 -e E0 -- f.txt
 
 reset a2 'E0' f.txt
 a2.addArg -n
 a2.clearArgs
-check_argv "A1: \`clearArgs\` empties the extras again" a2 gawk --sandbox -e E0 -- f.txt
+check_argv "A1: \`clearArgs\` empties the extras again" a2 "$STUB_AWK" --sandbox -e E0 -- f.txt
 
 reset a2 'E0' old1 old2
 a2.paths new1 'new 2'
 check_argv "A1: \`a.paths new1 'new 2'\` replaced both old paths" a2 \
-    gawk --sandbox -e E0 -- new1 'new 2'
+    "$STUB_AWK" --sandbox -e E0 -- new1 'new 2'
 
 reset a2 'E0' old1
 a2.paths
-check_argv "A1: \`a.paths\` with NO argument is the stdin form — no \`--\`" a2 gawk --sandbox -e E0
+check_argv "A1: \`a.paths\` with NO argument is the stdin form — no \`--\`" a2 "$STUB_AWK" --sandbox -e E0
 
 reset a2 'E0' f.txt
 a2.setVar b 1
 a2.setVar a 2
 a2.setVar c 3
 check_argv "A1: setVar words in INSERTION order (not hash order)" a2 \
-    gawk --sandbox -v b=1 -v a=2 -v c=3 -e E0 -- f.txt
+    "$STUB_AWK" --sandbox -v b=1 -v a=2 -v c=3 -e E0 -- f.txt
 
 reset a2 'E0' f.txt
 a2.setVar b 1
 a2.setVar a 2
 a2.setVar b 9
 check_argv "A1: a repeated NAME replaces its value IN PLACE (the slot is kept)" a2 \
-    gawk --sandbox -v b=9 -v a=2 -e E0 -- f.txt
+    "$STUB_AWK" --sandbox -v b=9 -v a=2 -e E0 -- f.txt
 
 kt_test_start "A1: a repeated NAME keeps ONE slot in \`_vnames\` / \`_vvals\`"
 if arr_is a2_vnames b a && arr_is a2_vvals 9 2; then
@@ -545,7 +559,7 @@ fi
 reset a2 'E0' f.txt
 a2.setVar b 1
 a2.clearVars
-check_argv "A1: \`clearVars\` empties the variables" a2 gawk --sandbox -e E0 -- f.txt
+check_argv "A1: \`clearVars\` empties the variables" a2 "$STUB_AWK" --sandbox -e E0 -- f.txt
 
 kt_test_start "A1: \`_vnames\` / \`_vvals\` are empty after \`clearVars\`"
 if arr_is a2_vnames && arr_is a2_vvals; then
@@ -560,7 +574,7 @@ enc_case() {   # enc_case TITLE VALUE WANT_WORD
     local __t="$1" __v="$2" __w="$3"
     reset a3 'E0' f.txt
     a3.setVar x "$__v"
-    check_argv "$__t" a3 gawk --sandbox -v "x=$__w" -e E0 -- f.txt
+    check_argv "$__t" a3 "$STUB_AWK" --sandbox -v "x=$__w" -e E0 -- f.txt
 }
 
 enc_case "A1 enc: a plain value is unchanged"                     'hello world'       'hello world'
@@ -596,7 +610,7 @@ a2.addArg --lint -v y=2
 a2.setVar x 1
 a2.addProgram 'X1' 'X2'
 check_argv "A1: EVERYTHING at once — the full pinned order, ONE \`BINMODE=3\`" a2 \
-    gawk -F : -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -i "$IPA" -v inplace::suffix=.bak \
+    "$STUB_AWK" -F : -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -i "$IPA" -v inplace::suffix=.bak \
     --lint -v y=2 -v x=1 -e E0 -e X1 -e X2 -f 'my prog.awk' -- p1 'p 2'
 
 kt_test_start "A1: a boolean is ON only for the exact string \`1\` (never \`(( x ))\`) — nullData, binary, inPlace"
@@ -610,7 +624,7 @@ for v in 2 yes true on TRUE -1 '1 ' ' 1' 01 '' 0; do
     done
     GOT=()
     a4.argv GOT >/dev/null 2>&1 || :
-    if ! arr_is GOT gawk -e E0 -- f.txt; then
+    if ! arr_is GOT "$STUB_AWK" -e E0 -- f.txt; then
         allgood=0
         badv="'$v' -> $(arr_show GOT)"
         break
@@ -628,20 +642,20 @@ sbx() {   # sbx VALUE WANT...
     local __v="$1"; shift
     reset a4 'E0' f.txt
     a4.sandbox = "$__v"
-    check_argv "A1 (Q1, fail closed): \`sandbox = $(printf '%q' "$__v")\` -> $( [[ "$1 $2" == "gawk --sandbox" ]] && printf 'SANDBOXED' || printf 'open' )" a4 "$@"
+    check_argv "A1 (Q1, fail closed): \`sandbox = $(printf '%q' "$__v")\` -> $( [[ "$1 $2" == "$STUB_AWK --sandbox" ]] && printf 'SANDBOXED' || printf 'open' )" a4 "$@"
 }
 
-sbx ''      gawk --sandbox -e E0 -- f.txt
-sbx yes     gawk --sandbox -e E0 -- f.txt
-sbx 2       gawk --sandbox -e E0 -- f.txt
-sbx ' 0'    gawk --sandbox -e E0 -- f.txt
-sbx '0 '    gawk --sandbox -e E0 -- f.txt
-sbx 00      gawk --sandbox -e E0 -- f.txt
-sbx false   gawk --sandbox -e E0 -- f.txt
-sbx off     gawk --sandbox -e E0 -- f.txt
-sbx -0      gawk --sandbox -e E0 -- f.txt
-sbx 1       gawk --sandbox -e E0 -- f.txt
-sbx 0       gawk -e E0 -- f.txt
+sbx ''      "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx yes     "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx 2       "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx ' 0'    "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx '0 '    "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx 00      "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx false   "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx off     "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx -0      "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx 1       "$STUB_AWK" --sandbox -e E0 -- f.txt
+sbx 0       "$STUB_AWK" -e E0 -- f.txt
 
 kt_test_start "A1: rebuilding does not ACCUMULATE — two \`argv\` calls agree"
 reset a2 'E0' f.txt
@@ -650,7 +664,7 @@ a2.setVar x 1
 declare -a W1=() W2=()
 a2.argv W1 >/dev/null 2>&1 || :
 a2.argv W2 >/dev/null 2>&1 || :
-if arr_is W1 gawk --sandbox -v x=1 -e E0 -e E1 -- f.txt && arr_is W2 gawk --sandbox -v x=1 -e E0 -e E1 -- f.txt; then
+if arr_is W1 "$STUB_AWK" --sandbox -v x=1 -e E0 -e E1 -- f.txt && arr_is W2 "$STUB_AWK" --sandbox -v x=1 -e E0 -e E1 -- f.txt; then
     kt_test_pass "stable across rebuilds"
 else
     kt_test_fail "W1=$(arr_show W1) W2=$(arr_show W2)"
@@ -804,7 +818,7 @@ fi
 setvar_ok() {   # setvar_ok NAME
     reset aV "$P" f.txt
     aV.setVar "$1" v
-    check_argv "A2: \`setVar $1\` PASSES" aV gawk --sandbox -v "$1=v" -e "$P" -- f.txt
+    check_argv "A2: \`setVar $1\` PASSES" aV "$STUB_AWK" --sandbox -v "$1=v" -e "$P" -- f.txt
 }
 setvar_ok x
 setvar_ok _y
@@ -1029,7 +1043,7 @@ aE.addArg -v e=-S
 rc=0
 GOT=()
 aE.argv GOT 2>/dev/null || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT gawk --sandbox -v e=-S -e "$P" -- f.txt; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_AWK" --sandbox -v e=-S -e "$P" -- f.txt; then
     kt_test_pass "$(arr_show GOT)"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -1039,7 +1053,7 @@ pass_extra() {   # pass_extra WORD...
     reset aE "$P" f.txt
     aE.addArg "$@"
     check_argv "A2: \`addArg $(printf '%q ' "$@")\` PASSES" aE \
-        gawk --sandbox "$@" -e "$P" -- f.txt
+        "$STUB_AWK" --sandbox "$@" -e "$P" -- f.txt
 }
 
 pass_extra -v x=1
@@ -1110,7 +1124,7 @@ GOT=()
 rc=0
 aZ.argv GOT || rc=$?
 if [[ $rc -eq 0 && "$(aZ.nul)" == "1" && "$(aZ._nulDerived)" == "1" ]] \
-   && arr_is GOT gawk --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e "$P" -- f.txt; then
+   && arr_is GOT "$STUB_AWK" --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e "$P" -- f.txt; then
     kt_test_pass "nul = 1, _nulDerived = 1, argv has the NUL words and BINMODE=3"
 else
     kt_test_fail "rc=$rc nul='$(aZ.nul)' drv='$(aZ._nulDerived)' GOT=$(arr_show GOT)"
@@ -1178,7 +1192,7 @@ derived_bin() {
     for __w in "${__g1[@]}"; do [[ "$__w" == "BINMODE=3" ]] && __has1=$(( __has1 + 1 )); done
     for __w in "${__g2[@]}"; do [[ "$__w" == "BINMODE=3" ]] && __has2=$(( __has2 + 1 )); done
     if [[ "$__has1" == "1" && "$__has2" == "0" && "$__bin1" == "0" && "$__bin2" == "0" ]] \
-       && arr_is __g2 gawk -e "$P" -- f.txt; then
+       && arr_is __g2 "$STUB_AWK" -e "$P" -- f.txt; then
         kt_test_pass "on: $(arr_show __g1)| off: $(arr_show __g2)| binary stayed 0"
     else
         kt_test_fail "on=$(arr_show __g1) off=$(arr_show __g2) binary='$__bin1'/'$__bin2'"
@@ -1194,7 +1208,7 @@ aB.binary = 1
 aB.inPlace = 1
 aB.nullData = 1
 check_argv "A4: \`binary\` + \`inPlace\` + \`nullData\` — still exactly ONE \`BINMODE=3\`" aB \
-    gawk -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -i "$IPA" -e "$P" -- f.txt
+    "$STUB_AWK" -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -i "$IPA" -e "$P" -- f.txt
 
 reset aB "$P" f.txt
 aB.sandbox = 0
@@ -1202,7 +1216,7 @@ aB.binary = 1
 aB.inPlace = 1
 aB.inPlace = 0
 check_argv "A4: a caller's own \`binary = 1\` survives \`inPlace\` going 1 -> 0" aB \
-    gawk -v BINMODE=3 -e "$P" -- f.txt
+    "$STUB_AWK" -v BINMODE=3 -e "$P" -- f.txt
 
 kt_test_start "A4: \`crlf\` is never touched by buildArgv"
 reset aZ "$P" f.txt
@@ -1248,21 +1262,21 @@ TAwk.new aCR '{print}' f1
 aCR.addArg --lint
 aCR.setVar RS ';'
 cr_case "CR: text mode — the CR-optional RS comes BEFORE the extras and the setVar words (a user RS wins)" aCR \
-    gawk --sandbox -v "$CRRS" --lint -v 'RS=;' -e '{print}' -- f1
+    "$STUB_AWK" --sandbox -v "$CRRS" --lint -v 'RS=;' -e '{print}' -- f1
 aCR.clearVars
 aCR.clearArgs
 aCR.binary = 1
-cr_case "CR: \`binary = 1\` — no RS" aCR gawk --sandbox -v BINMODE=3 -e '{print}' -- f1
+cr_case "CR: \`binary = 1\` — no RS" aCR "$STUB_AWK" --sandbox -v BINMODE=3 -e '{print}' -- f1
 aCR.binary = 0
 aCR.nullData = 1
-cr_case "CR: \`nullData = 1\` — no CR RS (the NUL RS)" aCR gawk --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- f1
+cr_case "CR: \`nullData = 1\` — no CR RS (the NUL RS)" aCR "$STUB_AWK" --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- f1
 aCR.nullData = 0
 aCR.sandbox = 0
 aCR.inPlace = 1
-cr_case "CR: \`inPlace = 1\` — no RS" aCR gawk -v BINMODE=3 -i /usr/share/awk/inplace.awk -e '{print}' -- f1
+cr_case "CR: \`inPlace = 1\` — no RS" aCR "$STUB_AWK" -v BINMODE=3 -i "$IPA" -e '{print}' -- f1
 aCR.inPlace = 0
 aCR.sandbox = 1
-cr_case "CR: back to text mode — the RS again" aCR gawk --sandbox -v "$CRRS" -e '{print}' -- f1
+cr_case "CR: back to text mode — the RS again" aCR "$STUB_AWK" --sandbox -v "$CRRS" -e '{print}' -- f1
 
 kt_test_start "CR: \`--posix\` / \`-P\` / \`-W posix\` / \`--trad\` / \`-c\` among the extras — no RS, \`_textMode = 1\` (the output-strip fallback)"
 bad=""
@@ -1290,5 +1304,168 @@ aCR.clearArgs
 if [[ "$tm" == "001" ]]; then kt_test_pass "001"; else kt_test_fail "got $tm"; fi
 
 __TUTIL_TOOLS_STRIP_CR=1
-cr_case "CR: the cygwin/msys path — no RS" aCR gawk --sandbox -e '{print}' -- f1
+cr_case "CR: the cygwin/msys path — no RS" aCR "$STUB_AWK" --sandbox -e '{print}' -- f1
 aCR.delete
+
+# ===========================================================================
+kt_test_section "I. I4 — inPlace with no inplace.awk in gawk's AWKPATH: rc 2, one line"
+# ===========================================================================
+
+# A second stub whose share/awk holds NO inplace.awk: its AWKPATH probe answers
+# `.:DIR/share/awk`, a directory without the file. The lookup runs inside the
+# inPlace block of buildArgv, after the sandbox check, so the instance below is
+# otherwise valid (inPlace = 1, sandbox = 0, a program, a path).
+kt_gnu_stub awk "$TMP/stubnp" STUB_NP || { echo "004: kt_gnu_stub (stubnp) failed" >&2; exit 1; }
+rm -f "$TMP/stubnp/share/awk/inplace.awk"
+
+reset aNP "$P" f.txt
+aNP.sandbox = 0
+aNP.inPlace = 1
+check_rc2 "I4: no inplace.awk in the AWKPATH — rc 2, one line naming \`inplace.awk\` and the gawk" \
+    "gawk's inplace.awk not found in AWKPATH" aNP
+
+reset aNP "$P" f.txt
+aNP.sandbox = 0
+aNP.inPlace = 1
+check_rc2 "I4: ... and the line quotes the AWKPATH the gawk printed (\`.:DIR/share/awk\`) and \`cmd\`" \
+    "'.:$TMP/stubnp/share/awk' ($STUB_NP)" aNP
+
+reset aNP "$P" f.txt
+aNP.sandbox = 0
+aNP.inPlace = 1
+aNP.backupSuffix = .bak
+kt_test_start "I4: the refusal leaves nothing derived — \`_textMode\`, \`nul\`, \`_nulDerived\` untouched, the caller's array too"
+GOT=( stale )
+aNP.nullData = 1
+aNP.argv GOT >/dev/null 2>&1 || :
+if arr_is GOT stale && [[ "$(aNP.nul)" == "0" && "$(aNP._nulDerived)" == "0" && "$(aNP._textMode)" == "0" ]]; then
+    kt_test_pass "rc 2 before the derivations: nul 0, _nulDerived 0, _textMode 0"
+else
+    kt_test_fail "got=$(arr_show GOT) nul='$(aNP.nul)' drv='$(aNP._nulDerived)' tm='$(aNP._textMode)'"
+fi
+aNP.delete
+
+# back to the stub every other case uses
+KCL_GNU_AWK="$STUB_AWK"
+
+# ===========================================================================
+kt_test_section "G. T6 — no GNU awk found: .new succeeds, the first argv says why"
+# ===========================================================================
+
+NOEXEC_TXT="KCL_GNU_AWK='/nonexistent' is not an executable file"
+
+kt_test_start "T6 (i): KCL_GNU_AWK=/nonexistent — \`.new\` rc 0 and silent, \`cmd\` '', \`argv\` rc 2 with ONE line naming the override"
+KCL_GNU_AWK=/nonexistent
+dbg_n TAwk.new aNG "$P" f.txt
+nrc=$DBG_RC; nlines_new=$DBG_N
+GOT=( stale )
+dbg_n aNG.argv GOT
+if [[ $nrc -eq 0 && $nlines_new -eq 0 && "$(aNG.cmd)" == "" && $DBG_RC -eq 2 && $DBG_N -eq 1 \
+      && "$DBG_1" == "Error: TAwk.buildArgv: "*"$NOEXEC_TXT"* && "$RESULT" == "" ]] && arr_is GOT stale; then
+    kt_test_pass "new rc 0 silent; cmd ''; argv rc 2: ${DBG_1:0:100}"
+else
+    kt_test_fail "new rc=$nrc lines=$nlines_new cmd='$(aNG.cmd)'; argv rc=$DBG_RC lines=$DBG_N first='$DBG_1' got=$(arr_show GOT)"
+fi
+
+kt_test_start "T6 (ii): \`x.cmd = STUB\` re-arms the instance — \`argv\` rc 0, word 0 = the stub"
+aNG.cmd = "$STUB_AWK"
+GOT=( stale )
+rc=0
+aNG.argv GOT || rc=$?
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_AWK" --sandbox -e "$P" -- f.txt; then
+    kt_test_pass "$(arr_show GOT)"
+else
+    kt_test_fail "rc=$rc got=$(arr_show GOT)"
+fi
+aNG.delete
+
+kt_test_start "T6 (iii): a SINK on the disarmed instance (\`count\`) — rc 2, RESULT '', ONE line with ktool's text"
+KCL_GNU_AWK=/nonexistent
+TAwk.new aNG "$P" f.txt
+RESULT=stale
+dbg_n aNG.count
+if [[ $DBG_RC -eq 2 && "$RESULT" == "" && $DBG_N -eq 1 && "$DBG_1" == *"$NOEXEC_TXT"* ]]; then
+    kt_test_pass "count rc 2, RESULT '', one line: ${DBG_1:0:100}"
+else
+    kt_test_fail "rc=$DBG_RC RESULT='$RESULT' lines=$DBG_N first='$DBG_1'"
+fi
+aNG.delete
+
+kt_test_start "T6 (iv): the static \`TAwk.apply\` with no GNU awk — rc 2, the same ONE line, nothing printed or run"
+KCL_GNU_AWK=/nonexistent
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+sout=$(TAwk.apply "$P" "$TMP/none.txt" 2>"$ERRF")
+src=$?
+VERBOSE_KKLASS=
+sn=0; sl=''
+while IFS= read -r l || [[ -n "$l" ]]; do sn=$(( sn + 1 )); sl=$l; done < "$ERRF"
+if [[ $src -eq 2 && $sn -eq 1 && "$sl" == *"$NOEXEC_TXT"* && -z "$sout" ]]; then
+    kt_test_pass "rc 2, empty stdout, one line: ${sl:0:100}"
+else
+    kt_test_fail "rc=$src out='$sout' lines=$sn last='$sl'"
+fi
+
+# the stub again for whoever follows
+KCL_GNU_AWK="$STUB_AWK"
+
+# ===========================================================================
+kt_test_section "J. the AWKPATH probe: a failed probe is not cached; env -u AWKPATH; absolute entries only"
+# ===========================================================================
+
+# A stub of our own (kt_gnu_stub's AWKPATH arm is fixed). DIR is absolute.
+# stubf: the AWKPATH arm exits 1 while DIR/broken exists (a probe that failed),
+# else prints `.:DIR/share/awk`. Fixing the stub in place (rm broken) changes
+# nothing ktool sees (the script itself is untouched), so the next build on the
+# SAME cmd key must probe again and succeed: a failed probe was not cached.
+kt_gnu_stub awk "$TMP/stubf" STUB_F || { echo "004: kt_gnu_stub (stubf) failed" >&2; exit 1; }
+printf '%s\n' '#!/bin/sh' \
+    "case \$1 in --version) printf '%s\\n' 'GNU Awk 5.3.0';; *) [ -e '$TMP/stubf/broken' ] && exit 1; printf '%s\\n' '.:$TMP/stubf/share/awk';; esac" \
+    > "$TMP/stubf/awk"
+: > "$TMP/stubf/broken"
+
+reset aPF "$P" f.txt
+aPF.sandbox = 0
+aPF.inPlace = 1
+check_rc2 "J1: a probe that FAILED (rc 1, no answer) — rc 2, the line names an empty AWKPATH" \
+    "gawk's inplace.awk not found in AWKPATH '' ($STUB_F)" aPF
+rm -f "$TMP/stubf/broken"
+check_argv "J1: the stub fixed in place — the NEXT build on the same key probes again and succeeds (the failure was not cached)" aPF \
+    "$STUB_F" -v BINMODE=3 -i "$TMP/stubf/share/awk/inplace.awk" -e "$P" -- f.txt
+aPF.delete
+
+# stubx: its default AWKPATH is `.::rel/awk:DIR/share/awk` (the leading `.`, an
+# empty entry and a RELATIVE entry all precede the one absolute directory); the
+# stub honours an inherited AWKPATH like gawk does. A planted rel/awk/inplace.awk
+# sits in the cwd and a planted $TMP/evil/inplace.awk is what an inherited
+# AWKPATH=$TMP/evil would find: the `-i` word must be neither.
+kt_gnu_stub awk "$TMP/stubx" STUB_X || { echo "004: kt_gnu_stub (stubx) failed" >&2; exit 1; }
+printf '%s\n' '#!/bin/sh' \
+    "case \$1 in --version) printf '%s\\n' 'GNU Awk 5.3.0';; *) printf '%s\\n' \"\${AWKPATH-.::rel/awk:$TMP/stubx/share/awk}\";; esac" \
+    > "$TMP/stubx/awk"
+mkdir -p "$TMP/cwdx/rel/awk" "$TMP/evil"
+: > "$TMP/cwdx/rel/awk/inplace.awk"
+: > "$TMP/evil/inplace.awk"
+
+reset aPX "$P" f.txt
+aPX.sandbox = 0
+aPX.inPlace = 1
+__j_cwd="$PWD"
+cd "$TMP/cwdx" || exit 1
+export AWKPATH="$TMP/evil"
+check_argv "J2: AWKPATH=\$TMP/evil exported, a planted rel/awk/inplace.awk in the cwd — the \`-i\` word is still the stub's absolute share/awk/inplace.awk" aPX \
+    "$STUB_X" -v BINMODE=3 -i "$TMP/stubx/share/awk/inplace.awk" -e "$P" -- f.txt
+unset AWKPATH
+cd "$__j_cwd" || exit 1
+
+kt_test_start "J3: the cached AWKPATH is the stub's DEFAULT (\`env -u AWKPATH\` reached it), the cached answer the one absolute entry"
+if [[ "${__TAW_APC[$STUB_X]-}" == ".::rel/awk:$TMP/stubx/share/awk" \
+      && "${__TAW_IPC[$STUB_X]-}" == "$TMP/stubx/share/awk/inplace.awk" ]]; then
+    kt_test_pass "APC='${__TAW_APC[$STUB_X]}' IPC='${__TAW_IPC[$STUB_X]}'"
+else
+    kt_test_fail "APC='${__TAW_APC[$STUB_X]-}' IPC='${__TAW_IPC[$STUB_X]-}'"
+fi
+aPX.delete
+
+# the stub every other case uses
+KCL_GNU_AWK="$STUB_AWK"

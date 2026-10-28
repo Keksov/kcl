@@ -25,7 +25,8 @@ kk.uses tutil || return
 #     `a.toArray a_progs` would turn the records into the NEXT run's program,
 #     `a_vnames`/`a_vvals` into its variables.
 # Each append is idempotent (only if absent), and the scratch globals are
-# released right after, so the unit leaves exactly `__TAW_SEQ` behind.
+# released right after, so the unit leaves `__TAW_SEQ` and the two inplace
+# caches `__TAW_IPC` / `__TAW_APC` (below) behind.
 declare -g __taw_seen=0
 declare -g __taw_p=''
 declare -g __taw_s=''
@@ -55,6 +56,18 @@ unset -v __taw_seen __taw_p __taw_s
 # name is `__taw_a_${BASHPID}_${__TAW_SEQ}`. Same idiom as TSed's `__TSD_SEQ`.
 declare -g __TAW_SEQ=0
 
+# The inplace lookup caches (L3.5-9, design L3_4 I3): per resolved gawk path,
+# `__TAW_IPC[$cmd]` = the absolute path of gawk's own inplace.awk ('' = none was
+# found) and `__TAW_APC[$cmd]` = the raw default AWKPATH that gawk printed (the
+# I4 line quotes it). Declared once per process, so `kk.unit --forget tawk` +
+# re-source keeps them. The test is the unit header's: `${A[@]@a}` is set -u safe
+# (an unset array is just empty), fork-free, and says `A` for a filled associative
+# array; an EMPTY one reads as empty and is re-declared, which loses nothing.
+# Filled by `tawk._inplace`, keyed by the `cmd` string (a relative `cmd` keeps its
+# answer across PATH / cwd changes).
+[[ ${__TAW_IPC[@]@a} == *A* ]] || declare -gA __TAW_IPC=()
+[[ ${__TAW_APC[@]@a} == *A* ]] || declare -gA __TAW_APC=()
+
 # ---------------------------------------------------------------------------
 # TAwk — the GNU Awk wrapper over TUtil (gawk 5.0.0 under bash 5.2.37 via Git
 # for Windows, 5.4.0 under bash 5.3.9 via msys64; D4: the GNU dialect).
@@ -74,7 +87,7 @@ declare -g __TAW_SEQ=0
 #
 # ---- The pinned argv (PLAN §1.2) ------------------------------------------
 #   gawk [--sandbox] [-F FS] [-v RS=\0 -v ORS=\0] [-v BINMODE=3 | the CR RS]
-#        [-i /usr/share/awk/inplace.awk [-v inplace::suffix=enc(SFX)]]
+#        [-i ABSOLUTE/inplace.awk [-v inplace::suffix=enc(SFX)]]
 #        [EXTRA OPTIONS] [-v NAME=enc(VALUE) ...] [-e program] [-e chunk ...]
 #        [-f FILE] [-- PATH...]
 #
@@ -96,19 +109,28 @@ declare -g __TAW_SEQ=0
 #    `--traditional` fallback (tutil README §3, owner DL11);
 #  * the inplace extension is included by its ABSOLUTE path: `-i inplace` is
 #    resolved through AWKPATH, which starts with `.`, so a planted
-#    `./inplace.awk` would load instead — with the sandbox off (critic major 6);
+#    `./inplace.awk` would load instead — with the sandbox off (critic major 6).
+#    The path is gawk's OWN inplace.awk, found through the default AWKPATH of
+#    the gawk that will run (`tawk._inplace`: the first ABSOLUTE entry holding a
+#    readable inplace.awk; cached per gawk path, one fork the first time) —
+#    `/usr/share/awk` on Linux, `/usr/local/share/awk` on FreeBSD. None found =
+#    rc 2 with one line naming the AWKPATH (L3.5-9);
 #  * `inplace::suffix`, not `INPLACE_SUFFIX` (5.4 only), its value encoded like setVar's;
 #  * `--sandbox` is emitted unless `sandbox` is EXACTLY `0` — it fails closed
 #    (owner Q1).
 #
 # ---- rc 2 at buildArgv: nothing runs, one kk.debug line (PLAN §2.2) --------
-#   * `cmd` empty; NO program (`program` '', every chunk '', `programFile`
+#   * `cmd` empty (no GNU awk found: the line carries ktool's reason, e.g. the
+#     package to install); NO program (`program` '', every chunk '', `programFile`
 #     ''); `programFile` = `-` (gawk would read the program from stdin);
 #   * a path operand that gawk reads as an ASSIGNMENT
 #     (`^([A-Za-z_][A-Za-z0-9_]*::)?[A-Za-z_][A-Za-z0-9_]*=`) — the caller
 #     passes `./NAME=…`;
 #   * `inPlace = 1` with no path or with `-`, or with `sandbox` ≠ `0` (the
-#     sandbox refuses the extension); `backupSuffix` set with `inPlace = 0`;
+#     sandbox refuses the extension), or when gawk's inplace.awk is not in its
+#     default AWKPATH (that lookup runs last among the inPlace checks; a later
+#     refusal may already have paid the one cached probe fork);
+#     `backupSuffix` set with `inPlace = 0`;
 #   * a stored variable name that is not an awk identifier or is a keyword,
 #     builtin or gawk array (setVar refuses those already; `_vnames` is a
 #     global anyone can write, so the build checks again);
@@ -123,7 +145,8 @@ declare -g __TAW_SEQ=0
 #
 # ---- Traps this unit is written around ------------------------------------
 #  * The constructor calls `parent.constructor gawk` EXPLICITLY (`inherited`
-#    in a constructor forwards "$@" and would make PROGRAM the command).
+#    in a constructor forwards "$@" and would make PROGRAM the command), then
+#    `tutil._gnu awk` (cmd = the GNU awk ktool resolved, or '' with the reason).
 #  * EVERY declared var is assigned in `Create`; `sandbox` to 1.
 #  * No `var` is named like a TUtil or kklass member.
 #  * Booleans are compared as strings (`[[ "$x" == 1 ]]`) — except `sandbox`,
@@ -144,7 +167,7 @@ class TAwk : TUtil
         var nullData        # -v RS='\0' -v ORS='\0' -> derives the sinks' -0 AND BINMODE=3
         var binary          # -v BINMODE=3 (keep the CR; also derived)
         var sandbox         # --sandbox, DEFAULT 1 (owner Q1); off ONLY for exactly '0'
-        var inPlace         # -i /usr/share/awk/inplace.awk (needs sandbox = 0; sinks refuse)
+        var inPlace         # -i <gawk's inplace.awk> (needs sandbox = 0; sinks refuse)
         var backupSuffix    # -v inplace::suffix=enc(SFX) (only with inPlace = 1)
         var _nulDerived     # private bookkeeping for the nullData -> -0 derivation
         constructor Create  # [PROGRAM [PATH...]]
@@ -430,17 +453,66 @@ tawk._sinkRefused() {
     return 1
 }
 
+# tawk._inplace CMD — gawk's own inplace.awk (L3.5-9, design I1-I6). Fills the
+# CALLER's `__taw_ip` (the absolute path of inplace.awk in the first ABSOLUTE
+# directory of the default AWKPATH of the gawk CMD, '' = none) and `__taw_apv`
+# (that AWKPATH, raw, for the refusal line). The default AWKPATH is asked of the
+# gawk itself, with AWKPATH unset: `env -u AWKPATH CMD 'BEGIN { print
+# ENVIRON["AWKPATH"] }'` (`.:/usr/share/awk` on Linux and msys, `.:/usr/local/
+# share/awk` on FreeBSD). Entries that do not start with `/` (`.`, relative,
+# empty) are skipped — the include is absolute so that a planted ./inplace.awk
+# is never loaded; a directory named inplace.awk does not count (`-f`). Both
+# answers are cached per CMD STRING in `__TAW_IPC` / `__TAW_APC` (a "none found"
+# too, but only after a probe that exited 0 with an answer), so the fork happens
+# once per gawk path and process; a `$( )`
+# caller pays it every time (README: warm it in the main shell). `|| rc=$?`: the
+# children of the 006 tests run under `set -eu`. AWKLIBPATH is not touched (I6).
+tawk._inplace() {
+    local __taw_c="${1-}"
+    if [[ -n ${__TAW_IPC[$__taw_c]+x} ]]; then
+        __taw_ip="${__TAW_IPC[$__taw_c]}"
+        __taw_apv="${__TAW_APC[$__taw_c]}"
+        return 0
+    fi
+    local __taw_raw='' __taw_ent='' __taw_found='' __taw_prc=0
+    __taw_raw="$(env -u AWKPATH "$__taw_c" 'BEGIN { print ENVIRON["AWKPATH"] }' </dev/null 2>/dev/null)" || __taw_prc=$?
+    __taw_raw="${__taw_raw%%$'\n'*}"        # the first line only
+    __taw_raw="${__taw_raw%[[:cntrl:]]}"    # a trailing CR (a text-mode gawk on msys may print one)
+    local __taw_rest="$__taw_raw:"
+    while [[ -n "$__taw_rest" ]]; do
+        __taw_ent="${__taw_rest%%:*}"
+        __taw_rest="${__taw_rest#*:}"
+        if [[ "$__taw_ent" == /* && -f "$__taw_ent/inplace.awk" && -r "$__taw_ent/inplace.awk" ]]; then
+            __taw_found="$__taw_ent/inplace.awk"
+            break
+        fi
+    done
+    # Cache only a probe that WORKED (rc 0, an answer): a failed one (a fork
+    # failure under a commit limit, a gawk that died) is a miss for this call
+    # only, so the next build probes again.
+    if (( __taw_prc == 0 )) && [[ -n "$__taw_raw" ]]; then
+        __TAW_APC[$__taw_c]="$__taw_raw"
+        __TAW_IPC[$__taw_c]="$__taw_found"
+    fi
+    __taw_ip="$__taw_found"
+    __taw_apv="$__taw_raw"
+    return 0
+}
+
 # ===========================================================================
 # Members
 # ===========================================================================
 
 # Create [PROGRAM [PATH...]] — PLAN §1.2, §2.1. PROGRAM becomes `program`,
 # every further argument a path. `parent.constructor gawk` is spelled out, EVERY
-# declared var is assigned (`sandbox` = 1, the owner's Q1 default), and the four
-# per-instance arrays are real INDEXED globals next to `${inst}_data` (the
-# variables keep insertion order), released by the destructor.
+# declared var is assigned (`sandbox` = 1, the owner's Q1 default),
+# `tutil._gnu awk` resolves the tool into `cmd` (L3.4: no GNU awk = `cmd` ''
+# and `_toolErr`, `.new` still succeeds; the first buildArgv answers rc 2), and
+# the four per-instance arrays are real INDEXED globals next to `${inst}_data`
+# (the variables keep insertion order), released by the destructor.
 TAwk.Create() {
     parent.constructor gawk
+    tutil._gnu awk
     program="${1:-}"
     programFile=''
     fieldSep=''
@@ -539,7 +611,7 @@ TAwk.buildArgv() {
 
     # ---- the rc 2 list, checked before a single word is built -------------
     if [[ -z "$cmd" ]]; then
-        kk.debug "Error: TAwk.buildArgv: cmd is empty; there is nothing to run"
+        kk.debug "Error: TAwk.buildArgv: ${_toolErr:-cmd is empty; there is nothing to run}"
         kk._return ""
         return 2
     fi
@@ -586,6 +658,17 @@ TAwk.buildArgv() {
         done
         if [[ "$sandbox" != "0" ]]; then
             kk.debug "Error: TAwk.buildArgv: inPlace = 1 needs sandbox = 0 — gawk's sandbox refuses the inplace extension (sandbox is '$sandbox')"
+            kk._return ""
+            return 2
+        fi
+        # gawk's own inplace.awk, by ABSOLUTE path (L3.5-9, I1-I5): after the
+        # checks above (a later refusal may already have paid the one cached
+        # probe fork); a plain function that
+        # fills the two locals (never a `$( )`), before anything is derived.
+        local __taw_ip='' __taw_apv=''
+        tawk._inplace "$cmd"
+        if [[ -z "$__taw_ip" ]]; then
+            kk.debug "Error: TAwk.buildArgv: gawk's inplace.awk not found in AWKPATH '$__taw_apv' ($cmd)"
             kk._return ""
             return 2
         fi
@@ -687,7 +770,7 @@ TAwk.buildArgv() {
     # writes `__taw_e` in this frame.
     local __taw_e=''
     if [[ "$inPlace" == 1 ]]; then
-        __taw_v+=( -i /usr/share/awk/inplace.awk )
+        __taw_v+=( -i "$__taw_ip" )
         if [[ -n "$backupSuffix" ]]; then
             tawk._enc "$backupSuffix"
             __taw_v+=( -v "inplace::suffix=$__taw_e" )

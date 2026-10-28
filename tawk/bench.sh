@@ -149,17 +149,27 @@ gate_ratio() {  # label median_us base_median_us limit_tenths -> ratio + PASS/FA
         "$1" $(( r100/100 )) $(( r100%100 )) $(( $4/10 )) $(( $4%10 )) "$verdict"
 }
 
-# --- the GNU banner gate ----------------------------------------------------
+# --- the GNU gate (ktool) ---------------------------------------------------
 # D4 pins the DIALECT (GNU Awk — 5.0.0 under bash 5.2.37, 5.4.0 under 5.3.9),
-# not a binary. Every number below is about that tool; on anything else they
-# are not comparable, so say so loudly instead of publishing a meaningless
-# table.
-AWK_BANNER="$(timeout 20 gawk --version 2>/dev/null </dev/null | head -1 || true)"
-case "$AWK_BANNER" in
-    "GNU Awk "*) ;;
-    *) echo "tawk bench: SKIPPED — \`gawk\` is not GNU Awk: '$AWK_BANNER'"; exit 0 ;;
-esac
-AWK_BIN="$(command -v gawk 2>/dev/null || printf '(none)')"
+# not a binary. `ktool.gnu awk` (the kkore unit ktool, loaded by tutil) answers
+# the GNU awk TAwk itself resolves: the path is AWK_BIN, the bare baseline below
+# runs it too. Every number below is about that tool; with none, say so loudly
+# (ktool's own text, which names the package) instead of publishing a
+# meaningless table.
+__kt_rc=0
+ktool.gnu awk || __kt_rc=$?
+if (( __kt_rc == 0 )); then
+    AWK_BIN=$RESULT
+    AWK_BANNER="$(LC_ALL=C timeout 20 "$AWK_BIN" --version </dev/null 2>/dev/null | head -n 1 || true)"
+else
+    ktool.lastError
+    if (( __kt_rc == 2 )); then
+        echo "tawk bench: FAILED (ktool rc 2) - $RESULT"
+    else
+        echo "tawk bench: SKIPPED - $RESULT"
+    fi
+    exit 0
+fi
 
 # --- the corpus -------------------------------------------------------------
 # Two files, both under one `mktemp -d`: BIG holds NL lines `aNNNNN xyz` (two
@@ -220,7 +230,7 @@ BF.cmd = bench_counted
 pid_a="$BASHPID"
 for (( i = 0; i < ND; i++ )); do BF.buildArgv; done
 for (( i = 0; i < ND; i++ )); do BF.argv BW; done
-BF.cmd = gawk
+BF.cmd = "$AWK_BIN"
 if (( BENCH_RAN == 0 )) && [[ "$BASHPID" == "$pid_a" && "${BW[0]}" == "bench_counted" ]]; then
     echo "  RUNS NOTHING: with cmd pointed at a counting function, $(( ND * 2 )) builds invoked it 0 times"
     echo "  FORK-FREE:    BASHPID $pid_a unchanged across all $(( ND * 4 )) builds"
@@ -350,12 +360,12 @@ gate_shape() {
 
     # warm the file cache and every code path once, so neither side pays for
     # the first read of the corpus or the first bind of a member wrapper.
-    gawk --sandbox -e "$PROG" -- "$__file" >/dev/null 2>&1 || :
+    "$AWK_BIN" --sandbox -e "$PROG" -- "$__file" >/dev/null 2>&1 || :
     TAwk.apply "$PROG" "$__file" >/dev/null 2>&1 || :
 
     for (( __i = 0; __i < NR; __i++ )); do
         TStopwatch.getTimeStamp; __a0=$RESULT
-        gawk --sandbox -e "$PROG" -- "$__file" >/dev/null || :
+        "$AWK_BIN" --sandbox -e "$PROG" -- "$__file" >/dev/null || :
         TStopwatch.getTimeStamp; __a1=$RESULT
         __t_bare+=( $(( __a1 - __a0 )) ); __s_bare=$(( __s_bare + __a1 - __a0 ))
 
@@ -405,14 +415,14 @@ n_wc=''; n_cnt=''
 
 # Warm both shapes, and take the record counts HERE, once. A `$( )` inside the
 # timed loop would add a fork to the baseline and dilute the very comparison.
-n_wc="$( gawk --sandbox -e "$PROG" -- "$BIG" | wc -l )"
+n_wc="$( "$AWK_BIN" --sandbox -e "$PROG" -- "$BIG" | wc -l )"
 n_wc="${n_wc//[[:space:]]/}"
 BQ.count >/dev/null 2>&1 || :
 BQ1.count >/dev/null 2>&1 || :
 
 for (( i = 0; i < NR; i++ )); do
     TStopwatch.getTimeStamp; t0=$RESULT
-    gawk --sandbox -e "$PROG" -- "$BIG" | wc -l >/dev/null || :
+    "$AWK_BIN" --sandbox -e "$PROG" -- "$BIG" | wc -l >/dev/null || :
     TStopwatch.getTimeStamp; t1=$RESULT
     T_WC+=( $(( t1 - t0 )) ); b_wc=$(( b_wc + t1 - t0 ))
 

@@ -56,12 +56,12 @@
 # framework. This file installs NO `trap … EXIT` of its own — it would replace
 # ktests' trap and swallow the `__COUNTS__` line the runner parses.
 #
-# THE GNU BANNER GATE IS THE FIRST CASE, as in 005/006: D4 pins the DIALECT
-# (GNU Awk), not a binary. Without the banner every timed case is a loud SKIP
-# and the case COUNT is unchanged.
+# THE GNU GATE IS THE FIRST CASE, as in 005/006: `kt_gnu_gate awk AWK_BIN`
+# (ktool; D4 pins the DIALECT, not a binary). Without a GNU awk every timed
+# case is a loud SKIP and the case COUNT is unchanged.
 #
 # Sections:
-#   Z  the GNU banner gate and the corpus
+#   Z  the ktool gate and the corpus
 #   A  the apply gate — `TAwk.apply` against a bare `gawk --sandbox -e … --` in
 #      the two shapes that bracket the tool's own work (a 200-line file and a
 #      ONE-line file), plus the wrapper's fixed delta measured on its own
@@ -78,6 +78,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 
 TA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$TA_DIR/tawk.sh"
+source "$TA_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 # The argv shapes this file asserts (and the builds it times) are the
 # cygwin/msys ones, so the file pins that path of the CR contract (tutil
 # README §3, L2.7-C). The extra words of the other path are pinned in
@@ -107,26 +108,17 @@ median() {
 }
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate and the corpus"
+kt_test_section "Z. the ktool gate and the corpus"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`gawk\` on PATH is GNU Awk (D4 pins the DIALECT, not a binary)"
-AWK_BIN="$(command -v gawk 2>/dev/null || printf '(none)')"
-AWK_VER="$(timeout 20 gawk --version 2>/dev/null </dev/null | head -1 || :)"
-if [[ "$AWK_VER" == "GNU Awk "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$AWK_BIN — $AWK_VER"
-else
-    kt_test_pass "SKIP: non-GNU awk ($AWK_BIN — '${AWK_VER:-no banner}'); every timed case below is skipped"
-fi
+kt_gnu_gate awk AWK_BIN
 
 # tcase TITLE — start a case; rc 1 (already passed as a SKIP) when the gate is
 # closed, so the case COUNT is the same on a box without GNU Awk.
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU awk"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -159,7 +151,7 @@ gate_case() {
     # loop would add a `$( )` and a `cmp` fork to both sides and dilute the very
     # ratio the gate is about.
     local __ob="$FX/bare.out" __oa="$FX/apply.out" __same=0 __nb
-    gawk --sandbox -e "$PROG" -- "$__file" > "$__ob" 2>/dev/null || :
+    "$AWK_BIN" --sandbox -e "$PROG" -- "$__file" > "$__ob" 2>/dev/null || :
     TAwk.apply "$PROG" "$__file" > "$__oa" 2>/dev/null || :
     if cmp -s "$__ob" "$__oa"; then
         __same=1
@@ -170,7 +162,7 @@ gate_case() {
     local __i __a0 __a1
     for (( __i = 0; __i < NR; __i++ )); do
         TStopwatch.getTimeStamp; __a0=$RESULT
-        gawk --sandbox -e "$PROG" -- "$__file" >/dev/null || :
+        "$AWK_BIN" --sandbox -e "$PROG" -- "$__file" >/dev/null || :
         TStopwatch.getTimeStamp; __a1=$RESULT
         __t_bare+=( $(( __a1 - __a0 )) )
 
@@ -215,7 +207,7 @@ if tcase "the apply delta IS one instance: new PROGRAM + sandbox + buildArgv + d
     # ceiling is an order of magnitude above that, for the same reason as the
     # ratios above; what it catches is a construction that grew an ORDER of
     # magnitude — a fork, or a re-`build` of the class per instance.
-    if (( per <= 50000 )) && [[ "${BV[*]}" == "gawk --sandbox -e $PROG -- $ONE" ]]; then
+    if (( per <= 50000 )) && [[ "${BV[*]}" == "$AWK_BIN --sandbox -e $PROG -- $ONE" ]]; then
         kt_test_pass "new + sandbox + buildArgv + delete ${per}us/call over $ND calls (ceiling 50000us; ~4700us idle)"
     else
         kt_test_fail "new + sandbox + buildArgv + delete ${per}us/call over $ND calls (ceiling 50000us) argv=(${BV[*]})"
@@ -344,13 +336,13 @@ kt_test_section "C. counting — the \`count\` sink vs \`gawk … | wc -l\`"
 if tcase "a.count over $NL records costs at most 10x \`gawk --sandbox -e … -- FILE | wc -l\` (published, not the gate)"; then
     TAwk.new BQ "$PROG" "$BIG"
     declare -a T_WC=() T_CNT=()
-    n_wc="$( gawk --sandbox -e "$PROG" -- "$BIG" | wc -l )"
+    n_wc="$( "$AWK_BIN" --sandbox -e "$PROG" -- "$BIG" | wc -l )"
     n_wc="${n_wc//[[:space:]]/}"
     BQ.count >/dev/null 2>&1 || :
     n_cnt=''
     for (( i = 0; i < NR; i++ )); do
         TStopwatch.getTimeStamp; t0=$RESULT
-        gawk --sandbox -e "$PROG" -- "$BIG" | wc -l >/dev/null || :
+        "$AWK_BIN" --sandbox -e "$PROG" -- "$BIG" | wc -l >/dev/null || :
         TStopwatch.getTimeStamp; t1=$RESULT
         T_WC+=( $(( t1 - t0 )) )
 
@@ -444,7 +436,7 @@ if tcase "the ONLY fork per call is gawk: every property, every builder member, 
     TAwk.apply "$PROG" "$ONE" >/dev/null; rca=$?
     [[ "$BASHPID" == "$p0" ]] || ok=0
     if (( ok == 1 )) && [[ "$m2" == "1" && "$m7" == "1" && $rcr -eq 0 && $rca -eq 0 \
-          && "${FW[*]}" == "gawk --sandbox -e $PROG -- $ONE" ]]; then
+          && "${FW[*]}" == "$AWK_BIN --sandbox -e $PROG -- $ONE" ]]; then
         kt_test_pass "BASHPID $p0 unchanged across eight property writes, ten builder members (mapRc twice), lastRc, run and apply"
     else
         kt_test_fail "ok=$ok mapRc2='$m2' mapRc7='$m7' run rc=$rcr apply rc=$rca argv=(${FW[*]}) ours=$p0 now=$BASHPID"

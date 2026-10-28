@@ -27,7 +27,9 @@
 > never emitted** (gawk drops `-e ''` and compiles the first path as the
 > program); the deny-list follows gawk's getopt, **`-W long-option` spellings
 > and any long-option prefix included**; the inplace extension is loaded by its
-> **absolute path** (a planted `./inplace.awk` ran with the sandbox off); and,
+> **absolute path** — gawk's own `inplace.awk`, found through the default AWKPATH
+> of the gawk that runs (a planted `./inplace.awk` ran with the sandbox off);
+> and,
 > at the P0 review, **`backupSuffix` is encoded like `setVar`** (§6).
 
 `TAwk` is a [`TUtil`](../tutil/README.md) descendant: typed properties instead
@@ -103,7 +105,7 @@ TAwk.new INST [PROGRAM [PATH...]]      # PROGRAM -> program, the rest are paths
 | `nullData` | var | `-v RS='\0' -v ORS='\0'` | NUL records; **derives** the sinks' `-0` and `BINMODE=3` (§5) |
 | `binary` | var | `-v BINMODE=3` | keep the CR (§5); also derived, never written by the wrapper |
 | `sandbox` | var | `--sandbox` | **default 1**, **fails closed** — off only for the exact string `0` (§4) |
-| `inPlace` | var | `-i /usr/share/awk/inplace.awk` | requires `sandbox = 0`; derives `BINMODE=3`; the five sinks refuse it (§6) |
+| `inPlace` | var | `-i <gawk's inplace.awk>` (absolute, §6) | requires `sandbox = 0`; derives `BINMODE=3`; the five sinks refuse it (§6) |
 | `backupSuffix` | var | `-v inplace::suffix=enc(SFX)` | only with `inPlace = 1`; **verbatim** — encoded like `setVar` (§6) |
 | `paths PATH...` | proc | `-- PATH...` | **replaces** the operand list; no argument = stdin |
 | `buildArgv` | func | — | override; fills `${inst}_argv`, RESULT = word count |
@@ -111,8 +113,27 @@ TAwk.new INST [PROGRAM [PATH...]]      # PROGRAM -> program, the rest are paths
 | `each` `toArray` `toList` `first` `count` | overrides | — | refuse `inPlace` (rc 2), else the base sink |
 | `TAwk.apply PROGRAM PATH...` | static proc | — | §7 |
 
-Inherited from TUtil unchanged: `cmd` (`gawk`), `crlf`, `nul`, `_lastRc`,
-**`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`, `lastRc`.
+Inherited from TUtil: `cmd` — **the absolute path of the GNU awk the kkore unit
+`ktool` resolved** (`/usr/bin/gawk` on Git-bash, `/usr/local/bin/gawk` on
+FreeBSD; `KCL_GNU_AWK=/path` picks one, and `ktool` refuses a wrong one), set by
+the constructor; `crlf`, `nul`, `_lastRc`, **`subshellOk`**, `addArg`,
+`clearArgs`, `argv NAME`, `run`, `lastRc`. A `cmd` you set by hand afterwards is
+used as given (no identity check). The resolved instance is frozen: a later
+`PATH` or `KCL_GNU_AWK` change reaches the next `.new`, not this one.
+
+**No GNU awk on the box?** `.new` still succeeds (rc 0, silent) with `cmd` `''`;
+the first member that builds the argv (`run`, a sink — after a sink's own
+in-place refusal — or `argv`) and the static `TAwk.apply` answer **rc 2** with
+one `kk.debug` line carrying ktool's reason, which names the package (`no GNU
+awk: gawk not on PATH; … apt install gawk` / `pkg install gawk` / `apk add
+gawk`). Nothing runs. Setting `cmd` re-arms the instance; `_toolErr` keeps
+ktool's reason after the re-arm, so a later hand-set `cmd = ''` prints that
+reason again.
+
+**In `$( )`:** ktool's answer is cached per process, so a `.new` (or `apply`)
+inside `$( … )` in a shell that never resolved awk pays the cold probe on
+**every** call, and `inPlace` pays the AWKPATH probe too (§6). Call
+`ktool.gnu awk` once in the main shell before using TAwk inside `$( )`.
 
 **`subshellOk` (D6 final)** is inherited, default `0`: `a.subshellOk = 1` makes
 every sink pass `-s` to `TPipe`, which silences the warning `$(a.toArray x)`
@@ -127,10 +148,13 @@ are off) — **except `sandbox`**, which is off only for the exact string **`0`*
 
 ```
 gawk [--sandbox] [-F FS] [-v RS=\0 -v ORS=\0] [-v BINMODE=3 | the CR RS of §5]
-     [-i /usr/share/awk/inplace.awk [-v inplace::suffix=enc(SFX)]]
+     [-i ABSOLUTE/inplace.awk [-v inplace::suffix=enc(SFX)]]
      [EXTRA OPTIONS from addArg] [-v NAME=enc(VALUE) ...]
      [-e program] [-e chunk ...] [-f FILE] [-- PATH...]
 ```
+
+In the diagram `gawk` stands for word 0, which is `cmd`: the resolved absolute
+path.
 
 * gawk concatenates `-e` and `-f` sources **in argument order**; so `program`
   runs before the chunks, and both before `programFile`.
@@ -425,11 +449,26 @@ a.backupSuffix = .bak                  # optional: a.txt.bak, b.txt.bak
 a.run                                  # the files are edited; see the traps for stdout
 ```
 
-* The extension is loaded as `-i /usr/share/awk/inplace.awk` — an **absolute**
-  path. `-i inplace` is resolved through AWKPATH (`.:/usr/share/awk` by
-  default), so a planted `./inplace.awk` in the current directory would load
-  instead, and run with the sandbox off (measured; pinned in 005 §G against the
-  bare tool).
+* The extension is loaded as `-i <path>` — gawk's own `inplace.awk` by an
+  **absolute** path: the first **absolute** directory of the default AWKPATH of
+  the gawk that runs (`env -u AWKPATH GAWK 'BEGIN { print ENVIRON["AWKPATH"] }'`:
+  `.:/usr/share/awk` on Linux and msys, `.:/usr/local/share/awk` on FreeBSD)
+  that holds a readable `inplace.awk`. `-i inplace` is resolved through AWKPATH,
+  whose first entry is `.`, so a planted `./inplace.awk` in the current
+  directory would load instead, and run with the sandbox off (measured; pinned
+  in 005 §G against the bare tool). The lookup is `tawk._inplace`, cached per
+  gawk path for the life of the process (the path and the raw AWKPATH both;
+  one fork the first time, none after, a `$( )` caller pays it every call); it
+  runs last among the `inPlace` checks (a later refusal may already have paid
+  the one cached probe fork). Only a probe that exited 0 with an answer is
+  cached: a failed one (say a fork failure) is a miss for that build only, the
+  next build probes again. A directory named `inplace.awk` does not count. None
+  found is **rc 2** with one line naming the AWKPATH (`gawk's inplace.awk not
+  found in AWKPATH '…'`), nothing runs.
+* A **native Windows gawk** (`;`-separated `C:/…` AWKPATH) has no absolute entry
+  in the `/` sense, so `inPlace` **fails closed** with that rc 2. The cache key
+  is the `cmd` **string**: a hand-set non-absolute `cmd` (`gawk`, `./gawk`)
+  keeps its cached answer across later `PATH` or cwd changes.
 * `backupSuffix` is `-v inplace::suffix=enc(SFX)` — it works on 5.0 and 5.4
   (`INPLACE_SUFFIX` exists on 5.4 only). The suffix is **verbatim**: it goes
   through the same encoding as `setVar` (§3), because `-v` escape-processes
@@ -503,20 +542,26 @@ bash kcl/tawk/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tawk/tests/tests.sh
 ```
 
-**609 checks, green on bash 5.2.37 (gawk 5.0.0) and on bash 5.3.9 (gawk
+**622 checks, green on bash 5.2.37 (gawk 5.0.0) and on bash 5.3.9 (gawk
 5.4.0)**, in the default threaded mode and (5.2.37) under `--mode single`. Case
 by case: [TEST_COVERAGE_NOTES.md](../docs/dev/tawk/TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | runs gawk? |
 |---|---|---|---|
-| `004_Argv.sh` | 404 | A1–A4 by array comparison: lifecycle and both registries; every option singly and combined; chunks (empty never emitted); setVar order, in-place replacement and the encoding; the boolean rule and the fail-closed sandbox; the rc 2 list incl. every deny-list spelling (short, attached, bundled, long, any prefix, `-W` in four shapes), the BINMODE-disabling options while derived, `--`, non-option words, dangling options, the extras that pass; every illegal `setVar` name; the `-0` four-state sequence and the derived BINMODE | **no** |
-| `005_Run.sh` | 114 | A5–A12 against bare gawk on a fixture tree behind the banner gate, stdin closed: every sink, chunks in order, `-f` after `-e`, `-F` (escape, regex), the terminated last line, stdin, `./k=v` / `a::b=v` files; the setVar byte matrix (`od -c`, `run` and a sink); the fatal missing file per sink, syntax error, `exit N`, the directory warning; the sandbox with marker files; CR and NUL bytes; in-place on copies (the planted `./inplace.awk`, `.bak`, a backslash suffix (encoded, both versions), a missing middle file, `exit` truncation, END to stdout, every sink refused); `TAwk.apply` in three positions, nested, composed | yes (GNU banner gate first) |
-| `006_Contract.sh` | 79 | A13: source integrity (rc-preserving overrides, the absolute include, no env route), `set -eu` children through `a.each` and both TPipe forms with every sink call guarded, one debug line per rc 2 / gawk-error path and silence on rc 0 and on an `exit N` status, D6 + `subshellOk`, the unguarded-sink rule | yes (gated) |
-| `007_Bench.sh` | 12 | the §10 gate as assertions with a **10×** ceiling behind the same banner gate: `TAwk.apply` vs bare `gawk --sandbox -e … --` over a 200-line and a one-line file (interleaved, medians, byte-identical outputs asserted), the `apply` delta under 50 ms, `a.count` vs `gawk … \| wc -l`; 200 builds invoke the `cmd` zero times, fork nothing and do not accumulate; a refused (`-W` deny-list) build is the cheap path too; the 1 KiB `setVar` encoding is fork-free; zero forks for every property, every builder member, `run`, `apply`, the five sinks' callback and `.Add`, and five rc 2 paths | yes (gated) |
+| `004_Argv.sh` | 415 | A1–A4 by array comparison: lifecycle and both registries; every option singly and combined; chunks (empty never emitted); setVar order, in-place replacement and the encoding; the boolean rule and the fail-closed sandbox; the rc 2 list incl. every deny-list spelling (short, attached, bundled, long, any prefix, `-W` in four shapes), the BINMODE-disabling options while derived, `--`, non-option words, dangling options, the extras that pass; every illegal `setVar` name; the `-0` four-state sequence and the derived BINMODE; `inPlace` with no inplace.awk in the AWKPATH (rc 2, one line naming it); the AWKPATH probe on stubs of its own (a failed probe is not cached; `env -u AWKPATH` and the absolute-entry filter, with a planted relative `inplace.awk` and an inherited `AWKPATH`); no GNU awk found (`KCL_GNU_AWK=/nonexistent`: `.new` rc 0, `argv`, a sink and `apply` rc 2 with ktool's line, `cmd = …` re-arms) | **no** (a stub GNU awk; word 0 is its path, the `-i` word its `share/awk/inplace.awk`) |
+| `005_Run.sh` | 114 | A5–A12 against bare gawk on a fixture tree behind the ktool gate, stdin closed: every sink, chunks in order, `-f` after `-e`, `-F` (escape, regex), the terminated last line, stdin, `./k=v` / `a::b=v` files; the setVar byte matrix (`od -c`, `run` and a sink); the fatal missing file per sink, syntax error, `exit N`, the directory warning; the sandbox with marker files; CR and NUL bytes; in-place on copies (the planted `./inplace.awk`, `.bak`, a backslash suffix (encoded, both versions), a missing middle file, `exit` truncation, END to stdout, every sink refused); `TAwk.apply` in three positions, nested, composed | yes (ktool gate first) |
+| `006_Contract.sh` | 81 | A13: source integrity (rc-preserving overrides, `tutil._gnu awk` after `parent.constructor`, the absolute include from `tawk._inplace` and no ENVIRON / env in `buildArgv`, a live `-i` word check), `set -eu` children through `a.each` and both TPipe forms with every sink call guarded, one debug line per rc 2 / gawk-error path and silence on rc 0 and on an `exit N` status, D6 + `subshellOk`, the unguarded-sink rule | yes (gated) |
+| `007_Bench.sh` | 12 | the §10 gate as assertions with a **10×** ceiling behind the same ktool gate: `TAwk.apply` vs bare `gawk --sandbox -e … --` over a 200-line and a one-line file (interleaved, medians, byte-identical outputs asserted), the `apply` delta under 50 ms, `a.count` vs `gawk … \| wc -l`; 200 builds invoke the `cmd` zero times, fork nothing and do not accumulate; a refused (`-W` deny-list) build is the cheap path too; the 1 KiB `setVar` encoding is fork-free; zero forks for every property, every builder member, `run`, `apply`, the five sinks' callback and `.Add`, and five rc 2 paths | yes (gated) |
 
-The behavioural files open with a **GNU banner gate**: if `gawk --version` does
-not begin with `GNU Awk `, every behavioural case is a loud `SKIP` and the case
-count is unchanged.
+The behavioural files open with a **ktool gate**: one case asks the kkore unit
+ktool (through `kt_gnu_gate awk AWK_BIN`, `tutil/tests/gnu_helper.sh`) for a GNU
+awk; its path is `AWK_BIN`, the very gawk TAwk resolves, and every oracle runs
+it (gawk's own messages are matched by its path or its basename as prefix). When
+ktool finds none, every behavioural case is a loud `SKIP: <ktool's reason>` (with
+the package hint) and the case count is unchanged. `004` never runs gawk: it
+selects a stub GNU awk with `kt_gnu_stub` (`KCL_GNU_AWK`), so it runs in full on
+a box without one. `005` finds the same `inplace.awk` as TAwk with the same
+AWKPATH probe.
 
 ---
 
