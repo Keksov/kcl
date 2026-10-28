@@ -9,7 +9,11 @@
 #        [-type T] [-newer F] [EXTRA ARGS from addArg] [-print0]
 #
 # so it is the fast half of the suite and it is true on a box where findutils is
-# missing altogether. The behavioural half is `005_Run.sh`.
+# missing altogether: `kt_gnu_stub` (kcl/tutil/tests/gnu_helper.sh, launch L3.4
+# T5) writes a fake GNU find and selects it through KCL_GNU_FIND, so word 0 of
+# every argv here is the stub's path ("$STUB_FIND") on every platform; the stub
+# never runs. The `find` of the diagrams stands for that resolved path (A1).
+# The behavioural half is `005_Run.sh`.
 #
 # Sections:
 #   A       lifecycle (F4) — every declared var present in `${inst}_data` right
@@ -37,6 +41,9 @@
 #           four-state sequence of tgrep 004 §G
 #   H  F5b  the caller-side glob trap: `f.name = *.txt` unquoted in a directory
 #           with two `.txt` files keeps ONE word, silently
+#   T6      no GNU find found (KCL_GNU_FIND=/nonexistent): `.new` rc 0, `cmd`
+#           '', `argv` rc 2 with ktool's line; `cmd = STUB` re-arms; the static
+#           (`byName`) and a sink (`count`) answer rc 2, run nothing
 #
 # The out-name refusals of `argv` itself are TUtil's and are pinned in
 # `tutil/tests/001_Core.sh`; this file adds the `__tfd_` and registry halves.
@@ -48,11 +55,15 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tfind.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
+
+# The fake GNU find every `.new` below resolves (T5): word 0 / `cmd` everywhere.
+kt_gnu_stub find "$TMP/stub" STUB_FIND || { echo "004: kt_gnu_stub failed" >&2; exit 1; }
 
 kt_test_section "004: TFind — typed options to argv, nothing executed (P0)"
 
@@ -154,9 +165,9 @@ reset() {
 kt_test_section "A. F4 lifecycle — Create assigns every var, the arrays are right"
 # ===========================================================================
 
-# TFind's own nine (PLAN §1.2) plus the five TUtil hands down.
+# TFind's own nine (PLAN §1.2) plus the seven TUtil hands down.
 TF_VARS=( name iname type maxDepth minDepth newer followSymlinks print0 _nulDerived )
-TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode _toolErr )
 
 kt_test_start "F4: every declared var is present in \`\${inst}_data\` right after \`new\`"
 TFind.new fA /tmp/tree
@@ -173,7 +184,7 @@ else
     kt_test_fail "missing:$missing"
 fi
 
-kt_test_start "F4: the documented defaults — strings '', booleans 0, cmd find, _lastRc -1"
+kt_test_start "F4: the documented defaults — strings '', booleans 0, cmd = the resolved find, _toolErr '', _lastRc -1"
 bad=""
 for v in name iname type maxDepth minDepth newer; do
     got="$(fA."$v")"
@@ -183,10 +194,11 @@ for v in followSymlinks print0 _nulDerived crlf nul subshellOk; do
     got="$(fA."$v")"
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
 done
-[[ "$(fA.cmd)" == "find" ]]   || bad+=" cmd='$(fA.cmd)'"
+[[ "$(fA.cmd)" == "$STUB_FIND" ]] || bad+=" cmd='$(fA.cmd)'"
+[[ "$(fA._toolErr)" == "" ]]  || bad+=" _toolErr='$(fA._toolErr)'"
 [[ "$(fA._lastRc)" == "-1" ]] || bad+=" _lastRc='$(fA._lastRc)'"
 if [[ -z "$bad" ]]; then
-    kt_test_pass "every default as documented; cmd is \`find\`"
+    kt_test_pass "every default as documented; cmd is the resolved find"
 else
     kt_test_fail "$bad"
 fi
@@ -217,8 +229,8 @@ fP.delete
 kt_test_start "F4: \`TFind.new f\` with NO argument leaves the start-point list empty (find's own \`.\`)"
 TFind.new fD
 declare -n DP=fD_paths
-if (( ${#DP[@]} == 0 )) && [[ "$(fD.cmd)" == "find" ]]; then
-    kt_test_pass "no start point, cmd find"
+if (( ${#DP[@]} == 0 )) && [[ "$(fD.cmd)" == "$STUB_FIND" ]]; then
+    kt_test_pass "no start point, cmd = the resolved find"
 else
     kt_test_fail "fD_paths=$(arr_show DP) cmd='$(fD.cmd)'"
 fi
@@ -347,8 +359,8 @@ kt_test_start "F4: an ordinary out-name still fills after every refusal"
 declare -a OKARR=()
 rc=0
 fA.argv OKARR || rc=$?
-if [[ $rc -eq 0 ]] && arr_is OKARR find /tmp/tree; then
-    kt_test_pass "argv=(find /tmp/tree)"
+if [[ $rc -eq 0 ]] && arr_is OKARR "$STUB_FIND" /tmp/tree; then
+    kt_test_pass "argv=($STUB_FIND /tmp/tree)"
 else
     kt_test_fail "rc=$rc OKARR=$(arr_show OKARR)"
 fi
@@ -362,11 +374,11 @@ one() {   # one TITLE PROP VALUE WANTWORD...
     local __t="$1" __p="$2" __v="$3"; shift 3
     reset f1 tree
     f1."$__p" = "$__v"
-    check_argv "$__t" f1 find tree "$@"
+    check_argv "$__t" f1 "$STUB_FIND" tree "$@"
 }
 
 reset f1 tree
-check_argv "F1: no option at all — \`find START\` (the implied \`-print\`)" f1 find tree
+check_argv "F1: no option at all — \`find START\` (the implied \`-print\`)" f1 "$STUB_FIND" tree
 
 one "F1: \`name = '*.txt'\` -> -name '*.txt' as TWO words"   name     '*.txt'  -name '*.txt'
 one "F1: \`iname = '*.TXT'\` -> -iname"                      iname    '*.TXT'  -iname '*.TXT'
@@ -379,7 +391,7 @@ one "F1: \`print0 = 1\` -> -print0 as THE action, last"      print0   1        -
 
 reset f1 tree
 f1.followSymlinks = 1
-check_argv "F1: \`followSymlinks = 1\` puts \`-L\` BEFORE the start points (§6)" f1 find -L tree
+check_argv "F1: \`followSymlinks = 1\` puts \`-L\` BEFORE the start points (§6)" f1 "$STUB_FIND" -L tree
 
 kt_test_start "F1: a pattern is ONE argv element — a glob, a space and a \`[\` all survive"
 reset f1 tree
@@ -387,7 +399,7 @@ f1.name = '* ?[a-z].txt'
 GOT=()
 rc=0
 f1.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT find tree -name '* ?[a-z].txt'; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_FIND" tree -name '* ?[a-z].txt'; then
     kt_test_pass "the pattern was never expanded or re-split by the wrapper"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -401,7 +413,7 @@ reset f2 tree
 f2.name = '*.c'
 f2.maxDepth = 3
 check_argv "F1: the global option comes BEFORE the test, whatever the caller's order" f2 \
-    find tree -maxdepth 3 -name '*.c'
+    "$STUB_FIND" tree -maxdepth 3 -name '*.c'
 
 reset f2 tree
 f2.type = f
@@ -409,7 +421,7 @@ f2.iname = 'A*'
 f2.minDepth = 1
 f2.maxDepth = 4
 check_argv "F1: -maxdepth before -mindepth before -name/-iname before -type" f2 \
-    find tree -maxdepth 4 -mindepth 1 -iname 'A*' -type f
+    "$STUB_FIND" tree -maxdepth 4 -mindepth 1 -iname 'A*' -type f
 
 reset f2 'dir one' 'dir two'
 f2.followSymlinks = 1
@@ -420,7 +432,7 @@ f2.maxDepth = 9
 f2.minDepth = 0
 f2.print0 = 1
 check_argv "F1: EVERYTHING at once — the full pinned order, two start points" f2 \
-    find -L 'dir one' 'dir two' -maxdepth 9 -mindepth 0 -name 'x y' -type d \
+    "$STUB_FIND" -L 'dir one' 'dir two' -maxdepth 9 -mindepth 0 -name 'x y' -type d \
     -newer 'ref file' -print0
 
 kt_test_start "F1: a boolean is ON only for the exact string \`1\` (never \`(( x ))\`)"
@@ -432,7 +444,7 @@ for v in 2 yes true on TRUE -1 '1 ' ' 1' 01 '' 0; do
     f3.print0 = "$v"
     GOT=()
     f3.argv GOT >/dev/null 2>&1 || :
-    if ! arr_is GOT find tree; then
+    if ! arr_is GOT "$STUB_FIND" tree; then
         allgood=0
         badv="'$v' -> $(arr_show GOT)"
         break
@@ -449,31 +461,31 @@ kt_test_section "D. F1 — start points are POSITIONAL; no \`--\`; extras in pla
 # ===========================================================================
 
 reset f4
-check_argv "F1: NO start point at all — bare \`find\` (find's own \`.\`, §2.1)" f4 find
+check_argv "F1: NO start point at all — bare \`find\` (find's own \`.\`, §2.1)" f4 "$STUB_FIND"
 
 reset f4
 f4.name = 'x*'
 f4.maxDepth = 1
 check_argv "F1: no start point but an expression — the tool accepts it (§1.1)" f4 \
-    find -maxdepth 1 -name 'x*'
+    "$STUB_FIND" -maxdepth 1 -name 'x*'
 
 reset f4 a b c
-check_argv "F1: three start points, all BEFORE the expression, no \`--\`" f4 find a b c
+check_argv "F1: three start points, all BEFORE the expression, no \`--\`" f4 "$STUB_FIND" a b c
 
 reset f4 './-weird'
 check_argv "F1: \`./-weird\` is a legal start point (the \`./\` is what saves it)" f4 \
-    find './-weird'
+    "$STUB_FIND" './-weird'
 
 reset f4 ')paren' ',comma'
 check_argv "F1: \`)\` and \`,\` are fine as start points — only \`-\`, \`!\` and \`(\` are refused" f4 \
-    find ')paren' ',comma'
+    "$STUB_FIND" ')paren' ',comma'
 
 reset f4 'C:\Users\x\tree'
-check_argv "F1: a Windows-spelled start point travels verbatim" f4 find 'C:\Users\x\tree'
+check_argv "F1: a Windows-spelled start point travels verbatim" f4 "$STUB_FIND" 'C:\Users\x\tree'
 
 reset f4 tree
 f4.addArg -size +1M
-check_argv "F1: an \`addArg\` extra lands AFTER the typed tests" f4 find tree -size +1M
+check_argv "F1: an \`addArg\` extra lands AFTER the typed tests" f4 "$STUB_FIND" tree -size +1M
 
 reset f4 tree
 f4.type = f
@@ -481,26 +493,26 @@ f4.maxDepth = 2
 f4.addArg '!' -name '*.o'
 f4.print0 = 1
 check_argv "F1: extras sit between the typed tests and the action (\`-print0\` stays last)" f4 \
-    find tree -maxdepth 2 -type f '!' -name '*.o' -print0
+    "$STUB_FIND" tree -maxdepth 2 -type f '!' -name '*.o' -print0
 
 reset f4 tree
 f4.addArg '(' -name a -o -name b ')'
 check_argv "F1: a parenthesised group through \`addArg\` keeps its words" f4 \
-    find tree '(' -name a -o -name b ')'
+    "$STUB_FIND" tree '(' -name a -o -name b ')'
 
 reset f4 tree
 f4.addArg -size +1M
 f4.clearArgs
-check_argv "F1: \`clearArgs\` empties the extras again" f4 find tree
+check_argv "F1: \`clearArgs\` empties the extras again" f4 "$STUB_FIND" tree
 
 reset f4 old1 old2
 f4.paths new1 'new 2'
 check_argv "F1: \`f.paths new1 'new 2'\` replaced both old start points" f4 \
-    find new1 'new 2'
+    "$STUB_FIND" new1 'new 2'
 
 reset f4 old1
 f4.paths
-check_argv "F1: \`f.paths\` with NO argument is the empty list = find's own \`.\`" f4 find
+check_argv "F1: \`f.paths\` with NO argument is the empty list = find's own \`.\`" f4 "$STUB_FIND"
 
 kt_test_start "F1: \`--\` is NEVER emitted, in any shape (§1.1 — it cannot rescue a start point)"
 dashdash=""
@@ -529,7 +541,7 @@ f4.type = f
 declare -a W1=() W2=()
 f4.argv W1 >/dev/null 2>&1 || :
 f4.argv W2 >/dev/null 2>&1 || :
-if arr_is W1 find tree -type f && arr_is W2 find tree -type f; then
+if arr_is W1 "$STUB_FIND" tree -type f && arr_is W2 "$STUB_FIND" tree -type f; then
     kt_test_pass "stable across rebuilds"
 else
     kt_test_fail "W1=$(arr_show W1) W2=$(arr_show W2)"
@@ -660,7 +672,7 @@ fE.addArg -exec printf 'X:%s\n' '{}' ';'
 GOT=()
 rc=0
 fE.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT find tree -exec printf 'X:%s\n' '{}' ';'; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_FIND" tree -exec printf 'X:%s\n' '{}' ';'; then
     kt_test_pass "the extra's output IS the record stream when print0 is off"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -673,7 +685,7 @@ fE.addArg -size +0
 GOT=()
 rc=0
 fE.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT find tree -size +0 -print0; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_FIND" tree -size +0 -print0; then
     kt_test_pass "\`-size +0\` is a test, not an action"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -687,7 +699,7 @@ fE.addArg -printx
 GOT=()
 rc=0
 fE.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT find tree -execute -printx -print0; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_FIND" tree -execute -printx -print0; then
     kt_test_pass "the match is on the WHOLE word, not a substring"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -729,7 +741,7 @@ norm() {   # norm PROP VALUE FLAG WANT
     reset fF tree
     fF."$__p" = "$__v"
     check_argv "F3: \`$__p = $__v\` reaches find as \`$__f $__w\` (\$__KK_INT)" fF \
-        find tree "$__f" "$__w"
+        "$STUB_FIND" tree "$__f" "$__w"
 }
 
 norm maxDepth 08   -maxdepth 8
@@ -762,7 +774,7 @@ fF.maxDepth = 2147483648
 GOT=()
 rc=0
 fF.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT find tree -maxdepth 2147483648; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_FIND" tree -maxdepth 2147483648; then
     kt_test_pass "the wrapper builds it; 'Numerical result out of range' is the TOOL's rc 1"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -774,7 +786,7 @@ fF.type = f,f
 GOT=()
 rc=0
 fF.argv GOT || rc=$?
-if [[ $rc -eq 0 ]] && arr_is GOT find tree -type f,f; then
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_FIND" tree -type f,f; then
     kt_test_pass "the regex admits duplicates on purpose; 005 pins the tool's rc 1"
 else
     kt_test_fail "rc=$rc GOT=$(arr_show GOT)"
@@ -791,7 +803,7 @@ GOT=()
 rc=0
 fZ.argv GOT || rc=$?
 if [[ $rc -eq 0 && "$(fZ.nul)" == "1" && "$(fZ._nulDerived)" == "1" ]] \
-   && arr_is GOT find tree -print0; then
+   && arr_is GOT "$STUB_FIND" tree -print0; then
     kt_test_pass "nul = 1, _nulDerived = 1, argv ends in -print0"
 else
     kt_test_fail "rc=$rc nul='$(fZ.nul)' drv='$(fZ._nulDerived)' GOT=$(arr_show GOT)"
@@ -883,14 +895,14 @@ fG2.argv QUO_ARGV || quo_rc=$?
 cd "$SCRIPT_DIR" || :
 
 kt_test_start "F5b: \`f.name = *.txt\` UNQUOTED keeps ONE word — the first match, silently"
-if [[ "$UNQ" == "one.txt" && $unq_rc -eq 0 ]] && arr_is UNQ_ARGV find . -name one.txt; then
+if [[ "$UNQ" == "one.txt" && $unq_rc -eq 0 ]] && arr_is UNQ_ARGV "$STUB_FIND" . -name one.txt; then
     kt_test_pass "the property holds 'one.txt'; 'two.txt' was dropped without a word"
 else
     kt_test_fail "name='$UNQ' rc=$unq_rc argv=$(arr_show UNQ_ARGV)"
 fi
 
 kt_test_start "F5b: \`f.name = '*.txt'\` QUOTED keeps the pattern — always quote at the call site"
-if [[ "$QUO" == '*.txt' && $quo_rc -eq 0 ]] && arr_is QUO_ARGV find . -name '*.txt'; then
+if [[ "$QUO" == '*.txt' && $quo_rc -eq 0 ]] && arr_is QUO_ARGV "$STUB_FIND" . -name '*.txt'; then
     kt_test_pass "the pattern reaches find as one argv element"
 else
     kt_test_fail "name='$QUO' rc=$quo_rc argv=$(arr_show QUO_ARGV)"
@@ -914,3 +926,63 @@ fF.delete
 fZ.delete
 fG.delete
 fG2.delete
+
+# ===========================================================================
+kt_test_section "T6. no GNU find found: .new succeeds, the first argv says why"
+# ===========================================================================
+
+NOEXEC_TXT="KCL_GNU_FIND='/nonexistent' is not an executable file"
+
+kt_test_start "T6 (i): KCL_GNU_FIND=/nonexistent — \`.new\` rc 0 and silent, \`cmd\` '', \`argv\` rc 2 with ONE line naming the override"
+KCL_GNU_FIND=/nonexistent
+dbg_n TFind.new fNG tree
+nrc=$DBG_RC; nlines_new=$DBG_N
+GOT=( stale )
+dbg_n fNG.argv GOT
+if [[ $nrc -eq 0 && $nlines_new -eq 0 && "$(fNG.cmd)" == "" && $DBG_RC -eq 2 && $DBG_N -eq 1       && "$DBG_1" == *"$NOEXEC_TXT"* && "$RESULT" == "" ]] && arr_is GOT stale; then
+    kt_test_pass "new rc 0 silent; cmd ''; argv rc 2: ${DBG_1:0:100}"
+else
+    kt_test_fail "new rc=$nrc lines=$nlines_new cmd='$(fNG.cmd)'; argv rc=$DBG_RC lines=$DBG_N first='$DBG_1' got=$(arr_show GOT)"
+fi
+
+kt_test_start "T6 (ii): \`x.cmd = STUB\` re-arms the instance — \`argv\` rc 0, word 0 = the stub"
+fNG.cmd = "$STUB_FIND"
+GOT=( stale )
+rc=0
+fNG.argv GOT || rc=$?
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_FIND" tree; then
+    kt_test_pass "$(arr_show GOT)"
+else
+    kt_test_fail "rc=$rc got=$(arr_show GOT)"
+fi
+fNG.delete
+
+kt_test_start "T6 (iii): the static \`TFind.byName\` with no GNU find — rc 2, the same ONE line, nothing printed or run"
+KCL_GNU_FIND=/nonexistent
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+sout=$(TFind.byName '*.txt' "$TMP" 2>"$ERRF")
+src=$?
+VERBOSE_KKLASS=
+sn=0; sl=''
+while IFS= read -r l || [[ -n "$l" ]]; do sn=$(( sn + 1 )); sl=$l; done < "$ERRF"
+if [[ $src -eq 2 && $sn -eq 1 && "$sl" == *"$NOEXEC_TXT"* && -z "$sout" ]]; then
+    kt_test_pass "rc 2, empty stdout, one line: ${sl:0:100}"
+else
+    kt_test_fail "rc=$src out='$sout' lines=$sn last='$sl'"
+fi
+
+kt_test_start "T6 (iv): a SINK on the disarmed instance (\`count\`) — rc 2, RESULT '', ONE line with ktool's text"
+KCL_GNU_FIND=/nonexistent
+TFind.new fNG tree
+RESULT=stale
+dbg_n fNG.count
+if [[ $DBG_RC -eq 2 && "$RESULT" == "" && $DBG_N -eq 1 && "$DBG_1" == *"$NOEXEC_TXT"* ]]; then
+    kt_test_pass "count rc 2, RESULT '', one line: ${DBG_1:0:100}"
+else
+    kt_test_fail "rc=$DBG_RC RESULT='$RESULT' lines=$DBG_N first='$DBG_1'"
+fi
+fNG.delete
+
+# the stub again for whoever follows
+KCL_GNU_FIND="$STUB_FIND"

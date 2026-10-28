@@ -5,7 +5,7 @@
 > the static `byName`, the bench and the docs — plus the `TUTIL_OUT_PREFIXES`
 > registry this unit introduced in [`../tutil`](../tutil/README.md). Suite:
 > `tests/004_Argv.sh`, `tests/005_Run.sh`, `tests/006_Contract.sh`,
-> `tests/007_Bench.sh` — **226 checks green on bash 5.2.37 and 226 on bash
+> `tests/007_Bench.sh` — **231 checks green on bash 5.2.37 and 231 on bash
 > 5.3.9**, threaded and (5.2.37) under `--mode single`, against **GNU findutils
 > 4.10.0**. What the tests pin, case by case:
 > **[TEST_COVERAGE_NOTES.md](../docs/dev/tfind/TEST_COVERAGE_NOTES.md)**. Design record:
@@ -74,9 +74,28 @@ TFind.new INST [START...]             # every argument is a start point
 | `mapRc RAW` | func | — | override; §3 |
 | `TFind.byName PATTERN START...` | static proc | — | `find START... -name PATTERN`, streamed; §7 |
 
-Inherited from [`TUtil`](../tutil/README.md) unchanged: `cmd` (`find`), `crlf`,
-`nul`, `_lastRc`, **`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`,
-`lastRc`, and the five sinks `each` / `toArray` / `toList` / `first` / `count`.
+Inherited from [`TUtil`](../tutil/README.md): `cmd` — **the absolute path of
+the GNU find the kkore unit `ktool` resolved** (`/usr/bin/find` on Git-bash,
+`/usr/local/bin/gfind` on FreeBSD; `KCL_GNU_FIND=/path` picks one, and `ktool`
+refuses a wrong one), set by the constructor; `crlf`, `nul`, `_lastRc`,
+**`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`, `lastRc`, and the
+five sinks `each` / `toArray` / `toList` / `first` / `count`. A `cmd` you set by
+hand afterwards is used as given (no identity check). The resolved instance is
+frozen: a later `PATH` or `KCL_GNU_FIND` change reaches the next `.new`, not
+this one.
+
+**No GNU find on the box?** `.new` still succeeds (rc 0, silent) with `cmd` `''`;
+the first member that builds the argv (`run`, a sink, or `argv`) and the static
+`TFind.byName` answer **rc 2** with one `kk.debug` line carrying ktool's reason,
+which names the package (`no GNU find: …; FreeBSD: pkg install findutils`,
+`Alpine: apk add findutils`). Nothing runs. Setting `cmd` re-arms the instance;
+`_toolErr` keeps ktool's reason after the re-arm, so a later hand-set
+`cmd = ''` prints that reason again.
+
+**In `$( )`:** ktool's answer is cached per process, so a `.new` (or `byName`)
+inside `$( … )` in a shell that never resolved find pays the cold probe on
+**every** call. Call `ktool.gnu find` (or create one instance) once in the main
+shell before using TFind inside `$( )`.
 
 `subshellOk` is the D6-final switch (default `0`): `f.subshellOk = 1` makes every
 sink pass `-s` to `TPipe`, which silences the subshell warning `$(f.toArray a)`
@@ -121,7 +140,8 @@ f.addArg '(' -name a -o -name b ')'
   findutils 4.10 no longer warns about a late one, but the position is free.
 
 `f.argv NAME` builds the array and **runs nothing**, which is how the whole
-option set is pinned in `tests/004_Argv.sh` without executing find once.
+option set is pinned in `tests/004_Argv.sh` without executing find once. In the
+diagrams `find` stands for word 0, which is `cmd`: the resolved absolute path.
 
 ### Start points are positional
 
@@ -203,7 +223,7 @@ was executed.
 
 | refusal | why it is not left to find |
 |---|---|
-| `cmd` is empty | the instance was disarmed by hand |
+| `cmd` is empty | the instance was disarmed by hand, or no GNU find was found at `.new` (the line is then ktool's reason, with the package hint) |
 | a start point that is **empty** | the tool's `'': No such file or directory` — a typo, not an intent |
 | a start point beginning with `-`, `!` or `(` | find reads it as the expression, and `--` cannot protect it (§1) |
 | `type` outside `^[bcdflps](,[bcdflps])*$` | `x`, `D`, `fd`, `f,`, `,f`, `'f d'` |
@@ -424,21 +444,26 @@ bash kcl/tfind/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tfind/tests/tests.sh
 ```
 
-**226 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
-mode and (5.2.37) under `--mode single`, against GNU findutils 4.10.0. Case by
+**231 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+mode and (5.2.37) under `--mode single`, against GNU findutils 4.10.0 (the move
+onto ktool, launch L3.4, adds 4 cases to `004` and 1 to `006`). Case by
 case: [TEST_COVERAGE_NOTES.md](../docs/dev/tfind/TEST_COVERAGE_NOTES.md).
 
 | file | cases | what it pins | runs find? |
 |---|---|---|---|
-| `004_Argv.sh` | 110 | the whole option set by **array comparison**: the lifecycle (every declared var in `${inst}_data` with its default, `${f}_args` empty after `new f START`, `_paths` verbatim, a reused name starting clean, `delete` freeing all three arrays, `argv` running nothing); the out-name registry (`__tfd_*`, the four older prefixes, `${inst}_paths`, and `TUTIL_OUT_PREFIXES` as a NAME with the registry intact afterwards, plus the idempotent append); every option singly and combined in the pinned order; the boolean-is-exactly-`1` rule; start points positional with **no `--` in any shape**; extras between the tests and the action; the rc 2 list — 36 refusals incl. every word of the action set, each asserting rc 2 + `RESULT ''` + the caller's array untouched + an EMPTY `${inst}_argv` + exactly one `kk.debug` line; the depths normalised through `$__KK_INT` with no write-back; the `print0` derivation's four states incl. `P3-F1`; and the caller-side glob trap (F5b) | **no** |
-| `005_Run.sh` | 49 | behaviour against the bare tool on a fixture tree (depth 3, a space name, a **newline** name, a `-weird` directory, a real directory symlink and a broken one), every comparison NUL framed and `sort -z`ed: every typed option and three combinations; `-name` case-sensitive vs `-iname` on NTFS; `-L` descending the directory symlink while `-P` does not, and `-L` + `type = l` matching only the broken link; the newline name as 2 records under `-print` and 1 under `print0`; `./-weird` as a start point while `-weird` is rc 2; the partial failure (records kept, `RESULT` = the real count, rc 1, one line of ours, find's own matched by prefix) against the **fatal** `-newer MISSING`; the empty start-point list from a `cd` in this file's own shell; `-exec` as the record stream, `\;` leaving rc 0 and `+` propagating rc 1; and `TFind.byName` in three positions, with two start points, refused without one, propagating rc 2, nested inside an outer `each`, through both TPipe forms | yes (GNU banner gate first) |
-| `006_Contract.sh` | 57 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.` call, the sentinel gone, `parent.constructor` in the constructor and `inherited` in the destructor, the `type` regex in a variable, the depths from `$__KK_INT`, no `--` append, the non-negated `[-!\(]*` class, no shadowed member name, exactly one `source` line, `__tfd_` registered); every shape from a child under `set -eu` — an instance, both TPipe forms, `byName` as a producer, records, a tool error, a partial failure, four refused builds, a refused `byName`, the cwd form, `run` streaming, `delete` — with every sink call guarded; the debug switch (exactly one line on each of the 11 rc 2 paths and the 3 tool-error paths, **none** on any rc 0 path); the **D6-final** `subshellOk` case; `F12`, that an unguarded rc 1 aborts a `set -eu` caller; and a Windows-spelled start point whose records carry that prefix and `/` after it | yes (gated) |
-| `007_Bench.sh` | 10 | the §10 gate as assertions with a **10×** ceiling behind the same banner gate: `TFind.byName` against a bare `find … -name` over a 20-file tree **and** over a one-file tree (interleaved, medians, both sides asserted to deliver the same records), `new` + `name` + `argv` + `delete` under 50 ms, `f.count` against the `tr -dc '\0' \| wc -c` equivalent; that 200 `buildArgv`/`argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; that a **refused** build is the cheap path too (100 rc 2 calls, no fork, no command, an empty `${inst}_argv`); and zero forks for every member — the callback and `.Add` run in this process, and twelve builder members plus `run`, `byName` and both rc 2 paths leave `$BASHPID` untouched | yes (gated) |
+| `004_Argv.sh` | 114 | the whole option set by **array comparison** against a stub GNU find (word 0 is its path): the lifecycle (every declared var in `${inst}_data` with its default, `${f}_args` empty after `new f START`, `_paths` verbatim, a reused name starting clean, `delete` freeing all three arrays, `argv` running nothing); the out-name registry (`__tfd_*`, the four older prefixes, `${inst}_paths`, and `TUTIL_OUT_PREFIXES` as a NAME with the registry intact afterwards, plus the idempotent append); every option singly and combined in the pinned order; the boolean-is-exactly-`1` rule; start points positional with **no `--` in any shape**; extras between the tests and the action; the rc 2 list — 36 refusals incl. every word of the action set, each asserting rc 2 + `RESULT ''` + the caller's array untouched + an EMPTY `${inst}_argv` + exactly one `kk.debug` line; the depths normalised through `$__KK_INT` with no write-back; the `print0` derivation's four states incl. `P3-F1`; and the caller-side glob trap (F5b) | **no** |
+| `005_Run.sh` | 49 | behaviour against the bare tool on a fixture tree (depth 3, a space name, a **newline** name, a `-weird` directory, a real directory symlink and a broken one), every comparison NUL framed and `sort -z`ed: every typed option and three combinations; `-name` case-sensitive vs `-iname` on NTFS; `-L` descending the directory symlink while `-P` does not, and `-L` + `type = l` matching only the broken link; the newline name as 2 records under `-print` and 1 under `print0`; `./-weird` as a start point while `-weird` is rc 2; the partial failure (records kept, `RESULT` = the real count, rc 1, one line of ours, find's own matched by prefix) against the **fatal** `-newer MISSING`; the empty start-point list from a `cd` in this file's own shell; `-exec` as the record stream, `\;` leaving rc 0 and `+` propagating rc 1; and `TFind.byName` in three positions, with two start points, refused without one, propagating rc 2, nested inside an outer `each`, through both TPipe forms | yes (ktool gate first) |
+| `006_Contract.sh` | 58 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.` call, the sentinel gone, `parent.constructor` + `tutil._gnu find` in the constructor and `inherited` in the destructor, the `type` regex in a variable, the depths from `$__KK_INT`, no `--` append, the non-negated `[-!\(]*` class, no shadowed member name, exactly one `source` line, `__tfd_` registered); every shape from a child under `set -eu` — an instance, both TPipe forms, `byName` as a producer, records, a tool error, a partial failure, four refused builds, a refused `byName`, the cwd form, `run` streaming, `delete` — with every sink call guarded; the debug switch (exactly one line on each of the 11 rc 2 paths and the 3 tool-error paths, **none** on any rc 0 path); the **D6-final** `subshellOk` case; `F12`, that an unguarded rc 1 aborts a `set -eu` caller; and a Windows-spelled start point whose records carry that prefix and `/` after it | yes (gated) |
+| `007_Bench.sh` | 10 | the §10 gate as assertions with a **10×** ceiling behind the same ktool gate: `TFind.byName` against a bare `find … -name` over a 20-file tree **and** over a one-file tree (interleaved, medians, both sides asserted to deliver the same records), `new` + `name` + `argv` + `delete` under 50 ms, `f.count` against the `tr -dc '\0' \| wc -c` equivalent; that 200 `buildArgv`/`argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; that a **refused** build is the cheap path too (100 rc 2 calls, no fork, no command, an empty `${inst}_argv`); and zero forks for every member — the callback and `.Add` run in this process, and twelve builder members plus `run`, `byName` and both rc 2 paths leave `$BASHPID` untouched | yes (gated) |
 
-The behavioural files open with a **GNU banner gate**: if `find --version` does
-not begin with `find (GNU findutils) `, every case below it is a loud `SKIP`
-rather than a failure — D4 pins the dialect, not a binary, and the case **count
-is unchanged**. The symlink cases add a second gate (`kt_symlinks_supported`
+The behavioural files open with a **ktool gate**: one case asks the kkore unit
+ktool (through `kt_gnu_gate find FIND_BIN`, `tutil/tests/gnu_helper.sh`) for a
+GNU find; its path is `FIND_BIN`, the very find TFind resolves, and every oracle
+runs it. When ktool finds none, every case below it is a loud `SKIP: <ktool's
+reason>` (with the package hint) rather than a failure — D4 pins the dialect,
+not a binary, and the case **count is unchanged**. `004` never runs find: it
+selects a stub GNU find with `kt_gnu_stub` (`KCL_GNU_FIND`), so it runs in full
+on a box without one, and its argv pins hold the stub's path as word 0. The symlink cases add a second gate (`kt_symlinks_supported`
 from `tdirectory/tests/symlink_helper.sh`): plain `ln -s` runs in **copy** mode
 on MSYS and would silently make a directory copy.
 

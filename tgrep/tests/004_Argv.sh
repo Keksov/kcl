@@ -10,7 +10,11 @@
 #        -e PATTERN [EXTRA ARGS from addArg] [-- PATH...]
 #
 # so it is the fast half of the suite and it is true on a box where grep is
-# missing altogether. The behavioural half is `005_Search.sh`.
+# missing altogether: `kt_gnu_stub` (kcl/tutil/tests/gnu_helper.sh, launch L3.4
+# T5) writes a fake GNU grep and selects it through KCL_GNU_GREP, so word 0 of
+# every argv here is the stub's path ("$STUB_GREP") on every platform; the stub
+# never runs. The `grep` of the diagrams stands for that resolved path (A1).
+# The behavioural half is `005_Search.sh`.
 #
 # Sections:
 #   A       lifecycle — every declared var present in `${inst}_data` right after
@@ -28,6 +32,11 @@
 #           `$__KK_INT` while the property still reads `08`
 #   G  G4   a pattern that looks like a flag (`-v`, `--help`) is DATA — it lands
 #           after `-e`; and the §2.7 derived-`-0` rule
+#   CR      the CR contract's argv (`tutil._crStdin` is word 0, the stub word 1)
+#   T6      no GNU grep found (KCL_GNU_GREP=/nonexistent): `.new` rc 0, `cmd`
+#           '', `argv` rc 2 with ktool's line; `cmd = STUB` re-arms; the static
+#           (`search`), a sink (`count`) and the stdin form answer rc 2, run
+#           nothing
 #
 # The out-name refusals of `argv` itself are TUtil's and are pinned in
 # `tutil/tests/001_Core.sh`; this file only uses good names.
@@ -39,6 +48,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tgrep.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 # The CR contract (tutil README §3, L2.7-C) adds argv words on a platform whose
 # tools keep the line-end CR (TSed's prelude, TAwk's RS, TGrep's stdin filter).
 # Every pinned argv in this file is the cygwin/msys one, so the file pins that
@@ -50,6 +60,9 @@ TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
 
 TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
+
+# The fake GNU grep every `.new` below resolves (T5): word 0 / `cmd` everywhere.
+kt_gnu_stub grep "$TMP/stub" STUB_GREP || { echo "004: kt_gnu_stub failed" >&2; exit 1; }
 
 kt_test_section "004: TGrep — typed options to argv, nothing executed (P2)"
 
@@ -160,7 +173,7 @@ TG_VARS=( pattern ignoreCase invert wordRegexp lineRegexp fixed extended
 # `subshellOk` is TUtil's (D6 final Q9): TGrep inherits it and must NOT
 # redeclare it — a descendant `var` with an ancestor member's name is silently
 # overridden by the method wrapper (kklass.sh:911).
-TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode )
+TU_VARS=( cmd crlf nul _lastRc subshellOk _textMode _toolErr )
 
 kt_test_start "every declared var is present in \`\${inst}_data\` right after \`new\` (§2.1)"
 TGrep.new gA needle f1
@@ -177,7 +190,7 @@ else
     kt_test_fail "missing:$missing"
 fi
 
-kt_test_start "the documented defaults: booleans 0, strings '', cmd grep, _lastRc -1"
+kt_test_start "the documented defaults: booleans 0, strings '', cmd = the resolved grep, _toolErr '', _lastRc -1"
 bad=""
 for v in ignoreCase invert wordRegexp lineRegexp fixed extended recursive \
          lineNumber filesOnly filesWithoutMatch countOnly onlyMatching \
@@ -190,7 +203,8 @@ for v in maxCount include exclude excludeDir; do
     got="$(gA."$v")"
     [[ "$got" == "" ]] || bad+=" $v='$got'"
 done
-[[ "$(gA.cmd)" == "grep" ]]   || bad+=" cmd='$(gA.cmd)'"
+[[ "$(gA.cmd)" == "$STUB_GREP" ]] || bad+=" cmd='$(gA.cmd)'"
+[[ "$(gA._toolErr)" == "" ]]  || bad+=" _toolErr='$(gA._toolErr)'"
 [[ "$(gA.pattern)" == "needle" ]] || bad+=" pattern='$(gA.pattern)'"
 [[ "$(gA._lastRc)" == "-1" ]] || bad+=" _lastRc='$(gA._lastRc)'"
 if [[ -z "$bad" ]]; then
@@ -283,11 +297,11 @@ one() {   # one TITLE PROP VALUE WANTFLAG...
     local __t="$1" __p="$2" __v="$3"; shift 3
     reset g1 pat f
     g1."$__p" = "$__v"
-    check_argv "$__t" g1 grep "$@" -e pat -- f
+    check_argv "$__t" g1 "$STUB_GREP" "$@" -e pat -- f
 }
 
 reset g1 pat f
-check_argv "G1: no option at all — \`grep -e PATTERN -- PATH\`" g1 grep -e pat -- f
+check_argv "G1: no option at all — \`grep -e PATTERN -- PATH\`" g1 "$STUB_GREP" -e pat -- f
 
 one "G1: \`ignoreCase = 1\` -> -i"             ignoreCase        1 -i
 one "G1: \`invert = 1\` -> -v"                 invert            1 -v
@@ -317,7 +331,7 @@ one "G1: \`excludeDir = '.git'\` -> --exclude-dir=.git" excludeDir '.git' '--exc
 reset g1 pat f
 g1.include = 'my docs/*.txt'
 check_argv "G1: \`include = 'my docs/*.txt'\` is one word, unexpanded" g1 \
-    grep '--include=my docs/*.txt' -e pat -- f
+    "$STUB_GREP" '--include=my docs/*.txt' -e pat -- f
 
 # ===========================================================================
 kt_test_section "C. G1 — combinations, the pinned order, and the boolean rule"
@@ -326,13 +340,13 @@ kt_test_section "C. G1 — combinations, the pinned order, and the boolean rule"
 reset g2 pat f
 g2.ignoreCase = 1
 g2.lineNumber = 1
-check_argv "G1: -i and -n together, in the pinned order" g2 grep -i -n -e pat -- f
+check_argv "G1: -i and -n together, in the pinned order" g2 "$STUB_GREP" -i -n -e pat -- f
 
 reset g2 pat f
 g2.lineNumber = 1
 g2.ignoreCase = 1
 check_argv "G1: the ORDER is buildArgv's, not the order the caller assigned in" g2 \
-    grep -i -n -e pat -- f
+    "$STUB_GREP" -i -n -e pat -- f
 
 reset g2 pat f
 g2.extended = 1
@@ -340,7 +354,7 @@ g2.recursive = 1
 g2.filesOnly = 1
 g2.nullOut = 1
 check_argv "G1: -E -r -l -Z — the classic 'list the files' shape" g2 \
-    grep -E -r -l -Z -e pat -- f
+    "$STUB_GREP" -E -r -l -Z -e pat -- f
 
 reset g2 pat 'dir one' 'dir two'
 g2.ignoreCase = 1
@@ -362,7 +376,7 @@ g2.binary = 1
 g2.nullData = 1
 g2.nullOut = 1
 check_argv "G1: EVERYTHING on at once — the full pinned order, two paths" g2 \
-    grep -i -v -w -x -F -r -n -l -c -o -h -m 5 \
+    "$STUB_GREP" -i -v -w -x -F -r -n -l -c -o -h -m 5 \
     '--include=I*' '--exclude=E*' '--exclude-dir=D*' -U -z -Z \
     -e pat -- 'dir one' 'dir two'
 
@@ -371,7 +385,7 @@ g2.extended = 1
 g2.filesWithoutMatch = 1
 g2.withFilename = 1
 check_argv "G1: the other side of each pair — -E, -L, -H" g2 \
-    grep -E -L -H -e pat -- f
+    "$STUB_GREP" -E -L -H -e pat -- f
 
 kt_test_start "G1: a boolean is ON only for the exact string \`1\` (never \`(( x ))\`)"
 allgood=1
@@ -380,7 +394,7 @@ for v in 2 yes true on TRUE -1 '1 ' ' 1' 01 '' 0; do
     g3.ignoreCase = "$v"
     GOT=()
     g3.argv GOT >/dev/null
-    if ! arr_is GOT grep -e pat -- f; then
+    if ! arr_is GOT "$STUB_GREP" -e pat -- f; then
         allgood=0
         badv="$v -> $(arr_show GOT)"
         break
@@ -397,40 +411,40 @@ kt_test_section "D. G1 — \`-e\` always, \`--\` only with paths, extras in plac
 # ===========================================================================
 
 reset g4 pat
-check_argv "G1: \`TGrep.new g PAT\` with no path is \`grep -e PAT\`" g4 grep -e pat
+check_argv "G1: \`TGrep.new g PAT\` with no path is \`grep -e PAT\`" g4 "$STUB_GREP" -e pat
 
 reset g4 pat 'a b'
 check_argv "G1: one path -> \`-- 'a b'\` (a space is safe by construction)" g4 \
-    grep -e pat -- 'a b'
+    "$STUB_GREP" -e pat -- 'a b'
 
 reset g4 pat a b c
-check_argv "G1: three paths, all after the one \`--\`" g4 grep -e pat -- a b c
+check_argv "G1: three paths, all after the one \`--\`" g4 "$STUB_GREP" -e pat -- a b c
 
 reset g4 pat f
 g4.addArg -a
 check_argv "G1: an \`addArg\` extra lands AFTER \`-e PATTERN\` and BEFORE \`--\`" g4 \
-    grep -e pat -a -- f
+    "$STUB_GREP" -e pat -a -- f
 
 reset g4 pat f
 g4.addArg --binary-files=text
 g4.addArg -A 2
 g4.ignoreCase = 1
 check_argv "G1: several extras keep their order, still between \`-e PAT\` and \`--\`" g4 \
-    grep -i -e pat --binary-files=text -A 2 -- f
+    "$STUB_GREP" -i -e pat --binary-files=text -A 2 -- f
 
 reset g4 pat f
 g4.addArg -a
 g4.clearArgs
-check_argv "G1: \`clearArgs\` empties the extras again" g4 grep -e pat -- f
+check_argv "G1: \`clearArgs\` empties the extras again" g4 "$STUB_GREP" -e pat -- f
 
 reset g4 pat old1 old2
 g4.paths new1 'new 2'
 check_argv "G1: \`g.paths new1 'new 2'\` replaced both old paths" g4 \
-    grep -e pat -- new1 'new 2'
+    "$STUB_GREP" -e pat -- new1 'new 2'
 
 reset g4 pat old1
 g4.paths
-check_argv "G1: \`g.paths\` with no argument is the stdin form" g4 grep -e pat
+check_argv "G1: \`g.paths\` with no argument is the stdin form" g4 "$STUB_GREP" -e pat
 
 kt_test_start "G1: rebuilding does not ACCUMULATE — two \`argv\` calls agree"
 reset g4 pat f
@@ -438,7 +452,7 @@ g4.ignoreCase = 1
 declare -a W1=() W2=()
 g4.argv W1 >/dev/null
 g4.argv W2 >/dev/null
-if arr_is W1 grep -i -e pat -- f && arr_is W2 grep -i -e pat -- f; then
+if arr_is W1 "$STUB_GREP" -i -e pat -- f && arr_is W2 "$STUB_GREP" -i -e pat -- f; then
     kt_test_pass "stable across rebuilds"
 else
     kt_test_fail "W1=$(arr_show W1) W2=$(arr_show W2)"
@@ -536,7 +550,7 @@ check_rc2 "G3: \`maxCount = 0x10\` is rc 2 (kk.isInt takes digits only)" "maxCou
 reset gF pat f
 gF.maxCount = 0
 check_argv "G3: \`maxCount = 0\` is ACCEPTED (>= 0) and emits \`-m 0\`" gF \
-    grep -m 0 -e pat -- f
+    "$STUB_GREP" -m 0 -e pat -- f
 
 reset gF pat f
 gF.maxCount = 08
@@ -544,7 +558,7 @@ kt_test_start "G3: \`maxCount = 08\` emits \`-m 8\` (the normalised \$__KK_INT)"
 GOT=()
 gF.argv GOT >/dev/null
 mc="$(gF.maxCount)"
-if arr_is GOT grep -m 8 -e pat -- f && [[ "$mc" == "08" ]]; then
+if arr_is GOT "$STUB_GREP" -m 8 -e pat -- f && [[ "$mc" == "08" ]]; then
     kt_test_pass "argv has \`-m 8\`, the property still reads '08' (no write-back)"
 else
     kt_test_fail "GOT=$(arr_show GOT) maxCount='$mc'"
@@ -556,14 +570,14 @@ kt_test_start "G3: \`maxCount = +5\` emits \`-m 5\`, the property still reads '+
 GOT=()
 gF.argv GOT >/dev/null
 mc="$(gF.maxCount)"
-if arr_is GOT grep -m 5 -e pat -- f && [[ "$mc" == "+5" ]]; then
+if arr_is GOT "$STUB_GREP" -m 5 -e pat -- f && [[ "$mc" == "+5" ]]; then
     kt_test_pass "normalised for grep, untouched on the instance"
 else
     kt_test_fail "GOT=$(arr_show GOT) maxCount='$mc'"
 fi
 
 reset gF pat f
-check_argv "G3: \`maxCount = ''\` (the default) emits NO \`-m\` at all" gF grep -e pat -- f
+check_argv "G3: \`maxCount = ''\` (the default) emits NO \`-m\` at all" gF "$STUB_GREP" -e pat -- f
 
 # ===========================================================================
 kt_test_section "G. G4 — a flag-shaped pattern is data; the derived \`-0\` (§2.7)"
@@ -571,19 +585,19 @@ kt_test_section "G. G4 — a flag-shaped pattern is data; the derived \`-0\` (§
 
 reset gG -v f
 check_argv "G4: pattern \`-v\` lands AFTER \`-e\` and is searched, not parsed" gG \
-    grep -e -v -- f
+    "$STUB_GREP" -e -v -- f
 
 reset gG --help f
-check_argv "G4: pattern \`--help\` is data too" gG grep -e --help -- f
+check_argv "G4: pattern \`--help\` is data too" gG "$STUB_GREP" -e --help -- f
 
 reset gG '-e' f
 gG.invert = 1
 check_argv "G4: pattern \`-e\` next to a real \`-v\` flag stays in its slot" gG \
-    grep -v -e -e -- f
+    "$STUB_GREP" -v -e -e -- f
 
 reset gG $'a\nb' f
 check_argv "G4: a pattern with a NEWLINE is one word (grep's own multi-pattern form)" gG \
-    grep -e $'a\nb' -- f
+    "$STUB_GREP" -e $'a\nb' -- f
 
 # --- the §2.7 derivation ---------------------------------------------------
 # `-Z` is NUL TERMINATION only together with `-l`/`-L`; with `-c` and with
@@ -598,7 +612,7 @@ gZ.nullOut = 1
 gZ.filesOnly = 1
 GOT=()
 gZ.argv GOT >/dev/null
-if [[ "$(gZ.nul)" == "1" ]] && arr_is GOT grep -l -Z -e pat -- f; then
+if [[ "$(gZ.nul)" == "1" ]] && arr_is GOT "$STUB_GREP" -l -Z -e pat -- f; then
     kt_test_pass "nul = 1 after buildArgv, argv has -l -Z"
 else
     kt_test_fail "nul='$(gZ.nul)' GOT=$(arr_show GOT)"
@@ -621,7 +635,7 @@ gZ.nullOut = 1
 gZ.countOnly = 1
 GOT=()
 gZ.argv GOT >/dev/null
-if [[ "$(gZ.nul)" == "0" ]] && arr_is GOT grep -c -Z -e pat -- f; then
+if [[ "$(gZ.nul)" == "0" ]] && arr_is GOT "$STUB_GREP" -c -Z -e pat -- f; then
     kt_test_pass "nul stays 0 — \`-c -Z\` writes \`name\\0count\\n\`"
 else
     kt_test_fail "nul='$(gZ.nul)' GOT=$(arr_show GOT)"
@@ -741,15 +755,15 @@ cr_case() {   # TITLE INST WANT...
 __TUTIL_TOOLS_STRIP_CR=0
 TGrep.new gCR needle
 cr_case "CR: no operand, no -r (stdin) — the argv starts with \`tutil._crStdin\`" gCR \
-    tutil._crStdin grep -e needle
+    tutil._crStdin "$STUB_GREP" -e needle
 gCR.recursive = 1
-cr_case "CR: no operand WITH -r (grep walks .) — no stdin filter" gCR grep -r -e needle
+cr_case "CR: no operand WITH -r (grep walks .) — no stdin filter" gCR "$STUB_GREP" -r -e needle
 gCR.recursive = 0
 gCR.paths f1
-cr_case "CR: a file operand — no extra word (the output is cleaned instead)" gCR grep -e needle -- f1
+cr_case "CR: a file operand — no extra word (the output is cleaned instead)" gCR "$STUB_GREP" -e needle -- f1
 __TUTIL_TOOLS_STRIP_CR=1
 gCR.paths
-cr_case "CR: the cygwin/msys path, stdin — no stdin filter" gCR grep -e needle
+cr_case "CR: the cygwin/msys path, stdin — no stdin filter" gCR "$STUB_GREP" -e needle
 __TUTIL_TOOLS_STRIP_CR=0
 
 kt_test_start "CR: \`_textMode\` per shape — files 1; stdin 0; -r 1; -U, -z, -l, -L 0 — identical on both paths"
@@ -770,3 +784,86 @@ done
 __TUTIL_TOOLS_STRIP_CR=1
 if [[ "$tmall" == "1010000/1010000/" ]]; then kt_test_pass "$tmall"; else kt_test_fail "got $tmall"; fi
 gCR.delete
+
+# ===========================================================================
+kt_test_section "T6. no GNU grep found: .new succeeds, the first argv says why"
+# ===========================================================================
+
+NOEXEC_TXT="KCL_GNU_GREP='/nonexistent' is not an executable file"
+
+kt_test_start "T6 (i): KCL_GNU_GREP=/nonexistent — \`.new\` rc 0 and silent, \`cmd\` '', \`argv\` rc 2 with ONE line naming the override"
+KCL_GNU_GREP=/nonexistent
+dbg_n TGrep.new gNG needle f.txt
+nrc=$DBG_RC; nlines_new=$DBG_N
+GOT=( stale )
+dbg_n gNG.argv GOT
+if [[ $nrc -eq 0 && $nlines_new -eq 0 && "$(gNG.cmd)" == "" && $DBG_RC -eq 2 && $DBG_N -eq 1       && "$DBG_1" == *"$NOEXEC_TXT"* && "$RESULT" == "" ]] && arr_is GOT stale; then
+    kt_test_pass "new rc 0 silent; cmd ''; argv rc 2: ${DBG_1:0:100}"
+else
+    kt_test_fail "new rc=$nrc lines=$nlines_new cmd='$(gNG.cmd)'; argv rc=$DBG_RC lines=$DBG_N first='$DBG_1' got=$(arr_show GOT)"
+fi
+
+kt_test_start "T6 (ii): \`x.cmd = STUB\` re-arms the instance — \`argv\` rc 0, word 0 = the stub"
+gNG.cmd = "$STUB_GREP"
+GOT=( stale )
+rc=0
+gNG.argv GOT || rc=$?
+if [[ $rc -eq 0 ]] && arr_is GOT "$STUB_GREP" -e needle -- f.txt; then
+    kt_test_pass "$(arr_show GOT)"
+else
+    kt_test_fail "rc=$rc got=$(arr_show GOT)"
+fi
+gNG.delete
+
+kt_test_start "T6 (iii): the static \`TGrep.search\` with no GNU grep — rc 2, the same ONE line, nothing printed or run"
+KCL_GNU_GREP=/nonexistent
+: > "$ERRF"
+VERBOSE_KKLASS=debug
+sout=$(TGrep.search needle "$TMP/none.txt" 2>"$ERRF")
+src=$?
+VERBOSE_KKLASS=
+sn=0; sl=''
+while IFS= read -r l || [[ -n "$l" ]]; do sn=$(( sn + 1 )); sl=$l; done < "$ERRF"
+if [[ $src -eq 2 && $sn -eq 1 && "$sl" == *"$NOEXEC_TXT"* && -z "$sout" ]]; then
+    kt_test_pass "rc 2, empty stdout, one line: ${sl:0:100}"
+else
+    kt_test_fail "rc=$src out='$sout' lines=$sn last='$sl'"
+fi
+
+kt_test_start "T6 (iv): a SINK on the disarmed instance (\`count\`) — rc 2, RESULT '', ONE line with ktool's text"
+KCL_GNU_GREP=/nonexistent
+TGrep.new gNG needle f.txt
+RESULT=stale
+dbg_n gNG.count
+if [[ $DBG_RC -eq 2 && "$RESULT" == "" && $DBG_N -eq 1 && "$DBG_1" == *"$NOEXEC_TXT"* ]]; then
+    kt_test_pass "count rc 2, RESULT '', one line: ${DBG_1:0:100}"
+else
+    kt_test_fail "rc=$DBG_RC RESULT='$RESULT' lines=$DBG_N first='$DBG_1'"
+fi
+gNG.delete
+
+kt_test_start "T6 (v): the STDIN form (no path, CR filter on) — the empty \`cmd\` is refused BEFORE the \`tutil._crStdin\` prefix is added; re-armed it is \`tutil._crStdin STUB …\`"
+KCL_GNU_GREP=/nonexistent
+__TUTIL_TOOLS_STRIP_CR=0
+TGrep.new gNG needle
+GOT=( stale )
+dbg_n gNG.argv GOT
+v1_ok=0
+if [[ $DBG_RC -eq 2 && $DBG_N -eq 1 && "$DBG_1" == *"$NOEXEC_TXT"* && "$RESULT" == "" ]] && arr_is GOT stale; then
+    v1_ok=1
+fi
+v1_info="rc=$DBG_RC lines=$DBG_N first='$DBG_1'"
+gNG.cmd = "$STUB_GREP"
+GOT=( stale )
+rc=0
+gNG.argv GOT || rc=$?
+__TUTIL_TOOLS_STRIP_CR=1
+if [[ $v1_ok -eq 1 && $rc -eq 0 ]] && arr_is GOT tutil._crStdin "$STUB_GREP" -e needle; then
+    kt_test_pass "rc 2 with ktool's line; re-armed: $(arr_show GOT)"
+else
+    kt_test_fail "disarmed ok=$v1_ok ($v1_info); re-armed rc=$rc got=$(arr_show GOT)"
+fi
+gNG.delete
+
+# the stub again for whoever follows
+KCL_GNU_GREP="$STUB_GREP"

@@ -38,13 +38,13 @@
 # framework. This file installs NO `trap … EXIT` of its own — it would replace
 # ktests' trap and swallow the `__COUNTS__` line the runner parses.
 #
-# THE GNU BANNER GATE IS THE FIRST CASE, as in 005/006: this machine carries a
-# non-GNU `grep` (Embarcadero) on PATH after the msys ones, and every number
-# below is about GNU grep 3.0. Without the banner every timed case is a loud
-# SKIP and the case COUNT is unchanged.
+# THE KTOOL GATE IS THE FIRST CASE, as in 005/006: `kt_gnu_gate grep GREP_BIN`
+# (ktool skips a non-GNU `grep` earlier on PATH), and every number below is
+# about GNU grep 3.0. With no GNU grep every timed case is a loud SKIP and the
+# case COUNT is unchanged.
 #
 # Sections:
-#   Z  the GNU banner gate and the corpus
+#   Z  the ktool gate and the corpus
 #   A  the search gate — TGrep.search against a bare `grep -r`, and the
 #      construction cost that IS the delta, measured on its own
 #   B  the argv model: 22 typed options into a command line, running NOTHING
@@ -59,6 +59,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 
 TG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$TG_DIR/tgrep.sh"
+source "$TG_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 source "$TG_DIR/../tstopwatch/tstopwatch.sh"
 
 TEST_NAME="$(basename "$0" .sh)"
@@ -79,26 +80,17 @@ median() {
 }
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate and the corpus"
+kt_test_section "Z. the ktool gate and the corpus"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`grep\` on PATH is GNU grep (D4 pins the DIALECT, not a binary)"
-GREP_BIN="$(command -v grep 2>/dev/null || printf '(none)')"
-GREP_VER="$(grep --version 2>/dev/null | head -1 || :)"
-if [[ "$GREP_VER" == "grep (GNU grep) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$GREP_BIN — $GREP_VER"
-else
-    kt_test_pass "SKIP: non-GNU grep ($GREP_BIN — '${GREP_VER:-no banner}'); every timed case below is skipped"
-fi
+kt_gnu_gate grep GREP_BIN
 
 # tcase TITLE — start a case; rc 1 (already passed as a SKIP) when the gate is
 # closed, so the case COUNT is the same on a box without GNU grep.
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU grep"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -128,13 +120,14 @@ if tcase "TGrep.search costs at most 10x a bare \`grep -r\` (PLAN gate 1.3x)"; t
     # — and take the hit counts HERE, once. Counting inside the timed loop would
     # add a `$( )` and a `wc` fork to both sides and dilute the very ratio the
     # gate is about.
-    nb="$(grep -r -e needle -- "$TREE" | wc -l)"
+    nb="$("$GREP_BIN" -r -e needle -- "$TREE" | wc -l)"
     nw="$(TGrep.search needle "$TREE" | wc -l)"
+    nb="${nb//[[:space:]]/}"; nw="${nw//[[:space:]]/}"     # BSD wc -l pads with spaces
 
     declare -a T_GREP=() T_SEARCH=()
     for (( i = 0; i < NR; i++ )); do
         TStopwatch.getTimeStamp; t0=$RESULT
-        grep -r -e needle -- "$TREE" >/dev/null || :
+        "$GREP_BIN" -r -e needle -- "$TREE" >/dev/null || :
         TStopwatch.getTimeStamp; t1=$RESULT
         T_GREP+=( $(( t1 - t0 )) )
 
@@ -221,14 +214,14 @@ if tcase "g.count costs at most 10x \`grep -c\` on the same tree (measured 1.47x
     TGrep.new BQC needle "$TREE"; BQC.recursive = 1; BQC.countOnly = 1
     declare -a BCARR=() T_GC=() T_CNT=() T_CO=()
 
-    grep -c -r -e needle -- "$TREE" >/dev/null 2>&1 || :
+    "$GREP_BIN" -c -r -e needle -- "$TREE" >/dev/null 2>&1 || :
     BQ.count          >/dev/null 2>&1 || :
     BQC.toArray BCARR >/dev/null 2>&1 || :
 
     n_sparse=''; n_conly=''
     for (( i = 0; i < NR; i++ )); do
         TStopwatch.getTimeStamp; t0=$RESULT
-        grep -c -r -e needle -- "$TREE" >/dev/null || :
+        "$GREP_BIN" -c -r -e needle -- "$TREE" >/dev/null || :
         TStopwatch.getTimeStamp; t1=$RESULT
         T_GC+=( $(( t1 - t0 )) )
 
@@ -276,7 +269,7 @@ if tcase "g.count costs at most 10x \`grep -c\` on the same tree (measured 1.47x
 else
     # the gate is closed: keep the case count identical
     kt_test_start "countOnly=1 delivers grep's OWN numbers in 2 records, at most 10x \`grep -c\`"
-    kt_test_pass "SKIP: non-GNU grep"
+    kt_test_pass "SKIP: $GNU_WHY"
 fi
 
 # ===========================================================================

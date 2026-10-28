@@ -50,12 +50,12 @@
 # framework. This file installs NO `trap … EXIT` of its own — it would replace
 # ktests' trap and swallow the `__COUNTS__` line the runner parses.
 #
-# THE GNU BANNER GATE IS THE FIRST CASE, as in 005/006: D4 pins the DIALECT
-# (GNU findutils 4.10.0), not a binary. Without the banner every timed case is a
-# loud SKIP and the case COUNT is unchanged.
+# THE KTOOL GATE IS THE FIRST CASE, as in 005/006: `kt_gnu_gate find FIND_BIN`
+# (ktool; D4 pins the DIALECT, GNU findutils 4.10.0, not a binary). With no GNU
+# find every timed case is a loud SKIP and the case COUNT is unchanged.
 #
 # Sections:
-#   Z  the GNU banner gate and the corpus
+#   Z  the ktool gate and the corpus
 #   A  the byName gate — `TFind.byName` against a bare `find … -name` in the two
 #      shapes that bracket the tool's own work (a 20-file tree and a ONE-file
 #      tree), plus the wrapper's fixed delta measured on its own
@@ -70,6 +70,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 
 TF_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$TF_DIR/tfind.sh"
+source "$TF_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 source "$TF_DIR/../tstopwatch/tstopwatch.sh"
 
 TEST_NAME="$(basename "$0" .sh)"
@@ -92,26 +93,17 @@ median() {
 }
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate and the corpus"
+kt_test_section "Z. the ktool gate and the corpus"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`find\` on PATH is GNU findutils (D4 pins the DIALECT, not a binary)"
-FIND_BIN="$(command -v find 2>/dev/null || printf '(none)')"
-FIND_VER="$(find --version 2>/dev/null | sed -n 1p || :)"
-if [[ "$FIND_VER" == "find (GNU findutils) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$FIND_BIN — $FIND_VER"
-else
-    kt_test_pass "SKIP: non-GNU find ($FIND_BIN — '${FIND_VER:-no banner}'); every timed case below is skipped"
-fi
+kt_gnu_gate find FIND_BIN
 
 # tcase TITLE — start a case; rc 1 (already passed as a SKIP) when the gate is
 # closed, so the case COUNT is the same on a box without GNU findutils.
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU find"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -148,14 +140,14 @@ gate_case() {
     # timed loop would add a `$( )` and a `wc` fork to both sides and dilute the
     # very ratio the gate is about.
     local __nb __nw
-    __nb="$( find "$__tree" -name '*.txt' | wc -l )"; __nb="${__nb//[[:space:]]/}"
+    __nb="$( "$FIND_BIN" "$__tree" -name '*.txt' | wc -l )"; __nb="${__nb//[[:space:]]/}"
     __nw="$( TFind.byName '*.txt' "$__tree" | wc -l )"; __nw="${__nw//[[:space:]]/}"
 
     local -a __t_bare=() __t_by=()
     local __i __a0 __a1
     for (( __i = 0; __i < NR; __i++ )); do
         TStopwatch.getTimeStamp; __a0=$RESULT
-        find "$__tree" -name '*.txt' >/dev/null || :
+        "$FIND_BIN" "$__tree" -name '*.txt' >/dev/null || :
         TStopwatch.getTimeStamp; __a1=$RESULT
         __t_bare+=( $(( __a1 - __a0 )) )
 
@@ -279,13 +271,13 @@ if tcase "f.count over $NTXT records costs at most 10x \`find … -print0 | tr -
     BQ.name = '*.txt'
     BQ.print0 = 1
     declare -a T_WC=() T_CNT=()
-    n_wc="$( find "$BIG" -name '*.txt' -print0 | tr -dc '\0' | wc -c )"
+    n_wc="$( "$FIND_BIN" "$BIG" -name '*.txt' -print0 | tr -dc '\0' | wc -c )"
     n_wc="${n_wc//[[:space:]]/}"
     BQ.count >/dev/null 2>&1 || :
     n_cnt=''
     for (( i = 0; i < NR; i++ )); do
         TStopwatch.getTimeStamp; t0=$RESULT
-        find "$BIG" -name '*.txt' -print0 | tr -dc '\0' | wc -c >/dev/null || :
+        "$FIND_BIN" "$BIG" -name '*.txt' -print0 | tr -dc '\0' | wc -c >/dev/null || :
         TStopwatch.getTimeStamp; t1=$RESULT
         T_WC+=( $(( t1 - t0 )) )
 

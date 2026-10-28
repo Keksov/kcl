@@ -8,13 +8,14 @@
 # this file installs NO `trap … EXIT` of its own, which would replace ktests'
 # trap and swallow the `__COUNTS__` line the runner parses (PLAN §4).
 #
-# THE GATE IS THE FIRST CASE. This machine carries a non-GNU `grep` (Embarcadero)
-# on PATH after the msys ones, and D4 pins the GNU dialect, not a binary: if
-# `grep --version` does not begin with `grep (GNU grep) `, every behavioural case
-# below is a loud `SKIP`, so the suite stays honest instead of red.
+# THE GATE IS THE FIRST CASE: `kt_gnu_gate grep GREP_BIN` (kcl/tutil/tests/
+# gnu_helper.sh; ktool skips a non-GNU `grep` earlier on PATH and answers the GNU
+# one TGrep itself resolves — `ggrep` on FreeBSD). D4 pins the GNU dialect, not a
+# binary: with no GNU grep every behavioural case below is a loud `SKIP:` with
+# ktool's package hint, so the suite stays honest instead of red.
 #
 # Sections:
-#   Z        the GNU banner gate, and the fixture tree
+#   Z        the ktool gate, and the fixture tree
 #   A  G5    no match: every runner is rc 1 with `lastRc` 1 and says NOTHING
 #   B  G6    the regex dialect: `extended = 1` + `(` is rc 1 / `lastRc` 2 / one
 #            line; the same pattern with `extended` off is a LITERAL `(`
@@ -48,6 +49,7 @@ source "$KTESTS_LIB_DIR/ktest.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tgrep.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 # Real NTFS symlinks: plain `ln -s` runs in COPY mode on this box and produces a
 # DIRECTORY COPY, which `-r` then descends for entirely the wrong reason (PLAN
@@ -64,19 +66,10 @@ ERRF="$TMP/tg.err"
 kt_test_section "005: TGrep against GNU grep on a real tree (P2)"
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and the fixture tree"
+kt_test_section "Z. the ktool gate, and the fixture tree"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`grep\` on PATH is GNU grep (D4 pins the DIALECT, not a binary)"
-GREP_BIN="$(command -v grep 2>/dev/null || printf '(none)')"
-GREP_VER="$(grep --version 2>/dev/null | head -1 || :)"
-if [[ "$GREP_VER" == "grep (GNU grep) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$GREP_BIN — $GREP_VER"
-else
-    kt_test_pass "SKIP: non-GNU grep ($GREP_BIN — '${GREP_VER:-no banner}'); every behavioural case below is skipped"
-fi
+kt_gnu_gate grep GREP_BIN
 
 # tcase TITLE — start a case; rc 1 (already passed as a SKIP) when the gate is
 # closed, so a case body reads `if tcase "…"; then … fi` and the case COUNT is
@@ -84,7 +77,7 @@ fi
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU grep"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -363,7 +356,7 @@ if tcase "G6: \`extended = 1\` with a VALID ERE (\`(needle|zebra)\`) matches"; t
     gB.extended = 1
     SGOT=()
     rc=0; gB.toArray SGOT 2>/dev/null || rc=$?
-    oracle SWANT grep -E -e '(needle|zebra)' -- "$FX/plain.txt"
+    oracle SWANT "$GREP_BIN" -E -e '(needle|zebra)' -- "$FX/plain.txt"
     if [[ $rc -eq 0 ]] && arr_eq SGOT SWANT && (( ${#SWANT[@]} == 2 )); then
         kt_test_pass "2 records, identical to \`grep -E\`"
     else
@@ -471,7 +464,7 @@ if tcase "G8: the SAME instance with \`recursive = 1\` finds the tree"; then
     gD.recursive = 1
     SGOT=()
     rc=0; gD.toArray SGOT 2>/dev/null || rc=$?
-    oracle SWANT grep -r -e needle -- "$FX/sub"
+    oracle SWANT "$GREP_BIN" -r -e needle -- "$FX/sub"
     if [[ $rc -eq 0 ]] && arr_eq SGOT SWANT && (( ${#SWANT[@]} == 2 )); then
         kt_test_pass "2 records (deep.txt, note.log), identical to \`grep -r\`"
     else
@@ -482,7 +475,7 @@ fi
 
 if tcase "G8: \`TGrep.search PATTERN DIR\` implies -r — byte-identical to \`grep -r -e P -- DIR\`"; then
     got="$(TGrep.search needle "$FX/sub" 2>/dev/null)"; rc=$?
-    want="$(grep -r -e needle -- "$FX/sub" 2>/dev/null)"; wrc=$?
+    want="$("$GREP_BIN" -r -e needle -- "$FX/sub" 2>/dev/null)"; wrc=$?
     if [[ $rc -eq 0 && $wrc -eq 0 && "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "rc 0 and the same bytes as the bare tool"
     else
@@ -590,7 +583,7 @@ if tcase "G10: \`toArray\` over good+MISSING+good — rc 1, RESULT = the real co
     gF.lastRc; lr="$RESULT"
     gF.toArray SGOT 2>/dev/null || :
     n="$RESULT"
-    oracle SWANT grep -e needle -- "$FX/plain.txt" "$FX/no_such_file.txt" "$FX/utf.txt"
+    oracle SWANT "$GREP_BIN" -e needle -- "$FX/plain.txt" "$FX/no_such_file.txt" "$FX/utf.txt"
     if [[ $rc -eq 1 && "$lr" == "2" && "$n" == "3" ]] && arr_eq SGOT SWANT; then
         kt_test_pass "3 records kept, RESULT 3, rc 1, lastRc 2"
     else
@@ -653,7 +646,7 @@ if tcase "G11: \`g.each\` whose callback runs \`TGrep.search\` — both complete
     done
     if [[ $rc -eq 0 && ${#NEST_OUT[@]} -eq 2 && ${#NEST_IN[@]} -eq 2 && "$inner_ok" == "1" \
           && $arc -eq 0 && "$lr" == "0" ]] \
-       && arr_is SGOT grep -r -e needle -- "$FX/sub"; then
+       && arr_is SGOT "$GREP_BIN" -r -e needle -- "$FX/sub"; then
         kt_test_pass "2 outer records, 2 nested searches, the outer instance untouched"
     else
         kt_test_fail "rc=$rc outer=${#NEST_OUT[@]} inner=${#NEST_IN[@]} ok=$inner_ok argvRc=$arc lastRc='$lr' argv=$(arr_show SGOT)"
@@ -695,7 +688,7 @@ if tcase "G12: \`-r\` does NOT descend a directory symlink (that is why it is ne
             [[ "$x" == "$FX/realdir/linked.txt" ]] && saw_real=1
         done
         # the oracle: -R WOULD descend it
-        oracle SWANT grep -R -l -e needle -- "$FX"
+        oracle SWANT "$GREP_BIN" -R -l -e needle -- "$FX"
         want_link=0
         for x in "${SWANT[@]}"; do
             [[ "$x" == "$FX/dirlink/"* ]] && want_link=1
@@ -717,7 +710,7 @@ if tcase "G12: a directory symlink NAMED on the command line is followed even un
         gH.recursive = 1
         SGOT=()
         rc=0; gH.toArray SGOT 2>/dev/null || rc=$?
-        oracle SWANT grep -r -e needle -- "$FX/dirlink"
+        oracle SWANT "$GREP_BIN" -r -e needle -- "$FX/dirlink"
         if [[ $rc -eq 0 && ${#SGOT[@]} -eq 1 ]] && arr_eq SGOT SWANT; then
             kt_test_pass "1 record through the link, identical to the bare tool"
         else
@@ -944,13 +937,13 @@ kt_test_section "J. every remaining typed option, against the bare tool"
 
 TGrep.new gJ Needle "$FX/paren.txt"
 gJ.ignoreCase = 1
-same_as_bare "J: \`ignoreCase\` -> -i" gJ grep -i -e Needle -- "$FX/paren.txt"
+same_as_bare "J: \`ignoreCase\` -> -i" gJ "$GREP_BIN" -i -e Needle -- "$FX/paren.txt"
 gJ.delete
 
 TGrep.new gJ needle "$FX/plain.txt"
 gJ.invert = 1
 same_as_bare "J: \`invert\` -> -v (the lines that do NOT match)" gJ \
-    grep -v -e needle -- "$FX/plain.txt"
+    "$GREP_BIN" -v -e needle -- "$FX/plain.txt"
 gJ.delete
 
 TGrep.new gJ needl "$FX/plain.txt"
@@ -968,39 +961,39 @@ gJ.delete
 TGrep.new gJ 'needle again' "$FX/plain.txt"
 gJ.lineRegexp = 1
 same_as_bare "J: \`lineRegexp\` -> -x (the WHOLE line must match)" gJ \
-    grep -x -e 'needle again' -- "$FX/plain.txt"
+    "$GREP_BIN" -x -e 'needle again' -- "$FX/plain.txt"
 gJ.delete
 
 TGrep.new gJ needle "$FX/plain.txt"
 gJ.lineNumber = 1
 same_as_bare "J: \`lineNumber\` -> -n (\`1:alpha needle here\`)" gJ \
-    grep -n -e needle -- "$FX/plain.txt"
+    "$GREP_BIN" -n -e needle -- "$FX/plain.txt"
 gJ.delete
 
 TGrep.new gJ 'need[a-z]*' "$FX/plain.txt"
 gJ.onlyMatching = 1
 same_as_bare "J: \`onlyMatching\` -> -o (one record per MATCH, not per line)" gJ \
-    grep -o -e 'need[a-z]*' -- "$FX/plain.txt"
+    "$GREP_BIN" -o -e 'need[a-z]*' -- "$FX/plain.txt"
 gJ.delete
 
 TGrep.new gJ needle "$FX/plain.txt"
 gJ.maxCount = 1
 same_as_bare "J: \`maxCount = 1\` -> -m 1 (one hit, then grep stops)" gJ \
-    grep -m 1 -e needle -- "$FX/plain.txt"
+    "$GREP_BIN" -m 1 -e needle -- "$FX/plain.txt"
 gJ.delete
 
 TGrep.new gJ needle "$FX/sub"
 gJ.recursive = 1
 gJ.include = '*.txt'
 same_as_bare "J: \`include\` -> --include=*.txt (note.log is skipped)" gJ \
-    grep -r --include='*.txt' -e needle -- "$FX/sub"
+    "$GREP_BIN" -r --include='*.txt' -e needle -- "$FX/sub"
 gJ.delete
 
 TGrep.new gJ needle "$FX/sub"
 gJ.recursive = 1
 gJ.exclude = '*.log'
 same_as_bare "J: \`exclude\` -> --exclude=*.log" gJ \
-    grep -r --exclude='*.log' -e needle -- "$FX/sub"
+    "$GREP_BIN" -r --exclude='*.log' -e needle -- "$FX/sub"
 gJ.delete
 
 TGrep.new gJ needle "$FX"
@@ -1014,7 +1007,7 @@ if tcase "J: \`excludeDir\` -> --exclude-dir=sub (nothing under sub/ is listed)"
     for x in "${SGOT[@]}"; do
         [[ "$x" == "$FX/sub/"* ]] && saw_sub=1
     done
-    oracle SWANT grep -r -l --exclude-dir='sub' -e needle -- "$FX"
+    oracle SWANT "$GREP_BIN" -r -l --exclude-dir='sub' -e needle -- "$FX"
     if [[ "$saw_sub" == "0" && ${#SGOT[@]} -gt 0 ]] && arr_eq SGOT SWANT; then
         kt_test_pass "${#SGOT[@]} files, none under sub/, identical to the bare tool"
     else
@@ -1026,13 +1019,13 @@ gJ.delete
 TGrep.new gJ needle "$FX/plain.txt" "$FX/utf.txt"
 gJ.noFilename = 1
 same_as_bare "J: \`noFilename\` -> -h (two operands, no \`FILE:\` prefix)" gJ \
-    grep -h -e needle -- "$FX/plain.txt" "$FX/utf.txt"
+    "$GREP_BIN" -h -e needle -- "$FX/plain.txt" "$FX/utf.txt"
 gJ.delete
 
 TGrep.new gJ needle "$FX/plain.txt"
 gJ.withFilename = 1
 same_as_bare "J: \`withFilename\` -> -H (ONE operand, the prefix forced on)" gJ \
-    grep -H -e needle -- "$FX/plain.txt"
+    "$GREP_BIN" -H -e needle -- "$FX/plain.txt"
 gJ.delete
 
 if tcase "J: \`nullData\` -> -z, with a MANUAL \`nul = 1\` for the sink (§2.7)"; then
@@ -1079,7 +1072,7 @@ kt_test_section "K. binary files — \`Binary file X matches\` is a stdout RECOR
 
 if tcase "K: a file with a NUL: the bare grep's answer (grep < 3.5: one \`Binary file … matches\` RECORD; >= 3.5: no record, note on stderr), rc 0"; then
     # The oracle first: grep < 3.5 prints the note on stdout, >= 3.5 on stderr.
-    TG_BIN="$(timeout -k 5 20 grep -e needle -- "$FX/bin.dat" 2>/dev/null </dev/null)"
+    TG_BIN="$(timeout -k 5 20 "$GREP_BIN" -e needle -- "$FX/bin.dat" 2>/dev/null </dev/null)"
     TGrep.new gK needle "$FX/bin.dat"
     SGOT=()
     rc=0; gK.toArray SGOT 2>/dev/null || rc=$?

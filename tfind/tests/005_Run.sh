@@ -8,9 +8,11 @@
 # tears it down; this file installs NO `trap … EXIT` of its own, which would
 # replace ktests' trap and swallow the `__COUNTS__` line the runner parses.
 #
-# THE GATE IS THE FIRST CASE. D4 pins the GNU dialect, not a binary: if
-# `find --version` does not begin with `find (GNU findutils) `, every
-# behavioural case below is a loud `SKIP`, so the suite stays honest.
+# THE GATE IS THE FIRST CASE: `kt_gnu_gate find FIND_BIN` (kcl/tutil/tests/
+# gnu_helper.sh; ktool answers the GNU find TFind itself resolves — `gfind` on
+# FreeBSD). D4 pins the GNU dialect, not a binary: with no GNU find every
+# behavioural case below is a loud `SKIP:` with ktool's package hint, so the
+# suite stays honest.
 #
 # THE COMPARISON PRIMITIVE (PLAN §4). find's traversal order is not pinned, and
 # the fixture holds a file whose NAME contains a newline — a line-based sort
@@ -24,7 +26,7 @@
 # `-print` stream itself.
 #
 # Sections:
-#   Z        the GNU banner gate, and the fixture tree
+#   Z        the ktool gate, and the fixture tree
 #   A  F6    every typed option against the bare tool on the tree
 #   B  F6    symlinks: `-L` descends a real directory symlink and the default
 #            `-P` does not; `-L` + `type = l` matches only BROKEN links
@@ -56,6 +58,7 @@ source "$SCRIPT_DIR/../../tdirectory/tests/symlink_helper.sh"
 UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tfind.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -66,19 +69,10 @@ ERRF="$TMP/tf.err"
 kt_test_section "005: TFind against GNU find on a real tree (P0)"
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and the fixture tree"
+kt_test_section "Z. the ktool gate, and the fixture tree"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`find\` on PATH is GNU findutils (D4 pins the DIALECT, not a binary)"
-FIND_BIN="$(command -v find 2>/dev/null || printf '(none)')"
-FIND_VER="$(find --version 2>/dev/null | head -1 || :)"
-if [[ "$FIND_VER" == "find (GNU findutils) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$FIND_BIN — $FIND_VER"
-else
-    kt_test_pass "SKIP: non-GNU find ($FIND_BIN — '${FIND_VER:-no banner}'); every behavioural case below is skipped"
-fi
+kt_gnu_gate find FIND_BIN
 
 # tcase TITLE — start a case; rc 1 (already passed as a SKIP) when the gate is
 # closed, so a case body reads `if tcase "…"; then … fi` and the case COUNT is
@@ -86,7 +80,7 @@ fi
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU find"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0
@@ -279,7 +273,7 @@ opt() {
     TFind.new fO "$FX"
     fO.print0 = 1
     fO."$__zp" = "$__zv"
-    same_as_bare "$__zt" fO find "$FX" "$@" -print0
+    same_as_bare "$__zt" fO "$FIND_BIN" "$FX" "$@" -print0
     fO.delete
 }
 
@@ -288,7 +282,7 @@ if tcase "F6: no option at all — every entry of the tree, NUL framed"; then
     fO.print0 = 1
     SGOT=()
     rc=0; fO.toArray SGOT || rc=$?
-    oracle0 SWANT find "$FX" -print0
+    oracle0 SWANT "$FIND_BIN" "$FX" -print0
     sortz SGOT; sortz SWANT
     fO.lastRc; lr="$RESULT"
     if [[ $rc -eq 0 && "$lr" == "0" && ${#SGOT[@]} -ge 10 ]] && arr_eq SGOT SWANT; then
@@ -356,7 +350,7 @@ if tcase "F6: \`maxDepth\` + \`minDepth\` + \`type\` together == the same bare e
     fO.type = f
     SGOT=()
     rc=0; fO.toArray SGOT || rc=$?
-    oracle0 SWANT find "$FX" -maxdepth 2 -mindepth 1 -type f -print0
+    oracle0 SWANT "$FIND_BIN" "$FX" -maxdepth 2 -mindepth 1 -type f -print0
     sortz SGOT; sortz SWANT
     if [[ $rc -eq 0 ]] && (( ${#SWANT[@]} > 0 )) && arr_eq SGOT SWANT; then
         kt_test_pass "${#SGOT[@]} records identical to the bare tool"
@@ -376,7 +370,7 @@ kt_test_section "B. F6 — symlinks: \`-L\` vs the default \`-P\`"
 scase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU find"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     if [[ "$SYMOK" != "1" ]]; then
@@ -392,7 +386,7 @@ if scase "F6: the DEFAULT (-P) does NOT descend the directory symlink"; then
     fL.type = f
     SGOT=()
     rc=0; fL.toArray SGOT || rc=$?
-    oracle0 SWANT find "$FX" -type f -print0
+    oracle0 SWANT "$FIND_BIN" "$FX" -type f -print0
     sortz SGOT; sortz SWANT
     through_link=0
     for r in "${SGOT[@]}"; do
@@ -413,7 +407,7 @@ if scase "F6: \`followSymlinks = 1\` (-L) DOES descend it — the same files plu
     fL.followSymlinks = 1
     SGOT=()
     rc=0; fL.toArray SGOT || rc=$?
-    oracle0 SWANT find -L "$FX" -type f -print0
+    oracle0 SWANT "$FIND_BIN" -L "$FX" -type f -print0
     sortz SGOT; sortz SWANT
     through_link=0
     for r in "${SGOT[@]}"; do
@@ -461,7 +455,7 @@ if tcase "F7: the newline name is TWO records under \`-print\` (print0 = 0)"; th
     fW.name = 'nl*'
     SGOT=()
     rc=0; fW.toArray SGOT || rc=$?
-    oracleL SWANT find "$FX" -name 'nl*' -print
+    oracleL SWANT "$FIND_BIN" "$FX" -name 'nl*' -print
     if [[ $rc -eq 0 && ${#SGOT[@]} -eq 2 && "${SGOT[1]}" == "name.txt" ]] \
        && arr_eq SGOT SWANT; then
         kt_test_pass "2 records — '\${FX}/nl' and 'name.txt', exactly as the bare \`-print\` splits it"
@@ -504,7 +498,7 @@ if tcase "F7: a start point that is an absolute path INTO \`-weird\` works (it d
     fW.print0 = 1
     SGOT=()
     rc=0; fW.toArray SGOT || rc=$?
-    oracle0 SWANT find "$FX/-weird" -print0
+    oracle0 SWANT "$FIND_BIN" "$FX/-weird" -print0
     sortz SGOT; sortz SWANT
     if [[ $rc -eq 0 && ${#SGOT[@]} -eq 2 ]] && arr_eq SGOT SWANT; then
         kt_test_pass "2 records — the directory and the file inside it"
@@ -526,7 +520,7 @@ if tcase "F8a: good + MISSING start point — records KEPT, RESULT = the real co
     rc=0; fM.toArray SGOT 2>/dev/null || rc=$?
     n="$RESULT"
     fM.lastRc; lr="$RESULT"
-    oracle0 SWANT find "$FX" "$FX/no_such_dir" -type f -print0
+    oracle0 SWANT "$FIND_BIN" "$FX" "$FX/no_such_dir" -type f -print0
     sortz SGOT; sortz SWANT
     if [[ $rc -eq 1 && "$lr" == "1" && "$n" == "${#SGOT[@]}" && ${#SGOT[@]} -gt 0 ]] \
        && arr_eq SGOT SWANT; then
@@ -543,7 +537,7 @@ if tcase "F8a: the partial-failure path emits exactly ONE line of ours; find's o
     tf_dbg fM.count
     if [[ "$TF_RC" == "1" && "$TF_N" == "1" && "$TOOL_N" -ge 1 \
           && "$TF_1" == *"TFind"* && "$TF_1" == *"find exited 1"* \
-          && "$TOOL_1" == "find: "* ]]; then
+          && ("$TOOL_1" == "$FIND_BIN: "* || "$TOOL_1" == "${FIND_BIN##*/}: "*) ]]; then
         kt_test_pass "ours: ${TF_1:0:56}… | find's: '${TOOL_1:0:46}…'"
     else
         kt_test_fail "rc=$TF_RC ourLines=$TF_N first='$TF_1' toolLines=$TOOL_N toolFirst='$TOOL_1'"
@@ -620,7 +614,7 @@ if [[ "$GNU_OK" == "1" ]]; then
     SGOT=()
     F9_RC=0; f9.toArray SGOT || F9_RC=$?
     F9_N=${#SGOT[@]}
-    oracle0 SWANT find -print0
+    oracle0 SWANT "$FIND_BIN" -print0
     sortz SGOT; sortz SWANT
     arr_eq SGOT SWANT && F9_EQ=1
     F9_DOT=1
@@ -635,7 +629,7 @@ if [[ "$GNU_OK" == "1" ]]; then
     SGOT=()
     F9D_RC=0; f9d.toArray SGOT || F9D_RC=$?
     F9D_N=${#SGOT[@]}
-    oracle0 SWANT find './-weird' -print0
+    oracle0 SWANT "$FIND_BIN" './-weird' -print0
     sortz SGOT; sortz SWANT
     arr_eq SGOT SWANT && F9D_EQ=1
     f9d.delete
@@ -690,7 +684,7 @@ if tcase "F10a: \`print0 = 0\` + \`-exec printf …\` — the exec output IS the
     fX.addArg -exec printf 'X:%s\n' '{}' ';'
     SGOT=()
     rc=0; fX.toArray SGOT || rc=$?
-    oracleL SWANT find "$FX" -name 'a.txt' -exec printf 'X:%s\n' '{}' ';'
+    oracleL SWANT "$FIND_BIN" "$FX" -name 'a.txt' -exec printf 'X:%s\n' '{}' ';'
     if [[ $rc -eq 0 ]] && arr_is SGOT "X:$FX/a.txt" && arr_eq SGOT SWANT; then
         kt_test_pass "1 record 'X:…/a.txt' — the implied \`-print\` was suppressed by the action"
     else
@@ -734,7 +728,7 @@ if tcase "F10b: \`print0 = 1\` + \`addArg -size +0\` keeps the NUL framing (the 
     fX.addArg -size +0
     SGOT=()
     rc=0; fX.toArray SGOT || rc=$?
-    oracle0 SWANT find "$FX" -size +0 -print0
+    oracle0 SWANT "$FIND_BIN" "$FX" -size +0 -print0
     sortz SGOT; sortz SWANT
     has_nl=0
     for r in "${SGOT[@]}"; do
@@ -755,7 +749,7 @@ kt_test_section "G. F11 — \`TFind.byName PATTERN START...\`, the static one-li
 
 if tcase "F11: \`TFind.byName '*.txt' DIR\` == \`find DIR -name '*.txt'\`, DIRECT"; then
     got="$(TFind.byName '*.txt' "$FX" 2>/dev/null)"; rc=$?
-    want="$(find "$FX" -name '*.txt' 2>/dev/null)"; wrc=$?
+    want="$("$FIND_BIN" "$FX" -name '*.txt' 2>/dev/null)"; wrc=$?
     if [[ $rc -eq 0 && $wrc -eq 0 && "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "rc 0 and the same bytes as the bare tool"
     else
@@ -765,7 +759,7 @@ fi
 
 if tcase "F11: the same through a PIPE (\`| od -c\`) — byte-identical"; then
     got="$(TFind.byName '*.txt' "$FX" 2>/dev/null | od -c)"
-    want="$(find "$FX" -name '*.txt' 2>/dev/null | od -c)"
+    want="$("$FIND_BIN" "$FX" -name '*.txt' 2>/dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -775,7 +769,7 @@ fi
 
 if tcase "F11: the same through \`< <( )\` — byte-identical"; then
     got="$(cat < <(TFind.byName '*.txt' "$FX" 2>/dev/null) | od -c)"
-    want="$(find "$FX" -name '*.txt' 2>/dev/null | od -c)"
+    want="$("$FIND_BIN" "$FX" -name '*.txt' 2>/dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -785,7 +779,7 @@ fi
 
 if tcase "F11: \`byName\` with TWO start points searches both"; then
     got="$(TFind.byName '*.txt' "$FX/sub" "$FX/-weird" 2>/dev/null)"; rc=$?
-    want="$(find "$FX/sub" "$FX/-weird" -name '*.txt' 2>/dev/null)"
+    want="$("$FIND_BIN" "$FX/sub" "$FX/-weird" -name '*.txt' 2>/dev/null)"
     if [[ $rc -eq 0 && "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "identical to the bare tool over both trees"
     else
@@ -815,7 +809,7 @@ fi
 
 if tcase "F11: \`byName\` on a MISSING start point is rc 1 (find's own status, mapped)"; then
     tf_dbg TFind.byName '*.txt' "$FX/no_such_dir"
-    if [[ "$TF_RC" == "1" && "$TF_N" == "1" && "$TOOL_N" -ge 1 && "$TOOL_1" == "find: "* ]]; then
+    if [[ "$TF_RC" == "1" && "$TF_N" == "1" && "$TOOL_N" -ge 1 && ("$TOOL_1" == "$FIND_BIN: "* || "$TOOL_1" == "${FIND_BIN##*/}: "*) ]]; then
         kt_test_pass "rc 1, one line of ours, find's own passed through"
     else
         kt_test_fail "rc=$TF_RC ourLines=$TF_N toolLines=$TOOL_N toolFirst='$TOOL_1'"
@@ -866,7 +860,7 @@ if tcase "F11: a nested \`byName\` inside an outer \`each\` — both complete, t
     done
     if [[ $rc -eq 0 && ${#NEST_OUT[@]} -gt 0 && ${#NEST_IN[@]} -eq ${#NEST_OUT[@]} \
           && "$inner_ok" == "1" && $arc -eq 0 && "$lr" == "0" ]] \
-       && arr_is SGOT find "$FX" -name '*.txt' -type f -print0; then
+       && arr_is SGOT "$FIND_BIN" "$FX" -name '*.txt' -type f -print0; then
         kt_test_pass "${#NEST_OUT[@]} outer records, as many nested byName calls, the outer argv untouched"
     else
         kt_test_fail "rc=$rc outer=${#NEST_OUT[@]} inner=${#NEST_IN[@]} ok=$inner_ok argvRc=$arc lastRc='$lr' argv=$(arr_show SGOT)"
@@ -904,7 +898,7 @@ if tcase "F3: \`type = f,f\` builds and is the TOOL's rc 1 (the duplicate, parit
     tf_dbg fV.count
     fV.lastRc; lr="$RESULT"
     if [[ "$TF_RC" == "1" && "$TF_N" == "1" && "$TOOL_N" -ge 1 && "$lr" == "1" \
-          && "$TOOL_1" == "find: "* ]]; then
+          && ("$TOOL_1" == "$FIND_BIN: "* || "$TOOL_1" == "${FIND_BIN##*/}: "*) ]]; then
         kt_test_pass "rc 1, lastRc 1, one line of ours, find's: '${TOOL_1:0:52}…'"
     else
         kt_test_fail "rc=$TF_RC ourLines=$TF_N toolLines=$TOOL_N lastRc='$lr' toolFirst='$TOOL_1'"
@@ -918,7 +912,7 @@ if tcase "F3: \`maxDepth = 08\` is DEPTH 8 and \`= +1\` is DEPTH 1 (the \$__KK_I
     fV.maxDepth = +1
     SGOT=()
     rc=0; fV.toArray SGOT || rc=$?
-    oracle0 SWANT find "$FX" -maxdepth 1 -print0
+    oracle0 SWANT "$FIND_BIN" "$FX" -maxdepth 1 -print0
     sortz SGOT; sortz SWANT
     eq1=0
     arr_eq SGOT SWANT && eq1=1
@@ -927,7 +921,7 @@ if tcase "F3: \`maxDepth = 08\` is DEPTH 8 and \`= +1\` is DEPTH 1 (the \$__KK_I
     fV2.maxDepth = 08
     SGOT=()
     rc2=0; fV2.toArray SGOT || rc2=$?
-    oracle0 SWANT find "$FX" -maxdepth 8 -print0
+    oracle0 SWANT "$FIND_BIN" "$FX" -maxdepth 8 -print0
     sortz SGOT; sortz SWANT
     eq2=0
     arr_eq SGOT SWANT && eq2=1

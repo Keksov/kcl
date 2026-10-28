@@ -101,15 +101,26 @@ gate_ratio() {  # label median_us base_median_us limit_tenths -> ratio + PASS/FA
 
 GATES_FAILED=0
 
-# --- the GNU banner gate ----------------------------------------------------
-# This box also carries a non-GNU `grep` (Embarcadero) that can win the PATH
-# race. Every number below is about GNU grep 3.0; on anything else they are not
-# comparable, so say so loudly instead of publishing a meaningless table.
-GREP_BANNER="$(grep --version 2>/dev/null | head -n 1 || true)"
-case "$GREP_BANNER" in
-    "grep (GNU grep) "*) ;;
-    *) echo "tgrep bench: SKIPPED — \`grep\` is not GNU grep: '$GREP_BANNER'"; exit 0 ;;
-esac
+# --- the GNU gate (ktool) ---------------------------------------------------
+# `ktool.gnu grep` (the kkore unit ktool, loaded by tutil) answers the GNU grep
+# TGrep itself resolves, skipping a non-GNU `grep` earlier on PATH: the path is
+# GREP_BIN, the bare baselines below run it too. Every number below is about
+# GNU grep 3.0; with none, say so loudly (ktool's own text, which names the
+# package) instead of publishing a meaningless table.
+__kt_rc=0
+ktool.gnu grep || __kt_rc=$?
+if (( __kt_rc == 0 )); then
+    GREP_BIN=$RESULT
+    GREP_BANNER="$(LC_ALL=C "$GREP_BIN" --version </dev/null 2>/dev/null | head -n 1 || true)"
+else
+    ktool.lastError
+    if (( __kt_rc == 2 )); then
+        echo "tgrep bench: FAILED (ktool rc 2) - $RESULT"
+    else
+        echo "tgrep bench: SKIPPED - $RESULT"
+    fi
+    exit 0
+fi
 
 # --- the corpus -------------------------------------------------------------
 BD="$(mktemp -d "${TMPDIR:-/tmp}/kbool_bench_tgrep.XXXXXX")" || exit 1
@@ -169,7 +180,7 @@ bench_counted() { BENCH_RAN=$(( BENCH_RAN + 1 )); return 0; }
 BG.cmd = bench_counted
 pid_a="$BASHPID"
 for (( i = 0; i < ND; i++ )); do BG.argv BW; done
-BG.cmd = grep
+BG.cmd = "$GREP_BIN"
 if (( BENCH_RAN == 0 )) && [[ "$BASHPID" == "$pid_a" ]]; then
     echo "  RUNS NOTHING: with cmd pointed at a counting function, $ND builds invoked it 0 times"
     echo "  FORK-FREE:    BASHPID $pid_a unchanged across all $(( ND * 3 )) builds"
@@ -186,14 +197,14 @@ echo "TGrep.search vs a bare \`grep -r\` over the same tree ($SPARSE_HITS hits):
 
 # warm the page cache and every code path once, so neither side pays for the
 # first read of the corpus or the first bind of a member wrapper.
-grep -r -e needle -- "$TREE" >/dev/null 2>&1 || :
+"$GREP_BIN" -r -e needle -- "$TREE" >/dev/null 2>&1 || :
 TGrep.search needle "$TREE" >/dev/null 2>&1 || :
 
 declare -a T_GREP=() T_SEARCH=()
 b_grep=0; b_search=0
 for (( i = 0; i < NR; i++ )); do
     TStopwatch.getTimeStamp; t0=$RESULT
-    grep -r -e needle -- "$TREE" >/dev/null || :
+    "$GREP_BIN" -r -e needle -- "$TREE" >/dev/null || :
     TStopwatch.getTimeStamp; t1=$RESULT
     T_GREP+=( $(( t1 - t0 )) ); b_grep=$(( b_grep + t1 - t0 ))
 
@@ -228,14 +239,14 @@ TGrep.new BQ  needle "$TREE"; BQ.recursive  = 1
 TGrep.new BQC needle "$TREE"; BQC.recursive = 1; BQC.countOnly = 1
 declare -a BCARR=() T_GC=() T_CNT=() T_CO=()
 
-grep -c -r -e needle -- "$TREE" >/dev/null 2>&1 || :   # warm all three shapes
+"$GREP_BIN" -c -r -e needle -- "$TREE" >/dev/null 2>&1 || :   # warm all three shapes
 BQ.count             >/dev/null 2>&1 || :
 BQC.toArray BCARR    >/dev/null 2>&1 || :
 
 b_grepc=0; b_count=0; b_conly=0
 for (( i = 0; i < NR; i++ )); do
     TStopwatch.getTimeStamp; t0=$RESULT
-    grep -c -r -e needle -- "$TREE" >/dev/null || :
+    "$GREP_BIN" -c -r -e needle -- "$TREE" >/dev/null || :
     TStopwatch.getTimeStamp; t1=$RESULT
     T_GC+=( $(( t1 - t0 )) ); b_grepc=$(( b_grepc + t1 - t0 ))
 

@@ -20,8 +20,9 @@
 #                     TOOL's stderr and pass through untouched; `tg_dbg` counts
 #                     the two separately.
 #
-# The GNU banner gate of 005 applies here too: the cases that actually run grep
-# are skipped loudly on a box whose `grep` is not GNU.
+# The ktool gate of 005 applies here too (`kt_gnu_gate grep GREP_BIN`): the
+# cases that actually run grep are skipped loudly on a box where ktool finds no
+# GNU grep.
 #
 # Every child sets its own stdin explicitly (`</dev/null`): ktests gives a test
 # child the terminal in `--mode single` and /dev/null in the threaded mode.
@@ -36,6 +37,7 @@ UNIT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT="$UNIT_DIR/tgrep.sh"
 TUTIL="$UNIT_DIR/../tutil/tutil.sh"
 source "$UNIT"
+source "$UNIT_DIR/../tutil/tests/gnu_helper.sh" || exit 1
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
@@ -92,6 +94,13 @@ else
     kt_test_fail "constructor body: ${ctor:0:200}"
 fi
 
+kt_test_start "the CONSTRUCTOR resolves its tool: \`tutil._gnu grep\` right after \`parent.constructor grep\` (L3.4 G1)"
+if [[ "$ctor" == *$'parent.constructor grep\n    tutil._gnu grep\n'* && "$ctor" != *inherited* ]]; then
+    kt_test_pass "\`tutil._gnu grep\` is the line after \`parent.constructor grep\`"
+else
+    kt_test_fail "constructor body: ${ctor:0:300}"
+fi
+
 kt_test_start "the DESTRUCTOR frees \`\${inst}_paths\` and then chains with \`inherited\`"
 dtor="$(sed -n '/^TGrep.Destroy()/,/^}/p' "$UNIT")"
 if [[ "$dtor" == *'unset -v "${__inst__}_paths"'* && "$dtor" == *inherited* ]]; then
@@ -103,7 +112,7 @@ fi
 kt_test_start "no \`var\` shadows a TUtil or kklass member name (PLAN §1.2 reserved set)"
 # A method wrapper is generated after the property wrapper and wins silently, so
 # `obj.count = 5` on a shadowing var would be accepted and discarded.
-RESERVED=" cmd crlf nul _lastRc subshellOk _textMode buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
+RESERVED=" cmd crlf nul _lastRc subshellOk _textMode _toolErr buildArgv addArg clearArgs argv run each toArray toList first count lastRc mapRc property call parent delete "
 clash=""
 declared=""
 while IFS= read -r line; do
@@ -128,23 +137,15 @@ else
 fi
 
 # ===========================================================================
-kt_test_section "Z. the GNU banner gate, and a small tree for the children"
+kt_test_section "Z. the ktool gate, and a small tree for the children"
 # ===========================================================================
 
-GNU_OK=0
-kt_test_start "the \`grep\` on PATH is GNU grep"
-GREP_VER="$(grep --version 2>/dev/null | head -1 || :)"
-if [[ "$GREP_VER" == "grep (GNU grep) "* ]]; then
-    GNU_OK=1
-    kt_test_pass "$GREP_VER"
-else
-    kt_test_pass "SKIP: non-GNU grep ('${GREP_VER:-no banner}'); every case that runs grep is skipped"
-fi
+kt_gnu_gate grep GREP_BIN
 
 tcase() {
     kt_test_start "$1"
     if [[ "$GNU_OK" != "1" ]]; then
-        kt_test_pass "SKIP: non-GNU grep"
+        kt_test_pass "SKIP: $GNU_WHY"
         return 1
     fi
     return 0

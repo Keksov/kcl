@@ -49,6 +49,9 @@ declare -g __TFD_SEQ=0
 
 # ---------------------------------------------------------------------------
 # TFind — the GNU findutils 4.10.0 `find` wrapper over TUtil.
+# The tool is the GNU find ktool resolves (`cmd` = its absolute path: `find`,
+# or `gfind` on FreeBSD); with none, `.new` still works and the first
+# run/sink/argv answers rc 2 with ktool's reason.
 #
 #     source kcl/tfind/tfind.sh
 #
@@ -101,7 +104,9 @@ declare -g __TFD_SEQ=0
 # nothing, rc 0.
 #
 # ---- rc 2 at buildArgv: nothing runs, one kk.debug line --------------------
-#   * `cmd` empty (the instance was disarmed by hand);
+#   * `cmd` empty: no GNU find was found when the instance was created
+#     (`_toolErr` holds ktool's reason and is the line printed), or the
+#     instance was disarmed by hand;
 #   * a start point that is EMPTY or begins with `-`, `!` or `(`;
 #   * `type` outside the regex;
 #   * `maxDepth`/`minDepth` that is not an integer, or is negative;
@@ -134,13 +139,15 @@ declare -g __TFD_SEQ=0
 #  * The constructor calls `parent.constructor find` EXPLICITLY. `inherited` in
 #    a constructor body is rewritten to `parent.constructor "$@"`
 #    (kklass_pascal.sh:166) and would hand TUtil `cmd=START` plus every other
-#    start point as an extra argument — each would then appear twice.
+#    start point as an extra argument — each would then appear twice. It then
+#    calls `tutil._gnu find` (`cmd` = the GNU find ktool resolved, or '' with
+#    the reason in `_toolErr`).
 #  * EVERY declared var is assigned in `Create`: kklass binds a property as a
 #    nameref onto `${inst}_data[NAME]`, an unassigned one is an unbound variable
 #    under `set -u`, and `.new` over a still-live instance does not clear
 #    `_data`.
 #  * No `var` here may be named like a TUtil member (`cmd crlf nul _lastRc
-#    subshellOk _textMode buildArgv addArg clearArgs argv run each toArray toList
+#    subshellOk _textMode _toolErr buildArgv addArg clearArgs argv run each toArray toList
 #    first count lastRc mapRc`) or a kklass one (`property call parent delete`): the
 #    method wrapper is generated after the property wrapper and wins silently.
 #    `type` is safe — it is a VARIABLE name and the `type` builtin lives in a
@@ -184,12 +191,15 @@ end
 #
 # `parent.constructor find` is spelled out: `inherited` would forward THIS
 # constructor's arguments to TUtil and make `cmd` the first start point while
-# the rest became TUtil extras — every one would then appear twice. After it,
-# EVERY declared var is assigned (booleans `0`, strings `''`), and the
+# the rest became TUtil extras — every one would then appear twice.
+# `tutil._gnu find` then resolves the tool into `cmd` (L3.4: no GNU find =
+# `cmd` '' and `_toolErr`, `.new` still succeeds; the first buildArgv answers
+# rc 2). EVERY declared var is assigned (booleans `0`, strings `''`), and the
 # start-point list becomes a real global array next to `${inst}_data`, released
 # by the destructor (kcl/README.md §1.9).
 TFind.Create() {
     parent.constructor find
+    tutil._gnu find
     name=''
     iname=''
     type=''
@@ -241,7 +251,7 @@ TFind.buildArgv() {
 
     # ---- the rc 2 list, checked before a single word is built -------------
     if [[ -z "$cmd" ]]; then
-        kk.debug "Error: TFind.buildArgv: cmd is empty; there is nothing to run"
+        kk.debug "Error: TFind.buildArgv: ${_toolErr:-cmd is empty; there is nothing to run}"
         kk._return ""
         return 2
     fi

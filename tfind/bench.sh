@@ -128,15 +128,26 @@ gate_ratio() {  # label median_us base_median_us limit_tenths -> ratio + PASS/FA
         "$1" $(( r100/100 )) $(( r100%100 )) $(( $4/10 )) $(( $4%10 )) "$verdict"
 }
 
-# --- the GNU banner gate ----------------------------------------------------
-# D4 pins the DIALECT (GNU findutils 4.10.0), not a binary. Every number below
-# is about that tool; on anything else they are not comparable, so say so loudly
-# instead of publishing a meaningless table.
-FIND_BANNER="$(find --version 2>/dev/null | sed -n 1p || true)"
-case "$FIND_BANNER" in
-    "find (GNU findutils) "*) ;;
-    *) echo "tfind bench: SKIPPED — \`find\` is not GNU findutils: '$FIND_BANNER'"; exit 0 ;;
-esac
+# --- the GNU gate (ktool) ---------------------------------------------------
+# D4 pins the DIALECT (GNU findutils 4.10.0), not a binary. `ktool.gnu find` (the
+# kkore unit ktool, loaded by tutil) answers the GNU find TFind itself resolves:
+# the path is FIND_BIN, the bare baselines below run it too. Every number below
+# is about that tool; with none, say so loudly (ktool's own text, which names
+# the package) instead of publishing a meaningless table.
+__kt_rc=0
+ktool.gnu find || __kt_rc=$?
+if (( __kt_rc == 0 )); then
+    FIND_BIN=$RESULT
+    FIND_BANNER="$(LC_ALL=C "$FIND_BIN" --version </dev/null 2>/dev/null | head -n 1 || true)"
+else
+    ktool.lastError
+    if (( __kt_rc == 2 )); then
+        echo "tfind bench: FAILED (ktool rc 2) - $RESULT"
+    else
+        echo "tfind bench: SKIPPED - $RESULT"
+    fi
+    exit 0
+fi
 
 # --- the corpus -------------------------------------------------------------
 # Two trees, both under one `mktemp -d`: BIG has NDIR * NF `.txt` files (plus one
@@ -199,7 +210,7 @@ bench_counted() { BENCH_RAN=$(( BENCH_RAN + 1 )); return 0; }
 BF.cmd = bench_counted
 pid_a="$BASHPID"
 for (( i = 0; i < ND; i++ )); do BF.argv BW; done
-BF.cmd = find
+BF.cmd = "$FIND_BIN"
 if (( BENCH_RAN == 0 )) && [[ "$BASHPID" == "$pid_a" ]]; then
     echo "  RUNS NOTHING: with cmd pointed at a counting function, $ND builds invoked it 0 times"
     echo "  FORK-FREE:    BASHPID $pid_a unchanged across all $(( ND * 3 )) builds"
@@ -255,12 +266,12 @@ gate_shape() {
 
     # warm the directory cache and every code path once, so neither side pays
     # for the first walk of the corpus or the first bind of a member wrapper.
-    find "$__tree" -name '*.txt' >/dev/null 2>&1 || :
+    "$FIND_BIN" "$__tree" -name '*.txt' >/dev/null 2>&1 || :
     TFind.byName '*.txt' "$__tree" >/dev/null 2>&1 || :
 
     for (( __i = 0; __i < NR; __i++ )); do
         TStopwatch.getTimeStamp; __a0=$RESULT
-        find "$__tree" -name '*.txt' >/dev/null || :
+        "$FIND_BIN" "$__tree" -name '*.txt' >/dev/null || :
         TStopwatch.getTimeStamp; __a1=$RESULT
         __t_bare+=( $(( __a1 - __a0 )) ); __s_bare=$(( __s_bare + __a1 - __a0 ))
 
@@ -310,14 +321,14 @@ n_wc=''; n_cnt=''
 # timed loop would add a fork to the baseline and dilute the very comparison.
 # `tr -dc '\0' | wc -c` is the NUL-framed equivalent of `wc -l`: it counts the
 # record TERMINATORS, so a name containing a newline still counts once.
-n_wc="$( find "$BIG" -name '*.txt' -print0 | tr -dc '\0' | wc -c )"
+n_wc="$( "$FIND_BIN" "$BIG" -name '*.txt' -print0 | tr -dc '\0' | wc -c )"
 n_wc="${n_wc//[[:space:]]/}"
 BQ.count >/dev/null 2>&1 || :
 BQ1.count >/dev/null 2>&1 || :
 
 for (( i = 0; i < NR; i++ )); do
     TStopwatch.getTimeStamp; t0=$RESULT
-    find "$BIG" -name '*.txt' -print0 | tr -dc '\0' | wc -c >/dev/null || :
+    "$FIND_BIN" "$BIG" -name '*.txt' -print0 | tr -dc '\0' | wc -c >/dev/null || :
     TStopwatch.getTimeStamp; t1=$RESULT
     T_WC+=( $(( t1 - t0 )) ); b_wc=$(( b_wc + t1 - t0 ))
 

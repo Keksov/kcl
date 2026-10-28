@@ -29,6 +29,9 @@ declare -g __TG_SEQ=0
 
 # ---------------------------------------------------------------------------
 # TGrep — the first TUtil wrapper: GNU grep 3.0 with typed options.
+# The tool is the GNU grep ktool resolves (`cmd` = its absolute path: `grep`,
+# or `ggrep` on FreeBSD); with none, `.new` still works and the first
+# run/sink/argv answers rc 2 with ktool's reason.
 #
 #     source kcl/tgrep/tgrep.sh
 #
@@ -56,7 +59,9 @@ declare -g __TG_SEQ=0
 # output is data.
 #
 # ---- rc 2 at buildArgv: nothing runs, one kk.debug line --------------------
-#   * `cmd` empty (the instance was disarmed by hand);
+#   * `cmd` empty: no GNU grep was found when the instance was created
+#     (`_toolErr` holds ktool's reason and is the line printed), or the
+#     instance was disarmed by hand;
 #   * `pattern` empty — `-e ''` matches every line, which no caller means;
 #   * `fixed` + `extended` (-F and -E): grep itself answers 2;
 #   * `filesOnly` + `filesWithoutMatch` (-l and -L) and `noFilename` +
@@ -93,13 +98,15 @@ declare -g __TG_SEQ=0
 #  * The constructor calls `parent.constructor grep` EXPLICITLY. `inherited` in
 #    a constructor body is rewritten to `parent.constructor "$@"`
 #    (kklass_pascal.sh:166) and would hand TUtil `cmd=PATTERN` plus every path
-#    as an extra argument — the hit list doubled (PLAN §2.1).
+#    as an extra argument — the hit list doubled (PLAN §2.1). It then calls
+#    `tutil._gnu grep` (`cmd` = the GNU grep ktool resolved, or '' with the
+#    reason in `_toolErr`).
 #  * EVERY declared var is assigned in `Create`: kklass binds a property as a
 #    nameref onto `${inst}_data[NAME]`, an unassigned one is an unbound variable
 #    under `set -u`, and `.new` over a still-live instance does not clear
 #    `_data`.
 #  * No `var` here may be named like a TUtil member (`cmd crlf nul _lastRc
-#    buildArgv addArg clearArgs argv run each toArray toList first count lastRc
+#    _toolErr buildArgv addArg clearArgs argv run each toArray toList first count lastRc
 #    mapRc`) or a kklass one (`property call parent delete`): the method wrapper
 #    is generated after the property wrapper and wins silently.
 #  * Booleans are compared as strings (`[[ "$x" == 1 ]]`); `(( x ))` on a
@@ -155,11 +162,14 @@ end
 # `parent.constructor grep` is spelled out: `inherited` would forward THIS
 # constructor's arguments to TUtil and make `cmd` the pattern while every path
 # became a TUtil extra arg — each path would then appear twice in the argv.
-# After it, EVERY declared var is assigned (booleans `0`, strings `''`), and the
+# `tutil._gnu grep` then resolves the tool into `cmd` (L3.4: no GNU grep =
+# `cmd` '' and `_toolErr`, `.new` still succeeds; the first buildArgv answers
+# rc 2). EVERY declared var is assigned (booleans `0`, strings `''`), and the
 # operand list becomes a real global array next to `${inst}_data`, released by
 # the destructor (kcl/README.md §1.9).
 TGrep.Create() {
     parent.constructor grep
+    tutil._gnu grep
     pattern="${1:-}"
     ignoreCase=0
     invert=0
@@ -222,7 +232,7 @@ TGrep.buildArgv() {
 
     # ---- the rc 2 list, checked before a single word is built -------------
     if [[ -z "$cmd" ]]; then
-        kk.debug "Error: TGrep.buildArgv: cmd is empty; there is nothing to run"
+        kk.debug "Error: TGrep.buildArgv: ${_toolErr:-cmd is empty; there is nothing to run}"
         kk._return ""
         return 2
     fi

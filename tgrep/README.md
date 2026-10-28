@@ -4,7 +4,7 @@
 > option set, the pinned argv, the rc 2 list, the `mapRc` override, `paths`, the
 > destructor, the static `search`, the bench and the docs. Suite:
 > `tests/004_Argv.sh`, `tests/005_Search.sh`, `tests/006_Contract.sh`,
-> `tests/007_Bench.sh` — **184 checks green on bash 5.2.37 and 184 on bash
+> `tests/007_Bench.sh` — **203 checks green on bash 5.2.37 and 203 on bash
 > 5.3.9**, threaded and under `--mode single`, against **GNU grep 3.0**.
 > What the tests pin, case by case:
 > **[TEST_COVERAGE_NOTES.md](../docs/dev/tgrep/TEST_COVERAGE_NOTES.md)**. The design record, the
@@ -85,9 +85,28 @@ TGrep.new INST [PATTERN [PATH...]]
 | `mapRc RAW` | func | — | override; §3 |
 | `TGrep.search PATTERN PATH...` | static proc | — | `grep -r`, streamed; §7 |
 
-Inherited from [`TUtil`](../tutil/README.md) unchanged: `cmd` (`grep`), `crlf`,
-`nul`, `_lastRc`, **`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`,
-`lastRc`, and the five sinks `each` / `toArray` / `toList` / `first` / `count`.
+Inherited from [`TUtil`](../tutil/README.md): `cmd` — **the absolute path of
+the GNU grep the kkore unit `ktool` resolved** (`/usr/bin/grep` on Git-bash,
+`/usr/local/bin/ggrep` on FreeBSD; `KCL_GNU_GREP=/path` picks one, and `ktool`
+refuses a wrong one), set by the constructor; `crlf`, `nul`, `_lastRc`,
+**`subshellOk`**, `addArg`, `clearArgs`, `argv NAME`, `run`, `lastRc`, and the
+five sinks `each` / `toArray` / `toList` / `first` / `count`. A `cmd` you set by
+hand afterwards is used as given (no identity check). The resolved instance is
+frozen: a later `PATH` or `KCL_GNU_GREP` change reaches the next `.new`, not
+this one.
+
+**No GNU grep on the box?** `.new` still succeeds (rc 0, silent) with `cmd` `''`;
+the first member that builds the argv (`run`, a sink, or `argv`) and the static
+`TGrep.search` answer **rc 2** with one `kk.debug` line carrying ktool's reason,
+which names the package (`no GNU grep: …; FreeBSD: pkg install gnugrep`,
+`Alpine: apk add grep`). Nothing runs. Setting `cmd` re-arms the instance;
+`_toolErr` keeps ktool's reason after the re-arm, so a later hand-set
+`cmd = ''` prints that reason again.
+
+**In `$( )`:** ktool's answer is cached per process, so a `.new` (or `search`)
+inside `$( … )` in a shell that never resolved grep pays the cold probe on
+**every** call. Call `ktool.gnu grep` (or create one instance) once in the main
+shell before using TGrep inside `$( )`.
 
 `subshellOk` is the D6-final switch (default `0`): `g.subshellOk = 1` makes every
 sink pass `-s` to `TPipe`, which silences the subshell warning `$(g.toArray a)`
@@ -124,7 +143,7 @@ printf 'one needle\ntwo\n' | g.run      # -> one needle
 ```
 
 `g.argv NAME` builds the array and **runs nothing**, which is how the whole
-option set is pinned in `tests/004_Argv.sh` without executing grep once.
+option set is pinned in `tests/004_Argv.sh` without executing grep once. In the diagrams `grep` stands for word 0, which is `cmd`: the resolved absolute path.
 
 No `-P` (PCRE is optional in a GNU build and absent from the house ERE line,
 [tregex](../tregex/README.md)) and no `--color`, ever — the output is data.
@@ -141,7 +160,7 @@ instance still reads `-1`), and exactly **one** `kk.debug` line names the reason
 
 | Refusal | Why |
 |---|---|
-| `cmd` empty | the instance was disarmed by hand |
+| `cmd` empty | the instance was disarmed by hand, or no GNU grep was found at `.new` (the line is then ktool's reason, with the package hint) |
 | `pattern` empty | `grep -e ''` matches every line — no caller means that |
 | `fixed` + `extended` | `-F -E`: grep itself answers 2 |
 | `filesOnly` + `filesWithoutMatch` | grep **accepts** `-l -L` with last-flag-wins semantics, so the answer would depend on this builder's fixed order rather than on anything the caller wrote |
@@ -422,7 +441,7 @@ rule:
   under `set -u`, and `.new` over a still-live instance does not clear `_data`,
   so it can inherit the previous instance's value.
 * **Never declare a `var` named like an inherited member.** `TUtil` owns
-  `cmd crlf nul _lastRc subshellOk buildArgv addArg clearArgs argv run each
+  `cmd crlf nul _lastRc subshellOk _toolErr buildArgv addArg clearArgs argv run each
   toArray toList first count lastRc mapRc` and kklass owns `property call parent delete`; the
   method wrapper is generated after the property wrapper and wins silently, so
   `obj.count = 5` would be accepted and discarded.
@@ -520,16 +539,22 @@ bash kcl/tgrep/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tgrep/tests/tests.sh
 ```
 
-**197 cases, green on bash 5.2.37 and on bash 5.3.9** (launch L2.7-C), in the default threaded
+**203 cases, green on bash 5.2.37 and on bash 5.3.9** (launch L2.7-C; the move onto ktool, launch L3.4, adds 5 cases to `004` and 1 to `006`), in the default threaded
 mode and under `--mode single`, against GNU grep 3.0. Case-by-case:
 [TEST_COVERAGE_NOTES.md](../docs/dev/tgrep/TEST_COVERAGE_NOTES.md). The behavioural files all open
-with the **GNU banner gate**: this box carries a non-GNU `grep` (Embarcadero)
-that can win the PATH race, and D4 pins the *dialect*, so without the banner
-every behavioural case is a loud SKIP and the case count is unchanged.
+with the **ktool gate**: one case asks the kkore unit ktool (through
+`kt_gnu_gate grep GREP_BIN`, `tutil/tests/gnu_helper.sh`) for a GNU grep — ktool
+skips a non-GNU `grep` earlier on PATH — and `GREP_BIN` is the very grep TGrep
+resolves, so every oracle runs it. D4 pins the *dialect*, so with none every
+behavioural case is a loud `SKIP: <ktool's reason>` (with the package hint) and
+the case count is unchanged. `004` never runs grep: it selects a stub GNU grep
+with `kt_gnu_stub` (`KCL_GNU_GREP`), so it runs in full on a box without one and
+its argv pins hold the stub's path as word 0 (`tutil._crStdin`, then the stub, in
+the stdin form).
 
 | File | Cases | What it pins |
 |---|---|---|
-| `004_Argv.sh` | 79 | **grep is never executed.** The lifecycle (all 23 declared vars plus TUtil's five — `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk` — present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions, including P3-F1 (a deriving build never CLAIMS a `nul` the caller already set) |
-| `005_Search.sh` | 60 | The GNU banner gate first, then a fixture tree (names with a space, a newline and a leading `-`, UTF-8, CRLF, a NUL-bearing file, a subdir, and **real** NTFS symlinks through `kt_make_symlink`) with the bare tool as the oracle: G5 no match on all five runners; G6 the `-E` dialect and the literal `(` without it; G7 the `-Z` framing in both directions; G8 a directory operand without `recursive`, `search` implying `-r`, and `search` refusing zero paths or an empty pattern; G9 the three forms; G10 the partial-failure deviation; G11 a nested `search` from inside a callback, in both shapes; G12 `-r` versus a real directory symlink (and `-R` as the counter-oracle); the CRLF table of §5; every remaining typed option against bare grep; and the binary-file record with its two escape hatches |
-| `006_Contract.sh` | 49 | `bash -n`, the open-quote and inline-`$'\r'` greps, no `$this.` call, `parent.constructor` in the constructor and `inherited` in the destructor, no `var` shadowing an inherited member; every shape from a child script under `set -eu` (an instance, both `TPipe` forms, `search` as a producer, a hit, no match, a grep error, a partial failure, a refused build, a refused `search`, the stdin form, `run` streaming, `delete`); and the debug switch — exactly one line on each of the 9 rc 2 paths and the 3 grep-error paths, **none** on any rc 0 or no-match path, with complete silence from us when the switch is off while grep's own lines pass through; and one **D6-final** case: `g.subshellOk = 1` silences TPipe's subshell warning through two frames of wrapper (the child's stderr must be empty), while without it `$(g2.toArray A2)` carries the verbatim `Warning: TPipe.toArray: …` line |
-| `007_Bench.sh` | 9 | The PLAN §5 P3.1 gates as assertions, behind the same banner gate and with a 10× ceiling: `TGrep.search` against a bare `grep -r` over a 2000-line corpus (interleaved, medians, both sides asserted to find the same 21 hits), `TGrep.new` + `.delete` under 50 ms, `g.count` and the `countOnly` shortcut against `grep -c` (with grep's own per-file numbers compared as a set); that 200 `buildArgv` + `argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback and `.Add` run in this process, and the seven builder members plus `run` and `search` leave `$BASHPID` untouched |
+| `004_Argv.sh` | 84 | **grep is never executed** (a stub GNU grep; word 0 is its path). The lifecycle (all 23 declared vars plus TUtil's seven — `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr` — present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions, including P3-F1 (a deriving build never CLAIMS a `nul` the caller already set); T6 — no GNU grep found (`KCL_GNU_GREP=/nonexistent`: `.new` rc 0 and silent, `argv`, `search`, a sink and the stdin form rc 2 with ktool's one line, `cmd = …` re-arms) |
+| `005_Search.sh` | 60 | The ktool gate first, then a fixture tree (names with a space, a newline and a leading `-`, UTF-8, CRLF, a NUL-bearing file, a subdir, and **real** NTFS symlinks through `kt_make_symlink`) with the bare tool as the oracle: G5 no match on all five runners; G6 the `-E` dialect and the literal `(` without it; G7 the `-Z` framing in both directions; G8 a directory operand without `recursive`, `search` implying `-r`, and `search` refusing zero paths or an empty pattern; G9 the three forms; G10 the partial-failure deviation; G11 a nested `search` from inside a callback, in both shapes; G12 `-r` versus a real directory symlink (and `-R` as the counter-oracle); the CRLF table of §5; every remaining typed option against bare grep; and the binary-file record with its two escape hatches |
+| `006_Contract.sh` | 50 | `bash -n`, the open-quote and inline-`$'\r'` greps, no `$this.` call, `parent.constructor` + `tutil._gnu grep` in the constructor and `inherited` in the destructor, no `var` shadowing an inherited member; every shape from a child script under `set -eu` (an instance, both `TPipe` forms, `search` as a producer, a hit, no match, a grep error, a partial failure, a refused build, a refused `search`, the stdin form, `run` streaming, `delete`); and the debug switch — exactly one line on each of the 9 rc 2 paths and the 3 grep-error paths, **none** on any rc 0 or no-match path, with complete silence from us when the switch is off while grep's own lines pass through; and one **D6-final** case: `g.subshellOk = 1` silences TPipe's subshell warning through two frames of wrapper (the child's stderr must be empty), while without it `$(g2.toArray A2)` carries the verbatim `Warning: TPipe.toArray: …` line |
+| `007_Bench.sh` | 9 | The PLAN §5 P3.1 gates as assertions, behind the same ktool gate and with a 10× ceiling: `TGrep.search` against a bare `grep -r` over a 2000-line corpus (interleaved, medians, both sides asserted to find the same 21 hits), `TGrep.new` + `.delete` under 50 ms, `g.count` and the `countOnly` shortcut against `grep -c` (with grep's own per-file numbers compared as a set); that 200 `buildArgv` + `argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback and `.Add` run in this process, and the seven builder members plus `run` and `search` leave `$BASHPID` untouched |
