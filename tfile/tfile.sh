@@ -155,23 +155,226 @@ tfile._crypto_password() {
     REPLY="$password"
 }
 
+# ---- encryption: the KBTF1 format (launch L34-F2, owner decision OG9) -----
+# An encrypted file is, byte for byte (README.md "Encryption"):
+#
+#     "KBTF1" (5) | MAC salt (8) | MAC (32) | CT
+#
+#   CT    exactly what `openssl enc -aes-256-cbc -salt -pbkdf2 -iter 10000
+#         -md sha256` writes: "Salted__", its own random 8-byte salt, blocks.
+#   MAC   HMAC-SHA256(K_mac, "KBTF1" | MAC salt | CT) - encrypt-then-MAC.
+#   K_mac the 32-byte key PBKDF2-HMAC-SHA256(password, MAC salt, 10000) that
+#         `openssl enc ... -S SALT -P` prints; the MAC salt is random and
+#         independent of CT's salt, so K_mac is independent of the cipher key.
+#
+# decrypt checks the MAC BEFORE it runs `openssl enc -d`: a wrong password and
+# every changed byte are rc 1 with FILE untouched (the old CBC-only format let
+# a wrong password through ~1 time in 256 and replaced FILE with garbage). A
+# file without the header - also one written by the old tfile.encrypt - is
+# refused; there is no legacy path.
+#
+# No secret ever reaches an argv: the password goes to openssl through
+# `-pass env:`, the MAC key comes back on openssl's stdout into a variable, and
+# HMAC is done by hand (RFC 2104) with the padded key written by the BUILTIN
+# printf into the pipe of `openssl dgst` (`-hmac KEY` / `-macopt` would show
+# it in `ps`). No `$( )` ever holds ciphertext or MAC bytes: binary data only
+# travels through files and pipes; od turns the header into hex.
+#
+# The parameters are pinned (-iter, -md) so decrypt never depends on an
+# openssl default; the one place they live is tfile._crypt_openssl_enc.
+#
+# Caller shell options are respected: `set -C` (the temp file mktemp made is
+# overwritten with `>|`), `set -a` (switched off for the call, so no secret is
+# exported to mv/od/tail/mktemp, then restored), and a FILE named `-` or `-x`
+# (openssl reads `< FILE`, never `-in FILE`).
+
+# openssl enc with the pinned cipher and KDF; the password comes from the
+# caller's local __tf_pw through the environment of the openssl process only.
+# The variable name is private: a prefix assignment to a READONLY
+# TFILE_CRYPTO_PASSWORD (the documented default source) would not run openssl.
+tfile._crypt_openssl_enc() {   # EXTRA_OPENSSL_ARGS...
+    __TFILE_KBTF1_PW="$__tf_pw" openssl enc -aes-256-cbc -pbkdf2 \
+        -iter 10000 -md sha256 -pass env:__TFILE_KBTF1_PW "$@"
+}
+
+# -> __tf_r = hex string $1 as printf \xHH escapes (for the builtin printf).
+tfile._crypt_hexEsc() {
+    local hex="$1" i
+    __tf_r=""
+    for (( i = 0; i < ${#hex}; i += 2 )); do
+        __tf_r+="\\x${hex:i:2}"
+    done
+}
+
+# -> __tf_r = MAC salt (16 hex digits) followed by K_mac (64 hex digits),
+#    lowercase. $1 = the salt in hex, or "" for a fresh random one (openssl
+#    draws it, as for its own -salt). -S puts only the salt on the argv - it is
+#    stored in the clear anyway; the key comes back on stdout.
+tfile._crypt_kdf() {
+    local out salt key
+    __tf_r=""
+    if [[ -n "$1" ]]; then
+        out=$(tfile._crypt_openssl_enc -S "$1" -P < /dev/null 2>/dev/null) || return 1
+    else
+        out=$(tfile._crypt_openssl_enc -P < /dev/null 2>/dev/null) || return 1
+    fi
+    # "salt=HEX\nkey=HEX\niv =HEX", uppercase, CRLF from a native Windows build.
+    [[ "$out" == *salt=* && "$out" == *key=* ]] || return 1
+    salt="${out#*salt=}"
+    salt="${salt%%[!0-9A-Fa-f]*}"
+    key="${out#*key=}"
+    key="${key%%[!0-9A-Fa-f]*}"
+    (( ${#salt} == 16 && ${#key} == 64 )) || return 1
+    __tf_r="${salt,,}${key,,}"
+}
+
+# -> __tf_r = lowercase hex HMAC-SHA256(key $1, PREFIX $2 | the bytes of file
+#    $3 from 1-based offset $4 on). $1 = 64 hex digits, $2 = \xHH escapes.
+#    The inner digest is -binary and goes straight into the outer openssl's
+#    stdin behind K^opad, so the 32 raw bytes never pass through a variable.
+tfile._crypt_hmac() {
+    local key="$1" prefix="$2" file="$3" from="$4" ipad="" opad="" i b h out
+    __tf_r=""
+    for (( i = 0; i < 64; i += 2 )); do
+        b=$(( 16#${key:i:2} ))
+        printf -v h '%02x' $(( b ^ 0x36 ))
+        ipad+="\\x$h"
+        printf -v h '%02x' $(( b ^ 0x5c ))
+        opad+="\\x$h"
+    done
+    # The key is 32 bytes; the SHA-256 block is 64: zero-padded key bytes.
+    for (( i = 32; i < 64; i++ )); do
+        ipad+='\x36'
+        opad+='\x5c'
+    done
+    out=$({ set -o pipefail
+            { builtin printf "$opad"
+              { builtin printf "$ipad$prefix"; tail -c "+$from" < "$file"; } \
+                  | openssl dgst -sha256 -binary
+            } | openssl dgst -sha256
+          } 2>/dev/null) || return 1
+    # "SHA2-256(stdin)= HEX" / "(stdin)= HEX", maybe CRLF: the last word.
+    out="${out%$'\r'}"
+    out="${out##*[[:space:]]}"
+    out="${out,,}"
+    [[ ${#out} -eq 64 && "$out" != *[!0-9a-f]* ]] || return 1
+    __tf_r="$out"
+}
+
+# Unpredictable temp file in the SAME directory as FILE (so the final mv is
+# atomic on the same filesystem). The old "${file}.tmp.$$" name was predictable
+# and racy: an attacker could pre-create/symlink it before openssl wrote.
+# -> __tf_r = the temp file's path. A directory part starting with `-` gets
+# a `./` so mktemp cannot take it for an option.
+tfile._crypt_tmp() {
+    tfile._parentDir "$1"
+    [[ "$__tf_r" == -* ]] && __tf_r="./$__tf_r"
+    __tf_r=$(mktemp "$__tf_r/.tfile_crypt.XXXXXXXX" 2>/dev/null) || { __tf_r=""; return 1; }
+}
+
+# $1 = FILE; needs __tf_pw and __tf_magic from tfile._crypt_file.
+tfile._crypt_encrypt() {
+    local file="$1" tmp_file key prefix __tf_r
+    if ! tfile._crypt_kdf ""; then
+        kk.debug "Error: TFile.encrypt: openssl could not derive the MAC key (openssl 1.1.1+ with -pbkdf2 is needed)"
+        return 1
+    fi
+    key="${__tf_r:16}"
+    tfile._crypt_hexEsc "$__tf_magic${__tf_r:0:16}"
+    prefix="$__tf_r"
+    tfile._crypt_tmp "$file" || return 1
+    tmp_file="$__tf_r"
+    # The header goes in first with 32 spaces where the MAC belongs; the MAC is
+    # computed over the finished file and written over them in place (`1<>`
+    # opens without truncating, so the ciphertext behind it stays).
+    if builtin printf "$prefix%32s" "" >| "$tmp_file" \
+        && tfile._crypt_openssl_enc -e -salt < "$file" >> "$tmp_file" 2>/dev/null \
+        && tfile._crypt_hmac "$key" "$prefix" "$tmp_file" 46 \
+        && tfile._crypt_hexEsc "$__tf_r" \
+        && builtin printf "$prefix$__tf_r" 1<> "$tmp_file" \
+        && mv -- "$tmp_file" "$file"; then
+        return 0
+    fi
+    rm -f -- "$tmp_file"
+    kk.debug "Error: TFile.encrypt: openssl or the temp file next to the file failed; the file is unchanged"
+    return 1
+}
+
+# $1 = FILE; needs __tf_pw and __tf_magic from tfile._crypt_file.
+tfile._crypt_decrypt() {
+    local file="$1" hex key prefix tmp_file __tf_r
+    local -a st
+    hex=$(od -A n -t x1 -v -N 45 < "$file" 2>/dev/null) || hex=""
+    hex="${hex//[!0-9a-f]/}"
+    if (( ${#hex} != 90 )) || [[ "${hex:0:10}" != "$__tf_magic" ]]; then
+        kk.debug "Error: TFile.decrypt: not a tfile-encrypted file (no KBTF1 header; the pre-KBTF1 format is refused)"
+        return 1
+    fi
+    if ! tfile._crypt_kdf "${hex:10:16}"; then
+        kk.debug "Error: TFile.decrypt: openssl could not derive the MAC key (openssl 1.1.1+ with -pbkdf2 is needed)"
+        return 1
+    fi
+    key="${__tf_r:16}"
+    tfile._crypt_hexEsc "${hex:0:26}"
+    prefix="$__tf_r"
+    if ! tfile._crypt_hmac "$key" "$prefix" "$file" 46; then
+        kk.debug "Error: TFile.decrypt: openssl could not compute the MAC"
+        return 1
+    fi
+    # Not constant-time (bash cannot be); a non-goal for a local tool.
+    if [[ "$__tf_r" != "${hex:26:64}" ]]; then
+        kk.debug "Error: TFile.decrypt: wrong password or a changed file (KBTF1 MAC mismatch)"
+        return 1
+    fi
+    tfile._crypt_tmp "$file" || return 1
+    tmp_file="$__tf_r"
+    tail -c +46 < "$file" 2>/dev/null \
+        | tfile._crypt_openssl_enc -d -out "$tmp_file" 2>/dev/null
+    st=( "${PIPESTATUS[@]}" )
+    if (( st[0] == 0 && st[1] == 0 )) && mv -- "$tmp_file" "$file"; then
+        return 0
+    fi
+    rm -f -- "$tmp_file"
+    kk.debug "Error: TFile.decrypt: openssl or the temp file next to the file failed; the file is unchanged"
+    return 1
+}
+
+# $1 = encrypt | decrypt, $2 = FILE, $3 = password ("" = $TFILE_CRYPTO_PASSWORD).
+# Every failure is rc 1 with FILE byte-identical and no temp file left.
+# Under the caller's `set -a` every local of the work (the password, the MAC
+# key) would be EXPORTED to each child process; allexport is switched off
+# BEFORE any local exists (a local declared under `set -a` keeps its export
+# attribute) and restored afterwards, the rc kept.
 tfile._crypt_file() {
+    if [[ $- == *a* ]]; then
+        set +a
+        tfile._crypt_run "$@"
+        set -- "$?"
+        set -a
+        return "$1"
+    fi
+    tfile._crypt_run "$@"
+}
+
+tfile._crypt_run() {
     local mode="$1" file="$2" password_arg="${3:-}"
-    local password tmp_file __tf_r
+    # REPLY is local: the password must not stay behind in the caller's REPLY.
+    local REPLY __tf_pw __tf_magic=4b42544631   # "KBTF1"
     [[ -f "$file" ]] || return 1
     tfile._crypto_password "$password_arg" || return 1
-    password="$REPLY"
-    # Unpredictable temp file in the SAME directory (so the final mv is atomic
-    # on the same filesystem). The old "${file}.tmp.$$" name was predictable
-    # and racy: an attacker could pre-create/symlink it before openssl wrote.
-    tfile._parentDir "$file"
-    tmp_file=$(mktemp "$__tf_r/.tfile_crypt.XXXXXXXX") || return 1
-    if TFILE_CRYPTO_PASSWORD="$password" openssl enc $mode -aes-256-cbc -salt -pbkdf2 \
-        -in "$file" -out "$tmp_file" -pass env:TFILE_CRYPTO_PASSWORD 2>/dev/null; then
-        mv -- "$tmp_file" "$file"
-    else
-        rm -f -- "$tmp_file"
+    __tf_pw="$REPLY"
+    if ! command -v openssl >/dev/null 2>&1; then
+        kk.debug "Error: TFile.$mode: openssl not found"
         return 1
+    fi
+    if [[ ! -r "$file" ]]; then
+        kk.debug "Error: TFile.$mode: cannot read '$file'"
+        return 1
+    fi
+    if [[ "$mode" == encrypt ]]; then
+        tfile._crypt_encrypt "$file"
+    else
+        tfile._crypt_decrypt "$file"
     fi
 }
 
@@ -369,7 +572,7 @@ tfile.replace() {
 # ---- encryption -----------------------------------------------------------
 
 tfile.encrypt() {
-    if tfile._crypt_file "" "${1:-}" "${2:-}"; then
+    if tfile._crypt_file encrypt "${1:-}" "${2:-}"; then
         tpath._ret ""
     else
         tpath._ret "" 1
@@ -378,7 +581,7 @@ tfile.encrypt() {
 }
 
 tfile.decrypt() {
-    if tfile._crypt_file "-d" "${1:-}" "${2:-}"; then
+    if tfile._crypt_file decrypt "${1:-}" "${2:-}"; then
         tpath._ret ""
     else
         tpath._ret "" 1
