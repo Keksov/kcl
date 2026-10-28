@@ -1242,6 +1242,7 @@ ths._v6short() {
 #   N accepting connection from AF=2 A:P on AF=2 …          → connected
 #   W accept: Connection timed out                          → ttl (then exit 0)
 #   E bind(5, {AF=2 …}, 16): Address already in use         → failed:TEXT
+#     (musl's strerror says `Address in use`; any E line is failed:TEXT)
 # NcBinary is inherited and unused; SocatBinary '' = $KCL_SOCAT, else `socat`
 # on PATH.
 # ===========================================================================

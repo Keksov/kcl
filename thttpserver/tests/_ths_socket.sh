@@ -127,7 +127,7 @@ ths_mark() {
             THS_RE_CONN='^Connection from' ;;
         socat)
             THS_RE_BOUND=' N listening on '
-            THS_RE_BINDFAIL='bind\(.*Address already in use'
+            THS_RE_BINDFAIL='bind\(.*Address (already )?in use'   # glibc / musl
             THS_RE_CONN=' N accepting connection from ' ;;
         *)
             THS_RE_BOUND='a^b'

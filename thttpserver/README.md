@@ -371,7 +371,7 @@ socat`, `dnf install socat`, `apk add socat`, `pkg install socat` (measured:
 | listener | `nc -l -c -vv -n -w TTL -s ADDR -p PORT` | `socat -d -d -lpsocat -t 0.5 TCP4-LISTEN:PORT,bind=ADDR,reuseaddr,accept-timeout=TTL STDIO` |
 | bound / accepted | `Listening on …` / `Connection from A:P` | `… N listening on …` / `… N accepting connection from AF=… A:P on …` (FreeBSD: `LEN=16 AF=2 A:P`) |
 | TTL expired | `Listen mode failed: Connection timed out` | `… W accept: Connection timed out` (FreeBSD: `Operation timed out`; exit 0) |
-| busy port (`LastError`) | `Error: Couldn't setup listening socket (err=-3)` | `bind(5, {AF=2 127.0.0.1:P}, 16): Address already in use` |
+| busy port (`LastError`) | `Error: Couldn't setup listening socket (err=-3)` | `bind(5, {AF=2 127.0.0.1:P}, 16): Address already in use` (musl: `Address in use`) |
 | after the server's stdin EOF | `-c`: closes the connection | `-t 0.5`: shuts the socket's write side, exits at the client's EOF or **0.5 s** later (measured 514–847 ms with a client that keeps the connection open, 1–6 ms with one that closes — below `CloseTimeout` 2 s, the drain never needs the kill) |
 | a client that half-closes after its request | — | socat waits at most `-t` 0.5 s for the response: a handler slower than that answers nobody |
 

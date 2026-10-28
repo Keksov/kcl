@@ -721,7 +721,7 @@ fi
 kt_test_section "2. fact 4: a busy port → Serve rc 1, LastError = the bind line, no listener left"
 # ===========================================================================
 
-B_TITLE="fact 4: busy port → Serve rc 1 at once, LastError = the backend's bind line (GNU nc 'Error: Couldn't setup listening socket (err=-3)', socat 'bind(…): Address already in use'), no child left"
+B_TITLE="fact 4: busy port → Serve rc 1 at once, LastError = the backend's bind line (GNU nc 'Error: Couldn't setup listening socket (err=-3)', socat 'bind(…): Address already in use', musl 'Address in use'), no child left"
 if ! ths_have_nc; then
     ths_skip "$B_TITLE"
 else
@@ -750,7 +750,7 @@ AFTER_HOOK=b_after'
     left="$(ls "$B_DIR/tmp")"
     leok=0
     case "$THS_BACKEND" in
-        socat) if [[ "$le" =~ bind\(.*Address\ already\ in\ use ]]; then leok=1; fi ;;
+        socat) if [[ "$le" =~ bind\(.*Address\ (already\ )?in\ use ]]; then leok=1; fi ;;  # glibc / musl wording
         *)     if [[ "$le" == "Error: Couldn't setup listening socket (err=-3)" ]]; then leok=1; fi ;;
     esac
     if [[ -n "$BL$bport" && $brc -eq 0 && "$rc" == 1 && $leok -eq 1 && "$ch" == 0 && -z "$left" && -z "$(<"$B_DIR/err")" ]]; then
