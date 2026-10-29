@@ -258,7 +258,8 @@ raw_get() {
         c=""
     done
     [[ -n "$c" ]] || return 1
-    printf 'GET /x HTTP/1.0\r\n\r\n' >&"$c"
+    # unquoted on purpose: bash 5.1 declare -f prints >&"W" as &> W (launch L4.3)
+    printf 'GET /x HTTP/1.0\r\n\r\n' >&$c
     IFS= read -r -d '' -u "$c" r
     exec {c}<&-
     [[ "$r" == "HTTP/1.1 200 OK"* ]]

@@ -135,8 +135,10 @@ kt_test_start "every row has its runtime stub NNN_<UNIT>.sh and every stub a row
 bad=""
 declare -A stub=()
 for s in "$SCRIPT_DIR"/[0-9][0-9][0-9]_*.sh; do
-    s=${s##*/}; s=${s#[0-9][0-9][0-9]_}; s=${s%.sh}
-    [[ $s == UnitFiles ]] && continue
+    s=${s##*/}
+    # 0NN_*: repo-wide checks (this file, 002_Bash51Hazards), not unit stubs
+    [[ $s == 0* ]] && continue
+    s=${s#[0-9][0-9][0-9]_}; s=${s%.sh}
     stub[$s]=1
     [[ $rows == *" $s "* ]] || bad+=" stub-without-row:$s"
 done

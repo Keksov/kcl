@@ -874,7 +874,8 @@ math._fe_spawn() {
     # `2>/dev/null` FIRST: redirections apply left to right, so a bad fd (the
     # co-process already disposed of, see above) made `>&fd 2>/dev/null` print
     # `Bad file descriptor` before stderr was redirected (launch L3.5-5)
-    if printf 'pi\n' 2>/dev/null >&"$__MATH_FE_IN"; then
+    # unquoted on purpose: bash 5.1 declare -f prints >&"W" as &> W (launch L4.3)
+    if printf 'pi\n' 2>/dev/null >&$__MATH_FE_IN; then
         IFS= read -r -t "$__MATH_FE_TIMEOUT" -u "$__MATH_FE_OUT" __m_probe 2>/dev/null || __m_rc=$?
         if (( __m_rc == 0 )) && [[ -n $__m_probe ]]; then
             __MATH_FE_UP=1
@@ -1067,7 +1068,8 @@ math._fe() {
         kk.debug "math: request of ${#__m_req} characters exceeds this awk's line buffer ($__MATH_FE_LINEMAX)"
         REPLY=""; return 1
     fi
-    printf '%s\n' "$__m_req" 2>/dev/null >&"$__MATH_FE_IN" || {
+    # unquoted on purpose: bash 5.1 declare -f prints >&"W" as &> W (launch L4.3)
+    printf '%s\n' "$__m_req" 2>/dev/null >&$__MATH_FE_IN || {
         math._fe_drop; REPLY=""; return 1
     }
     # `read -t` costs ~410 us per call on BOTH bashes here (measured 5.2.37 and

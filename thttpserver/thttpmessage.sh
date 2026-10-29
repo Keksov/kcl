@@ -862,7 +862,8 @@ THttpResponse.SendContent() {
         __ths_out+="$__ths_body"
     fi
     _contentSent=1
-    if ! printf '%s' "$__ths_out" 2>/dev/null >&"$__ths_fd"; then
+    # unquoted on purpose: bash 5.1 declare -f prints >&"W" as &> W (launch L4.3)
+    if ! printf '%s' "$__ths_out" 2>/dev/null >&$__ths_fd; then
         kk.debug "Error: THttpResponse.SendContent: the write to fd $__ths_fd failed"
         return 1
     fi

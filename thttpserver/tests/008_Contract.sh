@@ -138,8 +138,8 @@ if [[ -z "$bad" ]]; then kt_test_pass "all fourteen arrays, replay/netcat chain 
 
 kt_test_start "SendContent writes with ONE printf to the fd, stderr silenced before the fd redirection"
 b="$(sed -n '/^THttpResponse.SendContent()/,/^}/p' "$MSG")"
-nw=0; while IFS= read -r l; do [[ "$l" == *'>&"$__ths_fd"'* ]] && nw=$(( nw + 1 )); done <<< "$b"
-if [[ $nw -eq 1 && "$b" == *"printf '%s' \"\$__ths_out\" 2>/dev/null >&\"\$__ths_fd\""* ]]; then kt_test_pass "one write"; else kt_test_fail "writes=$nw"; fi
+nw=0; while IFS= read -r l; do [[ "$l" == *'>&$__ths_fd'* ]] && nw=$(( nw + 1 )); done <<< "$b"
+if [[ $nw -eq 1 && "$b" == *"printf '%s' \"\$__ths_out\" 2>/dev/null >&\$__ths_fd"* ]]; then kt_test_pass "one write"; else kt_test_fail "writes=$nw"; fi
 
 kt_test_start "scope: thttpserver.sh is a unit whose dependencies are \`kk.uses kklass_pascal || return\` and \`kk.uses thttpmessage thttprouter tstopwatch || return\`, with no \`source\` line (kklass/USES_PLAN.md U4 rule 3, amendment b); declares exactly the two transports + TNetcatTransport + TSocatTransport (L2.7-N2) + THttpServer; the application is in its own file"
 srcs="$(grep -E '^[[:space:]]*(source|\.)[[:space:]]' "$UNIT" || :)"
