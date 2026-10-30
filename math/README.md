@@ -1,6 +1,6 @@
 # math — Free Pascal `Math` for bash (kcl)
 
-A bash port of FPC's `Math` unit as a kcl [kklass](../../kklass) Pascal-DSL
+A bash port of FPC's `Math` unit as a kcl [kklass](https://github.com/Keksov/kklass/tree/main) Pascal-DSL
 **static utility class**: 123 public methods called as `math.<Method>`.
 
 FPC's `Math` is ~80% floating point, and bash has no float type, so the port is

@@ -32,7 +32,7 @@
 *(Superseded by uses U4 (2026-10-14): the probe scripts below source `kklass_pascal.sh` by an absolute path, as they were run then; today a script writes `source /path/to/kbool/kbool.sh && kk.uses kklass_pascal` — kcl/README.md §1.10.)*
 
 **How to read the measurements.** Every section below is a script that can be
-pasted into a file and run. Each was run on **bash 5.2.37 (MSYS2 `bash`)** and on
+pasted into a file and run. `KBOOL_HOME` is your kbool checkout. Each was run on **bash 5.2.37 (MSYS2 `bash`)** and on
 **bash 5.3.9 (`C:/bin/msys64/usr/bin/bash.exe`)**, sequentially, on Windows 11 /
 MSYS2. Where the output was byte-identical on the two — which is every section
 but §4, where the numbers are timings — it is shown once and said so. The probes
@@ -50,7 +50,7 @@ in an ordinary pipe — silently, with no error anywhere.
 
 ```bash
 #!/usr/bin/env bash
-source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
+source "$KBOOL_HOME/kklass/kklass_pascal.sh"
 
 class TCounter
     public
@@ -93,7 +93,7 @@ extra function frames kklass's thin static dispatcher adds do not disturb it.
 
 ```bash
 #!/usr/bin/env bash
-source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
+source "$KBOOL_HOME/kklass/kklass_pascal.sh"
 
 class TProbe
     public

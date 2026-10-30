@@ -1,6 +1,6 @@
 # dateutils — Free Pascal `DateUtils` for bash
 
-A faithful bash port of FPC's `DateUtils` unit as a kcl [kklass](../../kklass)
+A faithful bash port of FPC's `DateUtils` unit as a kcl [kklass](https://github.com/Keksov/kklass/tree/main)
 Pascal-DSL **static utility class**: 185 public methods called as
 `dateutils.<Method>`. Pure-bash integer arithmetic, **zero `date` forks** on the
 hot paths, thin (capture-free) dispatch on bash 5.2 and 5.3 alike.

@@ -253,7 +253,7 @@ the socket tests drive — substitutability, and the fork-free proofs.
 | `Address` / `Port` | `127.0.0.1` / `8080` | |
 | `ListenerTTL` | 60 | `nc -w`: an orphan's time-to-live only (it limits accept, not a connection) |
 | `CloseTimeout` | 2 | the bound of the drained close |
-| `StdinRelay` | 1 | nc's stdin through `cat` (required under bash 5.2.37, §6); 0 only for a same-runtime nc |
+| `StdinRelay` | 1 | nc's stdin through `cat` (required under bash 5.2.37, §6); 0 only for a same-runtime nc (measured on Git-bash 5.2.37; not re-measured on 5.3.15) |
 
 `BuildArgv OUTARR` (virtual) → `NC -l -c -vv -n -w TTL -s ADDR -p PORT`, after
 the nc was found (rc 1 `nc not found …` otherwise) **and identified as GNU
@@ -756,7 +756,7 @@ into `ServeOne` (so it fires under `App.Run` too), and made the application's
   netcat, then an explicit socat, then PATH). Under bash 5.3.9 (msys64) `nc`
   is on PATH. Under bash 5.2.37 (Git for Windows) it is **not** — point
   `KCL_NC` (or `NcBinary`) at `/c/bin/msys64/usr/bin/nc.exe`; the examples and
-  the tests do that fallback themselves. A Git-runtime FIFO cannot be msys64
+  the tests do that fallback themselves (measured on Git-bash 5.2.37; not re-measured on 5.3.15). A Git-runtime FIFO cannot be msys64
   nc's stdin (`select(core_readwrite): Bad file descriptor` on accept): the
   `cat` relay (`StdinRelay = 1`, the default) is what makes it work.
   Under Git-bash the netcat usually comes from MSYS2 (another msys runtime);

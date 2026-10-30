@@ -39,7 +39,7 @@
 *(Superseded by uses U4 (2026-10-14): the probe scripts below source `kklass_pascal.sh`, `tutil.sh` and `tgrep.sh` by absolute paths, as they were run then; today a script writes `source /path/to/kbool/kbool.sh && kk.uses tutil` (or `kklass_pascal`, `tgrep`) — kcl/README.md §1.10.)*
 
 **How to read the measurements.** Every script in [§3](#3-the-measurements) can
-be pasted into a file and run. Each was run on **bash 5.2.37 (MSYS2 `bash`)** and
+be pasted into a file and run. `KBOOL_HOME` is your kbool checkout. Each was run on **bash 5.2.37 (MSYS2 `bash`)** and
 on **bash 5.3.9 (`C:/bin/msys64/usr/bin/bash.exe`)**, sequentially, on Windows 11
 / MSYS2 with GNU grep 3.0. Where the output was byte-identical on the two it is
 shown once and said so; §3.3 is the one probe whose answer **differs between the
@@ -119,7 +119,7 @@ the column that matters is the last one — **every one of them is a test today*
 |---|---|---|---|---|
 | C1 | BLOCKER | `$this.func` inside a member prints the callee's `kk._return` under `$( )` / `\|` / `<( )` — `run` leaked digits into its own stream | PLAN §2.2, §6; `kk.call_silent` everywhere in both units | 001 §D (three positions, byte-exact), 006 §0 ("no internal call is spelled `$this.`"); measured in [§3.1](#31-c1--thisfunc-prints-under--) |
 | C2 | BLOCKER | `inherited` in a **constructor** is rewritten to `parent.constructor "$@"` and forwards the descendant's arguments — every TGrep path was emitted twice | PLAN §2.1, §6; `TGrep.Create` calls `parent.constructor grep` explicitly | 004 §A (`${g}_args` empty after `new g PAT PATH`), 006 §0 (the source itself); [§3.2](#32-c2--inherited-in-a-constructor-forwards-) |
-| C3 | BLOCKER | an unassigned `var` is an **unbound variable** under `set -u`, and `.new` over a still-live instance does not clear `${inst}_data` | PLAN §2.1, §6; both constructors assign **every** declared var | 001 §A (all four vars + `set -u` read), 004 §A (all 23 vars, and a reused name starting clean); [§3.3](#33-c3--an-unassigned-var-is-unbound-under-set--u--and-the-two-bashes-disagree) |
+| C3 | BLOCKER | an unassigned `var` is an **unbound variable** under `set -u`, and `.new` over a still-live instance does not clear `${inst}_data` | PLAN §2.1, §6; both constructors assign **every** declared var | 001 §A (all four vars + `set -u` read), 004 §A (all 23 vars, and a reused name starting clean); [§3.3](#33-c3--an-unassigned-var-is-unbound-under-set--u-and-the-two-bashes-disagree) |
 | C4 | BLOCKER | G8 and the flagship example contradicted each other: `grep DIR` without `-r` is rc 2 with zero records | PLAN §2.5 — `search` implies `-r` **and** requires ≥ 1 path; an instance never implies it | 005 §D (7 cases) |
 | C5 | BLOCKER | a `func` cannot answer a value **and** a non-zero rc with `RESULT=V; return N` | PLAN §2.3 ordered tail, §6; all four func sinks end `kk._return V; return N` | 002 §B (direct, under `$( )`, on the LHS of a pipe); [§3.4](#34-c5--resultv-return-n-loses-v) |
 | C6 | MAJOR | `(` is a **literal** under BRE, so the draft's G6 was wrong without `-E` | PLAN §3 G6 rewritten | 005 §B (4 cases: `-E` + `(`, the literal without it, `-F`, and a valid ERE) |
@@ -171,7 +171,7 @@ positions `run` exists for. `kk.call_silent` sets and restores the flag, keeps
 
 ```bash
 #!/usr/bin/env bash
-source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
+source "$KBOOL_HOME/kklass/kklass_pascal.sh"
 
 class TStream
     public
@@ -233,7 +233,7 @@ built argv twice, once from `${inst}_args` and once from `${inst}_paths`.
 
 ```bash
 #!/usr/bin/env bash
-source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
+source "$KBOOL_HOME/kklass/kklass_pascal.sh"
 
 class TB
     public
@@ -308,7 +308,7 @@ unit that does not will pass its suite on one bash and die on the other.
 
 ```bash
 #!/usr/bin/env bash
-source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
+source "$KBOOL_HOME/kklass/kklass_pascal.sh"
 
 class TV
     public
@@ -347,7 +347,7 @@ after a second `TV.new a`:   RESULT \[LEFTOVER\]
 bash **5.3.9**:
 
 ```
-unassigned var under set -u: rc 1, stderr /c/projects/kkbot/kbool/kklass/kklass.sh:\ line\ 375:\ forgotten:\ unbound\ variable
+unassigned var under set -u: rc 1, stderr $KBOOL_HOME/kklass/kklass.sh:\ line\ 375:\ forgotten:\ unbound\ variable
 after a second `TV.new a`:   RESULT \[LEFTOVER\]
 ```
 
@@ -368,7 +368,7 @@ spelling that works.
 
 ```bash
 #!/usr/bin/env bash
-source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
+source "$KBOOL_HOME/kklass/kklass_pascal.sh"
 
 class TR
     public
@@ -409,7 +409,7 @@ reader to the wrong file.
 
 ```bash
 #!/usr/bin/env bash
-source /c/projects/kkbot/kbool/kklass/kklass_pascal.sh
+source "$KBOOL_HOME/kklass/kklass_pascal.sh"
 
 class TN
     public
@@ -440,7 +440,7 @@ Identical on 5.2.37 and 5.3.9:
 
 ```
 VERBOSE_KKLASS is '' (the switch is OFF)
-no pre-check, stderr: /c/projects/kkbot/kbool/kklass/kklass.sh: line 376: no_such_tool_xyz: command not found
+no pre-check, stderr: $KBOOL_HOME/kklass/kklass.sh: line 376: no_such_tool_xyz: command not found
 pre-check,    stderr: (empty)
 ```
 
@@ -465,7 +465,7 @@ count — and the callback's own output, and a printing `.Add`'s, with it.
 
 ```bash
 #!/usr/bin/env bash
-source /c/projects/kkbot/kbool/kcl/tutil/tutil.sh
+source "$KBOOL_HOME/kcl/tutil/tutil.sh"
 
 p2()  { printf 'x\ny\n'; }
 pcb() { printf 'cb:%s\n' "$1"; return 0; }
@@ -584,7 +584,7 @@ This is the probe that found it:
 
 ```bash
 #!/usr/bin/env bash
-source /c/projects/kkbot/kbool/kcl/tgrep/tgrep.sh
+source "$KBOOL_HOME/kcl/tgrep/tgrep.sh"
 show() { printf '%-42s nul=%s _nulDerived=%s\n' "$1" "$( g.nul )" "$( g._nulDerived )"; }
 
 TGrep.new g needle .

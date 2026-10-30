@@ -1,7 +1,9 @@
 # kcl — Free Pascal RTL/FCL classes, ported to bash
 
+> Part of [kbool](https://github.com/Keksov/kbool): installation, quick start and the other components are there.
+
 kcl is a set of bash ports of Free Pascal RTL/FCL units, built on the
-[kklass](../kklass) OOP framework and the [kkore](../kkore) helpers. Every
+[kklass](https://github.com/Keksov/kklass/tree/main) OOP framework and the [kkore](https://github.com/Keksov/kkore/tree/main) helpers. Every
 file is a kbool **unit** (section 1.10): 29 units in 26 folders — each folder
 `kcl/<unit>/` holds `<unit>.sh`, except the thttpserver package, whose folder
 holds four (`thttpmessage`, `thttprouter`, `thttpserver`, `thttpapplication`).
@@ -20,7 +22,7 @@ L.delete
 `source kcl/tlist/tlist.sh` works too: the unit's header loads `kbool.sh` when
 it is not loaded yet, and a unit is loaded once however it is reached. The
 loader, the search path and the configuration are described in the
-[kbool README](../README.md) and the [kkore reference](../kkore/README.md).
+[kbool README](https://github.com/Keksov/kbool/blob/main/README.md) and the [kkore reference](https://github.com/Keksov/kkore/blob/main/README.md).
 
 ---
 
@@ -86,7 +88,7 @@ The caller decides whether a miss is an error; the unit never exits, never
 prints, and never leaves partial state behind.
 
 The diagnostic goes through the shared helper in
-[`kkore/klib.sh`](../kkore/klib.sh), so the switch is spelled one way and the
+[`kkore/klib.sh`](https://github.com/Keksov/kkore/blob/main/klib.sh), so the switch is spelled one way and the
 message is data:
 
 ```bash
@@ -152,7 +154,7 @@ its main path under `set -eu`.
 ### 1.5 Numeric arguments
 
 Any index, count or number that comes from the caller goes through the shared
-guard in [`kkore/klib.sh`](../kkore/klib.sh) **before** it reaches `(( ))`,
+guard in [`kkore/klib.sh`](https://github.com/Keksov/kkore/blob/main/klib.sh) **before** it reaches `(( ))`,
 `${!x}` or an external tool:
 
 ```bash
@@ -217,7 +219,7 @@ with `__kk_`/`__KK_`, or the receiving instance's own `<inst>_data` /
 `${inst}_data` in **every** member frame, so an output array called `state`
 could never reach the caller from inside an instance member.
 
-That rule is the shared helper in [`kkore/klib.sh`](../kkore/klib.sh); a unit
+That rule is the shared helper in [`kkore/klib.sh`](https://github.com/Keksov/kkore/blob/main/klib.sh); a unit
 passes its own local-variable prefixes, because bash scopes locals
 **dynamically** and an output name equal to one of them would bind the caller's
 array to the unit's own scratch:
@@ -256,7 +258,7 @@ outlives a call, by an `EXIT` trap.
 ### 1.10 Every unit is a kbool unit
 
 A kcl unit file is a kbool unit (kklass/USES_PLAN.md, rolled out in phase U4;
-the loader's rules: [kkore/README.md](../kkore/README.md)). Its shape, checked
+the loader's rules: [kkore/README.md](https://github.com/Keksov/kkore/blob/main/README.md)). Its shape, checked
 for every unit by `kcl/tests` (section 3):
 
 1. **Header.** Line 1 `#!/bin/bash`; lines 2–3 exactly the in-tree header,
@@ -406,12 +408,16 @@ PATH="/opt/bash53/bin:$PATH" /opt/bash53/bin/bash kcl/tlist/tests/tests.sh
 ```
 
 — without the `PATH` prefix the runner's child `bash` is the other build (see
-the [kbool README](../README.md#running-the-tests)).
+the [kbool README](https://github.com/Keksov/kbool/blob/main/README.md#running-the-tests)).
 
 The runner gives every test file an empty `HOME` and no kbool configuration
 (`KBOOL_CONFIG`, `KBOOL_HOME`, `USERPROFILE`, `ProgramData` unset, `BASH_ENV`
 emptied, the `/etc/kbool` level pointed at a missing folder): a developer's
 `~/.kbool/config` cannot change a result.
+
+Unit READMEs record the runtimes each phase was tested on. On Windows that was Git-bash 5.2.37
+and MSYS2 5.3.9 until 2026-10-26; Git-bash is 5.3.15 since. The current matrix — Linux, macOS,
+FreeBSD and Windows, bash 5.1 to 5.3 — is [the CI in the kbool repo](https://github.com/Keksov/kbool/blob/main/.github/workflows/ci.yml).
 
 ### `kcl/tests` — the unit shape of every unit
 
@@ -460,7 +466,7 @@ keep their own concerns and totals:
    the section 2 table; its README, TEST_COVERAGE_NOTES and ledger.
 5. A unit outside `kcl/` (your own project) uses the user header with
    `KBOOL_HOME` instead and a `unitpath` entry in its project file — see the
-   [kbool reference](../docs/reference.md#units).
+   [kbool reference](https://github.com/Keksov/kbool/blob/main/docs/reference.md#units).
 
 ---
 
