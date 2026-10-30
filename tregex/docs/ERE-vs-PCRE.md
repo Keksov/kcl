@@ -150,8 +150,12 @@ advancing past each match (bash has no `\G`/previous-match anchor). Consequences
   | `replace("ab cd", '\b', "\|")` | `\|a\|b\| \|c\|d` | `\|ab\| \|cd\|` |
   | `split("abc", '$')` | `[][a][b][c][]` | `[abc][]` |
 
-  The `\b` rows are glibc/msys; musl also matches `\b` on the empty remainder
-  (6 matches at 0..5, `\|a\|b\| \|c\|d\|`), and FreeBSD libc rejects `\b` (rc 2) — see the README.
+  The `\b` rows hold on every platform and in every word-edge mode (glibc,
+  newlib, musl natively; FreeBSD libc through TRegEx's `ltgt` rewrite, macOS
+  libc through `class` by construction, pending CI — measured 5 at 0..4 in
+  `ltgt` (newlib, FreeBSD) and `class` (newlib), `tests/015_WordEdges.sh`),
+  except that musl also matches `\b` on the empty remainder (6 matches at 0..5,
+  `\|a\|b\| \|c\|d\|`) — see the README, *Word edges*.
 
   Fixing it would need a match offset bash does not expose, so R12 (owner,
   2026-09-06) keeps it documented and pinned. **Use anchored patterns with
@@ -191,9 +195,24 @@ caller chose is never overridden. Both halves are pinned in
 
 - **`.` matches newline.** In bash ERE the subject is one string and `.` spans
   `\n` (probe S1); PCRE's default excludes `\n` (needs `Singleline`).
-- **`\< \>` word-edge anchors** work (GNU/glibc) in addition to `\b`; these are
-  GNU extensions, not POSIX, and not standard PCRE spelling. (FreeBSD libc
-  rejects `\b` but accepts `\< \>`.)
+- **`\< \>` word-edge anchors** work in addition to `\b`, on every platform;
+  all three are C-library extensions, not POSIX, and `\< \>` are not standard
+  PCRE spelling. The libraries disagree on the spelling, so TRegEx rewrites the
+  pattern where it must (launch L5.4-12, owner OG14 = b):
+
+  | C library | `\<` `\>` | `\b` | TRegEx (mode) |
+  |---|---|---|---|
+  | glibc, newlib (Git-bash/MSYS2), musl | native | native | no rewrite (`native`) |
+  | FreeBSD libc | native | rc 2 | `\b` → `(\<\|\>)` (`ltgt`) |
+  | macOS libc | rc 1 | rc 1 | `[[:<:]]` `[[:>:]]`, `\b` → `([[:<:]]\|[[:>:]])` (`class`) — by construction, pending CI (`class` measured on newlib only) |
+
+  The inserted groups are removed from `RESULT_GROUPS` (`BASH_REMATCH` keeps
+  them), `split` and the replacement `$n`, and pattern back-references are
+  renumbered past them — verified at string level; end to end only on glibc in
+  a forced `ltgt` (FreeBSD libc has no ERE back-references; macOS pending CI).
+  The probe also checks the rewritten `\b` and leaves `\b` to the library if it
+  fails. The probe, the `KCL_TREGEX_WB` seam and the limits are in the README,
+  *Word edges*; pinned by `tests/015_WordEdges.sh`.
 
 ---
 

@@ -50,7 +50,7 @@ column cites Delphi DocWiki member semantics, .NET `Regex` documented behavior
 | 002.no-multiline | isMatch | `^`/`$` never at `\n` boundaries | delta | P0 ADJ (roMultiLine wontfix) |
 | 002.posix-classes | isMatch | `[[:digit:]] [[:space:]] [a-z] [^0-9]` | behavior | POSIX class support |
 | 002.alternation | isMatch | `cat|dog` hit/miss | behavior | POSIX ERE alternation |
-| 002.word-bound | isMatch | `\b…\b`, `\<…\>` whole-word; reject partial | delta | P0 S7 (GNU/glibc, not POSIX-portable) |
+| 002.word-bound | isMatch | `\b…\b`, `\<…\>` whole-word; reject partial — on every platform, no N/A branch (FreeBSD/macOS through the rewrite) | behavior | S7, L5.4-12 (OG14 = b); the modes are 015 |
 | 002.i-flag | isMatch | case-sensitive default; `i` insensitive; mixed | behavior | roIgnoreCase → nocasematch (S4) |
 | 002.pattern-in-var | isMatch | spaces / escaped globs / `(a|b)` in the pattern var | representation | pinned kcl idiom (pattern always via var) |
 | 002.torture | isMatch | subjects with `*?[]`, quotes, `$(...)`, backticks, unicode, leading-`-`, empty | torture | kcl torture convention |
@@ -98,6 +98,8 @@ column cites Delphi DocWiki member semantics, .NET `Regex` documented behavior
 | 005.in-process | match | global RESULT set in-process (no `$()` subshell wrapping) | contract | dynamic-scope propagation proof |
 | 005.zero-fork | isMatch/match/escape | all 3 entry points complete under `PATH=''` (incl. i-flag path) | contract | zero-fork; builtins only |
 | 005.shopt-intact | isMatch | i-flag toggling leaves unrelated shopts (extglob/nullglob) untouched | representation | scoped only to nocasematch |
+| 005.wb-cheap | all | under `PATH=''`: patterns without `\<` `\>` `\b` (`a\.c`, `(a)\1` included) never reach the probe (mode unset), the rewriter (call count 0) or the cache (undeclared) | contract | L5.4-12 rule 3 |
+| 005.wb-forkfree | isMatch/match | under `PATH=''`: `\<foo\>`, `\bfoo\b` and `\b(f)(o+)\b` in modes auto/native/ltgt/class; a mode whose spelling the library lacks is N/A | contract | L5.4-12 |
 
 ## 006 — matches (global scan)
 
@@ -185,9 +187,9 @@ Cross-checks against FPC's Delphi-compatible `TRegEx` (`utcregexapi.pas` /
 | 011.locale-heal | match | an empty environment self-heals to `LC_CTYPE=C.UTF-8` | contract | D6, §1.6 |
 | 011.locale-respect | — | a locale the caller CHOSE is not overridden | contract | D6 |
 | 011.offsets-utf8 | match/matches | offsets and lengths are CHARACTERS under UTF-8 | behavior | S9 |
-| 011.anchor-scan | matches | `$` `^` `\b` `\<` `\>` each yield len+1 matches at 0..len; `x*` agrees with .NET | delta | T4/R12 — pinned, not fixed |
-| 011.anchor-replace | replace | `$`→`!a!b!c!`, `^`→`>a>b>c>`, `\b`→`\|a\|b\| \|c\|d` (.NET: `abc!`, `>abc`, `\|ab\| \|cd\|`) | delta | T4/R12 |
-| 011.anchor-split | split | `$` → `[][a][b][c][]`; `\b` → 6 pieces | delta | T4/R12 |
+| 011.anchor-scan | matches | `$` `^` `\b` `\<` `\>` each yield len+1 matches at 0..len; `x*` agrees with .NET; `\b` on every platform (no N/A branch since L5.4-12), +1 at len+1 where the raw engine's `\b` matches an empty subject and auto is `native` (musl) — derived from `[[ '' =~ \b ]]`, not from TRegEx (SV R2) | delta | T4/R12 — pinned, not fixed |
+| 011.anchor-replace | replace | `$`→`!a!b!c!`, `^`→`>a>b>c>`, `\b`→`\|a\|b\| \|c\|d` (musl: `…\|d\|`) (.NET: `abc!`, `>abc`, `\|ab\| \|cd\|`) | delta | T4/R12 |
+| 011.anchor-split | split | `$` → `[][a][b][c][]`; `\b` → 6 pieces (musl: 7) | delta | T4/R12 |
 | 011.s6-offset | match | `match "ab ab" 'ab$'` reports index 0 (the true match is at 3) | delta | S6 |
 | 011.unanchored | match/matches | unanchored offsets are EXACT (the other half of the delta) | behavior | S5 |
 | 011.docs | — | the two corrected claims are present in `tregex.sh`, `docs/ERE-vs-PCRE.md` and `README.md` | docs | T3/T4 |
@@ -233,3 +235,24 @@ Cross-checks against FPC's Delphi-compatible `TRegEx` (`utcregexapi.pas` /
 | 014.grammar | replace | the other 9 grammar rows unchanged | regression | S11 |
 | 014.cb | replaceCb | the callback still receives the whole match and every group | regression | S11 |
 | 014.docs | — | README documents the capture caveat and the `$10` rule | docs | T9/T10 |
+
+## 015 — word edges `\<` `\>` `\b` on every C library (launch L5.4-12, owner OG14 = b)
+
+| ID | Functions | Case | Class | Basis |
+|---|---|---|---|---|
+| 015.rw-ltgt | _wbRewrite | 24 rows in mode `ltgt`: `\b` → `(\<\|\>)`, `\<` `\>` kept, `\\<` `\\b` `[\<]` `[^\b]` `[]\b]` `[^]\b]` `[[:alpha:]\b]` untouched, `\b` at start/end/alone, `(x\b)(y)` drop 2, `\b(a)\1` → `…(a)\2`, `\9` → `\10` unspellable → `''`, forward `\1\b(a)` → `''` (SV R4), `\1\<(a)` (nothing inserted) as written | behavior | rule 4 |
+| 015.rw-class | _wbRewrite | 18 rows in mode `class`: `[[:<:]]` `[[:>:]]`, `\b` → `([[:<:]]\|[[:>:]])`, same escape/bracket/back-reference rows incl. the forward reference | behavior | rule 4 |
+| 015.rw-b0 | _wbRewrite | with `__TRE_WB_B=0` (rewritten `\b` found broken): `\<` `\>` translated, `\b` copied, nothing inserted, back-references kept | behavior | SV R1 |
+| 015.rw-identity | _wbRewrite | modes `native` and `none` are the identity and cache nothing | contract | rules 1, 4 |
+| 015.cache-none | _wbRewrite | `abc`, `''`, `a\.c`, `a\1`, `[[:<:]]x` get no cache entry | contract | rule 3 |
+| 015.cache-keys | _wbRewrite | keys with `]` `$` `@` `*` space are stored under the pattern; a poisoned entry is returned (the lookup hits) | contract | rule 4, kcl/tests/002 C1 |
+| 015.cache-bound | _wbRewrite | 300 patterns: the cache peaks at 256, then clears; both caches stay the same size | contract | rule 4 |
+| 015.auto | isMatch | auto picks `class` on darwin, `ltgt` on freebsd, else `native`, with `__TRE_WB_B=1` | behavior | the L5.4-12 platform table |
+| 015.auto-b | _wbProbe | `__TRE_WB_B` equals the raw result of the rewritten `\b` probe for the auto mode (`(\<\|\>)foo(\<\|\>)` / `([[:<:]]\|[[:>:]])foo(…)`) | contract | SV R1 |
+| 015.seam | _wbProbe | `KCL_TREGEX_WB` forces each of the 4 modes (`__TRE_WB_B=1`, 0 for `none`); unset and an unknown value mean auto | contract | rule 2 |
+| 015.reset | _wbReset | clears the mode and both caches; the next pattern probes again with the new value | contract | rule 2 |
+| 015.api-mode | all 6 scanning/matching members | in mode auto (never N/A) and per forced mode native/ltgt/class (N/A only for a forced mode the library cannot do — the mode auto picked fails instead, SV R1): isMatch, match (groups = the user's), matches (`\b` count 5 at 0..4, +1 only in native where the RAW engine's `\b` matches '' — musl; SV R2), split with `\b(-)\b`, replace `$2$1` and an out-of-range `$3`, replaceCb argument count; N/A where the library lacks the mode's spelling, raw-probed with the rewritten form (musl: `(\<\|\>)foo(\<\|\>)` misses, only the first branch is tried; `[[:<:]]` rc 2) | behavior | rule 5 |
+| 015.backref | match/isMatch | `\b(a)\1` per mode, end to end — the renumbering is otherwise string-level (015.rw-*); runs in a forced ltgt on glibc only, macOS pending CI; N/A where the library lacks the spelling, has no ERE back-references (FreeBSD libc, musl: `(a)\1` misses `aa`) or loses one after an alternation (newlib: `(x\|y)(a)\2` misses `xaa`) | behavior | rule 4 |
+| 015.backref-10 | isMatch | a back-reference pushed past `\9` is rc 2 | contract | rule 4 limit |
+| 015.none | isMatch | mode `none`: the library's own rc, nothing cached | contract | rule 1 |
+| 015.i-flag | match | the `i` flag with a rewritten `\b` and groups | behavior | S4 + rule 5 |

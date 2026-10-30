@@ -47,7 +47,14 @@ kk.unit tregex || return $__kk_unit_rc
 #       Unanchored patterns are exact, empty-matching ones (`x*`) included.
 #       Recovering (b) needs a match offset bash does not expose, so R12
 #       keeps this documented and PINNED (tests/011) rather than emulated.
-#   S7  \b \< \> word boundaries work on BOTH bashes (GNU/glibc; not POSIX).
+#   S7  \b \< \> word boundaries work on BOTH bashes and on EVERY platform
+#       (launch L5.4-12, owner OG14 = b). They are extensions of the C
+#       library, not POSIX, and the libraries disagree on the spelling:
+#       glibc, newlib (Git-bash/MSYS2) and musl spell all three natively;
+#       FreeBSD libc has \< \> but no \b (rc 2); macOS libc has neither
+#       (rc 1: \< reads as something else) but has [[:<:]] [[:>:]]. TRegEx
+#       therefore REWRITES the pattern where the library needs it — see
+#       "Word edges" below. Where the library spells them, nothing changes.
 #   S8  alternation is leftmost-LONGEST: (a|ab) on "ab" -> "ab" (PCRE: "a").
 #   S9  the ENGINE and `${#...}` both follow the AMBIENT locale, and they
 #       AGREE with each other. ASCII is exact everywhere. Under an empty or C
@@ -80,7 +87,9 @@ kk.unit tregex || return $__kk_unit_rc
 #   RESULT         primary scalar (matched text | result string | count)
 #   RESULT_INDEX   0-based offset of the match (prefix-strip; S5/S6 caveat)
 #   RESULT_LENGTH  ${#matchedtext} in the ambient locale
-#   RESULT_GROUPS  copy of BASH_REMATCH[1..] (numbered groups; S10)
+#   RESULT_GROUPS  copy of BASH_REMATCH[1..] (numbered groups; S10) MINUS the
+#                  groups a word-edge rewrite inserted (BASH_REMATCH itself
+#                  keeps them; see "Word edges")
 # For the multi-value / rc / array members (match, matches, split, isMatch) do
 # NOT use $() capture: it runs in a SUBSHELL, so every RESULT* global and any
 # nameref array fill is LOST to the parent (same caveat tstopwatch/tdictionary
@@ -97,6 +106,56 @@ kk.unit tregex || return $__kk_unit_rc
 # caller's global `shopt nocasematch`; fork-free (no $()).
 # rc: 0 match / 1 no-match / 2 invalid pattern (debug msg under
 # VERBOSE_KKLASS=debug; bash's own stderr is always suppressed).
+#
+# ---- Word edges \< \> \b on every C library (L5.4-12, OG14 = b) ------------
+# A user writes \< \> \b everywhere and gets word-boundary semantics.
+#   * Cheap check: a pattern holding none of `\<` `\>` `\b` never reaches the
+#     probe, the rewriter or the cache (one glob; zero cost for the common
+#     case). Once the mode is `native` or `none`, that glob plus two compares
+#     is all. (A literal `\\b` passes the glob too; the escape-aware rewriter
+#     then leaves it alone — harmless.)
+#   * Probe: TRegEx._wbProbe, once per process, lazily (on the first pattern
+#     that passes the cheap check), fork-free. Each spelling must match
+#     "a foo b" and must not match "afoob". The result is __TRE_WB_MODE:
+#       native  \< \> \b all native: no rewrite at all (glibc, newlib, musl)
+#       ltgt    \< \> native, \b not: \b -> (\<|\>)                (FreeBSD)
+#       class   \< not native, [[:<:]] works: \< -> [[:<:]], \> -> [[:>:]],
+#               \b -> ([[:<:]]|[[:>:]])        (macOS, by construction —
+#               measured on newlib only, macOS pending CI)
+#       none    no word edge at all: patterns pass unchanged and the result
+#               is the library's own rc for them.
+#     For ltgt/class the probe then checks the REWRITTEN \b the same way
+#     ((\<|\>)foo(\<|\>), whose trailing edge needs the 2nd branch — musl
+#     tries only the 1st). __TRE_WB_B=1 when it works; 0 keeps the mode for
+#     \< \> but copies \b unchanged, so the library's own rc applies to it.
+#   * Seam: KCL_TREGEX_WB=auto|native|ltgt|class|none (default auto = the
+#     probe; any other value is read as auto) forces the mode, \b rewrite
+#     included (__TRE_WB_B=1; 0 for none) — forcing skips every check. It is
+#     read when the mode is decided — once per process, or again after
+#     TRegEx._wbReset, which clears the mode, __TRE_WB_B and the cache (tests
+#     switch modes that way).
+#   * Rewriter TRegEx._wbRewrite PATTERN -> __tre_wbre (the engine's pattern)
+#     and __tre_wbdrop (space-separated indices of the INSERTED groups, in the
+#     rewritten numbering). Escape- and bracket-aware: `\\<` is a literal
+#     backslash + `<`, and nothing inside a bracket expression ([\<], []\b],
+#     [^\>], [[:alpha:]\b]) is touched. Back-references \1..\9 are renumbered
+#     past the inserted groups (\b(a)\1 -> (\<|\>)(a)\2); one that would need
+#     a number above 9 cannot be written in ERE, and one to a group not yet
+#     opened (\1\b(a), invalid as written) could now hit an inserted group —
+#     both make the pattern '' (rc 2). The renumbering is verified at string
+#     level everywhere; end to end only where the library has back-references
+#     next to an alternation (glibc, forced ltgt) — FreeBSD libc has no ERE
+#     back-references, macOS pending CI.
+#     Cached per input pattern in __TRE_WB_CACHE / __TRE_WB_DROPC (declare -gA,
+#     created by the probe, never at source time), cleared past 256 entries.
+#   * The inserted groups are dropped in TRegEx._match1 right after the
+#     BASH_REMATCH copy, so every group consumer (match, split, replace's $n,
+#     replaceCb's arguments) sees the user's numbering. BASH_REMATCH itself
+#     keeps them (it is bash's, not this unit's).
+# Limits: the semantics are the library's own word edges (which characters
+# are word characters is its call); musl also matches \b on an EMPTY subject,
+# which shows in a scan's last remainder (tests/011); in mode `none` nothing
+# is translated; the anchor caveats of S6 hold for every mode.
 # ===========================================================================
 
 # Character semantics are part of this unit's contract (S9, T3, D6): an empty
@@ -187,10 +246,153 @@ TRegEx._badname() {
     return 0
 }
 
+# ---- Word edges (L5.4-12; the contract is in the header) -------------------
+# TRegEx._wbProbe -> __TRE_WB_MODE (native|ltgt|class|none), __TRE_WB_B (0|1:
+# does the rewriter translate \b) + empty caches. Fork-free: every spelling,
+# the rewritten \b included, must match "a foo b" and miss "afoob".
+TRegEx._wbProbe() {
+    local __m="${KCL_TREGEX_WB:-auto}" __r __lt=0 __b=0 __bb=1
+    case "$__m" in
+        native|ltgt|class) ;;               # forced: the mode's spelling, \b too
+        none) __bb=0 ;;
+        *)
+            __r='\<foo\>'
+            if [[ 'a foo b' =~ $__r ]] 2>/dev/null && ! [[ 'afoob' =~ $__r ]] 2>/dev/null; then __lt=1; fi
+            __r='\bfoo\b'
+            if [[ 'a foo b' =~ $__r ]] 2>/dev/null && ! [[ 'afoob' =~ $__r ]] 2>/dev/null; then __b=1; fi
+            if (( __lt && __b )); then __m=native
+            elif (( __lt )); then __m=ltgt
+            else
+                __m=none
+                __r='[[:<:]]foo[[:>:]]'
+                if [[ 'a foo b' =~ $__r ]] 2>/dev/null && ! [[ 'afoob' =~ $__r ]] 2>/dev/null; then __m=class; fi
+            fi
+            # the REWRITTEN \b must work too: its trailing edge needs the 2nd
+            # branch of the alternation (musl tries only the 1st). If it does
+            # not, \< \> are still translated and \b is left to the library.
+            case "$__m" in
+                ltgt)  __r='(\<|\>)foo(\<|\>)' ;;
+                class) __r='([[:<:]]|[[:>:]])foo([[:<:]]|[[:>:]])' ;;
+                none)  __r=''; __bb=0 ;;
+                *)     __r='' ;;
+            esac
+            if [[ -n $__r ]] && ! { [[ 'a foo b' =~ $__r ]] 2>/dev/null && ! [[ 'afoob' =~ $__r ]] 2>/dev/null; }; then
+                __bb=0
+            fi ;;
+    esac
+    __TRE_WB_MODE=$__m
+    __TRE_WB_B=$__bb
+    declare -gA __TRE_WB_CACHE=() __TRE_WB_DROPC=()
+    return 0
+}
+
+# TRegEx._wbReset -> forget the mode and the cache (the next pattern that
+# needs them probes again, reading KCL_TREGEX_WB anew).
+TRegEx._wbReset() {
+    unset __TRE_WB_MODE __TRE_WB_B __TRE_WB_CACHE __TRE_WB_DROPC
+    return 0
+}
+
+# TRegEx._wbRewrite PATTERN -> __tre_wbre, __tre_wbdrop (dynamic-scope OUT
+# params, the caller declares them). Identity unless the pattern holds \< \>
+# or \b and the mode is ltgt or class.
+TRegEx._wbRewrite() {
+    local __p="${1:-}"
+    __tre_wbre="$__p"; __tre_wbdrop=''
+    [[ $__p == *'\'[\<\>b]* ]] || return 0
+    [[ -n "${__TRE_WB_MODE:-}" ]] || TRegEx._wbProbe
+    case "$__TRE_WB_MODE" in ltgt|class) ;; *) return 0 ;; esac
+    if [[ -n "${__TRE_WB_CACHE[$__p]+x}" ]]; then
+        __tre_wbre="${__TRE_WB_CACHE[$__p]}"; __tre_wbdrop="${__TRE_WB_DROPC[$__p]}"
+        return 0
+    fi
+    local __lt='\<' __gt='\>' __bb='(\<|\>)'
+    if [[ $__TRE_WB_MODE == class ]]; then
+        __lt='[[:<:]]' __gt='[[:>:]]' __bb='([[:<:]]|[[:>:]])'
+    fi
+    # __ng groups so far in the OUTPUT, __ug the user's own, __ins inserted;
+    # __map[user group] = its output number (for the back-references).
+    local __o='' __c __d __t __rest __seg __n=${#__p} __i=0 __j __ng=0 __ug=0 __ins=0 __bad=0 __fwd=0
+    local -a __map=()
+    while (( __i < __n )); do
+        __c="${__p:__i:1}"
+        case "$__c" in
+            '\')
+                __d="${__p:__i+1:1}"
+                case "$__d" in
+                    '<') __o+="$__lt" ;;
+                    '>') __o+="$__gt" ;;
+                    b)   if [[ "${__TRE_WB_B:-1}" == 1 ]]; then
+                             __ng=$(( __ng + 1 )); __ins=$(( __ins + 1 ))
+                             __tre_wbdrop+="${__tre_wbdrop:+ }$__ng"; __o+="$__bb"
+                         else
+                             __o+='\b'              # the library's own \b (probe)
+                         fi ;;
+                    [1-9])
+                         if [[ -n "${__map[__d]+x}" ]]; then
+                             __t=${__map[__d]}
+                             (( __t > 9 )) && __bad=1
+                         else
+                             # a group not opened yet: invalid in the original,
+                             # but next to inserted groups it could hit one
+                             # (\1\b(a)): rc 2 below if anything is inserted
+                             __t=$__d; __fwd=1
+                         fi
+                         __o+="\\$__t" ;;
+                    *)   __o+="\\$__d" ;;      # any other escape, or a trailing '\'
+                esac
+                __i=$(( __i + 2 )) ;;
+            '(')
+                __ng=$(( __ng + 1 )); __ug=$(( __ug + 1 )); __map[__ug]=$__ng
+                __o+='('; __i=$(( __i + 1 )) ;;
+            '[')
+                # a bracket expression is copied verbatim: a backslash is an
+                # ordinary character there; `]` right after `[` or `[^` is a
+                # member; [:class:] [=equiv=] [.coll.] may hold a `]`.
+                __j=$(( __i + 1 ))
+                [[ "${__p:__j:1}" == '^' ]] && __j=$(( __j + 1 ))
+                [[ "${__p:__j:1}" == ']' ]] && __j=$(( __j + 1 ))
+                while (( __j < __n )); do
+                    __c="${__p:__j:1}"
+                    if [[ $__c == '[' ]]; then
+                        __d="${__p:__j+1:1}"
+                        if [[ $__d == [:=.] ]]; then
+                            __rest="${__p:__j+2}"
+                            if [[ $__rest == *"$__d]"* ]]; then
+                                __seg="${__rest%%"$__d]"*}"
+                                __j=$(( __j + 2 + ${#__seg} + 2 ))
+                                continue
+                            fi
+                        fi
+                    fi
+                    __j=$(( __j + 1 ))
+                    [[ $__c == ']' ]] && break
+                done
+                __o+="${__p:__i:__j-__i}"; __i=$__j ;;
+            *)
+                __o+="$__c"; __i=$(( __i + 1 )) ;;
+        esac
+    done
+    # a renumbered back-reference above \9 cannot be spelled, and a forward
+    # one could now hit an inserted group: the empty pattern is rc 2 on every
+    # engine (S2), and so is this one
+    (( __fwd && __ins )) && __bad=1
+    (( __bad )) && __o=''
+    (( ${#__TRE_WB_CACHE[@]} < 256 )) || { __TRE_WB_CACHE=(); __TRE_WB_DROPC=(); }
+    __TRE_WB_CACHE[$__p]="$__o"; __TRE_WB_DROPC[$__p]="$__tre_wbdrop"
+    __tre_wbre="$__o"
+    return 0
+}
+
 # _match1 TEXT PATTERN CI  — CI is the RESOLVED 0/1 flag, not the flag word:
 # the scans resolve it once instead of re-parsing a string per iteration.
 TRegEx._match1() {
-    local __re="${2:-}" __had=0
+    local __re="${2:-}" __had=0 __tre_wbre __tre_wbdrop=''
+    # Word edges: the glob is the whole cost for a pattern without \< \> \b,
+    # and (with the mode decided `native` or `none`) for one with them.
+    if [[ $__re == *'\'[\<\>b]* && "${__TRE_WB_MODE:-}" != native && "${__TRE_WB_MODE:-}" != none ]]; then
+        TRegEx._wbRewrite "$__re"; __re=$__tre_wbre
+    fi
     shopt -q nocasematch && __had=1
     if [[ "${3:-0}" == 1 ]]; then shopt -s nocasematch; else shopt -u nocasematch; fi
     # X-SETE (T1, D7): the match STATUS is the answer here, so a bare test would
@@ -205,6 +407,13 @@ TRegEx._match1() {
     [[ "$1" =~ $__re ]] 2>/dev/null || __tre_rc=$?
     __tre_g=("${BASH_REMATCH[@]}")
     __tre_m="${BASH_REMATCH[0]:-}"   # X-SETU (D7): unset when the match failed
+    # the groups the word-edge rewrite inserted are not the user's: drop them
+    # (indices in the rewritten numbering; IFS pinned, the caller's may differ)
+    if [[ -n $__tre_wbdrop ]] && (( __tre_rc == 0 )); then
+        local IFS=' ' __k
+        for __k in $__tre_wbdrop; do unset '__tre_g[__k]'; done
+        __tre_g=("${__tre_g[@]}")
+    fi
     if (( __had )); then shopt -s nocasematch; else shopt -u nocasematch; fi
     return 0
 }

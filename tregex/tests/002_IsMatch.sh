@@ -12,10 +12,7 @@ source "$SCRIPT_DIR/../tregex.sh"
 
 TEST_NAME="$(basename "$0" .sh)"
 kt_test_init "$TEST_NAME" "$SCRIPT_DIR" "$@"
-
-# platform probe (launch L3.5-b): how this C library's ERE treats \b
-__re='\b'; TRE_WB=0; [[ x =~ $__re ]] 2>/dev/null && TRE_WB=1          # 0: FreeBSD/macOS libc reject \b
-TRE_WB_END=0; (( TRE_WB )) && [[ '' =~ $__re ]] && TRE_WB_END=1        # 1: musl matches \b on ''
+unset KCL_TREGEX_WB   # the word-edge rows below are the auto mode's (L5.4-12)
 
 kt_test_section "002: TRegEx.isMatch"
 
@@ -57,17 +54,12 @@ ok  "negated class [^0-9]"    "12a34"  "[^0-9]"
 ok  "alternation hit"         "cat"    "cat|dog"
 no  "alternation miss"        "fish"   "cat|dog"
 
-# --- word boundaries \b \< \> (S7, GNU/glibc, both bashes) ---
-if (( TRE_WB )); then
-    ok  "\\b whole word"          "the cat sat" "\\bcat\\b"
-    no  "\\b not partial"         "concatenate" "\\bcat\\b"
-else
-    kt_test_start "\\b whole word"
-    kt_test_pass "N/A: this C library's ERE has no \\b (rc 2); use \\< \\>"
-    kt_test_start "\\b not partial"
-    kt_test_pass "N/A: this C library's ERE has no \\b (rc 2); use \\< \\>"
-fi
+# --- word boundaries \b \< \> (S7: every C library — TRegEx rewrites them
+#     where the library spells them otherwise, L5.4-12; modes in tests/015) ---
+ok  "\\b whole word"          "the cat sat" "\\bcat\\b"
+no  "\\b not partial"         "concatenate" "\\bcat\\b"
 ok  "\\< \\> word ends"       "a foo b"     "\\<foo\\>"
+no  "\\< \\> not partial"     "afoob"       "\\<foo\\>"
 
 # --- i-flag: case sensitivity is flag-controlled (deterministic) ---
 no  "case-sensitive default"  "HELLO"  "hello"
