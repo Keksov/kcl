@@ -18,7 +18,7 @@
 # Sections:
 #   Z   the ktool gate and the fixture tree
 #   B0  the statics' argv, pinned by a recording stub (grep never runs):
-#       `-F -r -q -e TEXT -- PATH...` and `-F -r -h -e TEXT -- PATH...`
+#       `-F -r -q -e TEXT -- PATH...` and `-F -r -h -e TEXT -I -- PATH...`
 #   A   `quiet` against the real tool: `run` prints nothing, every sink sees zero
 #       records (`count` -> 0), the rc is the answer; legal with -l/-c/-o; the
 #       measured `-q` + failing-operand rc (a match wins over a failed operand)
@@ -28,7 +28,7 @@
 #       stdin untouched and exactly one line
 #   C   `TGrep.countMatching`: RESULT through the `count` sink (direct call
 #       silent, `$( )` once), the named deviation (rc 1 with the real count),
-#       no `file:count` parsing, a binary file is ONE record, rc 2 paths
+#       no `file:count` parsing, binary files skipped (-I), rc 2 paths
 #   D   nested calls from inside an outer sink's callback, the throw-away
 #       instance is deleted, `quiet` in the lifecycle, `set -eu` predicates
 
@@ -259,9 +259,9 @@ else
     kt_test_fail "got $(arr_show WANT)"
 fi
 
-kt_test_start "B0: \`TGrep.countMatching TEXT PATH...\` -> \`-F -r -h -e TEXT -- PATH...\` (the \`count\` sink, no -c)"
+kt_test_start "B0: \`TGrep.countMatching TEXT PATH...\` -> \`-F -r -h -e TEXT -I -- PATH...\` (the \`count\` sink, no -c, binary files skipped)"
 rec_of TGrep.countMatching 'a.b' 'dir one' "$TMP/two"
-if arr_is WANT -F -r -h -e 'a.b' -- 'dir one' "$TMP/two"; then
+if arr_is WANT -F -r -h -e 'a.b' -I -- 'dir one' "$TMP/two"; then
     kt_test_pass "$(arr_show WANT)"
 else
     kt_test_fail "got $(arr_show WANT)"
@@ -271,7 +271,7 @@ kt_test_start "B0: a TEXT that starts with \`-\` travels as \`-e TEXT\` (data), 
 rec_of TGrep.contains -v f1
 a1=("${WANT[@]}")
 rec_of TGrep.countMatching -v f1
-if arr_is a1 -F -r -q -e -v -- f1 && arr_is WANT -F -r -h -e -v -- f1; then
+if arr_is a1 -F -r -q -e -v -- f1 && arr_is WANT -F -r -h -e -v -I -- f1; then
     kt_test_pass "$(arr_show a1)| $(arr_show WANT)"
 else
     kt_test_fail "contains $(arr_show a1)| countMatching $(arr_show WANT)"
@@ -712,15 +712,19 @@ if tcase "C: NO \`file:count\` parsing — lines that contain a colon each count
     fi
 fi
 
-if tcase "C: a matching BINARY file is ONE record (grep's 'Binary file X matches' line): kept, not filtered, not -a"; then
-    oracle_n -r -h -F -e needle -- "$BX"
-    TGrep.countMatching needle "$BX"; r1=$?; n1="$RESULT"
-    TGrep.countMatching needle "$BX" "$FX/plain.txt"; r2=$?; n2="$RESULT"
-    TGrep.countMatching binary "$BX"; r3=$?; n3="$RESULT"
-    if [[ "$ORACLE_N" == "1" && $r1 -eq 0 && "$n1" == "1" && $r2 -eq 0 && "$n2" == "3" && $r3 -eq 0 && "$n3" == "1" ]]; then
-        kt_test_pass "bin.dat alone 1 (oracle $ORACLE_N); with plain.txt (2 lines) 3; the same file matched on another line is still 1"
+# grep < 3.5 prints `Binary file X matches` on stdout (a record), >= 3.5 on
+# stderr (none): without -I the same tree would count 1 or 0 per platform (CI,
+# L6.0). With -I a binary file adds nothing on every version, and stderr is clean.
+if tcase "C: a matching BINARY file is skipped (-I): adds 0 on every grep version, nothing on stderr; contains still finds it"; then
+    oracle_n -r -h -F -I -e needle -- "$BX"
+    TGrep.countMatching needle "$BX" 2>"$TMP/bin.err"; r1=$?; n1="$RESULT"
+    TGrep.countMatching needle "$BX" "$FX/plain.txt" 2>>"$TMP/bin.err"; r2=$?; n2="$RESULT"
+    TGrep.countMatching binary "$BX" 2>>"$TMP/bin.err"; r3=$?; n3="$RESULT"
+    e=$(<"$TMP/bin.err")
+    if [[ "$ORACLE_N" == "0" && $r1 -eq 1 && "$n1" == "0" && $r2 -eq 0 && "$n2" == "2" && $r3 -eq 1 && "$n3" == "0" && -z "$e" ]]; then
+        kt_test_pass "bin.dat alone 0/rc 1 (oracle $ORACLE_N); with plain.txt (2 lines) 2; stderr empty"
     else
-        kt_test_fail "oracle=$ORACLE_N alone=$r1/$n1 with-plain=$r2/$n2 binary-text=$r3/$n3"
+        kt_test_fail "oracle=$ORACLE_N alone=$r1/$n1 with-plain=$r2/$n2 binary-text=$r3/$n3 stderr=[$e]"
     fi
 fi
 

@@ -92,8 +92,9 @@ declare -g __TG_SEQ=0
 # ---- Binary files (PLAN §1.4) ---------------------------------------------
 # `Binary file X matches` goes to grep's STDOUT, so it arrives as a RECORD
 # through every sink. `addArg -a` (or `--binary-files=text`) is the documented
-# escape hatch; `-a`/`-I` are not modelled yet. `TGrep.countMatching` keeps the
-# record: a matching binary file adds ONE to its number (HELPERS_PLAN H2).
+# escape hatch; `-a`/`-I` are not modelled yet. grep 3.5 and later write the note
+# to stderr instead (no record). `TGrep.countMatching` passes `-I`, so a binary
+# file adds nothing on every grep version (HELPERS_PLAN H2).
 #
 # ---- Traps this unit is written around ------------------------------------
 #  * The constructor calls `parent.constructor grep` EXPLICITLY. `inherited` in
@@ -505,17 +506,20 @@ TGrep.contains() {
 }
 
 # countMatching TEXT PATH... — how many LINES contain the LITERAL TEXT, over all
-# files under PATH... (HELPERS_PLAN §3, H2): `grep -r -h -F -e TEXT -- PATH...`
-# through the existing `count` sink — no parsing of `file:count`, no `-c`. Same
+# TEXT files under PATH... (HELPERS_PLAN §3, H2): `grep -F -r -h -e TEXT -I --
+# PATH...` through the existing `count` sink — no parsing of `file:count`, no `-c`. Same
 # throw-away instance and the same rc 2 usage rule as `search`; an empty TEXT is
 # `buildArgv`'s rc 2 with RESULT ''.
 #
 # RESULT and rc are what the `count` sink answers, the family's named deviation
 # included (README §3): 0 matches is `0` with rc 1, and an operand that failed
-# among good ones is the REAL count with rc 1. A matching BINARY file adds ONE
-# record — grep's own `Binary file X matches` line (README §3) — and is kept
-# (no `-I`, no `-a`). A `static proc` answering in RESULT (kcl README §1.1): a
-# direct call prints nothing, `$( )` prints the value exactly once.
+# among good ones is the REAL count with rc 1. BINARY files are skipped (`-I`,
+# added through `addArg`): without it grep < 3.5 would add ONE `Binary file X
+# matches` record per binary hit while grep >= 3.5 adds none and writes the note
+# to stderr — the same tree would count differently per platform (CI, L6.0).
+# `contains` keeps binary files: the match alone is its answer. A `static proc`
+# answering in RESULT (kcl README §1.1): a direct call prints nothing, `$( )`
+# prints the value exactly once.
 TGrep.countMatching() {
     if (( $# < 2 )); then
         kk.debug "Error: TGrep.countMatching: usage: TGrep.countMatching TEXT PATH... — at least one path is required (\`grep -r\` with none would search the current directory); build an instance for the stdin form"
@@ -528,6 +532,7 @@ TGrep.countMatching() {
     "$__tg_i".fixed = 1
     "$__tg_i".recursive = 1
     "$__tg_i".noFilename = 1
+    "$__tg_i".addArg -I
     local __tg_rc=0
     "$__tg_i".count || __tg_rc=$?
     local __tg_n="$RESULT"

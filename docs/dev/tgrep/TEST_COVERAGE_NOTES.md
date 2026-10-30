@@ -477,7 +477,7 @@ the argv holds on a box without GNU grep. The fixture has three trees — `FX`
 | 008.z01 | ktool resolves a GNU grep (D4 pins the DIALECT, not a binary) | **D4** |
 | 008.z02 | the fixture trees are in place | **D4** |
 | 008.b0-contains | `TGrep.contains TEXT PATH...` builds `-F -r -q -e TEXT -- PATH...` (stub; a space in a path stays one word) | HP §3 |
-| 008.b0-count | `TGrep.countMatching` builds `-F -r -h -e TEXT -- PATH...` — the `count` sink, no `-c` | HP §3 |
+| 008.b0-count | `TGrep.countMatching` builds `-F -r -h -e TEXT -I -- PATH...` — the `count` sink, no `-c`, binary files skipped | HP §3 |
 | 008.b0-dash | a TEXT starting with `-` travels as `-e TEXT`, after the flags | HP §3, **G4** |
 | 008.b0-quiet-last | `quiet = 1` on an instance lands LAST among the flags (after `-Z`, before `-e`) | HP §3 |
 | 008.b0-usage-nothing | the four usage refusals (0 or 1 argument, both statics) start no process | HP §3 |
@@ -510,7 +510,7 @@ the argv holds on a box without GNU grep. The fixture has three trees — `FX`
 | 008.c-zero | zero matches: RESULT 0 with rc 1, no line of ours | HP §3 |
 | 008.c-partial | the named deviation: a missing operand among good ones is rc 1 with the REAL count (4), ONE line | **G10** |
 | 008.c-nocolon | no `file:count` parsing: colon-bearing lines count one each; no filename prefix (`-h`) | HP §3 |
-| 008.c-binary | a matching binary file is ONE record (`Binary file X matches`): kept, no `-I`, no `-a` | HP §3, README §3 |
+| 008.c-binary | a matching binary file is skipped (`-I`): adds 0, rc 1 when alone, stderr empty — grep < 3.5 would print `Binary file X matches` on stdout, >= 3.5 on stderr, so without `-I` the count differed per platform (first CI run of L6.0) | HP §3, README §3 |
 | 008.c-literal | `a.b` counts the 2 lines holding it (oracle 2); `a.*b` and `second$` count 0 | HP §1.1 |
 | 008.c-crlf | a CRLF file counts per line (`needle crlf` 1, `e` 2 == oracle) | DL11 |
 | 008.c-flag-data | a flag-shaped TEXT is data (`-v` → 1 line) | **G4** |
