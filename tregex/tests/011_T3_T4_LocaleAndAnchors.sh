@@ -68,7 +68,7 @@ else
 fi
 
 kt_test_start "the unit does not override a locale the caller chose [T3, D6]"
-out="$(bash -c "export LC_ALL=C
+out="$(env -u LC_CTYPE -u LANG bash -c "export LC_ALL=C
 source '$UNIT'
 printf '%s|%s' \"\$LC_ALL\" \"\${LC_CTYPE:-unset}\"" 2>&1)"
 [[ "$out" == "C|unset" ]] && kt_test_pass "$out" || kt_test_fail "got '$out'"
