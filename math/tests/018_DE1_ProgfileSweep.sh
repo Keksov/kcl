@@ -137,4 +137,75 @@ math.sin 1 >/dev/null" >/dev/null 2>&1
     fi
 fi
 
+# launch L5.4-4, C2: a CI runner starts its steps with SIGPIPE IGNORED, and a
+# bash can never restore it. The program writer of the process substitution
+# then got EPIPE instead of dying silently when the shimmed awk refused the
+# program, and printed `math.sh: line 850: printf: Broken pipe` (twice) into
+# the caller's stderr. The engine start must stay silent under such a parent.
+kt_test_start "the parent ignores SIGPIPE: the engine start prints nothing into the caller's stderr [L5.4-4, C2]"
+P3="$TMP/pipeign"; mkdir -p "$P3"
+out="$(trap '' PIPE; TMPDIR="$P3" bash -c "$SHIM
+source '$UNIT'
+math.sin 1 >/dev/null
+printf '%s' \"\$RESULT\"" 2>&1)"; rc=$?
+if (( rc == 0 )) && [[ "$out" =~ ^0\.84147[0-9]*$ ]]; then
+    kt_test_pass "rc 0, out '$out' and nothing else"
+else
+    kt_test_fail "rc=$rc out='$out'"
+fi
+
+# launch L5.4-4, C7: the start probe (`pi`) is written right after `coproc`.
+# When the co-process has ALREADY exited (here: the shimmed awk refused the
+# /dev/fd program), the write has no reader left; it used to run in the
+# calling shell, whose default SIGPIPE killed the whole caller before the
+# fallback (rc 141, no output — the CI shape `out=''`). The race is made
+# deterministic with test shims (functions, like `awk` above): the refusing
+# awk HOLDS until the file $GONE_GO exists (else bash may reap the co-process
+# before math._fe_spawn reads its fds, and no probe is written at all), and a
+# `printf` function, on the process-substitution start probe, creates
+# $GONE_GO, waits until the pipe has no reader — a 1-byte write in a subshell
+# that ignores SIGPIPE fails with EPIPE — removes $GONE_GO and only then
+# writes `pi`. It logs `gone` (no reader left) or `alive` (still a reader
+# after 10 s: the case could not be set up) per probe; no log line = no probe
+# was written (not set up either).
+kt_test_start "the co-process is gone before the start probe: the caller survives and the fallback engine answers [L5.4-4, C7]"
+P4="$TMP/gone"; mkdir -p "$P4"
+GONE_LOG="$TMP/gone.log"; : > "$GONE_LOG"
+GONE_GO="$TMP/gone.go"; rm -f -- "$GONE_GO"
+GONE='_kt018_awk() {
+    local a n=0
+    for a in "${@:2}"; do
+        case "$a" in /dev/fd/*|/proc/*)
+            while [[ ! -e $GONE_GO ]] && (( n++ < 200 )); do sleep 0.05; done
+            return 1 ;;
+        esac
+    done
+    command "$@"
+}
+printf() {
+    if [[ ${1-} == "pi\n" && -z ${__MATH_FE_PROGFILE-} ]]; then
+        local _kt018_n=0 _kt018_st=alive
+        : > "$GONE_GO"
+        while (( _kt018_n++ < 200 )); do
+            ( trap "" PIPE; builtin printf x ) 2>/dev/null || { _kt018_st=gone; break; }
+            sleep 0.05
+        done
+        rm -f -- "$GONE_GO"
+        builtin printf "%s\n" "$_kt018_st" >> "$GONE_LOG"
+    fi
+    builtin printf "$@"
+}'
+out="$(TMPDIR="$P4" GONE_LOG="$GONE_LOG" GONE_GO="$GONE_GO" bash -c "$SHIM
+$GONE
+source '$UNIT'
+math.sin 1 >/dev/null
+builtin printf '%s|%s' \"\$RESULT\" \"\${__MATH_FE_PROGFILE##*/}\"" 2>&1)"; rc=$?
+glog="$(tr '\n' ' ' < "$GONE_LOG")"
+mine="${out#*|}"
+if (( rc == 0 )) && [[ "${out%%|*}" == 0.84147* && "$mine" == .math_fe_*.awk && "$glog" == gone* && "$glog" != *alive* ]]; then
+    kt_test_pass "probes [${glog% }]: caller alive, fallback $mine answered"
+else
+    kt_test_fail "rc=$rc out='$out' probes [${glog% }]"
+fi
+
 kt_test_log "018_DE1_ProgfileSweep.sh completed"

@@ -847,7 +847,12 @@ math._fe_spawn() {
             # read side, SIGPIPE) when this process exits. math._fe_pfopen
             # opens it (and unlinks such a FIFO: this shell `exec`s, so bash
             # never would — launch L3.5-7).
-            math._fe_pfopen <(printf '%s\n' "$__MATH_AWK_PROG") || exit 1
+            # The writer's own stderr goes to /dev/null (launch L5.4-4, C2):
+            # under a parent that IGNORES SIGPIPE (a CI runner; bash cannot
+            # restore it) a writer whose awk refused the program gets EPIPE
+            # instead of dying, and printed `printf: Broken pipe` twice into
+            # the caller's stderr.
+            math._fe_pfopen <(printf '%s\n' "$__MATH_AWK_PROG" 2>/dev/null) || exit 1
             if declare -F -- "$__m_awk" >/dev/null; then
                 "$__m_awk" "$@" -f "/dev/fd/$__m_pf" 2>/dev/null
             else
@@ -871,11 +876,22 @@ math._fe_spawn() {
     # die on the unbound names; empty fds make the probe below fail -> rc 1.
     __MATH_FE_IN=${MATH_FE[1]-}; __MATH_FE_OUT=${MATH_FE[0]-}; __MATH_FE_PID=${MATH_FE_PID-}
     __MATH_FE_OWN[pid]=$__MATH_FE_PID __MATH_FE_OWN[in]=$__MATH_FE_IN __MATH_FE_OWN[out]=$__MATH_FE_OUT
+    # The probe is written in a SUBSHELL (launch L5.4-4, C7): a co-process
+    # that has already exited leaves the pipe without a reader, and the write
+    # raises SIGPIPE in the process that does it — in this shell it killed
+    # the whole caller (default disposition) before the fallback could run.
+    # The subshell dies instead and its failure is rc 1 here, as a refused
+    # write always was. One fork per spawn attempt, i.e. per engine START —
+    # never per call (math._fe's request write stays in this shell).
+    # A COMMAND substitution, not `( )`: bash closes a co-process's fds in
+    # every subshell except command and process substitutions (`( printf
+    # >&fd )` fails with `Bad file descriptor`). Nothing reaches its stdout
+    # (printf writes to the fd), so __m_probe stays "".
     # `2>/dev/null` FIRST: redirections apply left to right, so a bad fd (the
     # co-process already disposed of, see above) made `>&fd 2>/dev/null` print
     # `Bad file descriptor` before stderr was redirected (launch L3.5-5)
     # unquoted on purpose: bash 5.1 declare -f prints >&"W" as &> W (launch L4.3)
-    if printf 'pi\n' 2>/dev/null >&$__MATH_FE_IN; then
+    if __m_probe=$(printf 'pi\n' 2>/dev/null >&$__MATH_FE_IN); then
         IFS= read -r -t "$__MATH_FE_TIMEOUT" -u "$__MATH_FE_OUT" __m_probe 2>/dev/null || __m_rc=$?
         if (( __m_rc == 0 )) && [[ -n $__m_probe ]]; then
             __MATH_FE_UP=1
