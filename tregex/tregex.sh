@@ -55,6 +55,8 @@ kk.unit tregex || return $__kk_unit_rc
 #       (rc 1: \< reads as something else) but has [[:<:]] [[:>:]]. TRegEx
 #       therefore REWRITES the pattern where the library needs it — see
 #       "Word edges" below. Where the library spells them, nothing changes.
+#       On macOS \b is translated by context only (L5.4-12b): next to a
+#       word-only atom it works, elsewhere the pattern is rejected (rc 2).
 #   S8  alternation is leftmost-LONGEST: (a|ab) on "ab" -> "ab" (PCRE: "a").
 #   S9  the ENGINE and `${#...}` both follow the AMBIENT locale, and they
 #       AGREE with each other. ASCII is exact everywhere. Under an empty or C
@@ -120,18 +122,40 @@ kk.unit tregex || return $__kk_unit_rc
 #       native  \< \> \b all native: no rewrite at all (glibc, newlib, musl)
 #       ltgt    \< \> native, \b not: \b -> (\<|\>)                (FreeBSD)
 #       class   \< not native, [[:<:]] works: \< -> [[:<:]], \> -> [[:>:]],
-#               \b -> ([[:<:]]|[[:>:]])        (macOS, by construction —
-#               measured on newlib only, macOS pending CI)
+#               \b -> ([[:<:]]|[[:>:]]) or by context (macOS: by context,
+#               __TRE_WB_B=ctx below)
 #       none    no word edge at all: patterns pass unchanged and the result
 #               is the library's own rc for them.
-#     For ltgt/class the probe then checks the REWRITTEN \b the same way
-#     ((\<|\>)foo(\<|\>), whose trailing edge needs the 2nd branch — musl
-#     tries only the 1st). __TRE_WB_B=1 when it works; 0 keeps the mode for
-#     \< \> but copies \b unchanged, so the library's own rc applies to it.
-#   * Seam: KCL_TREGEX_WB=auto|native|ltgt|class|none (default auto = the
-#     probe; any other value is read as auto) forces the mode, \b rewrite
-#     included (__TRE_WB_B=1; 0 for none) — forcing skips every check. It is
-#     read when the mode is decided — once per process, or again after
+#     For ltgt/class the probe then checks the ALTERNATION spelling of \b the
+#     same way ((\<|\>)foo(\<|\>), whose trailing edge needs the 2nd branch —
+#     musl tries only the 1st; macOS gets ([[:<:]]|[[:>:]]) wrong, CI run
+#     41041454478). The result is __TRE_WB_B:
+#       1    the alternation works: \b -> it, one inserted group per \b;
+#       ctx  it does not: \b is translated BY CONTEXT, no inserted group:
+#            \b right before an atom that can only match a word character
+#            (a literal [A-Za-z0-9_], or a bracket expression whose every
+#            member is one — [A-Za-z0-9_] spelled out, a-z/A-Z/0-9 ranges,
+#            [:alnum:] [:alpha:] [:digit:] [:upper:] [:lower:] — with no
+#            quantifier, `+` or {n>=1...} after it) is the start of a word
+#            (\< or [[:<:]]); right after such an atom it is the end of a
+#            word (\> or [[:>:]]). Both are exact: next to a word character
+#            \b holds iff the other side is not one. Between two word atoms
+#            (a\bb) the start spelling is used, which never matches there —
+#            neither does \b. Anywhere else (next to `.`, a group, `(`, `)`,
+#            an escape, a `*`/`?` quantifier, the pattern's ends, \b alone)
+#            \b cannot be translated, and the whole pattern is REJECTED:
+#            rewritten to '' = rc 2, an invalid pattern. Left as written,
+#            macOS would read \b as a literal `b` and match falsely (`\b.`
+#            on "xb y"); rc 2 is also what FreeBSD's own library gives for
+#            \b. So on macOS a \b must stand next to a word-only atom. The
+#            word-character set is the BSD engines' (iswalnum or '_'), the
+#            libraries ctx is used on.
+#       0    \b is never translated (mode none; set by hand in a test).
+#   * Seam: KCL_TREGEX_WB=auto|native|ltgt|class|ltgt-ctx|class-ctx|none
+#     (default auto = the probe; any other value is read as auto) forces the
+#     mode — native/ltgt/class with __TRE_WB_B=1, ltgt-ctx/class-ctx = mode
+#     ltgt/class with __TRE_WB_B=ctx, none with 0; forcing skips every check.
+#     It is read when the mode is decided — once per process, or again after
 #     TRegEx._wbReset, which clears the mode, __TRE_WB_B and the cache (tests
 #     switch modes that way).
 #   * Rewriter TRegEx._wbRewrite PATTERN -> __tre_wbre (the engine's pattern)
@@ -144,8 +168,8 @@ kk.unit tregex || return $__kk_unit_rc
 #     opened (\1\b(a), invalid as written) could now hit an inserted group —
 #     both make the pattern '' (rc 2). The renumbering is verified at string
 #     level everywhere; end to end only where the library has back-references
-#     next to an alternation (glibc, forced ltgt) — FreeBSD libc has no ERE
-#     back-references, macOS pending CI.
+#     next to an alternation (glibc, forced ltgt) — FreeBSD and macOS libc
+#     have no ERE back-references.
 #     Cached per input pattern in __TRE_WB_CACHE / __TRE_WB_DROPC (declare -gA,
 #     created by the probe, never at source time), cleared past 256 entries.
 #   * The inserted groups are dropped in TRegEx._match1 right after the
@@ -155,7 +179,9 @@ kk.unit tregex || return $__kk_unit_rc
 # Limits: the semantics are the library's own word edges (which characters
 # are word characters is its call); musl also matches \b on an EMPTY subject,
 # which shows in a scan's last remainder (tests/011); in mode `none` nothing
-# is translated; the anchor caveats of S6 hold for every mode.
+# is translated; with __TRE_WB_B=ctx (macOS) a pattern with a \b next to
+# anything but a word-only atom is rc 2; the anchor caveats of S6 hold for
+# every mode.
 # ===========================================================================
 
 # Character semantics are part of this unit's contract (S9, T3, D6): an empty
@@ -247,13 +273,15 @@ TRegEx._badname() {
 }
 
 # ---- Word edges (L5.4-12; the contract is in the header) -------------------
-# TRegEx._wbProbe -> __TRE_WB_MODE (native|ltgt|class|none), __TRE_WB_B (0|1:
-# does the rewriter translate \b) + empty caches. Fork-free: every spelling,
-# the rewritten \b included, must match "a foo b" and miss "afoob".
+# TRegEx._wbProbe -> __TRE_WB_MODE (native|ltgt|class|none), __TRE_WB_B (how
+# the rewriter translates \b: 1 alternation, ctx by context, 0 not at all) +
+# empty caches. Fork-free: every spelling, the alternation for \b included,
+# must match "a foo b" and miss "afoob".
 TRegEx._wbProbe() {
     local __m="${KCL_TREGEX_WB:-auto}" __r __lt=0 __b=0 __bb=1
     case "$__m" in
         native|ltgt|class) ;;               # forced: the mode's spelling, \b too
+        ltgt-ctx|class-ctx) __m=${__m%-ctx}; __bb=ctx ;;   # forced contextual \b
         none) __bb=0 ;;
         *)
             __r='\<foo\>'
@@ -267,9 +295,11 @@ TRegEx._wbProbe() {
                 __r='[[:<:]]foo[[:>:]]'
                 if [[ 'a foo b' =~ $__r ]] 2>/dev/null && ! [[ 'afoob' =~ $__r ]] 2>/dev/null; then __m=class; fi
             fi
-            # the REWRITTEN \b must work too: its trailing edge needs the 2nd
-            # branch of the alternation (musl tries only the 1st). If it does
-            # not, \< \> are still translated and \b is left to the library.
+            # the alternation spelling of \b must work too: its trailing edge
+            # needs the 2nd branch (musl tries only the 1st; macOS rejects or
+            # mishandles ([[:<:]]|[[:>:]]), CI run 41041454478). If it does
+            # not, \b is translated BY CONTEXT (ctx) with the start/end
+            # spellings the mode already proved above.
             case "$__m" in
                 ltgt)  __r='(\<|\>)foo(\<|\>)' ;;
                 class) __r='([[:<:]]|[[:>:]])foo([[:<:]]|[[:>:]])' ;;
@@ -277,7 +307,7 @@ TRegEx._wbProbe() {
                 *)     __r='' ;;
             esac
             if [[ -n $__r ]] && ! { [[ 'a foo b' =~ $__r ]] 2>/dev/null && ! [[ 'afoob' =~ $__r ]] 2>/dev/null; }; then
-                __bb=0
+                __bb=ctx
             fi ;;
     esac
     __TRE_WB_MODE=$__m
@@ -290,6 +320,97 @@ TRegEx._wbProbe() {
 # needs them probes again, reading KCL_TREGEX_WB anew).
 TRegEx._wbReset() {
     unset __TRE_WB_MODE __TRE_WB_B __TRE_WB_CACHE __TRE_WB_DROPC
+    return 0
+}
+
+# TRegEx._wbBrEnd PATTERN I -> __tre_be = the index just past the bracket
+# expression opening at PATTERN[I] ('['): a backslash is an ordinary character
+# there, `]` right after `[` or `[^` is a member, [:class:] [=equiv=] [.coll.]
+# may hold a `]`. An unclosed one runs to the end of the pattern.
+TRegEx._wbBrEnd() {
+    local __p=$1 __n=${#1} __j=$(( $2 + 1 )) __c __d __rest __seg
+    [[ "${__p:__j:1}" == '^' ]] && __j=$(( __j + 1 ))
+    [[ "${__p:__j:1}" == ']' ]] && __j=$(( __j + 1 ))
+    while (( __j < __n )); do
+        __c="${__p:__j:1}"
+        if [[ $__c == '[' ]]; then
+            __d="${__p:__j+1:1}"
+            if [[ $__d == [:=.] ]]; then
+                __rest="${__p:__j+2}"
+                if [[ $__rest == *"$__d]"* ]]; then
+                    __seg="${__rest%%"$__d]"*}"
+                    __j=$(( __j + 2 + ${#__seg} + 2 ))
+                    continue
+                fi
+            fi
+        fi
+        __j=$(( __j + 1 ))
+        [[ $__c == ']' ]] && break
+    done
+    __tre_be=$__j
+    return 0
+}
+
+# TRegEx._wbBrWord BODY -> rc 0 when the bracket expression [BODY] can match
+# ONLY word characters. The BSD engines (FreeBSD, macOS) define a word
+# character as iswalnum() or '_', so the accepted members are exactly: the
+# ASCII characters [A-Za-z0-9_] spelled out, a range inside a-z, A-Z or 0-9,
+# and the classes [:alnum:] [:alpha:] [:digit:] [:upper:] [:lower:]. A
+# negation, a literal '-', [=x=], [.x.], any other class or character -> rc 1.
+TRegEx._wbBrWord() {
+    local __s="$1" __n=${#1} __k=0 __c __e __cl
+    local __L=abcdefghijklmnopqrstuvwxyz __U=ABCDEFGHIJKLMNOPQRSTUVWXYZ __D=0123456789
+    [[ -n $__s && ${__s:0:1} != '^' ]] || return 1
+    while (( __k < __n )); do
+        __c="${__s:__k:1}"
+        if [[ $__c == '[' ]]; then
+            [[ "${__s:__k+1:1}" == ':' ]] || return 1
+            __cl="${__s:__k+2}"; __cl="${__cl%%':]'*}"
+            case "$__cl" in alnum|alpha|digit|upper|lower) ;; *) return 1 ;; esac
+            __k=$(( __k + 2 + ${#__cl} + 2 ))
+            continue
+        fi
+        [[ $__c == _ || $__L$__U$__D == *"$__c"* ]] || return 1
+        if [[ "${__s:__k+1:1}" == '-' ]] && (( __k + 2 < __n )); then
+            __e="${__s:__k+2:1}"
+            if [[ ( $__L == *"$__c"* && $__L == *"$__e"* ) || ( $__U == *"$__c"* && $__U == *"$__e"* ) \
+                  || ( $__D == *"$__c"* && $__D == *"$__e"* ) ]]; then
+                __k=$(( __k + 3 )); continue
+            fi
+            return 1
+        fi
+        __k=$(( __k + 1 ))
+    done
+    return 0
+}
+
+# TRegEx._wbWordAt PATTERN I -> rc 0 when the atom at PATTERN[I] matches ONLY
+# a word character and at least once: a literal [A-Za-z0-9_] or an all-word
+# bracket expression (_wbBrEnd/_wbBrWord), followed by no quantifier, by `+`,
+# or by an interval {n...} with n >= 1. Anything else -> rc 1 (undecidable).
+TRegEx._wbWordAt() {
+    local __p="$1" __i=$2 __c __q __num='' __tre_be
+    local __W=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_
+    __c="${__p:__i:1}"
+    if [[ $__c == '[' ]]; then
+        TRegEx._wbBrEnd "$__p" "$__i"
+        [[ "${__p:__tre_be-1:1}" == ']' ]] || return 1
+        TRegEx._wbBrWord "${__p:__i+1:__tre_be-__i-2}" || return 1
+        __i=$__tre_be
+    elif [[ -n $__c && $__W == *"$__c"* ]]; then
+        __i=$(( __i + 1 ))
+    else
+        return 1
+    fi
+    __q="${__p:__i:1}"
+    case "$__q" in
+        '*'|'?') return 1 ;;
+        '{')
+            __q="${__p:__i+1}"
+            while [[ ${__q:0:1} == [0123456789] ]]; do __num+=${__q:0:1}; __q=${__q:1}; done
+            [[ -n $__num ]] || return 1
+            (( 10#$__num >= 1 )) || return 1 ;;
+    esac
     return 0
 }
 
@@ -312,7 +433,12 @@ TRegEx._wbRewrite() {
     fi
     # __ng groups so far in the OUTPUT, __ug the user's own, __ins inserted;
     # __map[user group] = its output number (for the back-references).
-    local __o='' __c __d __t __rest __seg __n=${#__p} __i=0 __j __ng=0 __ug=0 __ins=0 __bad=0 __fwd=0
+    # ctx only: __pw = 1 when the atom just copied can only END on a word
+    # character (a literal word char or an all-word bracket expression, with
+    # no quantifier, `+` or {n>=1...} after it).
+    local __o='' __c __d __t __n=${#__p} __i=0 __j __ng=0 __ug=0 __ins=0 __bad=0 __fwd=0
+    local __wb="${__TRE_WB_B:-1}" __pw=0 __tre_be __num
+    local __W=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_
     local -a __map=()
     while (( __i < __n )); do
         __c="${__p:__i:1}"
@@ -322,9 +448,21 @@ TRegEx._wbRewrite() {
                 case "$__d" in
                     '<') __o+="$__lt" ;;
                     '>') __o+="$__gt" ;;
-                    b)   if [[ "${__TRE_WB_B:-1}" == 1 ]]; then
+                    b)   if [[ $__wb == 1 ]]; then
                              __ng=$(( __ng + 1 )); __ins=$(( __ins + 1 ))
                              __tre_wbdrop+="${__tre_wbdrop:+ }$__ng"; __o+="$__bb"
+                         elif [[ $__wb == ctx ]]; then
+                             # \b before a word-only atom = start of a word;
+                             # after one = end of a word (exact both ways;
+                             # between two word atoms the start spelling never
+                             # matches, and neither does \b there); otherwise
+                             # undecidable: the whole pattern is rejected (rc 2)
+                             # — macOS would read the bare \b as a literal `b`
+                             # and match falsely (SV, L5.4-12b)
+                             if TRegEx._wbWordAt "$__p" $(( __i + 2 )); then __o+="$__lt"
+                             elif (( __pw )); then __o+="$__gt"
+                             else __o+='\b'; __bad=1
+                             fi
                          else
                              __o+='\b'              # the library's own \b (probe)
                          fi ;;
@@ -341,40 +479,39 @@ TRegEx._wbRewrite() {
                          __o+="\\$__t" ;;
                     *)   __o+="\\$__d" ;;      # any other escape, or a trailing '\'
                 esac
-                __i=$(( __i + 2 )) ;;
+                __pw=0; __i=$(( __i + 2 )) ;;
             '(')
                 __ng=$(( __ng + 1 )); __ug=$(( __ug + 1 )); __map[__ug]=$__ng
-                __o+='('; __i=$(( __i + 1 )) ;;
+                __o+='('; __pw=0; __i=$(( __i + 1 )) ;;
             '[')
-                # a bracket expression is copied verbatim: a backslash is an
-                # ordinary character there; `]` right after `[` or `[^` is a
-                # member; [:class:] [=equiv=] [.coll.] may hold a `]`.
-                __j=$(( __i + 1 ))
-                [[ "${__p:__j:1}" == '^' ]] && __j=$(( __j + 1 ))
-                [[ "${__p:__j:1}" == ']' ]] && __j=$(( __j + 1 ))
-                while (( __j < __n )); do
-                    __c="${__p:__j:1}"
-                    if [[ $__c == '[' ]]; then
-                        __d="${__p:__j+1:1}"
-                        if [[ $__d == [:=.] ]]; then
-                            __rest="${__p:__j+2}"
-                            if [[ $__rest == *"$__d]"* ]]; then
-                                __seg="${__rest%%"$__d]"*}"
-                                __j=$(( __j + 2 + ${#__seg} + 2 ))
-                                continue
-                            fi
-                        fi
-                    fi
-                    __j=$(( __j + 1 ))
-                    [[ $__c == ']' ]] && break
-                done
+                # a bracket expression is copied verbatim (_wbBrEnd)
+                TRegEx._wbBrEnd "$__p" "$__i"; __j=$__tre_be
+                __pw=0
+                if [[ $__wb == ctx && "${__p:__j-1:1}" == ']' ]] \
+                   && TRegEx._wbBrWord "${__p:__i+1:__j-__i-2}"; then __pw=1; fi
                 __o+="${__p:__i:__j-__i}"; __i=$__j ;;
+            '{')
+                # ctx: an interval keeps a word atom a word atom only if its
+                # minimum is >= 1; it is copied whole either way
+                __j="${__p:__i+1}"
+                if [[ $__wb == ctx && $__j == *'}'* ]]; then
+                    __j="${__j%%'}'*}"; __num="${__j%%,*}"
+                    [[ -n $__num && -z ${__num//[0123456789]/} ]] || __num=''
+                    if [[ -z $__num ]] || (( 10#$__num < 1 )); then __pw=0; fi
+                    __o+="{$__j}"; __i=$(( __i + ${#__j} + 2 ))
+                else
+                    __o+='{'; __pw=0; __i=$(( __i + 1 ))
+                fi ;;
+            '+')
+                __o+='+'; __i=$(( __i + 1 )) ;;   # a word atom stays one
             *)
+                __pw=0; [[ $__W == *"$__c"* ]] && __pw=1
                 __o+="$__c"; __i=$(( __i + 1 )) ;;
         esac
     done
-    # a renumbered back-reference above \9 cannot be spelled, and a forward
-    # one could now hit an inserted group: the empty pattern is rc 2 on every
+    # a renumbered back-reference above \9 cannot be spelled, a forward one
+    # could now hit an inserted group, and (ctx) a \b with no word-only atom
+    # beside it cannot be translated: the empty pattern is rc 2 on every
     # engine (S2), and so is this one
     (( __fwd && __ins )) && __bad=1
     (( __bad )) && __o=''

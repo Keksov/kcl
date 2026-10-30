@@ -150,12 +150,13 @@ advancing past each match (bash has no `\G`/previous-match anchor). Consequences
   | `replace("ab cd", '\b', "\|")` | `\|a\|b\| \|c\|d` | `\|ab\| \|cd\|` |
   | `split("abc", '$')` | `[][a][b][c][]` | `[abc][]` |
 
-  The `\b` rows hold on every platform and in every word-edge mode (glibc,
-  newlib, musl natively; FreeBSD libc through TRegEx's `ltgt` rewrite, macOS
-  libc through `class` by construction, pending CI — measured 5 at 0..4 in
-  `ltgt` (newlib, FreeBSD) and `class` (newlib), `tests/015_WordEdges.sh`),
+  The `\b` rows hold natively (glibc, newlib, musl) and wherever the
+  alternation spelling of `\b` is used (FreeBSD libc's `ltgt`; measured 5 at
+  0..4 in `ltgt` and `class` on newlib and FreeBSD, `tests/015_WordEdges.sh`),
   except that musl also matches `\b` on the empty remainder (6 matches at 0..5,
-  `\|a\|b\| \|c\|d\|`) — see the README, *Word edges*.
+  `\|a\|b\| \|c\|d\|`). On macOS a **lone** `\b` cannot be translated (the
+  contextual `\b` needs a word-only atom next to it), so such a pattern is
+  rejected with rc 2 there — see the README, *Word edges*.
 
   Fixing it would need a match offset bash does not expose, so R12 (owner,
   2026-09-06) keeps it documented and pinned. **Use anchored patterns with
@@ -204,15 +205,22 @@ caller chose is never overridden. Both halves are pinned in
   |---|---|---|---|
   | glibc, newlib (Git-bash/MSYS2), musl | native | native | no rewrite (`native`) |
   | FreeBSD libc | native | rc 2 | `\b` → `(\<\|\>)` (`ltgt`) |
-  | macOS libc | rc 1 | rc 1 | `[[:<:]]` `[[:>:]]`, `\b` → `([[:<:]]\|[[:>:]])` (`class`) — by construction, pending CI (`class` measured on newlib only) |
+  | macOS libc | rc 1 | literal `b` | `[[:<:]]` `[[:>:]]`; `\b` **by context** (`class`, `__TRE_WB_B=ctx`): start spelling before a word-only atom, end spelling after one; a `\b` anywhere else makes the pattern **rc 2** (left as written it would be a literal `b`; measured, diag run 41046954439) |
 
-  The inserted groups are removed from `RESULT_GROUPS` (`BASH_REMATCH` keeps
-  them), `split` and the replacement `$n`, and pattern back-references are
-  renumbered past them — verified at string level; end to end only on glibc in
-  a forced `ltgt` (FreeBSD libc has no ERE back-references; macOS pending CI).
-  The probe also checks the rewritten `\b` and leaves `\b` to the library if it
-  fails. The probe, the `KCL_TREGEX_WB` seam and the limits are in the README,
-  *Word edges*; pinned by `tests/015_WordEdges.sh`.
+  So on macOS a `\b` must stand next to a word-only atom (a literal
+  `[A-Za-z0-9_]` or an all-word bracket expression), else the pattern is
+  rejected with rc 2.
+
+  The alternation spelling inserts groups; they are removed from
+  `RESULT_GROUPS` (`BASH_REMATCH` keeps them), `split` and the replacement
+  `$n`, and pattern back-references are renumbered past them — verified at
+  string level; end to end only on glibc in a forced `ltgt` (FreeBSD and macOS
+  libc have no ERE back-references). The probe checks the alternation spelling
+  of `\b`; where it fails (macOS: only the first branch is tried) `\b` is
+  translated by context instead, which inserts nothing. The probe, the
+  contextual rules, the `KCL_TREGEX_WB` seam (incl. `ltgt-ctx` / `class-ctx`)
+  and the limits are in the README, *Word edges*; pinned by
+  `tests/015_WordEdges.sh`.
 
 ---
 

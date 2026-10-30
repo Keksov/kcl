@@ -18,6 +18,13 @@
 # FreeBSD libc has no ERE back-references at all ((a)\1 misses "aa"); newlib
 # loses one after an alternation ((x|y)(a)\2 misses "xaa"); musl tries only the
 # first branch of (\<|\>) and rejects [[:<:]].
+#
+# L5.4-12b: macOS gets the alternation ([[:<:]]|[[:>:]]) wrong (CI run
+# 41041454478), so there auto is class with __TRE_WB_B=ctx: \b is translated
+# BY CONTEXT (start spelling before a word-only atom, end spelling after one,
+# and a pattern with any other \b is rejected: rc 2). The ctx variants are forced with
+# KCL_TREGEX_WB=ltgt-ctx / class-ctx and run end to end on newlib, glibc,
+# FreeBSD (ltgt-ctx, class-ctx where [[:<:]] exists) and musl (ltgt-ctx).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -50,6 +57,8 @@ LIB_CLB=0;  _raw_ok '([[:<:]]|[[:>:]])foo([[:<:]]|[[:>:]])' && LIB_CLB=1
 MODE_OK_native=$(( LIB_LT && LIB_B ))
 MODE_OK_ltgt=$(( LIB_LT && LIB_LTGT ))
 MODE_OK_class=$(( LIB_CL && LIB_CLB ))
+MODE_OK_ltgt_ctx=$LIB_LT     # ctx uses only the start/end spellings
+MODE_OK_class_ctx=$LIB_CL
 kt_test_log "this C library: \\< \\> native=$LIB_LT, \\b native=$LIB_B, [[:<:]] [[:>:]]=$LIB_CL, (\\<|\\>)=$LIB_LTGT, ([[:<:]]|[[:>:]])=$LIB_CLB (OSTYPE=$OSTYPE)"
 
 # ---------------------------------------------------------------------------
@@ -118,7 +127,60 @@ _rw class '\1\b(a)'          ''                                        '1'
 _rw class '\1\<(a)'          '\1[[:<:]](a)'                            ''
 $RW_OK && kt_test_pass "18 rows" || kt_test_fail "$RW_WHY"
 
-kt_test_start "rewriter with __TRE_WB_B=0 (the probe found the rewritten \\b broken): \\< \\> translated, \\b copied for the library"
+kt_test_start "rewriter, mode ltgt-ctx: \\b by context — \\< before a word-only atom, \\> after one, else the pattern is rejected (''); no inserted group"
+RW_OK=true; RW_WHY=""
+_rw ltgt-ctx '\bcat\b'          '\<cat\>'              ''
+_rw ltgt-ctx '\b[a-z]+\b'       '\<[a-z]+\>'           ''
+_rw ltgt-ctx '\b[[:alpha:]]+\b' '\<[[:alpha:]]+\>'     ''
+_rw ltgt-ctx '\b[0-9_]x'        '\<[0-9_]x'            ''
+_rw ltgt-ctx '\b_x\b'           '\<_x\>'               ''
+_rw ltgt-ctx 'a\bb'             'a\<b'                 ''
+_rw ltgt-ctx '\ba{2}\b'         '\<a{2}\>'             ''
+_rw ltgt-ctx 'a{1,}\b'          'a{1,}\>'              ''
+_rw ltgt-ctx 'ab+\b'            'ab+\>'                ''
+_rw ltgt-ctx 'a|\bb'            'a|\<b'                ''
+_rw ltgt-ctx 'a\b|b'            'a\>|b'                ''
+_rw ltgt-ctx '\bc(a)t\b'        '\<c(a)t\>'            ''
+_rw ltgt-ctx '\bx(a)\1'         '\<x(a)\1'             ''
+# undecidable: the whole pattern is rejected, '' = rc 2 (SV, L5.4-12b)
+_rw ltgt-ctx '\b.'              ''                     ''
+_rw ltgt-ctx '(x)\b'            ''                     ''
+_rw ltgt-ctx '\b(a)'            ''                     ''
+_rw ltgt-ctx '\b'               ''                     ''
+_rw ltgt-ctx '\b\_'             ''                     ''
+_rw ltgt-ctx '\b[^a]x'          ''                     ''
+_rw ltgt-ctx '\b[a-]x'          ''                     ''
+_rw ltgt-ctx '\b[A-z]'          ''                     ''
+_rw ltgt-ctx '\b[[:punct:]]'    ''                     ''
+_rw ltgt-ctx '\ba*'             ''                     ''
+_rw ltgt-ctx '\ba?x'            ''                     ''
+_rw ltgt-ctx '\ba{0,2}'         ''                     ''
+_rw ltgt-ctx 'a{0}\b'           ''                     ''
+_rw ltgt-ctx 'x*\b'             ''                     ''
+_rw ltgt-ctx '[[:space:]]\b'    ''                     ''
+_rw ltgt-ctx '\bcat\b.\b'       ''                     ''
+# no \b at all: unchanged
+_rw ltgt-ctx '\_x'              '\_x'                  ''
+_rw ltgt-ctx '\\b'              '\\b'                  ''
+$RW_OK && kt_test_pass "31 rows" || kt_test_fail "$RW_WHY"
+
+kt_test_start "rewriter, mode class-ctx (macOS): \\b by context — [[:<:]] before a word-only atom, [[:>:]] after one"
+RW_OK=true; RW_WHY=""
+_rw class-ctx '\bcat\b'          '[[:<:]]cat[[:>:]]'            ''
+_rw class-ctx '\b[a-z]+\b'       '[[:<:]][a-z]+[[:>:]]'         ''
+_rw class-ctx 'a\bb'             'a[[:<:]]b'                    ''
+_rw class-ctx '\<x\b'            '[[:<:]]x[[:>:]]'              ''
+_rw class-ctx '\bc(a)(t)s\b'     '[[:<:]]c(a)(t)s[[:>:]]'       ''
+_rw class-ctx '\b.'              ''                             ''
+_rw class-ctx '(x)\b'            ''                             ''
+_rw class-ctx '\b'               ''                             ''
+_rw class-ctx '\_x'              '\_x'                          ''
+# a group right before \b is undecidable: the whole pattern is rejected (left
+# as written, macOS would read that \b as a literal `b`)
+_rw class-ctx '\bf(a)(b)\b'      ''                             ''
+$RW_OK && kt_test_pass "10 rows" || kt_test_fail "$RW_WHY"
+
+kt_test_start "rewriter with __TRE_WB_B=0 (\\b never translated): \\< \\> translated, \\b copied for the library"
 RW_OK=true; RW_WHY=""
 for m in ltgt class; do
     _mode "$m"; TRegEx._wbProbe; __TRE_WB_B=0
@@ -195,31 +257,34 @@ case "$OSTYPE" in
 esac
 _mode auto; TRegEx.isMatch "a foo b" '\<foo\>' >/dev/null
 AUTO_MODE=${__TRE_WB_MODE-}; AUTO_B=${__TRE_WB_B-}
-# the rewritten \b works on every platform we know (musl, where it would not,
-# is native), so auto must translate \b wherever it picks ltgt/class
-[[ "$AUTO_MODE" == "$want" && "$AUTO_B" == 1 ]] && kt_test_pass "auto -> $AUTO_MODE, \\b rewrite=$AUTO_B" \
-    || kt_test_fail "auto -> '$AUTO_MODE' __TRE_WB_B='$AUTO_B', want '$want' and 1 (OSTYPE=$OSTYPE)"
-
-kt_test_start "auto keeps the \\b rewrite only if the rewritten \\b works on this library (__TRE_WB_B)"
+# the \b state auto must reach: the alternation where it works on this
+# library, else by context (macOS); native translates nothing (1)
 case "$AUTO_MODE" in
     ltgt)  __r='(\<|\>)foo(\<|\>)' ;;
     class) __r='([[:<:]]|[[:>:]])foo([[:<:]]|[[:>:]])' ;;
     *)     __r='' ;;
 esac
+WANT_B=1; [[ -n $__r ]] && ! _raw_ok "$__r" && WANT_B=ctx
+AUTO_EFF=$AUTO_MODE; [[ $AUTO_B == ctx ]] && AUTO_EFF=$AUTO_MODE-ctx
+[[ "$AUTO_MODE" == "$want" && "$AUTO_B" == "$WANT_B" ]] && kt_test_pass "auto -> $AUTO_MODE, \\b state=$AUTO_B" \
+    || kt_test_fail "auto -> '$AUTO_MODE' __TRE_WB_B='$AUTO_B', want '$want' and '$WANT_B' (OSTYPE=$OSTYPE)"
+
+kt_test_start "auto: __TRE_WB_B is 1 where the alternation spelling of \\b works on this library, ctx where it does not"
 if [[ -z $__r ]]; then
     [[ "$AUTO_B" == 1 ]] && kt_test_pass "mode $AUTO_MODE: nothing rewritten, __TRE_WB_B=1" || kt_test_fail "mode $AUTO_MODE: __TRE_WB_B=$AUTO_B"
 else
     raw=0; _raw_ok "$__r" && raw=1
-    [[ "$AUTO_B" == "$raw" ]] && kt_test_pass "mode $AUTO_MODE: rewritten \\b works=$raw = __TRE_WB_B" \
-        || kt_test_fail "mode $AUTO_MODE: rewritten \\b works=$raw, __TRE_WB_B=$AUTO_B"
+    if (( raw )); then want_b=1; else want_b=ctx; fi
+    [[ "$AUTO_B" == "$want_b" ]] && kt_test_pass "mode $AUTO_MODE: alternation works=$raw -> __TRE_WB_B=$AUTO_B" \
+        || kt_test_fail "mode $AUTO_MODE: alternation works=$raw, __TRE_WB_B=$AUTO_B want $want_b"
 fi
 
-kt_test_start "the seam: KCL_TREGEX_WB forces each mode (\\b rewrite on, off for none); unset and an unknown value mean auto"
+kt_test_start "the seam: KCL_TREGEX_WB forces each mode (\\b: 1, ctx for *-ctx, 0 for none); unset and an unknown value mean auto"
 ok=true; why=""
-for m in native ltgt class none; do
+for m in native ltgt class ltgt-ctx class-ctx none; do
     _mode "$m"; TRegEx._wbProbe
-    wb=1; [[ $m == none ]] && wb=0
-    [[ "$__TRE_WB_MODE" == "$m" && "$__TRE_WB_B" == "$wb" ]] || { ok=false; why+=" [$m -> $__TRE_WB_MODE B=$__TRE_WB_B]"; }
+    wb=1; [[ $m == none ]] && wb=0; [[ $m == *-ctx ]] && wb=ctx
+    [[ "$__TRE_WB_MODE" == "${m%-ctx}" && "$__TRE_WB_B" == "$wb" ]] || { ok=false; why+=" [$m -> $__TRE_WB_MODE B=$__TRE_WB_B]"; }
 done
 _mode bogus; TRegEx._wbProbe
 [[ "$__TRE_WB_MODE" == "$want" ]] || { ok=false; why+=" [bogus -> $__TRE_WB_MODE want $want]"; }
@@ -247,86 +312,110 @@ unset KCL_TREGEX_WB; TRegEx._wbReset
 _cbn() { REPLY="$#:$*"; }
 
 # _api MODE -> one kt row: every member with \b \< \> and groups
+# Every \b here sits next to a word-only atom, so the rows hold in the ctx
+# state too (L5.4-12b); groups sit INSIDE, so with __TRE_WB_B=1 the inserted
+# groups still come before and after them and must be dropped.
 _api() {
-    local m=$1 ok=true why="" rc a=() o=() p=() r want_n want_o na="" eff
+    local m=$1 ok=true why="" rc a=() o=() p=() r want_n want_o na="" eff effb v note=""
     kt_test_start "API in mode $m: isMatch/match/matches/split/replace/replaceCb see word edges and the user's group numbers"
     case "$m" in
-        native) (( MODE_OK_native )) || na="this C library has no native \\b or \\< \\> (mode native rewrites nothing)" ;;
-        ltgt)   (( MODE_OK_ltgt ))   || na="this C library lacks \\< \\> or mishandles (\\<|\\>) (musl: only the first branch), which mode ltgt needs" ;;
-        class)  (( MODE_OK_class ))  || na="this C library rejects [[:<:]] [[:>:]] or their alternation, which mode class needs" ;;
+        native)    (( MODE_OK_native ))    || na="this C library has no native \\b or \\< \\> (mode native rewrites nothing)" ;;
+        ltgt)      (( MODE_OK_ltgt ))      || na="this C library lacks \\< \\> or mishandles (\\<|\\>) (musl: only the first branch), which mode ltgt needs" ;;
+        class)     (( MODE_OK_class ))     || na="this C library rejects [[:<:]] [[:>:]] or mishandles their alternation (macOS), which mode class needs" ;;
+        ltgt-ctx)  (( MODE_OK_ltgt_ctx ))  || na="this C library lacks \\< \\>, which mode ltgt-ctx needs" ;;
+        class-ctx) (( MODE_OK_class_ctx )) || na="this C library rejects [[:<:]] [[:>:]], which mode class-ctx needs" ;;
     esac
     if [[ -n $na ]]; then
         # N/A only for a FORCED mode this library cannot do; the mode auto
         # picked must work (SV R1)
-        if [[ $m == "$AUTO_MODE" ]]; then kt_test_fail "mode $m is the one auto picked, yet: $na"
+        if [[ $m == "$AUTO_EFF" ]]; then kt_test_fail "mode $m is the one auto picked, yet: $na"
         else kt_test_pass "N/A: $na"; fi
         return
     fi
-    _mode "$m"
-    eff=$m; [[ $m == auto ]] && eff=$AUTO_MODE
+    _mode "$m"; TRegEx._wbProbe
+    eff=$__TRE_WB_MODE effb=$__TRE_WB_B
     TRegEx.isMatch "the cat sat" '\bcat\b'; rc=$?;  [[ $rc == 0 ]] || { ok=false; why+=" [isMatch \\bcat\\b rc=$rc]"; }
     TRegEx.isMatch "concatenate" '\bcat\b'; rc=$?;  [[ $rc == 1 ]] || { ok=false; why+=" [isMatch partial rc=$rc]"; }
     TRegEx.isMatch "a foo b" '\<foo\>'; rc=$?;      [[ $rc == 0 ]] || { ok=false; why+=" [isMatch \\<foo\\> rc=$rc]"; }
     TRegEx.isMatch "afoob" '\<foo\>'; rc=$?;        [[ $rc == 1 ]] || { ok=false; why+=" [isMatch \\<foo\\> partial rc=$rc]"; }
     TRegEx.isMatch "x foo y" 'foo\>'; rc=$?;       [[ $rc == 0 ]] || { ok=false; why+=" [isMatch foo\\> rc=$rc]"; }
     TRegEx.isMatch "x fooy" 'foo\>'; rc=$?;         [[ $rc == 1 ]] || { ok=false; why+=" [isMatch foo\\> partial rc=$rc]"; }
-    TRegEx.match "the cat sat" '\b(c)(a)t\b'; rc=$?
-    [[ $rc == 0 && "$RESULT" == cat && "$RESULT_INDEX" == 4 && "${#RESULT_GROUPS[@]}" == 2 \
-       && "${RESULT_GROUPS[0]}" == c && "${RESULT_GROUPS[1]}" == a ]] \
+    TRegEx.isMatch "ab" 'a\bb'; rc=$?;              [[ $rc == 1 ]] || { ok=false; why+=" [isMatch a\\bb rc=$rc (never matches)]"; }
+    TRegEx.match "the cats sat" '\bc(a)(t)s\b'; rc=$?
+    [[ $rc == 0 && "$RESULT" == cats && "$RESULT_INDEX" == 4 && "${#RESULT_GROUPS[@]}" == 2 \
+       && "${RESULT_GROUPS[0]}" == a && "${RESULT_GROUPS[1]}" == t ]] \
         || { ok=false; why+=" [match rc=$rc R=$RESULT idx=$RESULT_INDEX g=(${RESULT_GROUPS[*]}) n=${#RESULT_GROUPS[@]}]"; }
-    TRegEx.match "ab c d" '(c)\b'; rc=$?
-    [[ $rc == 0 && "$RESULT_INDEX" == 3 && "${#RESULT_GROUPS[@]}" == 1 && "${RESULT_GROUPS[0]}" == c ]] \
-        || { ok=false; why+=" [match (c)\\b: rc=$rc idx=$RESULT_INDEX g=(${RESULT_GROUPS[*]}) want one group]"; }
-    # \b counts: 5 at 0..4 (T4/R12); 6 only where the LIBRARY's own \b
+    TRegEx.match "xab c" '(a)b\b'; rc=$?
+    [[ $rc == 0 && "$RESULT_INDEX" == 1 && "${#RESULT_GROUPS[@]}" == 1 && "${RESULT_GROUPS[0]}" == a ]] \
+        || { ok=false; why+=" [match (a)b\\b: rc=$rc idx=$RESULT_INDEX g=(${RESULT_GROUPS[*]}) want one group]"; }
+    # \b ALONE: 5 at 0..4 (T4/R12); 6 only where the LIBRARY's own \b
     # matches '' (musl) and the mode hands \b to it unchanged (native) —
-    # derived from the raw engine, not from TRegEx (SV R2)
-    want_n=5; want_o="0 1 2 3 4"
-    if [[ $eff == native ]] && (( RAW_WB_EMPTY )); then want_n=6; want_o="0 1 2 3 4 5"; fi
-    TRegEx.matches "ab cd" '\b' a o
-    [[ "$RESULT" == "$want_n" && "${o[*]}" == "$want_o" ]] || { ok=false; why+=" [matches \\b n=$RESULT offs='${o[*]}' want $want_n '$want_o']"; }
+    # derived from the raw engine, not from TRegEx (SV R2). In the ctx state
+    # a \b with no word-only atom beside it cannot be translated: the pattern
+    # is rejected, rc 2 (never the literal `b` macOS would read), checked here.
+    if [[ $eff == native || $effb == 1 ]]; then
+        want_n=5; want_o="0 1 2 3 4"
+        if [[ $eff == native ]] && (( RAW_WB_EMPTY )); then want_n=6; want_o="0 1 2 3 4 5"; fi
+        TRegEx.matches "ab cd" '\b' a o
+        [[ "$RESULT" == "$want_n" && "${o[*]}" == "$want_o" ]] || { ok=false; why+=" [matches \\b n=$RESULT offs='${o[*]}' want $want_n '$want_o']"; }
+    else
+        a=(); o=(); TRegEx.matches "ab cd" '\b' a o; rc=$?
+        [[ $rc == 2 && "$RESULT" == 0 ]] || { ok=false; why+=" [matches \\b alone rc=$rc n=$RESULT want rc 2]"; }
+        TRegEx.isMatch "xb y" '\b.'; rc=$?
+        [[ $rc == 2 ]] || { ok=false; why+=" [isMatch \\b. rc=$rc want 2 (no false literal-b match)]"; }
+        TRegEx.match "fab" '\bf(a)(b)\b'; rc=$?
+        [[ $rc == 2 ]] || { ok=false; why+=" [match \\bf(a)(b)\\b rc=$rc want 2]"; }
+        note=" (rc 2 in state $effb: a \\b with no word-only atom beside it cannot be translated — checked)"
+    fi
     a=(); o=(); TRegEx.matches "ab, cd e" '\b[a-z]+\b' a o
     [[ "$RESULT" == 3 && "${a[*]}" == "ab cd e" && "${o[*]}" == "0 4 7" ]] || { ok=false; why+=" [matches words n=$RESULT a=(${a[*]}) o=(${o[*]})]"; }
-    p=(); TRegEx.split "a-b c" '\b(-)\b' p
+    p=(); TRegEx.split "a-b c" 'a\b(-)\bb' p
     r=$(printf '[%s]' "${p[@]}")
-    [[ "$RESULT" == 3 && "$r" == "[a][-][b c]" ]] || { ok=false; why+=" [split $r n=$RESULT]"; }
-    TRegEx.replace "foo bar" '\b([a-z])([a-z]*)\b' '$2$1' >/dev/null
-    [[ "$RESULT" == "oof arb" ]] || { ok=false; why+=" [replace \$2\$1 -> '$RESULT']"; }
-    TRegEx.replace "x foo y" '\b(f)(o+)\b' '${2}-$1-$3' >/dev/null
-    [[ "$RESULT" == 'x oo-f-$3 y' ]] || { ok=false; why+=" [replace \${2}-\$1-\$3 -> '$RESULT' (\$3 is no group)]"; }
-    TRegEx.replaceCb "go foo" '\b(f)(o*)\b' _cbn >/dev/null
-    [[ "$RESULT" == "go 3:foo f oo" ]] || { ok=false; why+=" [replaceCb -> '$RESULT']"; }
-    $ok && kt_test_pass "all members" || kt_test_fail "$why"
+    [[ "$RESULT" == 3 && "$r" == "[][-][ c]" ]] || { ok=false; why+=" [split $r n=$RESULT]"; }
+    TRegEx.replace "fabs bar" '\bf(a)(b)s\b' '$2$1' >/dev/null
+    [[ "$RESULT" == "ba bar" ]] || { ok=false; why+=" [replace \$2\$1 -> '$RESULT']"; }
+    TRegEx.replace "x fabs y" '\bf(a)(b)s\b' '${2}-$1-$3' >/dev/null
+    [[ "$RESULT" == 'x b-a-$3 y' ]] || { ok=false; why+=" [replace \${2}-\$1-\$3 -> '$RESULT' (\$3 is no group)]"; }
+    TRegEx.replaceCb "go fabs" '\bf(a)(b)s\b' _cbn >/dev/null
+    [[ "$RESULT" == "go 3:fabs a b" ]] || { ok=false; why+=" [replaceCb -> '$RESULT']"; }
+    $ok && kt_test_pass "all members, mode $eff, \\b state $effb$note" || kt_test_fail "mode $eff state $effb:$why"
 }
 __r='\b'; RAW_WB_EMPTY=0; [[ '' =~ $__r ]] 2>/dev/null && RAW_WB_EMPTY=1
 _api auto
 _api native
 _api ltgt
 _api class
+_api ltgt-ctx
+_api class-ctx
 
 kt_test_start "back-reference after \\b keeps pointing at the user's group, in every mode"
-ok=true; why=""; na=""
+ok=true; why=""; na=""; ran=""
 # mode native keeps the pattern: needs plain ERE back-references; ltgt/class
 # insert an alternation group before them: needs a back-reference that
 # survives one (newlib loses it: `(x|y)(a)\2` misses "xaa")
 __r='(a)\1';      RAW_BR=0;  [[ 'aa'  =~ $__r ]] 2>/dev/null && RAW_BR=1
 __r='(x|y)(a)\2'; RAW_BRA=0; [[ 'xaa' =~ $__r ]] 2>/dev/null && RAW_BRA=1
-for m in native ltgt class; do
+# (the ctx variants insert nothing: they need plain back-references only)
+for m in native ltgt class ltgt-ctx class-ctx; do
     case "$m" in
-        native) (( MODE_OK_native && RAW_BR )) || { na+=" $m"; continue; } ;;
-        ltgt)   (( MODE_OK_ltgt && RAW_BRA ))  || { na+=" $m"; continue; } ;;
-        class)  (( MODE_OK_class && RAW_BRA )) || { na+=" $m"; continue; } ;;
+        native)    (( MODE_OK_native && RAW_BR ))    || { na+=" $m"; continue; } ;;
+        ltgt)      (( MODE_OK_ltgt && RAW_BRA ))     || { na+=" $m"; continue; } ;;
+        class)     (( MODE_OK_class && RAW_BRA ))    || { na+=" $m"; continue; } ;;
+        ltgt-ctx)  (( MODE_OK_ltgt_ctx && RAW_BR ))  || { na+=" $m"; continue; } ;;
+        class-ctx) (( MODE_OK_class_ctx && RAW_BR )) || { na+=" $m"; continue; } ;;
     esac
     _mode "$m"
-    TRegEx.match "x aa" '\b(a)\1'; rc=$?
-    [[ $rc == 0 && "$RESULT" == aa && "${RESULT_GROUPS[*]}" == a ]] || { ok=false; why+=" [$m rc=$rc R=$RESULT g=(${RESULT_GROUPS[*]})]"; }
-    TRegEx.isMatch "x ab" '\b(a)\1'; rc=$?
+    TRegEx.match "z xaa" '\bx(a)\1'; rc=$?
+    [[ $rc == 0 && "$RESULT" == xaa && "${RESULT_GROUPS[*]}" == a ]] || { ok=false; why+=" [$m rc=$rc R=$RESULT g=(${RESULT_GROUPS[*]})]"; }
+    TRegEx.isMatch "z xab" '\bx(a)\1'; rc=$?
     [[ $rc == 1 ]] || { ok=false; why+=" [$m no-match rc=$rc]"; }
+    ran+=" $m"
 done
 if [[ -n $na ]]; then
-    msg="N/A in:$na — this C library lacks the mode's spelling, or its ERE loses a back-reference (raw (a)\\1=$RAW_BR, (x|y)(a)\\2=$RAW_BRA)"
+    msg="ran:${ran:- none}; N/A in:$na — this C library lacks the mode's spelling, or its ERE loses a back-reference (raw (a)\\1=$RAW_BR, (x|y)(a)\\2=$RAW_BRA)"
     $ok && kt_test_pass "$msg" || kt_test_fail "$why; $msg"
 else
-    $ok && kt_test_pass "native ltgt class" || kt_test_fail "$why"
+    $ok && kt_test_pass "ran:$ran" || kt_test_fail "$why"
 fi
 
 kt_test_start "an unspellable back-reference (would be \\10) is rc 2, not a silent \\1 + '0'"
@@ -349,13 +438,15 @@ $ok && kt_test_pass "unchanged" || kt_test_fail "$why"
 
 kt_test_start "the i-flag and the rewrite together (case-insensitive \\b with groups)"
 ok=true; why=""
-for m in native ltgt class; do
-    v=MODE_OK_$m; (( ${!v} )) || continue
+ran=""
+for m in auto native ltgt class ltgt-ctx class-ctx; do
+    if [[ $m != auto ]]; then v=MODE_OK_${m//-/_}; (( ${!v} )) || continue; fi
     _mode "$m"
-    TRegEx.match "THE Cat" '\b(c)(a)t\b' i; rc=$?
-    [[ $rc == 0 && "$RESULT" == Cat && "${RESULT_GROUPS[*]}" == "C a" ]] || { ok=false; why+=" [$m rc=$rc R=$RESULT g=(${RESULT_GROUPS[*]})]"; }
+    TRegEx.match "THE CaTs" '\bc(a)(t)s\b' i; rc=$?
+    [[ $rc == 0 && "$RESULT" == CaTs && "${RESULT_GROUPS[*]}" == "a T" ]] || { ok=false; why+=" [$m rc=$rc R=$RESULT g=(${RESULT_GROUPS[*]})]"; }
+    ran+=" $m"
 done
-$ok && kt_test_pass "groups C a" || kt_test_fail "$why"
+$ok && kt_test_pass "groups a T in:$ran" || kt_test_fail "$why"
 
 unset KCL_TREGEX_WB; TRegEx._wbReset
 

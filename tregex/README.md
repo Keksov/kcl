@@ -146,39 +146,68 @@ pattern is rc 2 everywhere (S2).
 `\<` (word start), `\>` (word end) and `\b` (either) work everywhere: write them
 once and get word-boundary semantics on every C library. They are extensions of
 the library, not POSIX, and the libraries spell them differently, so on FreeBSD
-and macOS TRegEx **rewrites** the pattern (launch L5.4-12, owner OG14 = b):
+and macOS TRegEx **rewrites** the pattern (launch L5.4-12, owner OG14 = b). One
+exception: **on macOS a `\b` must stand next to a word-only atom, else the
+pattern is rejected (rc 2)** (L5.4-12b, below).
 
 | C library | `\<` `\>` | `\b` | what TRegEx does (mode) |
 |---|---|---|---|
 | glibc, newlib (Git-bash/MSYS2), musl | native | native | nothing (`native`) |
 | FreeBSD libc | native | rc 2 | `\b` → `(\<\|\>)` (`ltgt`) |
-| macOS libc | rc 1 | rc 1 | `\<` → `[[:<:]]`, `\>` → `[[:>:]]`, `\b` → `([[:<:]]\|[[:>:]])` (`class`) — by construction, pending CI |
+| macOS libc | rc 1 | a literal `b` | `\<` → `[[:<:]]`, `\>` → `[[:>:]]`, `\b` **by context** (`class`, `__TRE_WB_B=ctx`) — see below |
 | none of the three spellings | — | — | nothing; the library's own rc (`none`) |
 
-The macOS row follows the measured macOS facts (launch triage D1), but `class`
-itself has been run only on newlib so far; macOS is pending CI.
+Measured on macOS (diag run 41046954439, both brew sets): `[[:<:]]foo[[:>:]]`
+works, `\<foo\>` is rc 1, an unknown escape `\b` is read as a **literal `b`**
+(`\b` on `ab` matches `b`), and the alternation `([[:<:]]|[[:>:]])` tries only
+its first branch (`foo([[:<:]]|[[:>:]])` misses `a foo b`) — so the alternation
+spelling of `\b` cannot be used there.
 
 * The mode is probed once per process, lazily, fork-free — and only when a
   pattern holds `\<`, `\>` or `\b`: any other pattern costs one glob and never
   reaches the probe, the rewriter or its cache (a literal `\\b` passes the glob
   as well and is then left alone — harmless). Each rewritten pattern is cached.
-* For `ltgt` and `class` the probe also tries the **rewritten** `\b`
-  (`(\<|\>)foo(\<|\>)`, whose trailing edge needs the alternation's second
-  branch). If the library gets that wrong, `\<` `\>` are still translated but
-  `\b` is passed through unchanged and the library's own rc applies to it.
+* For `ltgt` and `class` the probe also tries the **alternation** spelling of
+  `\b` (`(\<|\>)foo(\<|\>)`, whose trailing edge needs the second branch). Where
+  it works (FreeBSD; newlib and glibc when forced) `\b` becomes it
+  (`__TRE_WB_B=1`). Where it does not (macOS; musl when forced) `\b` is
+  translated **by context** (`__TRE_WB_B=ctx`), with no inserted group:
+  * right **before** an atom that can only match a word character it is the
+    start of a word (`[[:<:]]` / `\<`); right **after** one it is the end of a
+    word (`[[:>:]]` / `\>`). Both are exact: next to a word character, `\b`
+    holds exactly when the other side is not one;
+  * a word-only atom is a literal `[A-Za-z0-9_]`, or a bracket expression whose
+    every member is one: those characters spelled out, a range inside `a-z`,
+    `A-Z` or `0-9`, and `[:alnum:]` `[:alpha:]` `[:digit:]` `[:upper:]`
+    `[:lower:]` (the BSD engines' word character is `iswalnum` or `_`) — not
+    negated, and followed by no quantifier, `+`, or `{n…}` with n ≥ 1;
+  * between two word atoms (`a\bb`) the start spelling is used; it never
+    matches there, and neither does `\b`;
+  * so `\bcat\b`, `\b[a-z]+\b`, `\b[[:alpha:]]+\b`, `\bc(a)(t)s\b` work on
+    macOS. **Next to anything else** — `.`, a group `(…)`, an escape, `*`/`?`,
+    the ends of the pattern, `\b` alone — `\b` cannot be translated and the
+    whole pattern is **rejected: rc 2** (an invalid pattern, also what FreeBSD's
+    own library answers for `\b`). Left as written, macOS would read it as a
+    literal `b` and match falsely (`\b.` matches `b ` in `xb y`), which is worse
+    than an honest error. `\bf(a)(b)\b` is rc 2 there (a group before the last
+    `\b`); `\bf(a)(b)s\b` works. On macOS, put a word-only atom next to every
+    `\b`.
 * Groups the rewrite inserts are removed again, so `RESULT_GROUPS`, `split`'s
   interleaved groups, `$n` in `replace` and `replaceCb`'s arguments keep **your**
   numbering (`BASH_REMATCH` itself, being bash's, keeps them), and a
   back-reference `\1`..`\9` in the pattern is renumbered to follow
   (`\b(a)\1` → `(\<|\>)(a)\2`). The renumbering is verified at string level on
   every platform; end to end only where the library keeps back-references next
-  to an alternation (glibc, in a forced `ltgt`) — FreeBSD libc has no ERE
-  back-references, macOS pending CI. The rewriter knows escapes (`\\<` is a
-  backslash and `<`) and bracket expressions (`[\<]`, `[^\b]` are untouched).
-* `KCL_TREGEX_WB=auto|native|ltgt|class|none` forces a mode, `\b` rewrite
-  included and without the probe's checks (default `auto`, the probe; any other
-  value counts as `auto`); `TRegEx._wbReset` makes the next pattern decide
-  again — the tests switch modes that way.
+  to an alternation (glibc, in a forced `ltgt`) — FreeBSD and macOS libc have no
+  ERE back-references (measured). The contextual `\b` inserts no group, so it
+  renumbers nothing. The rewriter knows escapes (`\\<` is a backslash and `<`)
+  and bracket expressions (`[\<]`, `[^\b]` are untouched).
+* `KCL_TREGEX_WB=auto|native|ltgt|class|ltgt-ctx|class-ctx|none` forces a mode
+  without the probe's checks (default `auto`, the probe; any other value counts
+  as `auto`): `native`/`ltgt`/`class` with the alternation `\b`, `ltgt-ctx` /
+  `class-ctx` = `ltgt`/`class` with the contextual `\b`, `none` with no `\b`
+  translation; `TRegEx._wbReset` makes the next pattern decide again — the
+  tests switch modes that way.
 
 Limits: the boundary semantics are the library's own (which characters count as
 word characters is its call); musl also matches `\b` on an empty remainder, so a
@@ -189,9 +218,11 @@ so both make the pattern rc 2; a library's own back-reference gaps stay (FreeBSD
 back-references at all; newlib loses one in a pattern that also has an
 alternation, which is what `ltgt`/`class` insert); a mode forced onto a library
 it was not probed for can be wrong (musl tries only the first branch of
-`(\<|\>)`, so a forced `ltgt` misses `foo\b` there — `auto` picks `native`). The
-zero-length anchor delta below holds in every mode. Pinned by
-`tests/015_WordEdges.sh`.
+`(\<|\>)`, so a forced `ltgt` misses `foo\b` there — `auto` picks `native`);
+with the contextual `\b` (macOS) a pattern with a `\b` that is not next to a
+word-only atom is rc 2 (above), so a lone `\b` scan (`matches "ab cd" '\b'`) is
+rc 2 there. The zero-length anchor delta below holds in every mode.
+Pinned by `tests/015_WordEdges.sh`.
 
 ### Match offsets, and the zero-length anchor delta
 
@@ -280,7 +311,7 @@ work with honest dialect semantics, not for being the fastest possible `grep`.
 
 ## Tests
 
-`tests/001…015` — 271 cases (launch L5.4-12), all green on bash 5.2.37 **and** 5.3.9:
+`tests/001…015` — 277 cases (launch L5.4-12b), all green on bash 5.2.37 **and** 5.3.9:
 wiring/contract, isMatch, match (offsets/groups/deltas), escape, flags+fork-free,
 matches, split, **FPC parity (008)**, replace/replaceCb, the kcl contract (010),
 and the P7 review regressions — locale + zero-length anchors (011, T3/T4),

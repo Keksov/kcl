@@ -35,6 +35,15 @@ kt_test_section "011: locale semantics (T3) and anchored zero-length scans (T4/R
 unset KCL_TREGEX_WB; TRegEx._wbReset; TRegEx._wbProbe
 __re='\b'; TRE_WB_END=0
 [[ $__TRE_WB_MODE == native ]] && [[ '' =~ $__re ]] 2>/dev/null && TRE_WB_END=1   # 1: musl
+# A LONE \b is translated only natively or through the alternation
+# (__TRE_WB_B=1); in the ctx state (macOS, L5.4-12b) it has no word-only atom
+# beside it, so the pattern is rejected (rc 2) — a documented limit: the scan
+# row checks that rc, the replace/split rows skip it.
+TRE_WB_LONE=1; WB_NA=""
+if [[ $__TRE_WB_MODE != native && $__TRE_WB_B != 1 ]]; then
+    TRE_WB_LONE=0
+    WB_NA="rc 2 in state $__TRE_WB_B: a \\b with no word-only atom beside it cannot be translated (word-edge mode $__TRE_WB_MODE; documented limit)"
+fi
 
 # ---------------------------------------------------------------------------
 # 1. T3 — `.` over a multibyte character, under both locales, in a CHILD shell
@@ -104,7 +113,12 @@ _scan() {   # PATTERN TEXT EXPECT-n EXPECT-offsets DOTNET-NOTE
 # whole string one character at a time.
 _scan '$'  "abc"   4 "0 1 2 3" "1 match at 3"
 _scan '^'  "abc"   4 "0 1 2 3" "1 match at 0"
-if (( TRE_WB_END )); then   # musl also matches \b on the empty remainder: one more offset
+if (( ! TRE_WB_LONE )); then
+    kt_test_start "matches(ab cd, \\b) = 5 matches at [0 1 2 3 4]; .NET: 4 matches at 0,2,3,5 [T4/R12]"
+    a=(); o=(); TRegEx.matches "ab cd" '\b' a o; rc=$?
+    if [[ $rc == 2 && "$RESULT" == 0 ]]; then kt_test_pass "$WB_NA"
+    else kt_test_fail "rc=$rc n=$RESULT offs='${o[*]}', want rc 2 ($WB_NA)"; fi
+elif (( TRE_WB_END )); then   # musl also matches \b on the empty remainder: one more offset
     _scan '\b' "ab cd" 6 "0 1 2 3 4 5" "4 matches at 0,2,3,5"
 else
     _scan '\b' "ab cd" 5 "0 1 2 3 4" "4 matches at 0,2,3,5"
@@ -123,20 +137,24 @@ _rep() {   # TEXT PATTERN REPL EXPECT DOTNET
 }
 _rep "abc"   '$'  "!" "!a!b!c!" "abc!"
 _rep "abc"   '^'  ">" ">a>b>c>" ">abc"
-if (( TRE_WB_END )); then _rep "ab cd" '\b' "|" "|a|b| |c|d|" "|ab| |cd|"
+n_rep=4
+if (( ! TRE_WB_LONE )); then n_rep=3      # the lone-\b row: see WB_NA
+elif (( TRE_WB_END )); then _rep "ab cd" '\b' "|" "|a|b| |c|d|" "|ab| |cd|"
 else _rep "ab cd" '\b' "|" "|a|b| |c|d" "|ab| |cd|"
 fi
 _rep "abc"   'x*' "-" "-a-b-c-"   "-a-b-c- (agrees)"
-$ok && kt_test_pass "4 rows pinned" || kt_test_fail "$why"
+$ok && kt_test_pass "$n_rep rows pinned${WB_NA:+; the \\b row $WB_NA}" || kt_test_fail "$why"
 
 kt_test_start "split with an anchored zero-length pattern [T4/R12]"
 ok=true; why=""
 p=(); TRegEx.split "abc" '$' p
 [[ "$(printf '[%s]' "${p[@]}")" == "[][a][b][c][]" ]] || { ok=false; why+=" [split \$ -> $(printf '[%s]' "${p[@]}")]"; }
-want_wb="[][a][b][ ][c][d]"; (( TRE_WB_END )) && want_wb="[][a][b][ ][c][d][]"
-p=(); TRegEx.split "ab cd" '\b' p
-[[ "$(printf '[%s]' "${p[@]}")" == "$want_wb" ]] || { ok=false; why+=" [split \\b -> $(printf '[%s]' "${p[@]}") want $want_wb]"; }
-$ok && kt_test_pass "pinned" || kt_test_fail "$why"
+if (( TRE_WB_LONE )); then
+    want_wb="[][a][b][ ][c][d]"; (( TRE_WB_END )) && want_wb="[][a][b][ ][c][d][]"
+    p=(); TRegEx.split "ab cd" '\b' p
+    [[ "$(printf '[%s]' "${p[@]}")" == "$want_wb" ]] || { ok=false; why+=" [split \\b -> $(printf '[%s]' "${p[@]}") want $want_wb]"; }
+fi
+$ok && kt_test_pass "pinned${WB_NA:+; the \\b row $WB_NA}" || kt_test_fail "$why"
 
 kt_test_start "the S6 offset caveat: an anchored match whose text recurs earlier [T4]"
 # `match` (single, not a scan) with `$`-anchored text that also occurs earlier:

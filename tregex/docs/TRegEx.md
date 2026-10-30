@@ -12,7 +12,9 @@
 >   **engine** cannot do — the port runs on bash's POSIX ERE, not PCRE, so lazy
 >   quantifiers, lookaround, named groups and multiline mode are absent,
 >   and matching is leftmost-**longest**, not leftmost-first. `\<` `\>` `\b`
->   work everywhere (on FreeBSD/macOS TRegEx rewrites them, L5.4-12). The complete
+>   work everywhere (on FreeBSD/macOS TRegEx rewrites them, L5.4-12; on macOS
+>   a `\b` must stand next to a word-only atom, else the pattern is rc 2,
+>   L5.4-12b). The complete
 >   dialect delta is **[ERE-vs-PCRE.md](ERE-vs-PCRE.md)**. The `TMatch` /
 >   `TGroupCollection` object protocol is replaced by the `RESULT_*` globals and
 >   nameref fills.

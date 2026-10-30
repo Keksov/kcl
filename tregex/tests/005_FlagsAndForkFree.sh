@@ -109,12 +109,14 @@ _wbcase() {
     local m=$1 need=() __r
     kt_test_start "PATH='' : \\<foo\\> and \\bfoo\\b in word-edge mode $m are fork-free"
     case "$m" in   # the spellings this mode hands to the C library
-        native) need=('\<foo\>' '\bfoo\b') ;;
-        ltgt)   need=('\<foo\>' '(\<|\>)foo(\<|\>)') ;;   # musl: only the 1st branch
-        class)  need=('[[:<:]]foo[[:>:]]' '([[:<:]]|[[:>:]])foo([[:<:]]|[[:>:]])') ;;
+        native)    need=('\<foo\>' '\bfoo\b') ;;
+        ltgt)      need=('\<foo\>' '(\<|\>)foo(\<|\>)') ;;   # musl: only the 1st branch
+        class)     need=('[[:<:]]foo[[:>:]]' '([[:<:]]|[[:>:]])foo([[:<:]]|[[:>:]])') ;;  # macOS: wrong
+        ltgt-ctx)  need=('\<foo\>') ;;
+        class-ctx) need=('[[:<:]]foo[[:>:]]') ;;
     esac
     for __r in "${need[@]}"; do
-        if ! [[ 'a foo b' =~ $__r ]] 2>/dev/null; then
+        if ! { [[ 'a foo b' =~ $__r ]] 2>/dev/null && ! [[ 'afoob' =~ $__r ]] 2>/dev/null; }; then
             kt_test_pass "N/A: this C library lacks '$__r', which mode $m needs"
             return
         fi
@@ -128,16 +130,18 @@ _wbcase() {
         TRegEx.isMatch "afoob" '\<foo\>'; r2=$?
         TRegEx.isMatch "a foo b" '\bfoo\b'; r3=$?
         TRegEx.isMatch "afoob" '\bfoo\b'; r4=$?
-        TRegEx.match "a foo b" '\b(f)(o+)\b'; r5="$?:$RESULT:$RESULT_INDEX:${RESULT_GROUPS[*]}"
+        TRegEx.match "a foo b" '\bf(o)o\b'; r5="$?:$RESULT:$RESULT_INDEX:${RESULT_GROUPS[*]}"
         printf '%s|%s|%s|%s|%s' "$r1" "$r2" "$r3" "$r4" "$r5"
     )"
-    [[ "$out" == "0|1|0|1|0:foo:2:f oo" ]] && kt_test_pass "$out" \
-        || kt_test_fail "mode $m: got '$out', want '0|1|0|1|0:foo:2:f oo'"
+    [[ "$out" == "0|1|0|1|0:foo:2:o" ]] && kt_test_pass "$out" \
+        || kt_test_fail "mode $m: got '$out', want '0|1|0|1|0:foo:2:o'"
 }
 _wbcase auto
 _wbcase native
 _wbcase ltgt
 _wbcase class
+_wbcase ltgt-ctx
+_wbcase class-ctx
 
 # --- fork-free i-flag save/restore does not disturb an unrelated shopt ---
 kt_test_start "i-flag toggling leaves other shopts intact"
