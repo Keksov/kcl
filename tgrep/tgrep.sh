@@ -48,7 +48,7 @@ declare -g __TG_SEQ=0
 #
 # ---- The pinned argv (PLAN §1.3) ------------------------------------------
 #   grep [-i] [-v] [-w] [-x] [-F|-E] [-r] [-n] [-l|-L] [-c] [-o] [-h|-H]
-#        [-m N] [--include=G] [--exclude=G] [--exclude-dir=G] [-U] [-z] [-Z]
+#        [-m N] [--include=G] [--exclude=G] [--exclude-dir=G] [-U] [-z] [-Z] [-q]
 #        -e PATTERN [EXTRA ARGS from addArg] [-- PATH...]
 #
 # The pattern ALWAYS travels as `-e PATTERN`, so a pattern that starts with `-`
@@ -92,7 +92,8 @@ declare -g __TG_SEQ=0
 # ---- Binary files (PLAN §1.4) ---------------------------------------------
 # `Binary file X matches` goes to grep's STDOUT, so it arrives as a RECORD
 # through every sink. `addArg -a` (or `--binary-files=text`) is the documented
-# escape hatch; `-a`/`-I` are not modelled yet.
+# escape hatch; `-a`/`-I` are not modelled yet. `TGrep.countMatching` keeps the
+# record: a matching binary file adds ONE to its number (HELPERS_PLAN H2).
 #
 # ---- Traps this unit is written around ------------------------------------
 #  * The constructor calls `parent.constructor grep` EXPLICITLY. `inherited` in
@@ -144,6 +145,7 @@ class TGrep : TUtil
         var binary                     # -U (--binary): see §2.6
         var nullData                   # -z  (NUL-terminated INPUT records)
         var nullOut                    # -Z  (see §2.7)
+        var quiet                      # -q  (HELPERS_PLAN H2): no output, the rc is the answer
         var _nulDerived                # private bookkeeping for §2.7 (below)
         constructor Create             # [PATTERN [PATH...]]
         destructor  Destroy            # frees ${inst}_paths, then inherited
@@ -151,6 +153,8 @@ class TGrep : TUtil
         override func buildArgv
         override func mapRc
         static proc search             # PATTERN PATH... — `grep -r`, streamed
+        static proc contains           # TEXT PATH... — rc only: `grep -r -F -q`
+        static proc countMatching      # TEXT PATH... — RESULT = matching lines: `grep -r -h -F` + `count`
 end
 
 # ===========================================================================
@@ -192,6 +196,7 @@ TGrep.Create() {
     binary=0
     nullData=0
     nullOut=0
+    quiet=0
     _nulDerived=0
     declare -ga "${__inst__}_paths=()"
     local -n __tg_p="${__inst__}_paths"
@@ -356,6 +361,7 @@ TGrep.buildArgv() {
     if [[ "$binary"            == 1 ]]; then __tg_v+=( -U ); fi
     if [[ "$nullData"          == 1 ]]; then __tg_v+=( -z ); fi
     if [[ "$nullOut"           == 1 ]]; then __tg_v+=( -Z ); fi
+    if [[ "$quiet"             == 1 ]]; then __tg_v+=( -q ); fi
 
     # The pattern is ALWAYS `-e PATTERN`: a pattern of `-v` is then searched for,
     # not parsed as a flag.
@@ -450,6 +456,83 @@ TGrep.search() {
     "$__tg_i".run || __tg_rc=$?
     "$__tg_i".delete
     return "$__tg_rc"
+}
+
+# tgrep._ret VALUE [RC] — kcl README §1.1's static-unit helper (the `tpath._ret`
+# shape, as `tsed._ret`): RESULT = VALUE, printed only inside a subshell, so a
+# direct call is silent and `$( )` prints the value exactly once.
+tgrep._ret() {
+    RESULT="$1"
+    if (( BASH_SUBSHELL > 0 )); then
+        printf '%s' "$1"
+    fi
+    return "${2:-0}"
+}
+
+# contains TEXT PATH... — the predicate (HELPERS_PLAN §3, H2): is the LITERAL
+# TEXT in any file under PATH...? `grep -r -F -q -e TEXT -- PATH...`, built on a
+# throw-away instance exactly like `search` (`fixed = 1`, `recursive = 1`,
+# `quiet = 1`, `run`, `delete`). It answers by its rc ALONE and prints nothing:
+#
+#     rc 0   a line matched
+#     rc 1   no line matched — OR a tool error (a missing or unreadable operand;
+#            one `kk.debug` line from `mapRc`). The family mapping, no new
+#            meaning: who must tell the two apart builds an instance and reads
+#            `lastRc` (1 = no match, 2 = error)
+#     rc 2   a malformed call, nothing ran: fewer than two arguments (one usage
+#            line), or an empty TEXT (`buildArgv`'s line) — never a tool error
+#
+# GNU grep with `-q` exits 0 as soon as one match is found EVEN IF another
+# operand failed (measured on 3.0: `-q -e needle -- a.txt missing.txt` is rc 0,
+# so is `missing.txt a.txt`), while a miss plus a failed operand is its 2 -> rc 1
+# here. At least ONE path is required: `grep -r` with none searches the CURRENT
+# DIRECTORY, which no caller means by accident.
+TGrep.contains() {
+    if (( $# < 2 )); then
+        kk.debug "Error: TGrep.contains: usage: TGrep.contains TEXT PATH... — at least one path is required (\`grep -r\` with none would search the current directory); build an instance for the stdin form"
+        return 2
+    fi
+    __TG_SEQ=$(( __TG_SEQ + 1 ))
+    local __tg_i="__tg_s_${BASHPID}_${__TG_SEQ}"
+    TGrep.new "$__tg_i" "$@"
+    "$__tg_i".fixed = 1
+    "$__tg_i".recursive = 1
+    "$__tg_i".quiet = 1
+    local __tg_rc=0
+    "$__tg_i".run || __tg_rc=$?
+    "$__tg_i".delete
+    return "$__tg_rc"
+}
+
+# countMatching TEXT PATH... — how many LINES contain the LITERAL TEXT, over all
+# files under PATH... (HELPERS_PLAN §3, H2): `grep -r -h -F -e TEXT -- PATH...`
+# through the existing `count` sink — no parsing of `file:count`, no `-c`. Same
+# throw-away instance and the same rc 2 usage rule as `search`; an empty TEXT is
+# `buildArgv`'s rc 2 with RESULT ''.
+#
+# RESULT and rc are what the `count` sink answers, the family's named deviation
+# included (README §3): 0 matches is `0` with rc 1, and an operand that failed
+# among good ones is the REAL count with rc 1. A matching BINARY file adds ONE
+# record — grep's own `Binary file X matches` line (README §3) — and is kept
+# (no `-I`, no `-a`). A `static proc` answering in RESULT (kcl README §1.1): a
+# direct call prints nothing, `$( )` prints the value exactly once.
+TGrep.countMatching() {
+    if (( $# < 2 )); then
+        kk.debug "Error: TGrep.countMatching: usage: TGrep.countMatching TEXT PATH... — at least one path is required (\`grep -r\` with none would search the current directory); build an instance for the stdin form"
+        tgrep._ret '' 2
+        return 2
+    fi
+    __TG_SEQ=$(( __TG_SEQ + 1 ))
+    local __tg_i="__tg_s_${BASHPID}_${__TG_SEQ}"
+    TGrep.new "$__tg_i" "$@"
+    "$__tg_i".fixed = 1
+    "$__tg_i".recursive = 1
+    "$__tg_i".noFilename = 1
+    local __tg_rc=0
+    "$__tg_i".count || __tg_rc=$?
+    local __tg_n="$RESULT"
+    "$__tg_i".delete
+    tgrep._ret "$__tg_n" "$__tg_rc"
 }
 
 # Finalize: extract the bodies above into the `TGrep` class and generate the

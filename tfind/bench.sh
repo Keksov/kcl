@@ -252,6 +252,18 @@ echo "  once per CALL, never per record, and it does not grow with the corpus �
 echo "  the process start it is measured against does not either."
 
 # ===========================================================================
+# (b2) the H2 static (kcl/docs/dev/tutil/HELPERS_PLAN.md §3) — published, NOT
+# gated: `quoteGlob` is pure bash (no instance, no fork); cost = ND calls
+# ===========================================================================
+echo
+echo "(b2) the H2 static — one line (published, not gated):"
+TStopwatch.getTimeStamp; t0=$RESULT
+for (( i = 0; i < ND; i++ )); do TFind.quoteGlob 'a*b?c[d]e\f'; done
+TStopwatch.getTimeStamp; t1=$RESULT
+b_q=$(( t1 - t0 )); (( b_q > 0 )) || b_q=1
+report "TFind.quoteGlob a*b?c[d]e\\f (no fork)" "$b_q" "$ND" "call"
+
+# ===========================================================================
 # (c) the gate: TFind.byName vs a bare `find … -name`
 # ===========================================================================
 echo

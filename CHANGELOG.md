@@ -26,6 +26,10 @@ Commit hashes in parentheses point at the change for readers who want the diff.
   `timeout` nor `gtimeout`; a tregex locale case no longer breaks on macOS runners.
 * CI: kcl has its own workflow that runs the 13-row kbool matrix with this
   commit as kcl (6306e33); `CONTRIBUTING.md` added (40b61dc).
+* **TGrep** gains `quiet` (`-q`), `TGrep.contains TEXT PATH...` (rc only) and
+  `TGrep.countMatching TEXT PATH...` (RESULT = matching lines); **TFind** gains
+  `TFind.quoteGlob TEXT` (a literal `-name` / `-iname` pattern). Literal text in,
+  no regex or glob syntax for the caller to escape (launch L6.0, HELPERS_PLAN H2).
 
 ### Other platforms: Alpine, FreeBSD, GNU tool resolution (2026-10-26 .. 2026-10-29, launch L3, L3.4)
 

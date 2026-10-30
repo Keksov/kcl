@@ -1,10 +1,10 @@
 # tgrep — test coverage notes
 
-**Status: counts refreshed at L3.4 (2026-10-28); updated at tutil P4 (D6 final,
-`subshellOk`, 2026-09-15); previously FINALIZED at P3 (2026-09-11).** Suite `004`–`007` = **203 cases**,
-green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
+**Status: H2 helpers added at L6.0 (2026-10-30); counts refreshed at L3.4 (2026-10-28); updated at tutil P4 (D6 final,
+`subshellOk`, 2026-09-15); previously FINALIZED at P3 (2026-09-11).** Suite `004`–`008` = **253 cases**,
+green on bash 5.3.15 (Git-bash, primary) and on bash 5.3.9 (MSYS2, secondary), in the default
 threaded mode and under `--mode single`, against **GNU grep 3.0**. The per-file
-row counts below sum to 203 — 84 + 60 + 50 + 9 — and **every case in the suite
+row counts below sum to 253 — 86 + 60 + 50 + 9 + 48 — and **every case in the suite
 has a row**.
 
 **Protocol.** `TGrep` has no FPC upstream: it is the first wrapper on
@@ -79,7 +79,7 @@ before/after measurement is in
 
 ---
 
-## 004_Argv.sh — typed options to argv, nothing executed (P2; §CR added at L2.7-C) — 84 cases
+## 004_Argv.sh — typed options to argv, nothing executed (P2; §CR added at L2.7-C; `quiet` and T6 (iii-b) at L6.0) — 86 cases
 
 **grep is never started in this file.** Every case either compares the array
 `g.argv GOT` handed over, or asserts a refusal.
@@ -88,7 +88,7 @@ before/after measurement is in
 
 | ID | Members | Case | Class | Basis |
 |---|---|---|---|---|
-| 004.vars-present | Create | all 23 declared vars **plus TUtil's seven** (`cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr`) are present in `${inst}_data` right after `new` | contract | **C3**, §2.1, **D6 final Q9** |
+| 004.vars-present | Create | all 24 declared vars (`quiet` since L6.0) **plus TUtil's seven** (`cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr`) are present in `${inst}_data` right after `new` | contract | **C3**, §2.1, **D6 final Q9** |
 | 004.vars-defaults | Create | the documented defaults: booleans `0` (**`subshellOk` among them**), strings `''`, `cmd` = the resolved grep (the stub), `_toolErr` `''`, `_lastRc` `-1` | contract | §2.1 |
 | 004.args-empty | Create | `${g}_args` is EMPTY after `TGrep.new g PAT PATH` | contract | **C2** — the `inherited` trap doubled every path ([docs §3.2](../../../tutil/docs/TUtil.md#32-c2--inherited-in-a-constructor-forwards-)) |
 | 004.paths-verbatim | Create | `${g}_paths` holds the constructor's paths verbatim, once each | representation | §2.1 |
@@ -96,7 +96,7 @@ before/after measurement is in
 | 004.delete-chains | Destroy | `delete` removes `_paths`, `_args` AND `_argv` (the descendant destructor chains with `inherited`) | contract | §1.9, §2.1 |
 | 004.argv-nothing | argv | `argv` RUNS NOTHING — not even a `cmd` that exists | contract | §1.2 |
 
-### B. G1 — every flag, singly (23)
+### B. G1 — every flag, singly (24)
 
 Each case resets the instance, sets exactly one property, and compares the whole
 array against `grep FLAG -e pat -- f`. Class `argv`, basis **G1** throughout.
@@ -121,6 +121,7 @@ array against `grep FLAG -e pat -- f`. Class `argv`, basis **G1** throughout.
 | 004.g1-U | `binary = 1` → `-U` — the only way to see a CR through grep (§2.6, **C8**) |
 | 004.g1-z | `nullData = 1` → `-z` (NUL-terminated INPUT records) |
 | 004.g1-Z | `nullOut = 1` → `-Z` |
+| 004.g1-q | `quiet = 1` → `-q` (H2: no output, the rc is the answer) |
 | 004.g1-m | `maxCount = 3` → `-m 3` as TWO words |
 | 004.g1-include | `include = '*.txt'` → `--include=*.txt` |
 | 004.g1-exclude | `exclude = '*.o'` → `--exclude=*.o` |
@@ -134,7 +135,7 @@ array against `grep FLAG -e pat -- f`. Class `argv`, basis **G1** throughout.
 | 004.g1-in | `-i` and `-n` together, in the pinned order | argv | **G1** |
 | 004.g1-order | the ORDER is `buildArgv`'s, not the order the caller assigned in | argv | **G1**, §1.3 |
 | 004.g1-ErlZ | `-E -r -l -Z` — the classic "list the files" shape | argv | **G1** |
-| 004.g1-all | EVERYTHING on at once — the full pinned order, two paths | argv | **G1**, §1.3 |
+| 004.g1-all | EVERYTHING on at once — the full pinned order (`-q` last, before `-e`), two paths | argv | **G1**, §1.3 |
 | 004.g1-other-half | the other side of each pair — `-E`, `-L`, `-H` | argv | **G1** |
 | 004.g1-boolean | a boolean is ON only for the exact string `1` (`2`, `yes`, `true`, `01`, `' 1'` are off) | contract | §6 — never `(( x ))`: a string is 0 in silence, or an arithmetic injection |
 
@@ -213,7 +214,7 @@ The file pins `__TUTIL_TOOLS_STRIP_CR=1` at the top; this section flips it.
 | 004.cr-native | the cygwin/msys path, stdin: no filter | contract | DL11 |
 | 004.cr-textmode | `_textMode` per shape (files 1, stdin 0, `-r` 1, `-U` `-z` `-l` `-L` 0), identical on both paths | contract | DL11, critic B2 |
 
-### T6. no GNU grep found: `.new` succeeds, the first argv says why (5)
+### T6. no GNU grep found: `.new` succeeds, the first argv says why (6)
 
 Launch L3.4 (`tutil._gnu grep`).
 
@@ -222,6 +223,7 @@ Launch L3.4 (`tutil._gnu grep`).
 | 004.t6-none | `KCL_GNU_GREP=/nonexistent`: `.new` rc 0 and silent, `cmd` `''`, `argv` rc 2 with ONE line naming the override (`KCL_GNU_GREP='/nonexistent' is not an executable file`), `RESULT ''`, the caller's array untouched | contract | **T6** |
 | 004.t6-rearm | `x.cmd = STUB` re-arms the instance: `argv` rc 0, word 0 = the stub | contract | **T6** |
 | 004.t6-static | the static `TGrep.search` with no GNU grep — rc 2, the same ONE line, nothing printed or run | contract | **T6** |
+| 004.t6-h2 | the H2 statics `TGrep.contains` and `TGrep.countMatching` with no GNU grep — rc 2, the same ONE line each, `RESULT ''` for `countMatching`, nothing printed | contract | **T6**, HP §3 |
 | 004.t6-sink | a SINK on the disarmed instance (`count`): rc 2, `RESULT ''`, ONE line with ktool's text | contract | **T6** |
 | 004.t6-stdin | the STDIN form (no path, CR filter on): the empty `cmd` is refused BEFORE the `tutil._crStdin` prefix is added, with `RESULT ''` and the caller's array untouched; re-armed, the argv is `tutil._crStdin STUB …` | contract | **T6** |
 
@@ -457,3 +459,72 @@ this repo.
 | 007.gate-countonly | countOnly, toArray | `countOnly = 1` delivers grep's OWN per-file numbers in 2 records (compared as a SET — grep's walk order is not ours to pin) at most 10× `grep -c` | perf | README §9 (idle: 1.09× / 1.10×) |
 | 007.fork-sinks | each, toList, toArray, count, first | the callback and `.Add` run in THIS process; all five sinks agree on the one record and `first` returns it | contract | §1.5 |
 | 007.fork-builders | buildArgv, argv, paths, addArg, clearArgs, mapRc, lastRc, run, search | the seven builder members, `run` and `search` all leave `$BASHPID` untouched — the only fork per call is grep itself | contract | §1.5 |
+
+---
+
+## 008_Helpers.sh — H2: `quiet`, `TGrep.contains`, `TGrep.countMatching` (launch L6.0, 2026-10-30) — 48 cases
+
+The three members of [`../tutil/HELPERS_PLAN.md`](../tutil/HELPERS_PLAN.md) §3
+(**HP** below). The oracle is the bare GNU grep on the same fixture. Section B0
+pins the argv the two statics build with a **recording stub** (a fake GNU grep
+that writes its argv to a file and prints two lines): grep never runs there, and
+the argv holds on a box without GNU grep. The fixture has three trees — `FX`
+(8 lines hold `needle`: plain 2, spaced 1, `-dash` 1, deep 1, `colon` 2, CRLF 1),
+`MX` (literal-text files) and `BX` (one binary file).
+
+| ID | Case | Basis |
+|---|---|---|
+| 008.z01 | ktool resolves a GNU grep (D4 pins the DIALECT, not a binary) | **D4** |
+| 008.z02 | the fixture trees are in place | **D4** |
+| 008.b0-contains | `TGrep.contains TEXT PATH...` builds `-F -r -q -e TEXT -- PATH...` (stub; a space in a path stays one word) | HP §3 |
+| 008.b0-count | `TGrep.countMatching` builds `-F -r -h -e TEXT -- PATH...` — the `count` sink, no `-c` | HP §3 |
+| 008.b0-dash | a TEXT starting with `-` travels as `-e TEXT`, after the flags | HP §3, **G4** |
+| 008.b0-quiet-last | `quiet = 1` on an instance lands LAST among the flags (after `-Z`, before `-e`) | HP §3 |
+| 008.b0-usage-nothing | the four usage refusals (0 or 1 argument, both statics) start no process | HP §3 |
+| 008.a-run-silent | `quiet = 1` + a match: `run` rc 0, `lastRc` 0, nothing on stdout or stderr | HP §3 |
+| 008.a-nomatch | `quiet = 1`, no match: rc 1, `lastRc` 1, silent, no line of ours | **G5** |
+| 008.a-sinks-zero | every sink sees zero records: `each` 0, `toArray` 0, `toList` 0, `count` RESULT 0 (rc 0), `first` rc 1 `''` | HP §3 |
+| 008.a-count-nomatch | `quiet` + no match: `count` is RESULT 0 with rc 1 — the rc is the answer | HP §3 |
+| 008.a-legal | `quiet` is LEGAL with `-l -L -c -o -n` and `-v`: no rc 2, no record, no line of ours | HP §3 |
+| 008.a-q-match-first | **measured**: `-q`, a match then a missing operand → grep stops at the match: rc 0, `lastRc` 0, no line, no tool line | HP §3 |
+| 008.a-q-missing-first | **measured**: `-q`, a missing operand then a match → grep complains and still exits 0: rc 0, `lastRc` 0, no line of ours | HP §3 |
+| 008.a-q-nomatch-missing | `-q`, no match and a missing operand → grep's 2: rc 1, `lastRc` 2, ONE line | **G10** |
+| 008.a-bool | `quiet` is on for the exact string `1` only; the default is `0` | family rule |
+| 008.b-silent-hit | `contains` found: rc 0, a DIRECT call prints nothing | HP §3 |
+| 008.b-silent-miss | not found: rc 1, silent, no line of ours (switch on too) | HP §3, D4 |
+| 008.b-subshell | under `$( )` it prints nothing either; the rc survives into `if` | HP §3 |
+| 008.b-literal | the TEXT is literal (`-F`): `a.b` is not `aXb`; `[y]`, `$`, `a.*b`, `^cost` are plain text | HP §1.1 |
+| 008.b-flag-data | `-v` is data (found in `say -v loudly`), `--help` (absent) is rc 1 | **G4** |
+| 008.b-recursive | found only in `sub/deep.txt` of a directory operand; a miss over the tree is rc 1 | HP §3 |
+| 008.b-paths | a hit in the second of several paths; none → rc 1; a path with a space; a bare `-dash.txt` after `--` | HP §3 |
+| 008.b-crlf | a CRLF file: the text before the line end is found, the oracle agrees | DL11 |
+| 008.b-binary | a binary file holding the text is found (rc 0, nothing printed) | HP §3 |
+| 008.b-tool-error | a missing operand alone: rc 1 (never rc 2), ONE line of ours, grep's own passes through | **D4** (HP) |
+| 008.b-hit-missing | a hit AND a missing operand: rc 0 and no line of ours, in both orders | HP §3 |
+| 008.b-miss-missing | a miss AND a missing operand: rc 1, ONE line | **G10** |
+| 008.b-rc2-usage | rc 2 for 0 and 1 arguments: ONE usage line each, nothing printed, stdin unread | HP §3, §1.2 |
+| 008.b-rc2-empty | an empty TEXT is `buildArgv`'s rc 2: ONE line, nothing ran, stdin unread | HP §3 |
+| 008.b-stdin-hit | a hit / a miss leave a here-string on stdin unread too | HP §3 |
+| 008.c-tree | `countMatching` over a tree: RESULT 8 == the bare tool's count, a direct call silent | HP §3 |
+| 008.c-subshell | under `$( )` the value is printed exactly ONCE (`8`, and `0` for a miss) | HP §3 |
+| 008.c-zero | zero matches: RESULT 0 with rc 1, no line of ours | HP §3 |
+| 008.c-partial | the named deviation: a missing operand among good ones is rc 1 with the REAL count (4), ONE line | **G10** |
+| 008.c-nocolon | no `file:count` parsing: colon-bearing lines count one each; no filename prefix (`-h`) | HP §3 |
+| 008.c-binary | a matching binary file is ONE record (`Binary file X matches`): kept, no `-I`, no `-a` | HP §3, README §3 |
+| 008.c-literal | `a.b` counts the 2 lines holding it (oracle 2); `a.*b` and `second$` count 0 | HP §1.1 |
+| 008.c-crlf | a CRLF file counts per line (`needle crlf` 1, `e` 2 == oracle) | DL11 |
+| 008.c-flag-data | a flag-shaped TEXT is data (`-v` → 1 line) | **G4** |
+| 008.c-rc2-usage | rc 2 for 0 and 1 arguments: RESULT `''`, ONE line, stdin unread, `$( )` prints nothing | HP §3 |
+| 008.c-rc2-empty | an empty TEXT: rc 2, RESULT `''`, ONE line, stdin unread | HP §3 |
+| 008.c-result | RESULT survives the instance's `delete` and replaces the caller's own value | HP §3 |
+| 008.d-nested | both statics nested inside an outer `each` callback; the outer instance's argv and `lastRc` untouched | **G11** |
+| 008.d-nested-pipe | a nested call from a `TGrep.search`-fed `TPipe.each` callback | **G11** |
+| 008.d-seq | both statics bump `__TG_SEQ` and delete their instance — also after a tool-error call | **G11** |
+| 008.d-lifecycle | `quiet` is declared by `new`, reset by a re-`new` of a live name, freed by `delete` | **C3** |
+| 008.d-seteu | in a child under `set -eu`: `if contains`, `|| echo`, the count in `$( )`, the usage rc 2 without an abort | §1.2 |
+
+**`quiet` and the `-q` measurement.** GNU grep 3.0, bash-independent: with `-q`
+the first match ends grep with exit 0 whatever happened to another operand (a
+missing one before it only prints grep's own complaint). The three
+`008.a-q-*` rows pin both orders and the no-match case; the same rows through
+`contains` are `008.b-hit-missing` and `008.b-miss-missing`.

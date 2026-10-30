@@ -230,6 +230,33 @@ printf '  search costs %d us more per call than bare grep; the construction abov
 printf '  is %d us of that, the rest is four kklass dispatches\n' $(( b_ctor / ND ))
 
 # ===========================================================================
+# (b2) the H2 statics (kcl/docs/dev/tutil/HELPERS_PLAN.md §3) — published, NOT
+# gated: each is one instance build + one fork (grep itself), like `search`
+# (tutil PLAN §6); `countMatching` reads every matching line into bash like the
+# `count` sink it rides on (the sparse tree: SPARSE_HITS records)
+# ===========================================================================
+echo
+echo "(b2) the H2 statics — one line each (published, not gated):"
+TGrep.contains needle "$TREE" >/dev/null 2>&1 || :
+TGrep.countMatching needle "$TREE" >/dev/null 2>&1 || :
+declare -a T_CT=() T_CM=()
+s_ct=0; s_cm=0
+for (( i = 0; i < NR; i++ )); do
+    TStopwatch.getTimeStamp; t0=$RESULT
+    TGrep.contains needle "$TREE" || :
+    TStopwatch.getTimeStamp; t1=$RESULT
+    T_CT+=( $(( t1 - t0 )) ); s_ct=$(( s_ct + t1 - t0 ))
+
+    TStopwatch.getTimeStamp; t0=$RESULT
+    TGrep.countMatching needle "$TREE" || :
+    n_cm="$RESULT"
+    TStopwatch.getTimeStamp; t1=$RESULT
+    T_CM+=( $(( t1 - t0 )) ); s_cm=$(( s_cm + t1 - t0 ))
+done
+median T_CT; report_med "TGrep.contains needle TREE (rc only)" "$MED" "$s_ct" "$NR"
+median T_CM; report_med "TGrep.countMatching needle TREE ($n_cm lines)" "$MED" "$s_cm" "$NR"
+
+# ===========================================================================
 # (c) counting: the sink vs grep's own counter
 # ===========================================================================
 echo

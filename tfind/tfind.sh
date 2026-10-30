@@ -181,6 +181,7 @@ class TFind : TUtil
         override func buildArgv
         override func mapRc
         static proc byName  # PATTERN START... — `find START... -name PATTERN`
+        static proc quoteGlob # TEXT — RESULT: TEXT as a literal `-name`/`-iname` pattern
 end
 
 # ===========================================================================
@@ -447,6 +448,47 @@ TFind.byName() {
     "$__tfd_i".run || __tfd_rc=$?
     "$__tfd_i".delete
     return "$__tfd_rc"
+}
+
+# tfind._ret VALUE [RC] — kcl README §1.1's static-unit helper (the `tpath._ret`
+# shape, as `tsed._ret`): RESULT = VALUE, printed only inside a subshell, so a
+# direct call is silent and `$( )` prints the value exactly once.
+tfind._ret() {
+    RESULT="$1"
+    if (( BASH_SUBSHELL > 0 )); then
+        printf '%s' "$1"
+    fi
+    return "${2:-0}"
+}
+
+# quoteGlob TEXT — TEXT as a LITERAL `-name` / `-iname` pattern (HELPERS_PLAN
+# §3, H2): the backslash first, then `*`, `?` and `[`, each preceded by a
+# backslash. Nothing else is escaped — `]`, `!`, `^` and `{` are literal to
+# fnmatch outside a bracket — and a newline stays as it is. The BACKSLASH goes
+# first because every later step introduces backslashes. One escape step is
+# `${s//"$c"/"$bs$c"}`: both sides quoted, so the pattern is literal and the
+# replacement is literal whatever `patsub_replacement` says.
+#
+#     TFind.byName "$(TFind.quoteGlob 'a*b')" /tmp/tree   # only the file `a*b`
+#     f.name = "$(TFind.quoteGlob "$name")"               # the same, on an instance
+#
+# Exactly ONE argument. Empty TEXT is RESULT '' rc 0. More than one argument is
+# rc 2, one `kk.debug` usage line and RESULT ''. A `static proc` answering in
+# RESULT (kcl README §1.1): a direct call prints nothing, `$( )` prints the
+# value exactly once. Proof against the find TFind resolves (GNU): the unit's
+# `tests/008_Helpers.sh`, §A.
+TFind.quoteGlob() {
+    if (( $# > 1 )); then
+        kk.debug "Error: TFind.quoteGlob: usage: TFind.quoteGlob TEXT — exactly one argument (got $#); quote the text so the shell passes it as one word"
+        tfind._ret '' 2
+        return 2
+    fi
+    local __tfd_t="${1:-}" __tfd_c='' __tfd_bs='\'
+    __tfd_t="${__tfd_t//"$__tfd_bs"/"$__tfd_bs$__tfd_bs"}"
+    for __tfd_c in '*' '?' '['; do
+        __tfd_t="${__tfd_t//"$__tfd_c"/"$__tfd_bs$__tfd_c"}"
+    done
+    tfind._ret "$__tfd_t"
 }
 
 # Finalize: extract the bodies above into the `TFind` class and generate the

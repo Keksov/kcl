@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/tfind — TFind : TUtil, GNU findutils 4.10.0 `find` wrapper (typed tests -> pinned expression order, start points positional, print0 -> derived -0, static one-liner TFind.byName).",
   "created": "2026-09-16",
-  "updated": "2026-09-16",
-  "status": "COMPLETE (P0–P1). P0 DONE 2026-09-16 (c281d40): tfind.sh (TFind : TUtil), tests 004_Argv / 005_Run / 006_Contract + tests.sh, README first cut, and the TUTIL_OUT_PREFIXES registry in tutil with its two guards (+ tutil 001 cases, README note, PLAN §7 row); 216/216 on bash 5.2.37 and 5.3.9 (threaded; 5.2.37 also --mode single). P1 DONE 2026-09-16 (826fe3e): bench.sh (interleaved medians of 21 runs, gate 1.5x, measured 1.12x/1.19x on 5.2.37 and 1.16x/1.16x on 5.3.9), tests/007_Bench.sh (10 cases, 10x ceiling), README final (§9 Tests, §10 Performance), TEST_COVERAGE_NOTES.md (226 rows), the kcl README §2 row with the unit count Twenty-two -> Twenty-three, this ledger. Suite now 226/226 on both bashes (threaded) and 226/226 under --mode single on 5.2.37. Master sweep: run by reviewer: 26/26 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suite reproduced 226/226 on both bashes, bench 2/2 gates PASS (1.11x tree, 1.17x one-file).",
+  "updated": "2026-10-30",
+  "status": "COMPLETE (P0–P1). P0 DONE 2026-09-16 (c281d40): tfind.sh (TFind : TUtil), tests 004_Argv / 005_Run / 006_Contract + tests.sh, README first cut, and the TUTIL_OUT_PREFIXES registry in tutil with its two guards (+ tutil 001 cases, README note, PLAN §7 row); 216/216 on bash 5.2.37 and 5.3.9 (threaded; 5.2.37 also --mode single). P1 DONE 2026-09-16 (826fe3e): bench.sh (interleaved medians of 21 runs, gate 1.5x, measured 1.12x/1.19x on 5.2.37 and 1.16x/1.16x on 5.3.9), tests/007_Bench.sh (10 cases, 10x ceiling), README final (§9 Tests, §10 Performance), TEST_COVERAGE_NOTES.md (226 rows), the kcl README §2 row with the unit count Twenty-two -> Twenty-three, this ledger. Suite now 226/226 on both bashes (threaded) and 226/226 under --mode single on 5.2.37. Master sweep: run by reviewer: 26/26 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suite reproduced 226/226 on both bashes, bench 2/2 gates PASS (1.11x tree, 1.17x one-file). H2 DONE 2026-10-30 (launch L6.0, HELPERS_PLAN H2): TFind.quoteGlob + tests/008_Helpers.sh (30 cases); tfind 261/261 on Git-bash 5.3.15 and MSYS2 5.3.9.",
   "phases": [
     {
       "id": "P0",
@@ -110,6 +110,74 @@
           "acceptance": "kcl README row present, unit count bumped; final sweep 0 [FAIL] on both bashes. MET for the docs: README.md final (COMPLETE header with 226/226 per bash and the one P0 over-refusal correction; the surface table; the pinned argv shape; the rc 2 list incl. the action-word exclusion and the caller-side quoting rule §2; start points positional with `--` unable to rescue them and `./-weird` §1; the print0 rule and its three states §5; the three named deviations §3; -name case-sensitivity on NTFS §2; -L + type = l §6; the order-incompatible -quit/-prune/-delete with the `nul = 1` hand-built hatch §4; the Windows-path PREFIX rule §6; byName semantics §7; subshellOk/D6 §1; §9 Tests with the per-file table incl. 007 and the TEST_COVERAGE_NOTES link; NEW §10 Performance with a bench table for BOTH bashes and the reading list). TEST_COVERAGE_NOTES.md: 226 rows, one per case, each with class and basis (F1–F12, F5b, F8a/b, F10a/b, C1–C20, P3-F1, D4/D6, §n), the deliberate gaps incl. C13 and C20, and an explicit pointer to tutil/tests/001_Core.sh §C for the registry's own cases. kcl README §2: the tfind row alphabetically between tfile and tgrep with the four named deviations and the positional/print0 rules, and the unit-count sentence Twenty-two -> Twenty-three. Final master sweep: run by reviewer: 26/26 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-16); suite reproduced 226/226 on both bashes, bench 2/2 gates PASS (1.11x tree, 1.17x one-file)."
         }
       ]
+    },
+    {
+      "id": "H2",
+      "name": "TFind.quoteGlob (HELPERS_PLAN H2, launch L6.0)",
+      "goal": "TFind.quoteGlob TEXT: RESULT = TEXT as a literal -name/-iname pattern (backslash first, then * ? [ each preceded by a backslash; nothing else); proved against GNU find.",
+      "status": "done",
+      "date": "2026-10-30",
+      "files": [
+        "kcl/tfind/tfind.sh (EDIT: static proc quoteGlob + tfind._ret)",
+        "kcl/tfind/tests/008_Helpers.sh (NEW, 30 cases)",
+        "kcl/tfind/bench.sh (EDIT: (b2) one line for quoteGlob)",
+        "kcl/tfind/README.md (EDIT: surface row, section 2 quoteGlob, tests table 261)",
+        "kcl/docs/dev/tfind/TEST_COVERAGE_NOTES.md (EDIT: 008 section, counts)",
+        "kcl/docs/dev/tutil/HELPERS_PLAN.md, kcl/docs/dev/tutil/helpers_ledger.json, kcl/CHANGELOG.md"
+      ],
+      "gate": {
+        "out": "scratchpad/launch/L6.0/g (L6.0 worker scratch; summary.json copied below)",
+        "argv": [
+          "--rerun-failed",
+          "1",
+          "tgrep",
+          "tfind",
+          "tutil",
+          "kcl"
+        ],
+        "repos": {
+          "kbool": {
+            "sha": "0e19027",
+            "dirty": true
+          },
+          "ktests": {
+            "sha": "8f88fdb",
+            "dirty": false
+          },
+          "kcl": {
+            "sha": "d1640d8",
+            "dirty": true
+          },
+          "kklass": {
+            "sha": "be42507",
+            "dirty": false
+          },
+          "kkore": {
+            "sha": "76b8197",
+            "dirty": false
+          }
+        },
+        "totals": {
+          "5.3.15": {
+            "cells": 4,
+            "PASS": 4,
+            "passed_tests": 931,
+            "total_tests": 931
+          },
+          "5.3.9": {
+            "cells": 4,
+            "PASS": 4,
+            "passed_tests": 931,
+            "total_tests": 931
+          }
+        },
+        "machine": "__GATE__:PASS:8:8:0:0:0:0:0:1862:1862"
+      },
+      "measured": {
+        "windows_names": "Git-bash 5.3.15 and MSYS2 5.3.9: * ? [ are creatable and list back as themselves (msys layer); a name containing a backslash cannot be created, so the a\\b and the mixed-with-backslash proof cases pass as SKIP with the reason; the raw-pattern counter-oracle shows the decoys are live (raw a*b matches aXb, ab, aXXb)",
+        "find": "GNU findutils 4.11.0 at /usr/bin/find (Git-bash) and the MSYS2 one"
+      },
+      "notes": "Exactly one argument; more than one is rc 2 (one usage line, RESULT ''); zero arguments behave as an empty TEXT ('' rc 0) - the card did not pin that and no test does. No BSD find probe (TFind never runs BSD find)."
     }
   ],
   "execution_log": [
@@ -134,6 +202,11 @@
       "date": "2026-09-16",
       "batch": "planning",
       "summary": "Owner: start tfind. GNU findutils 4.10.0 measured under both bashes: start points positional BEFORE the expression (the reverse of grep/head), -L only before them, `--` accepted, a start point beginning with `-` is an unknown predicate (rc 1), no start point = `.`, -maxdepth 08 decimal, 4.10 no longer warns about global-option order (the wrapper still emits them first), -type f,d works, -print splits a newline name while -print0 keeps it, an explicit action suppresses the implied -print, -exec works through argv, Windows paths accepted and echoed in their own spelling, rc 1 for every error with partial output kept. Decisions: no `--`, refuse ^[-!(] start points (rc 2), typed followSymlinks (addArg -L would land in the wrong position), print0 -> derived -0 with the P3-F1 guard (no header exception: find has no headers), depths via kk.isInt + >= 0 (no sign semantics here, unlike head/tail), TFind.byName PATTERN START... one-liner, and tutil._badOut turned into the TUTIL_OUT_PREFIXES registry instead of a fourth hard-coded edit. PLAN.md + this ledger written. No code."
+    },
+    {
+      "date": "2026-10-30",
+      "batch": "L6.0",
+      "summary": "H2 TFind.quoteGlob implemented by a Sonnet worker per card L6.0; tfind 261/261 (30 new cases in 008_Helpers.sh) on both bashes; gate PASS 8 cells 1862/1862 (tgrep tfind tutil kcl)."
     }
   ]
 }

@@ -6,7 +6,7 @@
 # `g.argv NAME` hands over, byte for byte, against the argv the plan spells out:
 #
 #   grep [-i] [-v] [-w] [-x] [-F|-E] [-r] [-n] [-l|-L] [-c] [-o] [-h|-H]
-#        [-m N] [--include=G] [--exclude=G] [--exclude-dir=G] [-U] [-z] [-Z]
+#        [-m N] [--include=G] [--exclude=G] [--exclude-dir=G] [-U] [-z] [-Z] [-q]
 #        -e PATTERN [EXTRA ARGS from addArg] [-- PATH...]
 #
 # so it is the fast half of the suite and it is true on a box where grep is
@@ -163,13 +163,13 @@ reset() {
 kt_test_section "A. lifecycle — Create assigns every var, the arrays are right"
 # ===========================================================================
 
-# The 23 declared vars: TGrep's own 22 (PLAN §1.3) plus `_nulDerived`, the
+# The 24 declared vars: TGrep's own 22 (PLAN §1.3) plus `quiet` (H2) and `_nulDerived`, the
 # private bookkeeping scalar the §2.7 derivation needs (see the unit header),
 # and the four TUtil inherits down (cmd, crlf, nul, _lastRc).
 TG_VARS=( pattern ignoreCase invert wordRegexp lineRegexp fixed extended
           recursive lineNumber filesOnly filesWithoutMatch countOnly
           onlyMatching noFilename withFilename maxCount include exclude
-          excludeDir binary nullData nullOut _nulDerived )
+          excludeDir binary nullData nullOut quiet _nulDerived )
 # `subshellOk` is TUtil's (D6 final Q9): TGrep inherits it and must NOT
 # redeclare it — a descendant `var` with an ancestor member's name is silently
 # overridden by the method wrapper (kklass.sh:911).
@@ -194,7 +194,7 @@ kt_test_start "the documented defaults: booleans 0, strings '', cmd = the resolv
 bad=""
 for v in ignoreCase invert wordRegexp lineRegexp fixed extended recursive \
          lineNumber filesOnly filesWithoutMatch countOnly onlyMatching \
-         noFilename withFilename binary nullData nullOut _nulDerived crlf nul \
+         noFilename withFilename binary nullData nullOut quiet _nulDerived crlf nul \
          subshellOk _textMode; do
     got="$(gA."$v")"
     [[ "$got" == "0" ]] || bad+=" $v='$got'"
@@ -322,6 +322,7 @@ one "G1: \`binary = 1\` -> -U (the only way to see a CR through grep, §2.6)" \
                                                binary            1 -U
 one "G1: \`nullData = 1\` -> -z (NUL-terminated INPUT records)" nullData 1 -z
 one "G1: \`nullOut = 1\` -> -Z"                nullOut           1 -Z
+one "G1: \`quiet = 1\` -> -q (H2: no output, the rc is the answer)" quiet 1 -q
 
 one "G1: \`maxCount = 3\` -> -m 3 as TWO words"    maxCount   3       -m 3
 one "G1: \`include = '*.txt'\` -> --include=*.txt" include    '*.txt' '--include=*.txt'
@@ -375,9 +376,10 @@ g2.excludeDir = 'D*'
 g2.binary = 1
 g2.nullData = 1
 g2.nullOut = 1
+g2.quiet = 1
 check_argv "G1: EVERYTHING on at once — the full pinned order, two paths" g2 \
     "$STUB_GREP" -i -v -w -x -F -r -n -l -c -o -h -m 5 \
-    '--include=I*' '--exclude=E*' '--exclude-dir=D*' -U -z -Z \
+    '--include=I*' '--exclude=E*' '--exclude-dir=D*' -U -z -Z -q \
     -e pat -- 'dir one' 'dir two'
 
 reset g2 pat f
@@ -828,6 +830,28 @@ if [[ $src -eq 2 && $sn -eq 1 && "$sl" == *"$NOEXEC_TXT"* && -z "$sout" ]]; then
     kt_test_pass "rc 2, empty stdout, one line: ${sl:0:100}"
 else
     kt_test_fail "rc=$src out='$sout' lines=$sn last='$sl'"
+fi
+
+kt_test_start "T6 (iii-b): the H2 statics \`TGrep.contains\` and \`TGrep.countMatching\` with no GNU grep — rc 2, the same ONE line each, RESULT '', nothing printed"
+KCL_GNU_GREP=/nonexistent
+okh2=1; whyh2=''
+for mem in contains countMatching; do
+    : > "$ERRF"
+    VERBOSE_KKLASS=debug
+    sout=$(TGrep.$mem needle "$TMP/none.txt" 2>"$ERRF")
+    VERBOSE_KKLASS=
+    RESULT=stale
+    TGrep.$mem needle "$TMP/none.txt" 2>/dev/null; src=$?
+    sn=0; sl=''
+    while IFS= read -r l || [[ -n "$l" ]]; do sn=$(( sn + 1 )); sl=$l; done < "$ERRF"
+    if [[ $src -ne 2 || $sn -ne 1 || "$sl" != *"$NOEXEC_TXT"* || -n "$sout" || ( "$mem" == countMatching && -n "$RESULT" ) ]]; then
+        okh2=0; whyh2+=" $mem:rc=$src,lines=$sn,out='$sout',RESULT='$RESULT',last='$sl'"
+    fi
+done
+if [[ "$okh2" == 1 ]]; then
+    kt_test_pass "both rc 2 with ktool's one line, empty stdout, RESULT ''"
+else
+    kt_test_fail "$whyh2"
 fi
 
 kt_test_start "T6 (iv): a SINK on the disarmed instance (\`count\`) — rc 2, RESULT '', ONE line with ktool's text"

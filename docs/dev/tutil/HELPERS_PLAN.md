@@ -1,7 +1,9 @@
 # TUtil family — convenience methods plan (HELPERS)
 
-Status: **v2, owner agreed to the cut 2026-10-22; H1 queued as launch task
-L2.7-H (after L2.7-M, before L2.7-N), H2 as L6.0.** v1 proposed ~30 members
+Status: **v2, owner agreed to the cut 2026-10-22; H1 DONE 2026-10-22 (launch
+task L2.7-H); H2 DONE 2026-10-30 (launch task L6.0: TGrep `quiet`,
+`TGrep.contains`, `TGrep.countMatching`, `TFind.quoteGlob`; see §3 and
+`helpers_ledger.json`).** v1 proposed ~30 members
 across six wrappers; the critique (§7) cut it to the members that spare the
 caller **escaping data**. Everything else was an alias of an existing property
 or sink.
@@ -128,10 +130,10 @@ Separate cards, Sonnet high, built from H1's pattern.
 
 | Unit | Member | Notes |
 |---|---|---|
-| TGrep | `var quiet` (`-q`) | the missing option; `buildArgv` + the deny-list |
+| TGrep | `var quiet` (`-q`) | the missing option; `buildArgv` only — there is no deny-list in `TUtil.addArg` (checked at L6.0), `quiet` is not a reserved name; grep `-q` exits 0 at the first match even if another operand failed (measured, pinned) |
 | TGrep | `TGrep.contains TEXT PATH...` | static, **rc only**: `-r -F -q`; rc 0 found, rc 1 not found **or** tool error + one `kk.debug` line — the family mapping, no new rc meaning. Who must tell the two apart builds an instance and reads `lastRc` |
 | TGrep | `TGrep.countMatching TEXT PATH...` | static, RESULT: `-r -h -F` + the existing `count` sink — **no parsing** of `file:count` |
-| TFind | `TFind.quoteGlob TEXT` | escapes `* ? [ \` for `-name`; probed against find's fnmatch on GNU and BSD find |
+| TFind | `TFind.quoteGlob TEXT` | escapes `* ? [ \` for `-name`; proved against GNU find (what TFind resolves everywhere; no BSD find probe — TFind never runs BSD find); the backslash cases `SKIP:` on Windows, where a name cannot hold `\` |
 
 ## 4. Dropped (v1 → v2), with the reason
 

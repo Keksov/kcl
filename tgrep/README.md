@@ -4,8 +4,11 @@
 > option set, the pinned argv, the rc 2 list, the `mapRc` override, `paths`, the
 > destructor, the static `search`, the bench and the docs. Suite:
 > `tests/004_Argv.sh`, `tests/005_Search.sh`, `tests/006_Contract.sh`,
-> `tests/007_Bench.sh` — **203 checks green on bash 5.2.37 and 203 on bash
-> 5.3.9**, threaded and under `--mode single`, against **GNU grep 3.0**.
+> `tests/007_Bench.sh`, `tests/008_Helpers.sh` — **253 checks green on bash
+> 5.3.15 (Git-bash) and 253 on bash 5.3.9 (MSYS2)**, threaded and under `--mode single`, against
+> **GNU grep 3.0**. The H2 helpers (`quiet`, `TGrep.contains`,
+> `TGrep.countMatching`) are in §1 and
+> [§7a](#7a-helpers--contains-and-countmatching).
 > What the tests pin, case by case:
 > **[TEST_COVERAGE_NOTES.md](../docs/dev/tgrep/TEST_COVERAGE_NOTES.md)**. The design record, the
 > `TProcess` comparison and every measurement the family rests on:
@@ -29,6 +32,8 @@ source /path/to/kbool/kbool.sh
 kk.uses tgrep
 
 TGrep.search "needle" src/            # the one-liner: `grep -r`, streamed
+TGrep.contains "needle" src/ && echo y   # rc only: is the LITERAL text in there?
+TGrep.countMatching "needle" src/     # RESULT = how many lines hold it
 
 TGrep.new g "needle" src/ doc/        # or an instance, when you want options
 g.ignoreCase = 1
@@ -80,10 +85,13 @@ TGrep.new INST [PATTERN [PATH...]]
 | `binary` | var | `-U` | read input in binary mode — §5 |
 | `nullData` | var | `-z` | NUL-terminated **input** records |
 | `nullOut` | var | `-Z` | NUL after the file name — §4 |
+| `quiet` | var | `-q` | no output at all, **the rc is the answer**; legal with every other option (no rc 2) — see “The argv, pinned” |
 | `paths PATH...` | proc | — | **replaces** the operand list; no argument = the stdin form |
 | `buildArgv` | func | — | override; fills `${inst}_argv`, RESULT = word count |
 | `mapRc RAW` | func | — | override; §3 |
 | `TGrep.search PATTERN PATH...` | static proc | — | `grep -r`, streamed; §7 |
+| `TGrep.contains TEXT PATH...` | static proc | — | `grep -r -F -q`, **rc only**; §7a |
+| `TGrep.countMatching TEXT PATH...` | static proc | — | `grep -r -h -F` + the `count` sink, **RESULT** = matching lines; §7a |
 
 Inherited from [`TUtil`](../tutil/README.md): `cmd` — **the absolute path of
 the GNU grep the kkore unit `ktool` resolved** (`/usr/bin/grep` on Git-bash,
@@ -127,13 +135,30 @@ string (`[[ "$x" == 1 ]]`) and never evaluated as arithmetic.
 
 ```
 grep [-i] [-v] [-w] [-x] [-F|-E] [-r] [-n] [-l|-L] [-c] [-o] [-h|-H]
-     [-m N] [--include=G] [--exclude=G] [--exclude-dir=G] [-U] [-z] [-Z]
+     [-m N] [--include=G] [--exclude=G] [--exclude-dir=G] [-U] [-z] [-Z] [-q]
      -e PATTERN [EXTRA ARGS from addArg] [-- PATH...]
 ```
 
 * the order is **this builder's**, not the order the caller assigned in;
 * `-e PATTERN` is always present and always in that slot;
 * `addArg` extras land **after** `-e PATTERN` and **before** `--`;
+* `-q` (`quiet = 1`) is the last of the flags, just before `-e`. There is **no new
+  rc 2 refusal** for it: `-q` together with `-l`, `-c`, `-o` and the rest is legal
+  — grep simply prints nothing. With `quiet = 1` **every sink sees zero records**
+  (`count` answers `0`, `toArray` leaves the array empty, `first` is rc 1) and the
+  answer is the **rc**: 0 a line matched, 1 none did. GNU grep with `-q` exits 0
+  **as soon as one match is found, even if another operand failed** — measured on
+  grep 3.0, in both orders:
+
+  | operands | grep `-q` rc | here |
+  |---|---|---|
+  | `plain.txt missing.txt` (a match, then a missing file) | 0 — it stops at the match and never reaches the second | rc 0, `lastRc` 0, no line |
+  | `missing.txt plain.txt` (the missing file first) | 0 — grep prints its own complaint and still exits 0 | rc 0, `lastRc` 0, no line of ours |
+  | `other.txt missing.txt` (no match anywhere) | 2 | rc 1, `lastRc` 2, one line |
+
+  `quiet` is not a reserved name ([tutil §4](../tutil/README.md#4-reserved-member-names)),
+  and `addArg` has no deny-list, so `addArg -q` was always possible; the property
+  makes it typed.
 * `--` appears only when there is at least one path. With none, grep reads
   **stdin** — that is the documented stdin form, not a bug:
 
@@ -229,6 +254,8 @@ g.toArray a        # a = ('needle bin')
 grep 3.5 and later write `grep: FILE: binary file matches` to stderr instead: no record, rc 0.
 
 `-a` / `-I` are not modelled as properties yet.
+[`TGrep.countMatching`](#7a-helpers--contains-and-countmatching) keeps the record:
+**a matching binary file adds ONE** to its number (no `-I`, no `-a`).
 
 ### `$( )` loses the instance's state
 
@@ -423,6 +450,53 @@ whose body is a fork anyway.
 
 ---
 
+## 7a. Helpers — `contains` and `countMatching`
+
+Two more **static procs** for the questions asked most often. Like `search`, each
+builds a throw-away instance (`__tg_s_${BASHPID}_${__TG_SEQ}`, deleted before it
+returns, safe to nest) and takes **literal text** — `fixed = 1`, `recursive = 1`,
+at least one path. Fewer than two arguments is **rc 2**, one `kk.debug` usage
+line, nothing runs, stdin untouched; an empty TEXT is `buildArgv`'s rc 2.
+
+```bash
+TGrep.contains TEXT PATH...         # rc only: -r -F -q -e TEXT -- PATH...
+TGrep.countMatching TEXT PATH...    # RESULT = the matching lines: -r -h -F -e TEXT -- PATH...
+```
+
+| `TGrep.contains` | rc |
+|---|---|
+| a line matched (grep stops at the first) | **0** — even when another operand failed (`-q`, above) |
+| nothing matched | **1**, silent |
+| a tool error (missing or unreadable operand, nothing matched) | **1** plus the one `mapRc` line — never rc 2 |
+| fewer than two arguments, or an empty TEXT | **2**, nothing ran |
+
+It **prints nothing**, direct or under `$( )`. Who must tell “not found” from
+“grep failed” builds an instance and reads `lastRc` (1 / 2).
+
+`countMatching` goes through the existing `count` sink — no parsing of
+`file:count`, no `-c`, the `-h` keeps every record a bare line — so its answer is
+what `count` answers, deviation included (§3): `0` matches is RESULT `0` with
+rc 1, and a failed operand among good ones is the **real count** with rc 1. RESULT
+is delivered the way `TSed.quoteRe` does: a direct call prints nothing, `$( )`
+prints the value exactly once.
+
+```bash
+TGrep.contains 'a.b' src/ && echo "the text a.b is in there"   # a.b, not aXb
+n=$(TGrep.countMatching TODO src/)                              # lines, over the tree
+TGrep.countMatching TODO src/; echo "$RESULT"                   # the same, no subshell
+```
+
+* **The text is data** (`-F`): `.`, `*`, `[`, `$` and a leading `-` are plain
+  characters. For a regex use an instance (`pattern`, `extended`).
+* **CRLF**: text mode, as everywhere — the line end never takes part in a count.
+* **A matching binary file counts as ONE record** — grep's `Binary file X matches`
+  line (§3 “is a record”) is kept (no `-I`, no `-a`), so `countMatching` over a
+  tree with one binary hit adds 1 however many lines inside it match. `contains`
+  is unaffected: the match alone is the answer.
+* Cost: one instance build + one fork (grep itself), like `search`; no new budget.
+
+---
+
 ## 8. Writing your own wrapper
 
 `TGrep` is the worked example for the [`TUtil`](../tutil/README.md) §5 recipe.
@@ -539,7 +613,7 @@ bash kcl/tgrep/tests/tests.sh                  # 5.2.37
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tgrep/tests/tests.sh
 ```
 
-**203 cases, green on bash 5.2.37 and on bash 5.3.9** (launch L2.7-C; the move onto ktool, launch L3.4, adds 5 cases to `004` and 1 to `006`), in the default threaded
+**253 cases, green on bash 5.3.15 (Git-bash) and on bash 5.3.9 (MSYS2)** (launch L2.7-C; the move onto ktool, launch L3.4, adds 5 cases to `004` and 1 to `006`; the H2 helpers, launch L6.0, add 2 to `004` and the 48 of `008`), in the default threaded
 mode and under `--mode single`, against GNU grep 3.0. Case-by-case:
 [TEST_COVERAGE_NOTES.md](../docs/dev/tgrep/TEST_COVERAGE_NOTES.md). The behavioural files all open
 with the **ktool gate**: one case asks the kkore unit ktool (through
@@ -554,7 +628,8 @@ the stdin form).
 
 | File | Cases | What it pins |
 |---|---|---|
-| `004_Argv.sh` | 84 | **grep is never executed** (a stub GNU grep; word 0 is its path). The lifecycle (all 23 declared vars plus TUtil's seven — `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr` — present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions, including P3-F1 (a deriving build never CLAIMS a `nul` the caller already set); T6 — no GNU grep found (`KCL_GNU_GREP=/nonexistent`: `.new` rc 0 and silent, `argv`, `search`, a sink and the stdin form rc 2 with ktool's one line, `cmd = …` re-arms) |
+| `004_Argv.sh` | 86 | **grep is never executed** (a stub GNU grep; word 0 is its path). The lifecycle (all 23 declared vars plus TUtil's seven — `cmd`, `crlf`, `nul`, `_lastRc`, `subshellOk`, `_textMode`, `_toolErr` — present in `${inst}_data` with their defaults, `${g}_args` empty after `new g PAT PATH`, `${g}_paths` filled once, a reused instance name starting clean, `delete` removing `_paths`/`_args`/`_argv`, `argv` running nothing); G1 — every flag singly, in combination, the full pinned order with everything on, the boolean-is-exactly-`1` rule, `-e` always, `--` only with paths, `addArg` extras in their slot, `paths` replacing the list, rebuilds not accumulating, `argv` handing over a copy; G2 — the five refusals with rc 2 / `RESULT ''` / the caller's array untouched / one diagnostic line, and an emptied `${inst}_argv`; G3 — `maxCount` through `kk.isInt` (`abc`, `-1`, `'1 2'`, `0x10` refused; `0`, `08`→`-m 8`, `+5`→`-m 5` accepted without a write-back); G4 — a flag-shaped pattern is data, and the §4 derivation in both directions, including P3-F1 (a deriving build never CLAIMS a `nul` the caller already set); T6 — no GNU grep found (`KCL_GNU_GREP=/nonexistent`: `.new` rc 0 and silent, `argv`, `search`, `contains`, `countMatching`, a sink and the stdin form rc 2 with ktool's one line, `cmd = …` re-arms); and H2 — `quiet` is a declared var defaulting to `0`, `-q` singly and last of the flags in the all-on order |
 | `005_Search.sh` | 60 | The ktool gate first, then a fixture tree (names with a space, a newline and a leading `-`, UTF-8, CRLF, a NUL-bearing file, a subdir, and **real** NTFS symlinks through `kt_make_symlink`) with the bare tool as the oracle: G5 no match on all five runners; G6 the `-E` dialect and the literal `(` without it; G7 the `-Z` framing in both directions; G8 a directory operand without `recursive`, `search` implying `-r`, and `search` refusing zero paths or an empty pattern; G9 the three forms; G10 the partial-failure deviation; G11 a nested `search` from inside a callback, in both shapes; G12 `-r` versus a real directory symlink (and `-R` as the counter-oracle); the CRLF table of §5; every remaining typed option against bare grep; and the binary-file record with its two escape hatches |
 | `006_Contract.sh` | 50 | `bash -n`, the open-quote and inline-`$'\r'` greps, no `$this.` call, `parent.constructor` + `tutil._gnu grep` in the constructor and `inherited` in the destructor, no `var` shadowing an inherited member; every shape from a child script under `set -eu` (an instance, both `TPipe` forms, `search` as a producer, a hit, no match, a grep error, a partial failure, a refused build, a refused `search`, the stdin form, `run` streaming, `delete`); and the debug switch — exactly one line on each of the 9 rc 2 paths and the 3 grep-error paths, **none** on any rc 0 or no-match path, with complete silence from us when the switch is off while grep's own lines pass through; and one **D6-final** case: `g.subshellOk = 1` silences TPipe's subshell warning through two frames of wrapper (the child's stderr must be empty), while without it `$(g2.toArray A2)` carries the verbatim `Warning: TPipe.toArray: …` line |
 | `007_Bench.sh` | 9 | The PLAN §5 P3.1 gates as assertions, behind the same ktool gate and with a 10× ceiling: `TGrep.search` against a bare `grep -r` over a 2000-line corpus (interleaved, medians, both sides asserted to find the same 21 hits), `TGrep.new` + `.delete` under 50 ms, `g.count` and the `countOnly` shortcut against `grep -c` (with grep's own per-file numbers compared as a set); that 200 `buildArgv` + `argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; and zero forks for every member — the callback and `.Add` run in this process, and the seven builder members plus `run` and `search` leave `$BASHPID` untouched |
+| `008_Helpers.sh` | 48 | H2, behind the same ktool gate. B0: the statics' argv pinned by a **recording stub** grep (`-F -r -q -e TEXT -- PATH...` and `-F -r -h -e TEXT -- PATH...`, a leading `-` after `-e`, `quiet` last among the flags, the usage refusals starting no process). A: `quiet` — `run` prints nothing, every sink sees zero records and `count` is `0`, rc 0 / 1, legal with `-l -L -c -o -n -v`, the **measured `-q` + failing-operand rcs** (match first, missing first, no match), the exact-`1` rule. B: `contains` — rc 0 / 1 silent direct and under `$( )`, the text is literal (`a.b` vs `aXb`, `[y]`, `$`, `a.*b`), a flag-shaped text is data, recursive, several paths, a CRLF file, a binary file, a tool error as rc 1 with ONE line (never rc 2), the usage and empty-TEXT rc 2 with one line and stdin unread. C: `countMatching` — RESULT equal to the bare tool's line count, a direct call silent and `$( )` once, zero matches `0`/rc 1, the failed-operand deviation (real count, rc 1, one line), no `file:count` parsing, **a binary file is ONE record**, a CRLF file, rc 2 with RESULT `''`. D: nesting inside an outer `each` and a `TPipe.each --` callback, `__TG_SEQ` and no instance left behind, the `quiet` lifecycle, `set -eu` predicates in a child | yes (gated; B0 not) |

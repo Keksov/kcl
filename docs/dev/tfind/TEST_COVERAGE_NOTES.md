@@ -1,9 +1,9 @@
 # tfind — test coverage notes
 
-**Status: FINALIZED at P1 (2026-09-16); counts refreshed at L3.4.** Suite `004`–`007` = **231 cases**,
-green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
+**Status: FINALIZED at P1 (2026-09-16); counts refreshed at L3.4; H2 helper added at L6.0 (2026-10-30).** Suite `004`–`008` = **261 cases**,
+green on bash 5.3.15 (Git-bash, primary) and on bash 5.3.9 (MSYS2, secondary), in the default
 threaded mode and under `--mode single`, against **GNU findutils 4.10.0**. The
-per-file row counts below sum to 231 — 114 + 49 + 58 + 10 — and **every case in
+per-file row counts below sum to 261 — 114 + 49 + 58 + 10 + 30 — and **every case in
 the suite has a row**.
 
 **Protocol.** `TFind` has no FPC upstream: it is the fourth wrapper on
@@ -506,3 +506,52 @@ call on msys, paid twice per sample — **C17**).
 | 007.c-count | `f.count` over 20 records costs at most 10× `find … -print0 \| tr -dc '\0' \| wc -c` — published, **not** the gate. Unlike thead's `wc -l` row this comparison is not one-sided: the shell equivalent needs THREE processes where the sink needs one, so at a small record count the **sink is faster** | §5 P1 |
 | 007.d-sinks-fork | the five sinks: the callback and `.Add` run in THIS process, one record each | **F12** |
 | 007.d-members-fork | the ONLY fork per call is find: twelve builder members, `run`, `byName` and **both rc 2 paths** leave `$BASHPID` untouched | **F12** |
+
+---
+
+## 008_Helpers.sh — H2: `TFind.quoteGlob` (launch L6.0, 2026-10-30) — 30 cases
+
+[`../tutil/HELPERS_PLAN.md`](../tutil/HELPERS_PLAN.md) §3 (**HP** below):
+`TFind.quoteGlob TEXT` — RESULT is TEXT with `\` first, then `*`, `?`, `[`, each
+preceded by a backslash, for `-name` / `-iname`. Section A is pure string work
+(no find). Section B is the proof: GNU find, with a decoy set per character that
+the **raw** pattern would match. A file system that cannot hold a name makes that
+one case `SKIP: <reason>`. **Measured on this box** (Git-bash 5.3.15 / MSYS2
+5.3.9): `*`, `?` and `[` are creatable (the msys layer maps them) and list back as
+themselves; a name containing `\` is **not** creatable, so the two backslash
+cases (`a\b` and the mixed `m\*x?y[z]\w`) are `SKIP:` on both Windows
+runtimes and run on the Linux/macOS/FreeBSD CI rows. The ktool gate opens the
+file as in 005.
+
+| ID | Case | Basis |
+|---|---|---|
+| 008.z01 | ktool resolves a GNU find (D4 pins the DIALECT, not a binary) | **D4** |
+| 008.a01 | `*` is escaped: `a*b` → `a\*b` (direct call: RESULT byte-exact, silent) | HP §3 |
+| 008.a02 | `?` is escaped | HP §3 |
+| 008.a03 | `[` is escaped, the closing `]` is not: `a[b]` → `a\[b]` | HP §3 |
+| 008.a04 | the backslash is doubled: `a\b` → `a\\b` | HP §3 |
+| 008.a05 | the backslash goes FIRST (no double escaping): `a*?[\b` → `a\*\?\[\\b` | HP §3 |
+| 008.a06 | a backslash before a metacharacter: `\*` → `\\\*` | HP §3 |
+| 008.a07 | `] ! ^ { } . + ( ) \| & $ / ,` are literal to fnmatch outside a bracket: nothing else is escaped | HP §3 |
+| 008.a08 | a newline stays as it is | HP §3 |
+| 008.a09 | empty TEXT → RESULT `''`, rc 0 | HP §3 |
+| 008.a10 | plain text is unchanged | HP §3 |
+| 008.a11 | a space and a tab are not touched | HP §3 |
+| 008.a12 | under `$( )` the value is printed EXACTLY ONCE (empty prints nothing) | HP §3 |
+| 008.a13 | a direct call replaces the caller's RESULT; inside `$( )` the value is also in RESULT | HP §3 |
+| 008.a14 | more than one argument (2 and 3): rc 2, RESULT `''`, ONE usage line, `$( )` prints nothing, stdin unread | HP §3, §1.2 |
+| 008.a15 | no line of ours on the rc 0 paths, with the debug switch on | §1.2 |
+| 008.a16 | `quoteGlob` builds no instance: `__TFD_SEQ` is untouched | HP §3 |
+| 008.b01 | `-name` with `*`: `a*b` finds the file `a*b` and NOT `aXb`, `ab`, `aXXb` (the raw pattern matched all three) | HP §3 |
+| 008.b02 | `-name` with `?`: `a?b` finds only itself (raw also matched `aXb`, `aYb`) | HP §3 |
+| 008.b03 | `-name` with `[`: `a[b]` finds only itself (raw also matched `ab`) | HP §3 |
+| 008.b04 | `-name` with a backslash: `a\b` — `SKIP:` where the file system cannot hold a `\` | HP §3 |
+| 008.b05 | `-name`, a mixed name without a backslash: `m*x?y[z]!^{q}` finds only itself (raw matched the decoy `mAAxByz!^{q}`) | HP §3 |
+| 008.b06 | `-name`, a mixed name with a backslash — `SKIP:` as b04 | HP §3 |
+| 008.b07 | `-iname` with `*`: the lower-case pattern finds the file `A*B`, NOT `AXB`, `axb` | HP §3 |
+| 008.b08 | `-iname` with `[`: the lower-case pattern finds the file `A[B]`, NOT `ab`, `AB` | HP §3 |
+| 008.b09 | a NEWLINE in the name stays as it is: `n<NL>*m` finds only the literal file | HP §3 |
+| 008.b10 | the counter-oracle: the raw `a*b` DOES find the three decoys (the proofs are not vacuous) | HP §3 |
+| 008.c01 | `f.name = "$(TFind.quoteGlob NAME)"` on an instance + `toArray` finds exactly the literal file | HP §3 |
+| 008.c02 | `quoteGlob` and `byName` nested inside an outer `each` callback; the outer instance's argv and `lastRc` untouched | **F11** |
+| 008.c03 | in a child under `set -eu`: `x=$(…)` is rc 0 (empty too), the extra argument is rc 2 without an abort | §1.2 |

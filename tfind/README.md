@@ -5,9 +5,10 @@
 > the static `byName`, the bench and the docs — plus the `TUTIL_OUT_PREFIXES`
 > registry this unit introduced in [`../tutil`](../tutil/README.md). Suite:
 > `tests/004_Argv.sh`, `tests/005_Run.sh`, `tests/006_Contract.sh`,
-> `tests/007_Bench.sh` — **231 checks green on bash 5.2.37 and 231 on bash
-> 5.3.9**, threaded and (5.2.37) under `--mode single`, against **GNU findutils
-> 4.10.0**. What the tests pin, case by case:
+> `tests/007_Bench.sh`, `tests/008_Helpers.sh` — **261 checks green on bash
+> 5.3.15 (Git-bash) and 261 on bash 5.3.9 (MSYS2)**, threaded and under `--mode single` (Git-bash),
+> against **GNU findutils 4.10.0**. The H2 helper `TFind.quoteGlob` is in §1 and
+> [§2](#quoteglob--a-literal-name-pattern-from-a-string-you-hold). What the tests pin, case by case:
 > **[TEST_COVERAGE_NOTES.md](../docs/dev/tfind/TEST_COVERAGE_NOTES.md)**. Design record:
 > [PLAN.md](../docs/dev/tfind/PLAN.md) (§8 is the critic pass every decision below survived) and
 > [tfind_ledger.json](../docs/dev/tfind/tfind_ledger.json). The base:
@@ -32,6 +33,7 @@ TFind.byName '*.log' /var/log         # the one-liner: `find /var/log -name '*.l
 
 TFind.new f src                       # or an instance, when you want options
 f.name = '*.c'                        # ALWAYS quote the pattern — §2
+f.name = "$(TFind.quoteGlob "$file")" # a name you HOLD, as a literal pattern — §2
 f.type = f
 f.maxDepth = 3
 f.print0 = 1                          # -print0 + the sinks' -0
@@ -73,6 +75,7 @@ TFind.new INST [START...]             # every argument is a start point
 | `buildArgv` | func | — | override; fills `${inst}_argv`, RESULT = word count |
 | `mapRc RAW` | func | — | override; §3 |
 | `TFind.byName PATTERN START...` | static proc | — | `find START... -name PATTERN`, streamed; §7 |
+| `TFind.quoteGlob TEXT` | static proc | — | RESULT = TEXT as a **literal** `-name` / `-iname` pattern; §2 |
 
 Inherited from [`TUtil`](../tutil/README.md): `cmd` — **the absolute path of
 the GNU find the kkore unit `ktool` resolved** (`/usr/bin/find` on Git-bash,
@@ -178,6 +181,41 @@ it is quoted. Two more `-name` facts on this platform: it is **case-sensitive**
 on NTFS under msys (`b.TXT` and `b.txt` are different — use `iname` when you mean
 either), and a pattern containing `/` matches nothing, silently, because `-name`
 tests the **base** name only.
+
+### `quoteGlob` — a literal name pattern from a string you hold
+
+Quoting at the call site keeps the **shell** from expanding the pattern; it does
+nothing about find reading `*`, `?`, `[` and `\` **inside** it as glob syntax. A
+file name you hold in a variable — `a*b`, `report[1].txt`, `what?.log` — is data,
+and used raw as `-name` it matches other names (or none). `TFind.quoteGlob`
+escapes it:
+
+```bash
+TFind.quoteGlob 'a*b'          # RESULT = a\*b
+TFind.byName "$(TFind.quoteGlob 'a*b')" /tmp/tree     # finds the file a*b, NOT aXb, ab
+f.name = "$(TFind.quoteGlob "$name")"                 # the same, on an instance
+f.iname = "$(TFind.quoteGlob "${name,,}")"            # -iname: still case-insensitive
+```
+
+| TEXT has | becomes | note |
+|---|---|---|
+| `\` | `\\` | first, so the escapes below are not doubled |
+| `*` `?` `[` | `\*` `\?` `\[` | |
+| anything else | unchanged | `]` `!` `^` `{` `}` are literal to fnmatch **outside** a bracket; a newline stays a newline |
+
+* RESULT is delivered like `TSed.quoteRe`: a direct call prints nothing, `$( )`
+  prints the value exactly once. Empty TEXT is `''`, rc 0.
+* **Exactly one argument.** More than one is **rc 2**, one `kk.debug` usage line,
+  RESULT `''` — quote the text so the shell passes it as one word.
+* It is pure bash: no instance, no fork, no find.
+* The proof is `tests/008_Helpers.sh` §B: for each of `a*b`, `a?b`, `a[b]`, `a\b` and
+  mixed names the file is created together with decoys the **raw** pattern would
+  match, and `TFind.byName "$(TFind.quoteGlob NAME)" DIR` finds exactly the literal
+  file, under GNU find. A file system that cannot hold a name makes that case a
+  `SKIP:` for that character only: **Windows cannot hold a name with a `\`**, so
+  the two backslash cases skip on Git-bash and MSYS2 (the msys layer does hold
+  `*`, `?` and `[`) and run on the Linux/macOS/FreeBSD CI rows. No BSD find is
+  probed — TFind never runs BSD find.
 
 `type` is checked against `^[bcdflps](,[bcdflps])*$`. A comma list works
 (`f,d`); a duplicate (`f,f`) passes the regex on purpose and comes back as the
@@ -444,9 +482,10 @@ bash kcl/tfind/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tfind/tests/tests.sh
 ```
 
-**231 cases, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
-mode and (5.2.37) under `--mode single`, against GNU findutils 4.10.0 (the move
-onto ktool, launch L3.4, adds 4 cases to `004` and 1 to `006`). Case by
+**261 cases, green on bash 5.3.15 (Git-bash) and on bash 5.3.9 (MSYS2)**, in the default threaded
+mode and under `--mode single` (Git-bash), against GNU findutils 4.10.0 (the move
+onto ktool, launch L3.4, adds 4 cases to `004` and 1 to `006`; the H2 helper,
+launch L6.0, adds the 30 of `008`). Case by
 case: [TEST_COVERAGE_NOTES.md](../docs/dev/tfind/TEST_COVERAGE_NOTES.md).
 
 | file | cases | what it pins | runs find? |
@@ -455,6 +494,7 @@ case: [TEST_COVERAGE_NOTES.md](../docs/dev/tfind/TEST_COVERAGE_NOTES.md).
 | `005_Run.sh` | 49 | behaviour against the bare tool on a fixture tree (depth 3, a space name, a **newline** name, a `-weird` directory, a real directory symlink and a broken one), every comparison NUL framed and `sort -z`ed: every typed option and three combinations; `-name` case-sensitive vs `-iname` on NTFS; `-L` descending the directory symlink while `-P` does not, and `-L` + `type = l` matching only the broken link; the newline name as 2 records under `-print` and 1 under `print0`; `./-weird` as a start point while `-weird` is rc 2; the partial failure (records kept, `RESULT` = the real count, rc 1, one line of ours, find's own matched by prefix) against the **fatal** `-newer MISSING`; the empty start-point list from a `cd` in this file's own shell; `-exec` as the record stream, `\;` leaving rc 0 and `+` propagating rc 1; and `TFind.byName` in three positions, with two start points, refused without one, propagating rc 2, nested inside an outer `each`, through both TPipe forms | yes (ktool gate first) |
 | `006_Contract.sh` | 58 | source integrity (`bash -n`, the open-quote and inline-`$'…'` greps, no `$this.` call, the sentinel gone, `parent.constructor` + `tutil._gnu find` in the constructor and `inherited` in the destructor, the `type` regex in a variable, the depths from `$__KK_INT`, no `--` append, the non-negated `[-!\(]*` class, no shadowed member name, exactly one `source` line, `__tfd_` registered); every shape from a child under `set -eu` — an instance, both TPipe forms, `byName` as a producer, records, a tool error, a partial failure, four refused builds, a refused `byName`, the cwd form, `run` streaming, `delete` — with every sink call guarded; the debug switch (exactly one line on each of the 11 rc 2 paths and the 3 tool-error paths, **none** on any rc 0 path); the **D6-final** `subshellOk` case; `F12`, that an unguarded rc 1 aborts a `set -eu` caller; and a Windows-spelled start point whose records carry that prefix and `/` after it | yes (gated) |
 | `007_Bench.sh` | 10 | the §10 gate as assertions with a **10×** ceiling behind the same ktool gate: `TFind.byName` against a bare `find … -name` over a 20-file tree **and** over a one-file tree (interleaved, medians, both sides asserted to deliver the same records), `new` + `name` + `argv` + `delete` under 50 ms, `f.count` against the `tr -dc '\0' \| wc -c` equivalent; that 200 `buildArgv`/`argv` calls invoke the `cmd` **zero** times, fork nothing and do not accumulate words; that a **refused** build is the cheap path too (100 rc 2 calls, no fork, no command, an empty `${inst}_argv`); and zero forks for every member — the callback and `.Add` run in this process, and twelve builder members plus `run`, `byName` and both rc 2 paths leave `$BASHPID` untouched | yes (gated) |
+| `008_Helpers.sh` | 30 | H2 `TFind.quoteGlob`: the escape set byte-exact (`*` `?` `[` `\`, the backslash first, `] ! ^ { }` and everything else untouched, a newline kept, empty → `''` rc 0), a direct call silent with RESULT set and `$( )` printing once, a second argument rc 2 with one usage line / RESULT `''` / stdin unread, no instance built; then **the proof against GNU find** — `TFind.byName "$(TFind.quoteGlob NAME)"` finds exactly the literal file among decoys the raw pattern matches, for `a*b`, `a?b`, `a[b]`, a mixed name, `-iname` (two cases), a newline in the name, and the raw pattern as the counter-oracle (the two backslash cases are `SKIP:` where the file system cannot hold a `\`); an instance (`f.name = "$(…)"` + `toArray`), a nested call inside an outer `each`, and a child under `set -eu` | yes for the proof (gated); the escape cases no |
 
 The behavioural files open with a **ktool gate**: one case asks the kkore unit
 ktool (through `kt_gnu_gate find FIND_BIN`, `tutil/tests/gnu_helper.sh`) for a
