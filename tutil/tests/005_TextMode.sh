@@ -303,12 +303,15 @@ printf 'rc=%s lr=%s r0=%s out=%s END\n' "\$rc" "\$lr" "\$r0" "\$out"
 EOF
 # stdout only: the child's stderr is not this case's subject (and on FreeBSD
 # kklass itself writes a line there today — an L3 item, not the CR contract).
-res="$(timeout -k 10 60 "$BASH" "$TMP/e.sh" 2>"$TMP/e.err")"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+res="$("$KT_TIMEOUT" -k 10 60 "$BASH" "$TMP/e.sh" 2>"$TMP/e.err")"
 if [[ "$res" == "rc=1 lr=3 r0=0 out=b END" ]]; then
     kt_test_pass "$res"
 else
     kt_test_fail "res=$(printf %q "$res") err=$(head -c 300 "$TMP/e.err" | tr '\n' '|')"
 fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "F. the filters themselves (round 2): nul, a failing filter, the stdin filter, -u"
@@ -352,12 +355,15 @@ s0=0; printf 'q\r\n' | tutil._crStdin cat >/dev/null 2>/dev/null || s0=\$?
 printf 'rc=%s lr=%s nerr=%s out=[%s] r3=%s l3=%s stdin=%s END\n' "\$rc" "\$lr" "\$nerr" "\$out" "\$r3" "\$l3" "\$s0"
 EOF2
 kt_test_start "F: a CR filter that FAILS (sed exit 4) is not silent — tool ok: lastRc 2, rc 1, one debug line; tool rc 3 wins; the stdin filter answers 2"
-res="$(timeout -k 10 60 "$BASH" "$TMP/f.sh" 2>/dev/null)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+res="$("$KT_TIMEOUT" -k 10 60 "$BASH" "$TMP/f.sh" 2>/dev/null)"
 if [[ "$res" == "rc=1 lr=2 nerr=1 out=[] r3=1 l3=3 stdin=2 END" ]]; then
     kt_test_pass "$res"
 else
     kt_test_fail "res=$(printf %q "$res")"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "F: \`tutil._crStdin CMD\` — the tool reads LF lines; its own rc comes back; SIGPIPE from a tool that stops reading is not an error"
 got="$(printf 'x\r\ny\r\n' | tutil._crStdin cat | od -c)"

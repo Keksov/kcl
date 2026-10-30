@@ -631,7 +631,7 @@ else
     if [[ "$CURL_CODE" == 200 && "$(<"$TMP/after")" == 4 ]]; then kt_test_pass "next request 200 (count 4)"; else kt_test_fail "code=$CURL_CODE body='$(<"$TMP/after")'"; fi
 
     kt_test_start "${A_TITLES[12]}"
-    silent_client() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; : > "$TMP/silent.conn"; timeout 30 cat <&3 > "$TMP/silent.out" ) 2>/dev/null; }
+    silent_client() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; : > "$TMP/silent.conn"; "$KT_TIMEOUT" 30 cat <&3 > "$TMP/silent.out" ) 2>/dev/null; }
     ths_retry_refused silent_client
     ths_curl "$TMP/after408" "http://127.0.0.1:$THS_PORT/pid"
     s="$(<"$TMP/silent.out")"
@@ -643,7 +643,7 @@ else
     C1=$!
     rdy=0; ths_poll 60 test -e "$A_DIR/ready" && rdy=1
     ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || { : > "$TMP/c2.refused"; exit 7; }
-      : > "$TMP/c2.conn"; printf 'GET /count HTTP/1.0\r\n\r\n' >&3; timeout 30 cat <&3 > "$TMP/c2.out" ) 2>/dev/null &
+      : > "$TMP/c2.conn"; printf 'GET /count HTTP/1.0\r\n\r\n' >&3; "$KT_TIMEOUT" 30 cat <&3 > "$TMP/c2.out" ) 2>/dev/null &
     C2=$!
     ths_poll 30 eval '[[ -e $TMP/c2.conn || -e $TMP/c2.refused ]]'
     : > "$A_DIR/go"
@@ -742,7 +742,7 @@ source "$THS_LIB"
 b_after() { ths_children_of $BASHPID; printf "children=%s\n" "$THS_NCHILD" >> "$SRV_DIR/result"; }
 AFTER_HOOK=b_after'
     if (( THS_NC_ENV )); then export KCL_NC="$THS_NC"; fi
-    UNIT="$UNIT" SRV_DIR="$B_DIR" PORT="$bport" TMPDIR="$B_DIR/tmp" timeout 180 "$BASH" "$B_DIR/srv.sh" >"$B_DIR/out" 2>"$B_DIR/err" </dev/null
+    UNIT="$UNIT" SRV_DIR="$B_DIR" PORT="$bport" TMPDIR="$B_DIR/tmp" "$KT_TIMEOUT" 180 "$BASH" "$B_DIR/srv.sh" >"$B_DIR/out" 2>"$B_DIR/err" </dev/null
     brc=$?
     if [[ -n "$BL" ]]; then ths._stopPid "$BL"; wait "$BL" 2>/dev/null; fi
     THS_DIR="$B_DIR"
@@ -812,7 +812,7 @@ one once "$SRV_DIR/once_nc"
 : > "$SRV_DIR/ended"
 EOF
     ths_nport
-    UNIT="$UNIT" SRV_DIR="$C_DIR" PORT="$THS_PORT" TMPDIR="$C_DIR/tmp" timeout 180 "$BASH" "$C_DIR/srv.sh" >"$C_DIR/out" 2>"$C_DIR/err" </dev/null
+    UNIT="$UNIT" SRV_DIR="$C_DIR" PORT="$THS_PORT" TMPDIR="$C_DIR/tmp" "$KT_TIMEOUT" 180 "$BASH" "$C_DIR/srv.sh" >"$C_DIR/out" 2>"$C_DIR/err" </dev/null
     crc=$?
     cres="$(<"$C_DIR/result")"
     cerr="$(<"$C_DIR/err")"

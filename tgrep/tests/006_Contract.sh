@@ -151,6 +151,17 @@ tcase() {
     return 0
 }
 
+# tcaseT TITLE — tcase, and the case also needs timeout(1): without
+# timeout/gtimeout it passes as `SKIP: $KT_TIMEOUT_WHY` (launch L5.4-9).
+tcaseT() {
+    tcase "$1" || return 1
+    if ! kt_need_timeout; then
+        kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+        return 1
+    fi
+    return 0
+}
+
 FX="$(cd "$(kt_fixture_tmpdir_create tree)" && pwd)"
 mkdir -p "$FX/sub"
 printf 'alpha needle here\nbeta\nneedle again\n' > "$FX/plain.txt"
@@ -169,11 +180,11 @@ kt_test_section "1. set -eu — the instance and BOTH TPipe forms, every outcome
 # quoted and nothing in it is expanded twice.
 expect_clean() {
     local title="$1" snippet="$2" out rc err
-    if ! tcase "$title"; then
+    if ! tcaseT "$title"; then
         return 0
     fi
     : > "$ERRF"
-    out="$(FX="$FX" UNIT="$UNIT" timeout 20 "$BASH" -c "set -eu
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 20 "$BASH" -c "set -eu
 source \"\$UNIT\"
 $snippet
 printf OK" 2>"$ERRF" </dev/null)"; rc=$?

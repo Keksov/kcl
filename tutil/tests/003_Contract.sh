@@ -84,8 +84,9 @@ ERRF="$TMP/setu.err"
 expect_clean() {
     local title="$1" snippet="$2" out rc err
     kt_test_start "$title"
+    if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"; return 0; fi
     : > "$ERRF"
-    out="$(timeout 20 "$BASH" -c "set -eu
+    out="$("$KT_TIMEOUT" 20 "$BASH" -c "set -eu
 source '$UNIT'
 $snippet
 printf OK" 2>"$ERRF" </dev/null)"; rc=$?
@@ -272,8 +273,10 @@ kt_test_section "2. zero forks: the callback runs in the script's own process"
 # ===========================================================================
 
 kt_test_start "every callback call happens at the child's own BASHPID (under set -eu)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 : > "$ERRF"
-out="$(timeout 20 "$BASH" -c "set -eu
+out="$("$KT_TIMEOUT" 20 "$BASH" -c "set -eu
 source '$UNIT'
 MINE=\$BASHPID
 BAD=0
@@ -288,6 +291,7 @@ if [[ $rc -eq 0 && "$out" == "n=5 bad=0" && -z "$err" ]]; then
 else
     kt_test_fail "rc=$rc out='$out' stderr='$err'"
 fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "3. the debug switch — one line per rc 2 / 127 path, none else"

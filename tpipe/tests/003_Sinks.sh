@@ -531,12 +531,15 @@ offered="$RESULT"
 H.Count
 printf 'offered=%s stored=%s\n' "$offered" "$RESULT"
 RJ_EOF
-rjout="$(timeout 30 "$BASH" "$RJCHILD" "$TP_DIR" 2>"$TMP/reject.err")"; rjrc=$?
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+rjout="$("$KT_TIMEOUT" 30 "$BASH" "$RJCHILD" "$TP_DIR" 2>"$TMP/reject.err")"; rjrc=$?
 if [[ $rjrc -eq 0 && "$rjout" == "offered=5 stored=3" && ! -s "$TMP/reject.err" ]]; then
     kt_test_pass "child exited 0: $rjout"
 else
     kt_test_fail "rc=$rjrc out='$rjout' err='$(cat "$TMP/reject.err")'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "TPipe.stop from inside .Add stops the sink after that record (rc 0)"
 TStopper.new ST

@@ -195,7 +195,9 @@ if [[ -n $FE_BWK ]]; then
     frexp_note=" (engine awk '$fe_awk_ver' is BWK: it reads the subnormal operand 5e-324 as 0, so that row is '0 0')"
 fi
 kt_test_start "frexp answers for every non-finite / extreme input, never hangs [M2]"
-frexp_out="$(timeout 300 bash -c "source '$MATH_DIR/math.sh'
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+frexp_out="$("$KT_TIMEOUT" 300 bash -c "source '$MATH_DIR/math.sh'
 for a in ${FREXP_ARGS[*]@Q}; do
     math.frexp \"\$a\" || RESULT='<rc>'
     printf '%s|' \"\$RESULT\"
@@ -211,6 +213,7 @@ else
         kt_test_fail "got '$frexp_out' want '$want' (rc $frexp_rc)"
     fi
 fi
+fi   # kt_need_timeout
 
 # ---------------------------------------------------------------------------
 # 4. M11 — no `-0` ever leaves the unit.

@@ -84,6 +84,17 @@ tcase() {
     return 0
 }
 
+# tcaseT TITLE â€” tcase, and the case also needs timeout(1): without
+# timeout/gtimeout it passes as `SKIP: $KT_TIMEOUT_WHY` (launch L5.4-9).
+tcaseT() {
+    tcase "$1" || return 1
+    if ! kt_need_timeout; then
+        kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+        return 1
+    fi
+    return 0
+}
+
 printf -v CR '\r'
 printf -v TAB '\t'
 printf -v NL '\n'
@@ -956,12 +967,12 @@ if tcase "\`TSed.replace\` through a PIPE (\`| od -c\`) and through \`< <( )\` â
     fi
 fi
 
-if tcase "\`TSed.replace\` in the three positions: terminal (a file), lastpipe, the TPipe \`--\` form"; then
+if tcaseT "\`TSed.replace\` in the three positions: terminal (a file), lastpipe, the TPipe \`--\` form"; then
     N1=0
     cb1() { N1=$(( N1 + 1 )); return 0; }
     rc=0
     TPipe.each cb1 -- TSed.replace 'a.b' 'Q' "$FX/lit.txt" 2>/dev/null || rc=$?
-    out="$(FX="$FX" UNIT="$UNIT" timeout -k 5 30 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" -k 5 30 "$BASH" -c '
 set -u
 shopt -s lastpipe
 source "$UNIT"
@@ -1118,7 +1129,9 @@ else
 fi
 
 kt_test_start "... still exactly once after a re-source AND after \`kk.unit --forget tsed\` + a re-source (a child under set -eu)"
-out="$(KCL_GNU_SED="$STUB_SED" UNIT="$UNIT" timeout -k 5 60 "$BASH" -c '
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$(KCL_GNU_SED="$STUB_SED" UNIT="$UNIT" "$KT_TIMEOUT" -k 5 60 "$BASH" -c '
 set -eu
 source "$UNIT"
 source "$UNIT"
@@ -1142,4 +1155,5 @@ if [[ $crc -eq 0 && "$out" == "_exprs=1 _rfrom=1 _rto=1 _rflags=1 __tsd_=1 |"*"-
 else
     kt_test_fail "rc=$crc out='$out'"
 fi
+fi   # kt_need_timeout
 

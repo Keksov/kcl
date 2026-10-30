@@ -127,7 +127,7 @@ CHILD_RC=0
 CHILD_ERRTXT=""
 run_child() {
     : > "$CHILD_ERR"
-    CHILD_OUT="$(timeout 20 "$BASH" -c "set -eu
+    CHILD_OUT="$("$KT_TIMEOUT" 20 "$BASH" -c "set -eu
 source '$UNIT'
 $1" 2>"$CHILD_ERR" </dev/null)"
     CHILD_RC=$?
@@ -845,6 +845,8 @@ kt_test_section "I. U6 — a callback that calls TPipe.stop"
 # ===========================================================================
 
 kt_test_start "U6: \`each\` + \`TPipe.stop\` on an INFINITE producer: rc 0, lastRc 141/143, no hang"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child 'TUtil.new u yes
 SN=0
 cb() { SN=$(( SN + 1 )); TPipe.stop; }
@@ -860,6 +862,7 @@ if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" =~ ^rc=0\ n=1\ lastRc=(141|143)$ ]]; then
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "U6: the stop is not a failure — the same callback over a FINITE producer is rc 0"
 TUtil.new uI p4
@@ -875,6 +878,8 @@ fi
 uI.delete
 
 kt_test_start "U6: \`first\` on an infinite producer answers at once and does not hang"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child 'TUtil.new u yes
 rc=0
 u.first 2>/dev/null || rc=$?
@@ -886,6 +891,7 @@ if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" =~ ^rc=0\ res=y\ lastRc=(141|143)$ ]]; the
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "J. malformed calls: rc, RESULT, _lastRc and 'nothing ran'"
@@ -1097,13 +1103,16 @@ else
     printf 'DIFF:[%s][%s][%s]\n' "$A" "$B" "$C"
 fi
 FORMS_EOF
-out="$(timeout 20 "$BASH" "$FORMS" "$UNIT" 2>"$CHILD_ERR" </dev/null)"; rc=$?
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$("$KT_TIMEOUT" 20 "$BASH" "$FORMS" "$UNIT" 2>"$CHILD_ERR" </dev/null)"; rc=$?
 err="$(<"$CHILD_ERR")"
 if [[ $rc -eq 0 && "$out" == 'SAME:-n a b back\slash café' && -z "$err" ]]; then
     kt_test_pass "all three forms deliver the same records: ${out#SAME:}"
 else
     kt_test_fail "rc=$rc out='$out' stderr='$err'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "the wrapper as a producer INSIDE a pipeline: \`u.run | wc -l\` is the tool's stream only"
 TUtil.new uL p4

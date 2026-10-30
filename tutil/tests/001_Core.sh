@@ -99,7 +99,7 @@ CHILD_RC=0
 CHILD_ERRTXT=""
 run_child() {
     : > "$CHILD_ERR"
-    CHILD_OUT="$(timeout 20 "$BASH" -c "set -eu
+    CHILD_OUT="$("$KT_TIMEOUT" 20 "$BASH" -c "set -eu
 source '$UNIT'
 $1
 printf OK" 2>"$CHILD_ERR" </dev/null)"
@@ -202,6 +202,8 @@ fi
 uL.delete
 
 kt_test_start "every declared var is readable under \`set -u\` right after \`new\` (no unbound)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child 'TUtil.new u
 u.cmd    >/dev/null
 u.crlf   >/dev/null
@@ -214,6 +216,7 @@ if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" == "OK" && -z "$CHILD_ERRTXT" ]]; then
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "B. U2 — buildArgv, argv, addArg, clearArgs"
@@ -910,22 +913,30 @@ kt_test_section "F. the set -eu contract (PLAN §2.3, §6)"
 # ===========================================================================
 
 kt_test_start "the unit loads under \`set -eu\`"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child ':'
 if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" == "OK" && -z "$CHILD_ERRTXT" ]]; then
     kt_test_pass "clean"
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "loading the unit TWICE under \`set -eu\` is a no-op"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child "source '$UNIT'"
 if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" == "OK" && -z "$CHILD_ERRTXT" ]]; then
     kt_test_pass "the re-source guard holds"
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "a FAILING tool under \`run\` does NOT abort a \`set -eu\` caller"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child 'TUtil.new u "$BASH" -c "exit 4"
 rc=0
 u.run || rc=$?
@@ -937,8 +948,11 @@ if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" == "OK" && -z "$CHILD_ERRTXT" ]]; then
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "a MISSING tool under \`run\` does not abort a \`set -eu\` caller either"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child 'TUtil.new u tutil_no_such_tool_xyz
 rc=0
 u.run || rc=$?
@@ -950,8 +964,11 @@ if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" == "OK" && -z "$CHILD_ERRTXT" ]]; then
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "the whole happy path runs under \`set -eu\`"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child 'TUtil.new u printf "%s\n" a b
 declare -a A=()
 u.argv A
@@ -971,8 +988,11 @@ if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" == "OK" && -z "$CHILD_ERRTXT" ]]; then
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "a malformed CALL (bad out-name) does not abort a \`set -eu\` caller"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child 'TUtil.new u printf x
 rc=0
 u.argv state || rc=$?
@@ -983,6 +1003,7 @@ if [[ $CHILD_RC -eq 0 && "$CHILD_OUT" == "OK" && -z "$CHILD_ERRTXT" ]]; then
 else
     kt_test_fail "rc=$CHILD_RC out='$CHILD_OUT' stderr='$CHILD_ERRTXT'"
 fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "G. the P0 sink stubs are GONE (P1.1)"

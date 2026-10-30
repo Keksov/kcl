@@ -340,7 +340,9 @@ kt_test_section "7. Date: English and UTC whatever LANG/LC_ALL/TZ (fact 15)"
 # ===========================================================================
 
 kt_test_start "under LC_ALL=ru_RU.UTF-8 TZ=JST-9 the Date is English, GMT and equals the UTC clock; LC_ALL/TZ untouched"
-out="$(UNIT="$UNIT" LC_ALL=ru_RU.UTF-8 LANG=ru_RU.UTF-8 TZ=JST-9 timeout 180 "$BASH" -c '
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$(UNIT="$UNIT" LC_ALL=ru_RU.UTF-8 LANG=ru_RU.UTF-8 TZ=JST-9 "$KT_TIMEOUT" 180 "$BASH" -c '
 source "$UNIT"
 b="$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M")"
 THttpResponse.new S
@@ -359,17 +361,23 @@ if [[ "$dline" =~ $DATE_RE && ( "$dmin" == "$before" || "$dmin" == "$after" ) &&
 else
     kt_test_fail "date='$dline' utc='$before'/'$after' env='$env3' err='$(<"$TMP/date.err")'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "the UTC hour differs from the child's JST local hour (so the check above is not vacuous)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 lh="${env3##*|}"; uh="${dmin: -5:2}"
 if [[ -n "$lh" && -n "$uh" && "$lh" != "$uh" ]]; then kt_test_pass "local $lh vs UTC $uh"; else kt_test_fail "local '$lh' UTC '$uh'"; fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "8. SIGPIPE, deterministic (fact 3)"
 # ===========================================================================
 
 kt_test_start "a reader that is already gone: SendContent rc 1, nothing on stderr, ContentSent 1, the shell alive"
-out="$(UNIT="$UNIT" timeout 180 "$BASH" -c '
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$(UNIT="$UNIT" "$KT_TIMEOUT" 180 "$BASH" -c '
 source "$UNIT"
 trap "" PIPE
 exec {fd}> >(exec true)
@@ -383,9 +391,12 @@ S.ContentSent; sent="$RESULT"
 printf "alive rc=%s sent=%s" "$rc" "$sent"
 ' 2>"$TMP/pipe.err" </dev/null)"; crc=$?
 if [[ $crc -eq 0 && "$out" == "alive rc=1 sent=1" && ! -s "$TMP/pipe.err" ]]; then kt_test_pass "$out"; else kt_test_fail "child rc=$crc out='$out' err='$(<"$TMP/pipe.err")'"; fi
+fi   # kt_need_timeout
 
 kt_test_start "(why the server ignores PIPE) without the trap the same write kills the shell (rc 141)"
-out="$(UNIT="$UNIT" timeout 180 "$BASH" -c '
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$(UNIT="$UNIT" "$KT_TIMEOUT" 180 "$BASH" -c '
 source "$UNIT"
 exec {fd}> >(exec true)
 pid=$!
@@ -396,3 +407,4 @@ S.SendContent
 printf "alive"
 ' 2>/dev/null </dev/null)"; crc=$?
 if [[ $crc -eq 141 && -z "$out" ]]; then kt_test_pass "rc 141, no 'alive'"; else kt_test_fail "rc=$crc out='$out'"; fi
+fi   # kt_need_timeout

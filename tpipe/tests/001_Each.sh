@@ -308,12 +308,15 @@ printf 'n=%s\n' "$RESULT"
 IX_EOF
 
 kt_test_start "TPIPE_INDEX is readable outside any sink under set -u (0), and is 1..n inside one"
-ixout="$(timeout 20 "$BASH" "$IXCHILD" "$TP_DIR" 2>"$TMP/index.err")"; ixrc=$?
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+ixout="$("$KT_TIMEOUT" 20 "$BASH" "$IXCHILD" "$TP_DIR" 2>"$TMP/index.err")"; ixrc=$?
 if [[ $ixrc -eq 0 && "$ixout" == "ix=0;ix=1;ix=2;n=2" && ! -s "$TMP/index.err" ]]; then
     kt_test_pass "ix=0 outside, 1..2 inside, no diagnostic"
 else
     kt_test_fail "rc=$ixrc out='$ixout' err='$(cat "$TMP/index.err")'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "a nested sink leaves the OUTER RESULT/lastRc as the outer sink's own"
 NEST_OUT=(); NEST_IN=()

@@ -199,7 +199,7 @@ else
     C1=$!
     rdy=0; ths_poll 60 test -e "$THS_DIR/ready" && rdy=1
     ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || { : > "$TMP/t2.refused"; exit 7; }
-      : > "$TMP/t2.conn"; printf 'GET /hold HTTP/1.0\r\n\r\n' >&3; timeout 30 cat <&3 > "$TMP/t2.out" ) 2>/dev/null &
+      : > "$TMP/t2.conn"; printf 'GET /hold HTTP/1.0\r\n\r\n' >&3; "$KT_TIMEOUT" 30 cat <&3 > "$TMP/t2.out" ) 2>/dev/null &
     C2=$!
     ths_poll 30 eval '[[ -e $TMP/t2.conn || -e $TMP/t2.refused ]]'
     kill -TERM "$SPID" 2>/dev/null
@@ -409,7 +409,7 @@ S.Router = RT
 # refused). l6_conn — some slot of the server has accepted it. l6_one — the
 # server's FIFOs have exactly one cat reader (until the 408 only the current
 # slot has a listener) → L6_CAT.
-l6_client() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; timeout -k 5 30 cat <&3 > "$TMP/l6.silent" ) 2>/dev/null; }
+l6_client() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; "$KT_TIMEOUT" -k 5 30 cat <&3 > "$TMP/l6.silent" ) 2>/dev/null; }
 l6_conn() { local f; for f in "$THS_DIR"/tmp/thttpserver.*/err[01]; do if [[ -f "$f" ]] && grep -Eq "$THS_RE_CONN" "$f" 2>/dev/null; then return 0; fi; done; return 1; }
 l6_one() { kt_proc_pids "$THS_DIR/tmp/thttpserver."; L6_FOUND="$REPLY"; [[ "$REPLY" =~ ^[0-9]+$ ]]; }
 l6_gone() { ! kill -0 "$L6_CAT" 2>/dev/null; }

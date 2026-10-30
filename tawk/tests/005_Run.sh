@@ -85,6 +85,17 @@ tcase() {
     return 0
 }
 
+# tcaseT TITLE — tcase, and the case also needs timeout(1) (bare-tool oracle):
+# without timeout/gtimeout it passes as `SKIP: $KT_TIMEOUT_WHY` (launch L5.4-9).
+tcaseT() {
+    tcase "$1" || return 1
+    if ! kt_need_timeout; then
+        kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+        return 1
+    fi
+    return 0
+}
+
 printf -v CR '\r'
 BS='\'
 # BS_SEP: 1 where a backslash in a path is a directory separator (MSYS2/Cygwin), 0 where it is
@@ -204,7 +215,7 @@ oracleL() {
     local __zl
     while IFS= read -r __zl || [[ -n "$__zl" ]]; do
         __zo+=( "$__zl" )
-    done < <( timeout 20 "$@" 2>/dev/null </dev/null )
+    done < <( "$KT_TIMEOUT" 20 "$@" 2>/dev/null </dev/null )
     return 0
 }
 
@@ -212,7 +223,7 @@ oracleL() {
 oracle0() {
     local -n __zo="$1"; shift
     __zo=()
-    mapfile -d '' -t __zo < <( timeout 20 "$@" 2>/dev/null </dev/null )
+    mapfile -d '' -t __zo < <( "$KT_TIMEOUT" 20 "$@" 2>/dev/null </dev/null )
     return 0
 }
 
@@ -263,7 +274,7 @@ build TATestList
 kt_test_section "A. A6 — every sink against the bare tool"
 # ===========================================================================
 
-if tcase "A6: toArray / each / count / first / toList / run on \`{print \$2}\` all agree with bare gawk"; then
+if tcaseT "A6: toArray / each / count / first / toList / run on \`{print \$2}\` all agree with bare gawk"; then
     TAwk.new aK '{print $2}' "$FX/f3.txt"
     oracleL SWANT "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt"
     SGOT=()
@@ -275,7 +286,7 @@ if tcase "A6: toArray / each / count / first / toList / run on \`{print \$2}\` a
     TATestList.new aKL
     lrc=0; aK.toList aKL || lrc=$?; ln="$RESULT"
     rrc=0; aK.run > "$TMP/run.out" 2>/dev/null || rrc=$?
-    timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" > "$TMP/bare.out"
+    "$KT_TIMEOUT" 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" > "$TMP/bare.out"
     aK.lastRc; lr="$RESULT"
     if [[ $arc -eq 0 && $erc -eq 0 && $crc -eq 0 && $frc -eq 0 && $lrc -eq 0 && $rrc -eq 0 \
           && "$an" == "3" && "$cn" == "3" && "$ln" == "3" && "$(aKL.N)" == "3" && "$fv" == "1" \
@@ -294,7 +305,7 @@ fi
 # bare tool's stdout AND the pinned records, rc 0.
 same_as_bare() {
     local __zt="$1" __zi="$2" __zw="$3"; shift 3
-    if ! tcase "$__zt"; then
+    if ! tcaseT "$__zt"; then
         return 0
     fi
     SGOT=()
@@ -343,7 +354,7 @@ same_as_bare "A6: \`fieldSep = '\\t'\` is escape-processed by gawk (a TAB), awk 
 aM.delete
 
 TAwk.new aM '{print $1}' "$FX/tab.txt"
-if tcase "A6: \`fieldSep\` is a REGEX (\`[rq]\`)"; then
+if tcaseT "A6: \`fieldSep\` is a REGEX (\`[rq]\`)"; then
     aM.fieldSep = '[rq]'
     SGOT=()
     rc=0; aM.toArray SGOT 2>/dev/null || rc=$?
@@ -356,10 +367,10 @@ if tcase "A6: \`fieldSep\` is a REGEX (\`[rq]\`)"; then
 fi
 aM.delete
 
-if tcase "A6: an unterminated last line comes out TERMINATED (\`print\` appends ORS) — == bare"; then
+if tcaseT "A6: an unterminated last line comes out TERMINATED (\`print\` appends ORS) — == bare"; then
     TAwk.new aM '{print}' "$FX/unterm.txt"
     got="$(aM.run | od -c)"
-    want="$(timeout 20 "$AWK_BIN" --sandbox -e '{print}' -- "$FX/unterm.txt" | od -c)"
+    want="$("$KT_TIMEOUT" 20 "$AWK_BIN" --sandbox -e '{print}' -- "$FX/unterm.txt" | od -c)"
     exp="$(printf 'u1\nu2\n' | od -c)"
     SGOT=()
     rc=0; aM.toArray SGOT || rc=$?
@@ -371,12 +382,12 @@ if tcase "A6: an unterminated last line comes out TERMINATED (\`print\` appends 
     aM.delete
 fi
 
-if tcase "A6: no path — \`run\` reads stdin; the path \`-\` is stdin explicitly"; then
+if tcaseT "A6: no path — \`run\` reads stdin; the path \`-\` is stdin explicitly"; then
     TAwk.new aM '{print $2}'
     aM.run < "$FX/f3.txt" > "$TMP/stdin1.out" 2>/dev/null
     TAwk.new aM2 '{print $2}' '-'
     aM2.run < "$FX/f3.txt" > "$TMP/stdin2.out" 2>/dev/null
-    timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' < "$FX/f3.txt" > "$TMP/stdin.bare"
+    "$KT_TIMEOUT" 20 "$AWK_BIN" --sandbox -e '{print $2}' < "$FX/f3.txt" > "$TMP/stdin.bare"
     if cmp -s "$TMP/stdin1.out" "$TMP/stdin.bare" && cmp -s "$TMP/stdin2.out" "$TMP/stdin.bare" \
        && [[ "$(<"$TMP/stdin.bare")" == $'1\n2\n3' ]]; then
         kt_test_pass "both identical to bare gawk on stdin"
@@ -490,8 +501,8 @@ for (( k = 0; k < ${#SV_VALS[@]}; k++ )); do
     sv_case "$k"
 done
 
-if tcase "A5: WHY — bare \`-v x='\\u0041'\` is NOT verbatim (5.4 decodes it, 5.0 warns and drops the backslash)"; then
-    bare="$(timeout 20 "$AWK_BIN" -v "x=${BS}u0041" -e 'BEGIN{printf "%s", x}' 2>/dev/null </dev/null)"
+if tcaseT "A5: WHY — bare \`-v x='\\u0041'\` is NOT verbatim (5.4 decodes it, 5.0 warns and drops the backslash)"; then
+    bare="$("$KT_TIMEOUT" 20 "$AWK_BIN" -v "x=${BS}u0041" -e 'BEGIN{printf "%s", x}' 2>/dev/null </dev/null)"
     TAwk.new aV 'BEGIN{printf "%s", x}'
     aV.setVar x "${BS}u0041"
     mine="$(aV.run 2>/dev/null)"
@@ -503,11 +514,11 @@ if tcase "A5: WHY — bare \`-v x='\\u0041'\` is NOT verbatim (5.4 decodes it, 5
     aV.delete
 fi
 
-if tcase "A5: \`typeof\` is preserved — \`' 010 '\` is a strnum through setVar, as through bare -v"; then
+if tcaseT "A5: \`typeof\` is preserved — \`' 010 '\` is a strnum through setVar, as through bare -v"; then
     TAwk.new aV 'BEGIN{print typeof(x)}'
     aV.setVar x ' 010 '
     mine="$(aV.run 2>/dev/null)"
-    bare="$(timeout 20 "$AWK_BIN" -v 'x= 010 ' -e 'BEGIN{print typeof(x)}' 2>/dev/null </dev/null)"
+    bare="$("$KT_TIMEOUT" 20 "$AWK_BIN" -v 'x= 010 ' -e 'BEGIN{print typeof(x)}' 2>/dev/null </dev/null)"
     if [[ "$mine" == "strnum" && "$bare" == "strnum" ]]; then
         kt_test_pass "strnum / strnum"
     else
@@ -561,7 +572,7 @@ fi
 # illegal NAMEs: setVar is rc 2 and stores nothing; the bare tool shows why
 sv_bad() {   # sv_bad NAME
     local __zn="$1"
-    if ! tcase "A5: \`setVar $__zn\` is rc 2, nothing stored, the run unaffected; bare \`-v $__zn=1\` is gawk's fatal rc 2"; then
+    if ! tcaseT "A5: \`setVar $__zn\` is rc 2, nothing stored, the run unaffected; bare \`-v $__zn=1\` is gawk's fatal rc 2"; then
         return 0
     fi
     TAwk.new aV 'BEGIN{print "ran"}'
@@ -569,7 +580,7 @@ sv_bad() {   # sv_bad NAME
     local __zrc="$TA_RC" __zl="$TA_1" __zc="$TA_N"
     local __zout; __zout="$(aV.run 2>/dev/null)"
     local __zb=0
-    timeout 20 "$AWK_BIN" -v "$__zn=1" -e 'BEGIN{print "ran"}' >/dev/null 2>&1 </dev/null || __zb=$?
+    "$KT_TIMEOUT" 20 "$AWK_BIN" -v "$__zn=1" -e 'BEGIN{print "ran"}' >/dev/null 2>&1 </dev/null || __zb=$?
     if [[ "$__zrc" == "2" && "$__zc" == "1" && "$__zl" == "Error: TAwk.setVar: "* && "$__zout" == "ran" && "$__zb" == "2" ]] \
        && arr_is aV_vnames; then
         kt_test_pass "rc 2; bare rc $__zb: ${__zl:0:70}"
@@ -590,7 +601,7 @@ kt_test_section "C. A7 — the FATAL missing file, syntax errors, and the progra
 
 TAwk.new aP '{print}' "$FX/f3.txt" "$FX/no_such.txt" "$FX/f3b.txt"
 
-if tcase "A7: a missing file in the MIDDLE — \`toArray\` rc 1, only the EARLIER file's records, lastRc 2"; then
+if tcaseT "A7: a missing file in the MIDDLE — \`toArray\` rc 1, only the EARLIER file's records, lastRc 2"; then
     SGOT=()
     rc=0; aP.toArray SGOT 2>/dev/null || rc=$?
     n="$RESULT"
@@ -936,7 +947,7 @@ fi
 # The oracle is the bare tool in BINARY mode (`BINMODE=3`), which keeps the
 # embedded CR on every platform; a bare text-mode run would strip it on
 # cygwin/msys only.
-if tcase "A9: \`nullData = 1\` keeps a CR embedded in a NUL record, on every platform (== bare gawk with BINMODE=3)"; then
+if tcaseT "A9: \`nullData = 1\` keeps a CR embedded in a NUL record, on every platform (== bare gawk with BINMODE=3)"; then
     TAwk.new aC '{print}' "$FX/nul.bin"
     aC.nullData = 1
     SGOT=()
@@ -1114,7 +1125,7 @@ fi
 kt_test_section "F. A10 — NUL records"
 # ===========================================================================
 
-if tcase "A10: \`nullData = 1\` — NUL records through the derived \`-0\`, the sinks agree with the bare tool"; then
+if tcaseT "A10: \`nullData = 1\` — NUL records through the derived \`-0\`, the sinks agree with the bare tool"; then
     TAwk.new aZ '{print ">" $0}' "$FX/nul.bin"
     aZ.nullData = 1
     SGOT=()
@@ -1131,11 +1142,11 @@ if tcase "A10: \`nullData = 1\` — NUL records through the derived \`-0\`, the 
     aZ.delete
 fi
 
-if tcase "A10: the unterminated last NUL record comes out TERMINATED (\`run | od -c\` == bare)"; then
+if tcaseT "A10: the unterminated last NUL record comes out TERMINATED (\`run | od -c\` == bare)"; then
     TAwk.new aZ '{print}' "$FX/nul.bin"
     aZ.nullData = 1
     aZ.run > "$TMP/z.out" 2>/dev/null
-    timeout 20 "$AWK_BIN" --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- "$FX/nul.bin" > "$TMP/z.bare" </dev/null
+    "$KT_TIMEOUT" 20 "$AWK_BIN" --sandbox -v 'RS=\0' -v 'ORS=\0' -v BINMODE=3 -e '{print}' -- "$FX/nul.bin" > "$TMP/z.bare" </dev/null
     last="$(tail -c 5 "$TMP/z.out" | od -c | head -1)"
     if cmp -s "$TMP/z.out" "$TMP/z.bare" && [[ "$last" == *'l   a   s   t  \0'* ]]; then
         kt_test_pass "byte-identical; the stream ends in 'last\\0'"
@@ -1198,7 +1209,7 @@ if tcase "A11: the documented trap — END output goes to STDOUT, not into the f
     aI.delete
 fi
 
-if tcase "A11: a PLANTED \`./inplace.awk\` in the cwd is NOT loaded (the include is absolute); bare \`-i inplace\` loads it"; then
+if tcaseT "A11: a PLANTED \`./inplace.awk\` in the cwd is NOT loaded (the include is absolute); bare \`-i inplace\` loads it"; then
     printf 'BEGIN { printf "" > "PLANTED" }\n' > "$FX/plant/inplace.awk"
     cp "$FX/f3.txt" "$FX/plant/c.txt"
     cp "$FX/f3.txt" "$FX/plant/bare.txt"
@@ -1210,7 +1221,7 @@ if tcase "A11: a PLANTED \`./inplace.awk\` in the cwd is NOT loaded (the include
     rc=0; AWKPATH=".:${IPA%/*}" aI.run >/dev/null 2>&1 || rc=$?
     ours_planted=0; [[ -e PLANTED ]] && ours_planted=1
     rm -f PLANTED
-    AWKPATH=".:${IPA%/*}" timeout 20 "$AWK_BIN" -i inplace -e '{print}' -- bare.txt >/dev/null 2>&1 </dev/null
+    AWKPATH=".:${IPA%/*}" "$KT_TIMEOUT" 20 "$AWK_BIN" -i inplace -e '{print}' -- bare.txt >/dev/null 2>&1 </dev/null
     bare_planted=0; [[ -e PLANTED ]] && bare_planted=1
     cd "$SCRIPT_DIR" || :
     if [[ $rc -eq 0 && "$PWD" == "$SCRIPT_DIR" && "$ours_planted" == "0" && "$bare_planted" == "1" \
@@ -1244,7 +1255,7 @@ fi
 # directory `FILE.b` (measured on 5.0 and 5.4; without it gawk's link() fails,
 # fatal rc 2, the file untouched). Unencoded, gawk would process `\k` to `k`
 # with a warning and write `FILE.bk` — the bare contrast below.
-if tcase "A11: \`backupSuffix\` with a BACKSLASH (\`.b\\k\`) names the backup exactly \`FILE.b\\k\` — no escape processing"; then
+if tcaseT "A11: \`backupSuffix\` with a BACKSLASH (\`.b\\k\`) names the backup exactly \`FILE.b\\k\` — no escape processing"; then
     cp "$FX/f3.txt" "$FX/ipbs.txt"
     mkdir -p "$FX/ipbs.txt.b"
     cp "$FX/f3.txt" "$FX/ipraw.txt"
@@ -1254,7 +1265,7 @@ if tcase "A11: \`backupSuffix\` with a BACKSLASH (\`.b\\k\`) names the backup ex
     aI.backupSuffix = ".b${BS}k"
     rc=0; aI.run 2>"$ERRF" || rc=$?
     err="$(<"$ERRF")"
-    timeout 20 "$AWK_BIN" -v BINMODE=3 -i "$IPA" -v "inplace::suffix=.b${BS}k" -e '{print toupper($0)}' -- "$FX/ipraw.txt" >/dev/null 2>&1 </dev/null
+    "$KT_TIMEOUT" 20 "$AWK_BIN" -v BINMODE=3 -i "$IPA" -v "inplace::suffix=.b${BS}k" -e '{print toupper($0)}' -- "$FX/ipraw.txt" >/dev/null 2>&1 </dev/null
     # BS_SEP=1 (MSYS2/Cygwin): the backslash is a separator, the backup is ipbs.txt.b/k;
     # BS_SEP=0: it is a filename character and ipbs.txt.b stays the empty directory.
     if (( BS_SEP )); then bs_k_ok=0; [[ -f "$FX/ipbs.txt.b/k" ]] && bs_k_ok=1
@@ -1405,9 +1416,9 @@ aRL.delete
 kt_test_section "H. A12 — \`TAwk.apply PROGRAM PATH...\`, the static one-liner (§2.7)"
 # ===========================================================================
 
-if tcase "A12: \`TAwk.apply '{print \$2}' f\` == \`gawk --sandbox -e '{print \$2}' -- f\`, DIRECT (bytes)"; then
+if tcaseT "A12: \`TAwk.apply '{print \$2}' f\` == \`gawk --sandbox -e '{print \$2}' -- f\`, DIRECT (bytes)"; then
     rc=0; TAwk.apply '{print $2}' "$FX/f3.txt" > "$TMP/e1.out" 2>/dev/null || rc=$?
-    timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" > "$TMP/e1.bare" </dev/null
+    "$KT_TIMEOUT" 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" > "$TMP/e1.bare" </dev/null
     if [[ $rc -eq 0 && -s "$TMP/e1.bare" ]] && cmp -s "$TMP/e1.out" "$TMP/e1.bare"; then
         kt_test_pass "rc 0 and the same bytes as the bare tool"
     else
@@ -1415,9 +1426,9 @@ if tcase "A12: \`TAwk.apply '{print \$2}' f\` == \`gawk --sandbox -e '{print \$2
     fi
 fi
 
-if tcase "A12: the same through a PIPE (\`| od -c\`) — byte-identical"; then
+if tcaseT "A12: the same through a PIPE (\`| od -c\`) — byte-identical"; then
     got="$(TAwk.apply '{print $2}' "$FX/f3.txt" "$FX/unterm.txt" 2>/dev/null | od -c)"
-    want="$(timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" "$FX/unterm.txt" </dev/null | od -c)"
+    want="$("$KT_TIMEOUT" 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" "$FX/unterm.txt" </dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream (two files)"
     else
@@ -1425,9 +1436,9 @@ if tcase "A12: the same through a PIPE (\`| od -c\`) — byte-identical"; then
     fi
 fi
 
-if tcase "A12: the same through \`< <( )\` — byte-identical"; then
+if tcaseT "A12: the same through \`< <( )\` — byte-identical"; then
     got="$(od -c < <(TAwk.apply '{print $2}' "$FX/f3.txt" 2>/dev/null))"
-    want="$(timeout 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" </dev/null | od -c)"
+    want="$("$KT_TIMEOUT" 20 "$AWK_BIN" --sandbox -e '{print $2}' -- "$FX/f3.txt" </dev/null | od -c)"
     if [[ "$got" == "$want" && -n "$got" ]]; then
         kt_test_pass "the same byte stream"
     else
@@ -1546,12 +1557,12 @@ if tcase "A12: a nested \`apply\` inside an outer \`each\` — both complete, th
     aT.delete
 fi
 
-if tcase "A12: \`apply\` composes with both TPipe forms"; then
+if tcaseT "A12: \`apply\` composes with both TPipe forms"; then
     N1=0
     cb1() { N1=$(( N1 + 1 )); return 0; }
     rc=0
     TPipe.each cb1 -- TAwk.apply '{print $2}' "$FX/f3.txt" 2>/dev/null || rc=$?
-    out="$(FX="$FX" UNIT="$UNIT" timeout 20 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 20 "$BASH" -c '
 set -u
 shopt -s lastpipe
 source "$UNIT"

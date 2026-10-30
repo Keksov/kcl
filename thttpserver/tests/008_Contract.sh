@@ -262,8 +262,11 @@ else
 fi
 
 kt_test_start "the router sourced ALONE (fresh child) loads its classes and the message classes it needs"
-out="$(ROUTER="$ROUTER" timeout 180 "$BASH" -c 'source "$ROUTER"; THttpRouter.new X; THttpRequest.new Y; X.RouteCount; printf "%s" "$RESULT"; X.delete; Y.delete' 2>&1 </dev/null)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$(ROUTER="$ROUTER" "$KT_TIMEOUT" 180 "$BASH" -c 'source "$ROUTER"; THttpRouter.new X; THttpRequest.new Y; X.RouteCount; printf "%s" "$RESULT"; X.delete; Y.delete' 2>&1 </dev/null)"
 if [[ "$out" == "0" ]]; then kt_test_pass "standalone"; else kt_test_fail "out='${out:0:200}'"; fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "1. set -eu"
@@ -274,8 +277,9 @@ kt_test_section "1. set -eu"
 expect_clean() {
     local title="$1" snippet="$2" out rc err
     kt_test_start "$title"
+    if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"; return 0; fi
     : > "$ERRF"
-    out="$(TMP="$TMP" UNIT="$UNIT" UNIT_DIR="$UNIT_DIR" timeout 180 "$BASH" -c "set -eu
+    out="$(TMP="$TMP" UNIT="$UNIT" UNIT_DIR="$UNIT_DIR" "$KT_TIMEOUT" 180 "$BASH" -c "set -eu
 source \"\$UNIT\"
 $snippet
 printf OK" 2>"$ERRF" </dev/null)"; rc=$?
@@ -1157,10 +1161,12 @@ printf 'dirs=[%s]\n' "$d"
 T.delete
 EOS
 kt_test_start "the base mechanism over a fake socat: a bind failure → Accept rc 2 at once, LastError = the text after E, spawned once; a v6 connection → rc 0, FirstLine, RemoteAddress '[::1]:4242', the response reaches the listener's stdin, the drained close; no kklass visibility warning, nothing left"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 mkdir -p "$SK/m/tmp"
 rm -f "$SK/m/count" "$SK/m/spawns" "$SK/m/got"
 mrc=0
-FAKE_MODE="" UNIT="$UNIT" SKM="$SK/m" TMPDIR="$SK/m/tmp" timeout 120 "$BASH" "$SK/m/child.sh" >"$SK/m/out" 2>"$SK/m/err" || mrc=$?
+FAKE_MODE="" UNIT="$UNIT" SKM="$SK/m" TMPDIR="$SK/m/tmp" "$KT_TIMEOUT" 120 "$BASH" "$SK/m/child.sh" >"$SK/m/out" 2>"$SK/m/err" || mrc=$?
 declare -A MR=()
 while IFS= read -r l; do [[ "$l" == *=* ]] && MR["${l%%=*}"]="${l#*=}"; done < "$SK/m/out"
 # bind spawns only: the pre-spawned slot of the conn pass may be stopped by
@@ -1175,6 +1181,7 @@ if [[ $mrc -eq 0 && "${MR[bind_rc]:-}" == 2 && "${MR[bind_le]:-}" == "bind(5, {A
 else
     kt_test_fail "exit=$mrc out='$(tr '\n' ' ' < "$SK/m/out")' spawns=$ms got='$mg' stderr='${me:0:300}'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "TSocatTransport.BuildArgv refuses an Address outside 0-9 A-Z a-z . : - (rc 2, LastError, the array empty): '127.0.0.1,fork', 'a b', 'x;y'; 'localhost' and 'fe80::1' pass"
 TSocatTransport.new SZ
@@ -1229,6 +1236,8 @@ EOV
 if [[ -z "$bad" ]]; then kt_test_pass "11 vectors"; else kt_test_fail "$bad"; fi
 
 kt_test_start "a socat binary under another name (socat1) logs as 'socat[PID]' through -lpsocat: the base mechanism still reads its lines (RemoteAddress '[::1]:4242'), no warning, nothing left"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 cp "$SK/m/socat" "$SK/m/socat1"
 cat > "$SK/m/child1.sh" <<'EOS'
 exec </dev/null
@@ -1248,13 +1257,14 @@ T.delete
 EOS
 rm -f "$SK/m/count" "$SK/m/spawns" "$SK/m/got"
 mrc=0
-FAKE_MODE="" UNIT="$UNIT" SKM="$SK/m" TMPDIR="$SK/m/tmp" timeout 120 "$BASH" "$SK/m/child1.sh" >"$SK/m/out1" 2>"$SK/m/err1" || mrc=$?
+FAKE_MODE="" UNIT="$UNIT" SKM="$SK/m" TMPDIR="$SK/m/tmp" "$KT_TIMEOUT" 120 "$BASH" "$SK/m/child1.sh" >"$SK/m/out1" 2>"$SK/m/err1" || mrc=$?
 m1="$(tr '\n' ' ' < "$SK/m/out1")"; me="$(<"$SK/m/err1")"
 if [[ $mrc -eq 0 && "$m1" == "rc=0 ra=[::1]:4242 dirs=[] " && -z "$me" ]] && grep -q -- '-lpsocat' "$SK/m/spawns"; then
     kt_test_pass "$m1"
 else
     kt_test_fail "exit=$mrc out='$m1' spawns='$(tr '\n' '|' < "$SK/m/spawns" 2>/dev/null)' stderr='${me:0:200}'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "the server factory: BeginServe (no Transport) with only a socat on PATH → the OWNED \${inst}_tr is a TSocatTransport (Port/Address copied); EndServe frees it"
 THttpServer.new FS

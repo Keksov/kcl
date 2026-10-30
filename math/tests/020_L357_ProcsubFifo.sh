@@ -48,7 +48,7 @@ chmod +x "$W/awk" "$W/rm"
 # "RESULTS|ENTRIES_WHILE_UP"
 run() {
     mkdir -p "$1"
-    TMPDIR="$1" timeout -k 5 60 "$BASH" -c "$2
+    TMPDIR="$1" "$KT_TIMEOUT" -k 5 60 "$BASH" -c "$2
 source '$UNIT'
 __MATH_FE_TIMEOUT=5
 r='' m=''
@@ -65,6 +65,8 @@ fifos() { local f; F=""; for f in "$1"/sh-np.*; do [[ -e $f || -p $f ]] && F+=" 
 want=" 0.8414709848078965 0.8414709848078965 0.8414709848078965|"
 
 kt_test_start "feStart + a call + feStop, 3 times: no sh-np.* in TMPDIR while the engine runs or after [L3.5-7]"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 out="$(run "$TMP/t1" "")"
 if [[ $out == "$want" ]] && fifos "$TMP/t1"; then
     kt_test_pass "3 starts, nothing left$NA"
@@ -73,7 +75,11 @@ else
     kt_test_fail "out='$out' left='$F' ls='$(ls -A "$TMP/t1" | tr '\n' ' ')'$NA"
 fi
 
+fi   # kt_need_timeout
+
 kt_test_start "an awk that rejects -W (two spawn attempts per start, like BWK awk): 3 starts leave no sh-np.* [L3.5-7, L3.5-a-o5]"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 out="$(run "$TMP/t2" "PATH='$W'")"
 spawns=$(grep -c . "$W/argv" 2>/dev/null) || :
 if [[ $out == "$want" && $spawns == 6 ]] && fifos "$TMP/t2"; then
@@ -82,3 +88,4 @@ else
     fifos "$TMP/t2" || :
     kt_test_fail "out='$out' spawns=$spawns left='$F' ls='$(ls -A "$TMP/t2" | tr '\n' ' ')'$NA"
 fi
+fi   # kt_need_timeout

@@ -83,6 +83,17 @@ tcase() {
     return 0
 }
 
+# tcaseT TITLE — tcase, and the case also needs timeout(1): without
+# timeout/gtimeout it passes as `SKIP: $KT_TIMEOUT_WHY` (launch L5.4-9).
+tcaseT() {
+    tcase "$1" || return 1
+    if ! kt_need_timeout; then
+        kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+        return 1
+    fi
+    return 0
+}
+
 # --- the tree --------------------------------------------------------------
 FX="$(cd "$(kt_fixture_tmpdir_create tree)" && pwd)"
 printf 'alpha needle here\nbeta\nneedle again\n'  > "$FX/plain.txt"
@@ -534,9 +545,9 @@ fi
 kt_test_section "E. G9 — the three forms deliver the same records in the same order"
 # ===========================================================================
 
-if tcase "G9: \`search | TPipe.each\` (lastpipe) == \`TPipe.each -- search\` == \`g.each\`"; then
+if tcaseT "G9: \`search | TPipe.each\` (lastpipe) == \`TPipe.each -- search\` == \`g.each\`"; then
     : > "$ERRF"
-    out="$(FX="$FX" UNIT="$UNIT" timeout 30 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 30 "$BASH" -c '
 set -u
 shopt -s lastpipe
 source "$UNIT"
@@ -1070,9 +1081,9 @@ fi
 kt_test_section "K. binary files — \`Binary file X matches\` is a stdout RECORD"
 # ===========================================================================
 
-if tcase "K: a file with a NUL: the bare grep's answer (grep < 3.5: one \`Binary file … matches\` RECORD; >= 3.5: no record, note on stderr), rc 0"; then
+if tcaseT "K: a file with a NUL: the bare grep's answer (grep < 3.5: one \`Binary file … matches\` RECORD; >= 3.5: no record, note on stderr), rc 0"; then
     # The oracle first: grep < 3.5 prints the note on stdout, >= 3.5 on stderr.
-    TG_BIN="$(timeout -k 5 20 "$GREP_BIN" -e needle -- "$FX/bin.dat" 2>/dev/null </dev/null)"
+    TG_BIN="$("$KT_TIMEOUT" -k 5 20 "$GREP_BIN" -e needle -- "$FX/bin.dat" 2>/dev/null </dev/null)"
     TGrep.new gK needle "$FX/bin.dat"
     SGOT=()
     rc=0; gK.toArray SGOT 2>/dev/null || rc=$?

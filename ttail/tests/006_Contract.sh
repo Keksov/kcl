@@ -183,6 +183,17 @@ tcase() {
     return 0
 }
 
+# tcaseT TITLE — tcase, and the case also needs timeout(1): without
+# timeout/gtimeout it passes as `SKIP: $KT_TIMEOUT_WHY` (launch L5.4-9).
+tcaseT() {
+    tcase "$1" || return 1
+    if ! kt_need_timeout; then
+        kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+        return 1
+    fi
+    return 0
+}
+
 FX="$(cd "$(kt_fixture_tmpdir_create tree)" && pwd)"
 printf '1\n2\n3\n4\n5\n'   > "$FX/f5.txt"
 printf 'a1\na2\na3\n'      > "$FX/a3.txt"
@@ -193,11 +204,11 @@ kt_test_section "1. set -eu — the instance and BOTH TPipe forms, every outcome
 
 expect_clean() {
     local title="$1" snippet="$2" out rc err
-    if ! tcase "$title"; then
+    if ! tcaseT "$title"; then
         return 0
     fi
     : > "$ERRF"
-    out="$(FX="$FX" UNIT="$UNIT" timeout 60 "$BASH" -c "set -eu
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 60 "$BASH" -c "set -eu
 source \"\$UNIT\"
 $snippet
 printf OK" 2>"$ERRF" </dev/null)"; rc=$?
@@ -421,13 +432,13 @@ case "$w" in
 esac
 t2.delete'
 
-if tcase "H12: an UNGUARDED sink call with rc 1 aborts a \`set -eu\` caller (the documented rule)"; then
-    out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c 'set -eu
+if tcaseT "H12: an UNGUARDED sink call with rc 1 aborts a \`set -eu\` caller (the documented rule)"; then
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 180 "$BASH" -c 'set -eu
 source "$UNIT"
 TTail.new t 1 "$FX/no_such.txt"
 t.count
 printf NOTREACHED' 2>/dev/null </dev/null)"; urc=$?
-    guarded="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c 'set -eu
+    guarded="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 180 "$BASH" -c 'set -eu
 source "$UNIT"
 TTail.new t 1 "$FX/no_such.txt"
 rc=0

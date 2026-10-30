@@ -76,6 +76,17 @@ tcase() {
     return 0
 }
 
+# tcaseT TITLE — tcase, and the case also needs timeout(1): without
+# timeout/gtimeout it passes as `SKIP: $KT_TIMEOUT_WHY` (launch L5.4-9).
+tcaseT() {
+    tcase "$1" || return 1
+    if ! kt_need_timeout; then
+        kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+        return 1
+    fi
+    return 0
+}
+
 FX="$(cd "$(kt_fixture_tmpdir_create tree)" && pwd)"
 printf '1\n2\n3\n4\n5\n'                           > "$FX/f5.txt"
 printf '1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n'       > "$FX/f11.txt"
@@ -777,12 +788,12 @@ if tcase "T4: a nested \`take\` inside an outer \`each\` — both complete, the 
     tT.delete
 fi
 
-if tcase "T4: \`take\` composes with both TPipe forms"; then
+if tcaseT "T4: \`take\` composes with both TPipe forms"; then
     N1=0
     cb1() { N1=$(( N1 + 1 )); return 0; }
     rc=0
     TPipe.each cb1 -- TTail.take 3 "$FX/f11.txt" 2>/dev/null || rc=$?
-    out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 180 "$BASH" -c '
 set -u
 shopt -s lastpipe
 source "$UNIT"
@@ -937,8 +948,8 @@ fi
 # Linux `tail -f` notices the closed pipe and dies of SIGPIPE (141) before the TERM lands;
 # cygwin's cannot (143).
 
-if tcase "T2: \`each\` + a stopping callback — rc 0, lastRc 141 or 143, exactly one record"; then
-    out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c '
+if tcaseT "T2: \`each\` + a stopping callback — rc 0, lastRc 141 or 143, exactly one record"; then
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 180 "$BASH" -c '
 set -u
 source "$UNIT"
 N=0
@@ -958,8 +969,8 @@ t.delete' 2>/dev/null </dev/null)"; crc=$?
     fi
 fi
 
-if tcase "T2: \`first\` on a follow stream returns the last line and stops (lastRc 141 or 143)"; then
-    out="$(FX="$FX" UNIT="$UNIT" timeout 180 "$BASH" -c '
+if tcaseT "T2: \`first\` on a follow stream returns the last line and stops (lastRc 141 or 143)"; then
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 180 "$BASH" -c '
 set -u
 source "$UNIT"
 TTail.new t 1 "$FX/follow.txt"
@@ -983,7 +994,7 @@ fi
 # 5 s helper — §2.1's self-terminating shape — so nothing can outlive the case;
 # the appender writes at ~2 s, which leaves ~3 s of slack for the ~1 s msys poll.
 
-if tcase "T2: \`run\` with \`follow = 1\` streams a line appended while it waits"; then
+if tcaseT "T2: \`run\` with \`follow = 1\` streams a line appended while it waits"; then
     OUTF="$TMP/follow_run.out"
     : > "$OUTF"
     # EVENT-DRIVEN, NO TIMERS (2026-09-26). Both waits used to be clocks — the
@@ -1007,7 +1018,7 @@ if tcase "T2: \`run\` with \`follow = 1\` streams a line appended while it waits
       done
       printf 'appended\n' >> "$FX/grow.txt"; } &
     APPENDER_PID=$!
-    out="$(FX="$FX" UNIT="$UNIT" OUTF="$OUTF" timeout 180 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" OUTF="$OUTF" "$KT_TIMEOUT" 180 "$BASH" -c '
 set -u
 source "$UNIT"
 ( i=0; c=""

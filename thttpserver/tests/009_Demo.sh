@@ -43,8 +43,10 @@ kt_test_section "0. no socket: a refused command line"
 
 for d in "$DEMO" "$DEMO_OOP"; do
     kt_test_start "$(basename "$d") --port=70000 → exit 2, one usage line on stderr, nothing on stdout, no temp dir"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
     mkdir -p "$TMP/bad"
-    rc=0; TMPDIR="$TMP/bad" timeout 180 "$BASH" "$d" --port=70000 >"$TMP/bad.out" 2>"$TMP/bad.err" </dev/null || rc=$?
+    rc=0; TMPDIR="$TMP/bad" "$KT_TIMEOUT" 180 "$BASH" "$d" --port=70000 >"$TMP/bad.out" 2>"$TMP/bad.err" </dev/null || rc=$?
     mapfile -t EL < "$TMP/bad.err"
     left="$(ls -A "$TMP/bad")"
     if [[ $rc -eq 2 && ${#EL[@]} -eq 1 && "${EL[0]}" == "usage: "*"--port=N"* && ! -s "$TMP/bad.out" && -z "$left" ]]; then
@@ -52,9 +54,12 @@ for d in "$DEMO" "$DEMO_OOP"; do
     else
         kt_test_fail "exit=$rc stderr=(${EL[*]}) stdout='$(<"$TMP/bad.out")' tmp='$left'"
     fi
+fi   # kt_need_timeout
 
     kt_test_start "$(basename "$d") --port=N with KCL_NC=/no/such/nc → the URL line, then exit 1 at once with 'the server stopped: nc not found …' (a transport fatal, not a usage error), no temp dir"
-    rc=0; KCL_NC=/no/such/nc TMPDIR="$TMP/bad" timeout 180 "$BASH" "$d" --port=28999 >"$TMP/bad.out" 2>"$TMP/bad.err" </dev/null || rc=$?
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+    rc=0; KCL_NC=/no/such/nc TMPDIR="$TMP/bad" "$KT_TIMEOUT" 180 "$BASH" "$d" --port=28999 >"$TMP/bad.out" 2>"$TMP/bad.err" </dev/null || rc=$?
     mapfile -t EL < "$TMP/bad.err"
     mapfile -t OL < "$TMP/bad.out"
     left="$(ls -A "$TMP/bad")"
@@ -63,6 +68,7 @@ for d in "$DEMO" "$DEMO_OOP"; do
     else
         kt_test_fail "exit=$rc stderr=(${EL[*]}) stdout=(${OL[*]}) tmp='$left'"
     fi
+fi   # kt_need_timeout
 done
 
 # own_nc — 1 when the child can find nc WITHOUT KCL_NC (on its PATH, or the

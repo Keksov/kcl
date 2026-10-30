@@ -221,7 +221,7 @@ CHILD_EOF
 run_child() {
     PIDF="$TMP/pids.$1"
     : > "$PIDF"
-    CH_OUT="$(timeout -k 10 120 "$BASH" "$CHILD" "$TP_DIR" "$PIDF" "$1" </dev/null 2>"$TMP/err.$1")"
+    CH_OUT="$("$KT_TIMEOUT" -k 10 120 "$BASH" "$CHILD" "$TP_DIR" "$PIDF" "$1" </dev/null 2>"$TMP/err.$1")"
     CH_RC=$?
     return 0
 }
@@ -326,6 +326,7 @@ stderr_ok() {
 expect_tree_gone() {
     local title="$1" mode="$2" want="$3" n="$4" err=''
     kt_test_start "$title"
+    if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"; return 0; fi
     run_child "$mode"
     err="$(< "$TMP/err.$mode")"
     if gone_within 5000000; then
@@ -375,6 +376,8 @@ kt_test_section "D. a descendant that ignores TERM"
 # ===========================================================================
 
 kt_test_start "a TERM-ignoring subtree gets SIGKILL after the 1 s grace"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child ignterm
 us="${CH_OUT##*us=}"
 if gone_within 5000000; then
@@ -387,12 +390,15 @@ if gone_within 5000000; then
 else
     kt_test_fail "ALIVE 5 s after the stop: $ALIVE (recorded: $REC_DESC; child: rc=$CH_RC '$CH_OUT')"
 fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "E. scope: only the producer's tree, only on the stop path"
 # ===========================================================================
 
 kt_test_start "a job the CALLBACK started is not the producer's and survives the stop"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child cbjob
 recorded_pids
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=1 lastrc=14"[13]" alive=1/1 us="* ]] && stderr_ok cbjob; then
@@ -401,8 +407,11 @@ else
     kt_test_fail "timeout rc=$CH_RC out='$CH_OUT' recorded: $REC_DESC"
 fi
 kill_recorded
+fi   # kt_need_timeout
 
 kt_test_start "the EOF path stops nothing: a producer's leftover background job lives on"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child eof
 recorded_pids
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=2 lastrc=0 alive=1/1 us="* ]] && stderr_ok eof; then
@@ -411,6 +420,7 @@ else
     kt_test_fail "timeout rc=$CH_RC out='$CH_OUT' recorded: $REC_DESC"
 fi
 kill_recorded
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "F. the caller's shell options"
@@ -427,11 +437,14 @@ expect_tree_gone "set -m in the caller: the tree is gone" \
 SETM_ON="${CH_OUT% us=*}"
 
 kt_test_start "set -m on and off give the same answer"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 if [[ -n "$SETM_OFF" && "$SETM_OFF" == "$SETM_ON" ]]; then
     kt_test_pass "both: $SETM_ON"
 else
     kt_test_fail "off: '$SETM_OFF' on: '$SETM_ON'"
 fi
+fi   # kt_need_timeout
 
 # set -e: every step of the walk is a guarded test; set -f: the table is read
 # through a glob, which the stop path re-enables for itself (`local -`).
@@ -448,6 +461,7 @@ kt_test_section "G. the process-table sources"
 kt_test_start "the full-table linux backend (every /proc/PID/stat) stops the tree too"
 if [[ "$OSTYPE" == cygwin* || "$OSTYPE" == msys* || ! -r "/proc/$$/task/$$/children" ]]; then
     kt_test_pass "N/A: no /proc/PID/task/TID/children here (off Linux, or the full table IS the default)"
+elif ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
 else
     run_child pt_linux
     if gone_within 5000000; then
@@ -469,6 +483,7 @@ if command -v ps >/dev/null 2>&1; then
 fi
 if [[ -z "$psline" ]]; then
     kt_test_pass "N/A: this ps cannot list pid/ppid with -A -o (cygwin's ps has no -o)"
+elif ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
 else
     run_child pt_ps
     if gone_within 5000000; then
@@ -485,6 +500,8 @@ fi
 # With no process table the stop path is exactly the pre-DL13 one: the
 # producer is TERMed (lastRc 143, the call returns), its descendants are not.
 kt_test_start "no process table: the producer alone is TERMed (the documented fallback)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child pt_none
 recorded_pids
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=a lastrc=143 alive="[1-9]"/6 us="* ]] && stderr_ok pt_none; then
@@ -493,3 +510,4 @@ else
     kt_test_fail "timeout rc=$CH_RC out='$CH_OUT' recorded: $REC_DESC"
 fi
 kill_recorded
+fi   # kt_need_timeout

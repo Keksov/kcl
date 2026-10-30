@@ -71,8 +71,10 @@ ths_have_backend() {
     [[ "$THS_BACKEND" == gnu || "$THS_BACKEND" == socat ]]
 }
 
-# ths_have_nc — rc 0 when the socket cases can run.
-ths_have_nc() { ths_have_backend; }
+# ths_have_nc — rc 0 when the socket cases can run: a usable backend AND
+# timeout(1) (every server child and every raw client runs under it; launch
+# L5.4-9, owner OG11 = c: `timeout`, else `gtimeout`, else a SKIP).
+ths_have_nc() { ths_have_backend && kt_need_timeout; }
 
 # ths_skip TITLE… — one visible SKIP case per title (the case count is kept).
 ths_skip() {
@@ -83,6 +85,9 @@ ths_skip() {
     why="$THS_BACKEND_WHY"
     if [[ "$THS_BACKEND" == missing ]]; then
         why="no netcat: $why"
+    fi
+    if [[ "$THS_BACKEND" == gnu || "$THS_BACKEND" == socat ]] && ! kt_need_timeout; then
+        why="$KT_TIMEOUT_WHY"
     fi
     for t in "$@"; do
         kt_test_start "$t"
@@ -254,10 +259,10 @@ ths_start() {
         ths_nport
         if (( THS_NC_ENV )); then
             env "$@" KCL_NC="$THS_NC" UNIT="$UNIT" SRV_DIR="$THS_DIR" PORT="$THS_PORT" TMPDIR="$THS_DIR/tmp" \
-                timeout 180 "$BASH" "$THS_DIR/srv.sh" >"$THS_DIR/out" 2>"$THS_DIR/err" </dev/null &
+                "$KT_TIMEOUT" 180 "$BASH" "$THS_DIR/srv.sh" >"$THS_DIR/out" 2>"$THS_DIR/err" </dev/null &
         else
             env "$@" UNIT="$UNIT" SRV_DIR="$THS_DIR" PORT="$THS_PORT" TMPDIR="$THS_DIR/tmp" \
-                timeout 180 "$BASH" "$THS_DIR/srv.sh" >"$THS_DIR/out" 2>"$THS_DIR/err" </dev/null &
+                "$KT_TIMEOUT" 180 "$BASH" "$THS_DIR/srv.sh" >"$THS_DIR/out" 2>"$THS_DIR/err" </dev/null &
         fi
         THS_PID=$!
         if ths_poll 170 ths_started; then
@@ -302,7 +307,7 @@ ths_launch() {
         elif (( THS_NC_ENV )); then
             envs+=(KCL_NC="$THS_NC")
         fi
-        env "${envs[@]}" timeout 180 "$BASH" "$script" "${args[@]}" >"$THS_DIR/out" 2>"$THS_DIR/err" </dev/null &
+        env "${envs[@]}" "$KT_TIMEOUT" 180 "$BASH" "$script" "${args[@]}" >"$THS_DIR/out" 2>"$THS_DIR/err" </dev/null &
         THS_PID=$!
         if ths_poll 170 ths_started; then
             if ths_listening "$THS_DIR"; then return 0; fi
@@ -396,7 +401,7 @@ THS_INT_IGN=""
 ths_int_ignored() {
     local o="" f="$TMP/.ths_int_probe"
     if [[ -z "$THS_INT_IGN" ]]; then
-        env timeout 10 "$BASH" -c 'trap ": probe" INT; trap -p INT' >"$f" 2>/dev/null </dev/null &
+        env "$KT_TIMEOUT" 10 "$BASH" -c 'trap ": probe" INT; trap -p INT' >"$f" 2>/dev/null </dev/null &
         wait "$!" 2>/dev/null
         o="$(<"$f")"
         rm -f "$f"
@@ -498,7 +503,7 @@ ths_raw() {
         RAW_RC=0
         ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7
           printf '%s' "$req" >&3
-          timeout 30 cat <&3 >"$out" ) 2>/dev/null || RAW_RC=$?
+          "$KT_TIMEOUT" 30 cat <&3 >"$out" ) 2>/dev/null || RAW_RC=$?
         if (( RAW_RC != 7 )); then return 0; fi
         sleep 0.1
     done
@@ -513,7 +518,7 @@ ths_rawf() {
         RAW_RC=0
         ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7
           cat "$f" >&3
-          timeout 30 cat <&3 >"$out" ) 2>/dev/null || RAW_RC=$?
+          "$KT_TIMEOUT" 30 cat <&3 >"$out" ) 2>/dev/null || RAW_RC=$?
         if (( RAW_RC != 7 )); then return 0; fi
         sleep 0.1
     done

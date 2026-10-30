@@ -74,14 +74,15 @@ expect_clean() {
     local title="$1" snippet="$2" out rc err
     local errf="$TMP/setu.err"
     kt_test_start "$title"
+    if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"; return 0; fi
     : > "$errf"
     if (( $# >= 3 )); then
-        out="$(timeout 30 "$BASH" -c "set -eu
+        out="$("$KT_TIMEOUT" 30 "$BASH" -c "set -eu
 source '$UNIT'
 $snippet
 printf OK" 2>"$errf" <<< "$3")"; rc=$?
     else
-        out="$(timeout 30 "$BASH" -c "set -eu
+        out="$("$KT_TIMEOUT" 30 "$BASH" -c "set -eu
 source '$UNIT'
 $snippet
 printf OK" 2>"$errf" </dev/null)"; rc=$?
@@ -223,10 +224,12 @@ printf 'NEVER-REACHED'
 FAIL_EOF
 
 kt_test_start "a producer exiting 4 ends a set -eu child with the MEMBER's rc 1, not 4"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 fc_ok=1
 fc_detail=""
 for which in count each toArray; do
-    out="$(timeout 30 "$BASH" "$FAILCHILD" "$UNIT_DIR" "$which" </dev/null 2>/dev/null)"; rc=$?
+    out="$("$KT_TIMEOUT" 30 "$BASH" "$FAILCHILD" "$UNIT_DIR" "$which" </dev/null 2>/dev/null)"; rc=$?
     if [[ $rc -ne 1 || -n "$out" ]]; then
         fc_ok=0
         fc_detail="$fc_detail [$which -> rc=$rc out='$out']"
@@ -237,6 +240,7 @@ if (( fc_ok )); then
 else
     kt_test_fail "$fc_detail"
 fi
+fi   # kt_need_timeout
 
 NOECHILD="$TMP/noe_child.sh"
 cat > "$NOECHILD" <<'NOE_EOF'
@@ -254,12 +258,15 @@ printf 'rc=%s n=%s lastrc=%s' "$rc" "$n" "$RESULT"
 NOE_EOF
 
 kt_test_start "the same child WITHOUT set -e keeps running and RESULT holds the records"
-out="$(timeout 30 "$BASH" "$NOECHILD" "$UNIT_DIR" </dev/null 2>/dev/null)"; rc=$?
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$("$KT_TIMEOUT" 30 "$BASH" "$NOECHILD" "$UNIT_DIR" </dev/null 2>/dev/null)"; rc=$?
 if [[ $rc -eq 0 && "$out" == "rc=1 n=2 lastrc=4" ]]; then
     kt_test_pass "$out"
 else
     kt_test_fail "rc=$rc out='$out'"
 fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "2. rc 2 prints EXACTLY ONE line under the debug switch"
@@ -825,7 +832,9 @@ else
 fi
 
 kt_test_start "the load-time global exists, so reading it under \`set -u\` outside any sink is safe"
-out="$(timeout 20 "$BASH" -c "set -eu
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$("$KT_TIMEOUT" 20 "$BASH" -c "set -eu
 source '$UNIT'
 printf 'q=%s' \"\$__TPIPE_QUIET\"" 2>"$ERRF" </dev/null)"; rc=$?
 err="$(<"$ERRF")"
@@ -834,3 +843,4 @@ if [[ $rc -eq 0 && "$out" == "q=0" && -z "$err" ]]; then
 else
     kt_test_fail "rc=$rc out='$out' stderr='$err'"
 fi
+fi   # kt_need_timeout

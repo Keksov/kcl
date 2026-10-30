@@ -209,7 +209,7 @@ else
 
     kt_test_start "${W_TITLES[7]}"
     t0=${EPOCHREALTIME//[!0-9]/}
-    slow_client() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; printf 'GET /ok HTTP/1.1\r\nHost: x\r\n' >&3; timeout 30 cat <&3 > "$TMP/slow.out" ) 2>/dev/null; }
+    slow_client() { ( exec 3<>"/dev/tcp/127.0.0.1/$THS_PORT" || exit 7; printf 'GET /ok HTTP/1.1\r\nHost: x\r\n' >&3; "$KT_TIMEOUT" 30 cat <&3 > "$TMP/slow.out" ) 2>/dev/null; }
     src=0; ths_retry_refused slow_client || src=$?
     ms=$(( (${EPOCHREALTIME//[!0-9]/} - t0) / 1000 ))
     s="$(<"$TMP/slow.out")"

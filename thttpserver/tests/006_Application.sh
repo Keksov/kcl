@@ -532,7 +532,9 @@ declare -F MY_dict.RegisterRoute >/dev/null && LEFT+=" MY_dict"
 if [[ $r -eq 0 && "$p" == 9099 && "$cls" == TArgServer && $had -eq 1 && -z "$LEFT" ]]; then kt_test_pass "9099 TArgServer; everything freed"; else kt_test_fail "rc=$r port=$p class=$cls extra=$had left:$LEFT"; fi
 
 kt_test_start "TERM on the app path (child bash): a handler signals its own shell — that response is sent, Run rc 0, 1 of 3 served; during the handler PIPE is ignored and TERM is the server's; custom traps restored exactly"
-out="$(UNIT="$UNIT" TMP="$TMP" timeout 180 "$BASH" -c '
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$(UNIT="$UNIT" TMP="$TMP" "$KT_TIMEOUT" 180 "$BASH" -c '
 source "$UNIT"
 DURING=""
 sig() { DURING="$(trap -p PIPE)|$(trap -p TERM)"; $2.Write sig; kill -TERM "$BASHPID"; }
@@ -557,9 +559,12 @@ if [[ $crc -eq 0 && "$out" == "rc=0 n=1 body=sig same=1 during=trap -- '' SIGPIP
 else
     kt_test_fail "child rc=$crc out='$out' err='$(<"$TMP/term.err")'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "SIGPIPE on the app path (child bash): responses written to a pipe whose reader is gone — Run goes on (2 served, rc 0), the shell lives, nothing on stderr"
-out="$(UNIT="$UNIT" TMP="$TMP" timeout 180 "$BASH" -c '
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$(UNIT="$UNIT" TMP="$TMP" "$KT_TIMEOUT" 180 "$BASH" -c '
 source "$UNIT"
 class TDeadPipeTransport : TReplayTransport
     public
@@ -600,6 +605,7 @@ if [[ $crc -eq 0 && "$out" =~ ^alive\ rc=0\ n=2\ log=-\ GET\ /a\ 200\ 9\ [0-9]+\
 else
     kt_test_fail "child rc=$crc out='$out' err='$(<"$TMP/pipe.err")'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "DoRun is fork-free (§2.1): BASHPID unchanged, works under PATH='', a DEBUG canary sees no subshell (control: it does), the stored bodies hold no \$( , backtick or pipe"
 app_replay RF get_a.req get_a.req get_a.req

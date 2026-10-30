@@ -206,8 +206,10 @@ done
 LAT_EOF
 
 kt_test_start "TPipe.first -- yes costs at most ${LAT_K}x a bare stop path + $(( LAT_SLACK_US / 1000 )) ms (PLAN gate 250 ms idle)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 : > "$LATLOG"
-timeout "$LAT_GUARD" "$BASH" "$LATCHILD" "$TP_DIR" "$LAT_PAIRS" "$LATLOG" </dev/null >/dev/null 2>&1; crc=$?
+"$KT_TIMEOUT" "$LAT_GUARD" "$BASH" "$LATCHILD" "$TP_DIR" "$LAT_PAIRS" "$LATLOG" </dev/null >/dev/null 2>&1; crc=$?
 mapfile -t LCALLS < "$LATLOG"
 n=0; bbest=0; fbest=0; fmax=0; bad=''; open=''; summary=''
 for l in "${LCALLS[@]}"; do
@@ -239,6 +241,7 @@ elif (( fbest <= lim )); then
 else
     kt_test_fail "best of $n: first ${fbest} us > ${LAT_K} x bare ${bbest} us + ${LAT_SLACK_US} = ${lim} us (bare/first ms: ${summary% }; child rc=$crc)"
 fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "C. zero forks per record, for every sink"

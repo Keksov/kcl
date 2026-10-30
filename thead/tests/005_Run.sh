@@ -76,6 +76,17 @@ tcase() {
     return 0
 }
 
+# tcaseT TITLE — tcase, and the case also needs timeout(1): without
+# timeout/gtimeout it passes as `SKIP: $KT_TIMEOUT_WHY` (launch L5.4-9).
+tcaseT() {
+    tcase "$1" || return 1
+    if ! kt_need_timeout; then
+        kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+        return 1
+    fi
+    return 0
+}
+
 # --- the tree --------------------------------------------------------------
 FX="$(cd "$(kt_fixture_tmpdir_create tree)" && pwd)"
 printf '1\n2\n3\n4\n5\n'                           > "$FX/f5.txt"
@@ -836,12 +847,12 @@ if tcase "H11: a nested \`take\` inside an outer \`each\` — both complete, the
     hT.delete
 fi
 
-if tcase "H11: \`take\` composes with both TPipe forms"; then
+if tcaseT "H11: \`take\` composes with both TPipe forms"; then
     N1=0; N2=0
     cb1() { N1=$(( N1 + 1 )); return 0; }
     rc=0
     TPipe.each cb1 -- THead.take 3 "$FX/f11.txt" 2>/dev/null || rc=$?
-    out="$(FX="$FX" UNIT="$UNIT" timeout 20 "$BASH" -c '
+    out="$(FX="$FX" UNIT="$UNIT" "$KT_TIMEOUT" 20 "$BASH" -c '
 set -u
 shopt -s lastpipe
 source "$UNIT"

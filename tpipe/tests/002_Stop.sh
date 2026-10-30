@@ -145,7 +145,7 @@ CHILD_EOF
 # (250 ms) lives in bench.sh and 005_Bench.sh.
 TP_CEIL_US=4000000
 run_child() {
-    CH_OUT="$(timeout 180 "$BASH" "$CHILD" "$TP_DIR" "$1" 5 2>/dev/null)"
+    CH_OUT="$("$KT_TIMEOUT" 180 "$BASH" "$CHILD" "$TP_DIR" "$1" 5 2>/dev/null)"
     CH_RC=$?
     return 0
 }
@@ -156,16 +156,21 @@ run_child() {
 # won. Under a loaded master sweep the kill wins on 5.3.9. What this case pins is
 # that `wait` RETURNS at all, with one record and rc 0 — not which signal did it.
 kt_test_start "F4: a stop on \`yes\` -> 1 record, rc 0, and the producer is dead (lastRc 141 or 143)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child yes
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=1 lastrc=14"[13]" us="* ]]; then
     kt_test_pass "F4: $CH_OUT"
 else
     kt_test_fail "F4 (yes): timeout rc=$CH_RC out='$CH_OUT'"
 fi
+fi   # kt_need_timeout
 
 # F5 has no such race: this producer IGNORES SIGPIPE, so only the kill -TERM can
 # end it and 143 is the single correct answer.
 kt_test_start "F5: a SIGPIPE-ignoring producer that stops writing is TERMINATED (lastRc 143)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child sigp
 us="${CH_OUT##*us=}"
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=1 lastrc=143 us="* \
@@ -174,11 +179,14 @@ if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=1 lastrc=143 us="* \
 else
     kt_test_fail "F5 (SIGPIPE-ignoring): timeout rc=$CH_RC out='$CH_OUT'"
 fi
+fi   # kt_need_timeout
 
 # P1 re-points F4/F5 at `TPipe.first`, which takes the same close-kill-wait path
 # for free after its single record (PLAN §3). The each+stop cases above stay:
 # they pin the same engine path reached through an explicit TPipe.stop.
 kt_test_start "F4 (first): \`TPipe.first -- yes\` returns 'y' in < 4 s (the 250 ms gate lives in bench.sh/005; this ceiling is loose for the threaded runner), lastRc 141 or 143"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child fyes
 us="${CH_OUT##*us=}"
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=y lastrc=14"[13]" us="* \
@@ -187,8 +195,11 @@ if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=y lastrc=14"[13]" us="* \
 else
     kt_test_fail "F4 (first -- yes): timeout rc=$CH_RC out='$CH_OUT'"
 fi
+fi   # kt_need_timeout
 
 kt_test_start "F5 (first): a SIGPIPE-ignoring producer that stops writing is TERMINATED (lastRc 143)"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
 run_child fsigp
 us="${CH_OUT##*us=}"
 if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=a lastrc=143 us="* \
@@ -197,6 +208,7 @@ if [[ $CH_RC -eq 0 && "$CH_OUT" == "rc=0 res=a lastrc=143 us="* \
 else
     kt_test_fail "F5 (first, SIGPIPE-ignoring): timeout rc=$CH_RC out='$CH_OUT'"
 fi
+fi   # kt_need_timeout
 
 # ===========================================================================
 kt_test_section "D. F6 — \$! clobbered inside the callback"
