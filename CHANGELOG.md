@@ -1,15 +1,12 @@
 # Changelog — kcl
 
-> Draft (launch L6.7): reviewed before the first release (L8).
-
 kcl is the class library of kbool: bash ports of Free Pascal / Delphi units
 (`TList`, `TStringList`, `TDictionary`, `TIniFile`, `TPath`, `TRegEx`, ...) and
-wrappers around GNU command-line tools (`TGrep`, `TSed`, `TAwk`, ...). There is no tag or
-release yet; this file groups the whole history by phase, newest first. The
+wrappers around GNU command-line tools (`TGrep`, `TSed`, `TAwk`, ...). This file groups the whole history by phase, newest first. The
 unit list and the contract every unit meets are in [README.md](README.md).
 Commit hashes in parentheses point at the change for readers who want the diff.
 
-## Unreleased — first public release (draft)
+## 0.1.0 — 2026-11-01
 
 ### CI and the bash 5.1 floor (2026-10-29 .. 2026-10-30, launch L4.5, L5.4, L5.6, L5.7)
 
