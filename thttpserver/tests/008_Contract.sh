@@ -772,7 +772,7 @@ nolog() {   # no line of DIR/log is an -l argument (token regex)
 }
 # why_for FLAVOUR NC — the WHY of an automatic detection that found a non-GNU
 # nc and no socat (L2.7-N2 template; detect's PATH holds no socat).
-why_for() { printf 'no usable network backend: %s at %s is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); no socat on PATH — install socat (apt/dnf/apk/pkg install socat) or GNU netcat 0.7.1 (Homebrew netcat, FreeBSD net/gnetcat, Arch gnu-netcat, or from source)' "$1" "$2"; }
+why_for() { printf 'no usable network backend: %s at %s is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); no socat on PATH — install socat (apt/dnf/apk/pkg install socat) or GNU netcat 0.7.1 (Homebrew netcat, FreeBSD pkg install gnetcat, Arch gnu-netcat, or from source)' "$1" "$2"; }
 
 # why_explicit FLAVOUR NC — the WHY of an explicit (NcBinary / KCL_NC / BuildArgv's
 # resolved) non-GNU nc: socat is not consulted.
@@ -958,6 +958,39 @@ if [[ "$SB" == none && "$SBIN" == "$SK/a5/nc" && "$SWHY" == "$want" ]] && nolog 
 kt_test_start "ths._backend: no nc and no socat → missing, BIN '', WHY exactly '$WHY_MISSING' (the 'nc not found (' prefix kept)"
 sdetect "$SK/empty" - -
 if [[ "$SB" == missing && -z "$SBIN" && "$SWHY" == "$WHY_MISSING" ]]; then kt_test_pass "$SWHY"; else kt_test_fail "backend='$SB' bin='$SBIN' why='$SWHY'"; fi
+
+# mkgn DIR VERSION_TEXT HELP_TEXT — the same fake netcat, installed under the
+# name gnetcat (FreeBSD net/gnetcat: no `nc` at all).
+mkgn() { mkfake "$1" "$2" "$3"; mv "$1/nc" "$1/gnetcat"; }
+
+kt_test_start "ths._backend auto: a non-GNU nc AND a GNU gnetcat on PATH (FreeBSD with the system nc) → gnu via gnetcat, WHY ''; the nc only probed (never -l)"
+mkfake "$SK/g1o" "nc: unknown option -- -" "OpenBSD netcat (Debian patchlevel 1.226-1ubuntu2)"
+mkgn "$SK/g1g" "netcat (The GNU Netcat) 0.7.1" ""
+sdetect "$SK/g1o:$SK/g1g" - -
+if [[ "$SB" == gnu && "$SBIN" == "$SK/g1g/gnetcat" && -z "$SWHY" && "$(<"$SK/g1g/log")" == "--version" ]] && nolog "$SK/g1o"; then kt_test_pass "gnu at $SBIN"; else kt_test_fail "backend='$SB' bin='$SBIN' why='${SWHY:0:120}'"; fi
+
+kt_test_start "ths._backend auto: no nc, only a GNU gnetcat on PATH → gnu via gnetcat"
+mkgn "$SK/g2" "netcat (The GNU Netcat) 0.7.1" ""
+sdetect "$SK/g2" - -
+if [[ "$SB" == gnu && "$SBIN" == "$SK/g2/gnetcat" && -z "$SWHY" ]]; then kt_test_pass "gnu at $SBIN"; else kt_test_fail "backend='$SB' bin='$SBIN' why='${SWHY:0:120}'"; fi
+
+kt_test_start "ths._backend auto: a GNU gnetcat comes before socat — gnetcat AND a socat on PATH → gnu, the socat never run"
+mkgn "$SK/g3" "netcat (The GNU Netcat) 0.7.1" ""
+mksocat "$SK/g3" 1
+sdetect "$SK/g3" - -
+slog "$SK/g3"
+if [[ "$SB" == gnu && "$SBIN" == "$SK/g3/gnetcat" && "$SLOG" == "<none>" ]]; then kt_test_pass "gnu"; else kt_test_fail "backend='$SB' bin='$SBIN' slog='$SLOG'"; fi
+
+kt_test_start "ths._backend auto: a non-GNU gnetcat is not used — a non-GNU nc and a non-GNU gnetcat, no socat → none, BIN = the nc, WHY names the NC's flavour (the gnetcat probe leaves it alone), no -l"
+mkfake "$SK/g4o" "nc: unknown option -- -" "OpenBSD netcat (Debian patchlevel 1.226-1ubuntu2)"
+mkgn "$SK/g4g" "Ncat: Version 7.94 ( https://nmap.org/ncat )" ""
+sdetect "$SK/g4o:$SK/g4g" - -
+if [[ "$SB" == none && "$SBIN" == "$SK/g4o/nc" && "$SWHY" == "$(why_for "OpenBSD netcat" "$SK/g4o/nc")" ]] && nolog "$SK/g4o" && nolog "$SK/g4g"; then kt_test_pass "none"; else kt_test_fail "backend='$SB' bin='$SBIN' why='${SWHY:0:160}'"; fi
+
+kt_test_start "ths._backend auto: only a non-GNU gnetcat (no nc, no socat) → missing, never run with -l"
+mkgn "$SK/g5" "Ncat: Version 7.94 ( https://nmap.org/ncat )" ""
+sdetect "$SK/g5" - -
+if [[ "$SB" == missing && -z "$SBIN" && "$SWHY" == "$WHY_MISSING" ]] && nolog "$SK/g5"; then kt_test_pass "missing"; else kt_test_fail "backend='$SB' bin='$SBIN' why='${SWHY:0:120}'"; fi
 
 kt_test_start "ths._backend b: an explicit KCL_SOCAT passing the probe wins over a GNU nc on PATH → socat (the GNU nc never probed)"
 mkfake "$SK/b1p" "netcat (The GNU Netcat) 0.7.1" ""

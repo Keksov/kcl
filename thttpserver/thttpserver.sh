@@ -180,10 +180,11 @@ ths._relayExec() {
 #      absent → missing;
 #   b. else an explicit socat — SOCATBIN (a caller's SocatBinary), else
 #      $KCL_SOCAT: passes the probe → socat, else none;
-#   c. else auto: GNU `nc` on PATH → gnu; else `socat` on PATH passing the
-#      probe → socat; else a socat on PATH failing the probe → none (BIN = the
-#      non-GNU nc if there is one, else the socat); else a present non-GNU nc
-#      → none; else missing.
+#   c. else auto: GNU `nc` on PATH → gnu; else GNU `gnetcat` on PATH (FreeBSD
+#      net/gnetcat installs only that name) → gnu; else `socat` on PATH
+#      passing the probe → socat; else a socat on PATH failing the probe →
+#      none (BIN = the non-GNU nc if there is one, else the socat); else a
+#      present non-GNU nc → none; else missing. A non-GNU gnetcat is ignored.
 # `gnu` = `NC --version` says GNU Netcat; every other existing nc is named by
 # its `--version` / `-h` text (OpenBSD, Ncat, BusyBox, traditional v1.10) and
 # NEVER run with the GNU flags (ncat / nc.traditional `-c` and `-e` run
@@ -195,7 +196,7 @@ ths._relayExec() {
 declare -g __THS_NCPATH=""
 : "${__THS_BACKEND:=}" "${__THS_BACKEND_BIN:=}" "${__THS_BACKEND_WHY:=}" "${__THS_BACKEND_KEY:=}"
 ths._backend() {
-    local __ths_k="$PATH|${KCL_NC-}|${KCL_SOCAT-}|${1-}|${2-}" __ths_bin="${1-}" __ths_sb="${2-}" __ths_fl=""
+    local __ths_k="$PATH|${KCL_NC-}|${KCL_SOCAT-}|${1-}|${2-}" __ths_bin="${1-}" __ths_sb="${2-}" __ths_fl="" __ths_gn="" __ths_sv=""
     if [[ -n "$__THS_BACKEND" && "$__THS_BACKEND_KEY" == "$__ths_k" ]]; then
         return 0
     fi
@@ -251,6 +252,19 @@ ths._backend() {
     else
         __ths_bin=""
     fi
+    # GNU netcat under its package name (FreeBSD net/gnetcat): __ths_fl keeps
+    # the nc's flavour for the WHY texts below
+    ths._ncFind gnetcat
+    __ths_gn="$__THS_NCPATH"
+    if [[ "$__ths_gn" == */* && -f "$__ths_gn" && -x "$__ths_gn" ]]; then
+        __ths_sv="$__ths_fl"
+        if ths._ncFlavour "$__ths_gn"; then
+            __THS_BACKEND=gnu
+            __THS_BACKEND_BIN="$__ths_gn"
+            return 0
+        fi
+        __ths_fl="$__ths_sv"
+    fi
     ths._ncFind socat
     __ths_sb="$__THS_NCPATH"
     if ths._socatOk "$__ths_sb"; then
@@ -274,7 +288,7 @@ ths._backend() {
     if [[ -n "$__ths_bin" ]]; then
         __THS_BACKEND=none
         __THS_BACKEND_BIN="$__ths_bin"
-        __THS_BACKEND_WHY="no usable network backend: $__ths_fl at $__ths_bin is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); no socat on PATH — install socat (apt/dnf/apk/pkg install socat) or GNU netcat 0.7.1 (Homebrew netcat, FreeBSD net/gnetcat, Arch gnu-netcat, or from source)"
+        __THS_BACKEND_WHY="no usable network backend: $__ths_fl at $__ths_bin is not GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU flags); no socat on PATH — install socat (apt/dnf/apk/pkg install socat) or GNU netcat 0.7.1 (Homebrew netcat, FreeBSD pkg install gnetcat, Arch gnu-netcat, or from source)"
         return 0
     fi
     __THS_BACKEND=missing

@@ -305,7 +305,8 @@ Precedence — the first rule that applies decides:
    not GNU → `none` (socat is **not** consulted); no such file → `missing`;
 2. **else an explicit socat** — `SOCATBIN` (`SocatBinary`), else
    `$KCL_SOCAT`: passes the probe → `socat`, else `none`;
-3. **else automatic**: GNU `nc` on PATH → `gnu`; else `socat` on PATH that
+3. **else automatic**: GNU `nc` on PATH → `gnu`; else GNU `gnetcat` on PATH (FreeBSD's
+   `pkg install gnetcat` installs only that name) → `gnu`; else `socat` on PATH that
    passes the probe → `socat`; else a socat on PATH that fails it → `none`;
    else an existing non-GNU nc → `none`; else `missing`.
 
@@ -325,7 +326,7 @@ exactly:
 * automatic, a non-GNU nc, no socat: `no usable network backend: <flavour>
   at <nc> is not GNU netcat 0.7.1 (refused: thttpserver never runs another
   netcat with GNU flags); no socat on PATH — install socat (apt/dnf/apk/pkg
-  install socat) or GNU netcat 0.7.1 (Homebrew netcat, FreeBSD net/gnetcat,
+  install socat) or GNU netcat 0.7.1 (Homebrew netcat, FreeBSD pkg install gnetcat,
   Arch gnu-netcat, or from source)`;
 * an explicit non-GNU nc: `no usable network backend: <flavour> at <nc> is not
   GNU netcat 0.7.1 (refused: thttpserver never runs another netcat with GNU
@@ -359,7 +360,7 @@ things an unidentified binary is ever run with. The result is cached per
 three forks per process: `--version`, perhaps `-h`, `-hhh`).
 
 **Where to get one.** GNU netcat 0.7.1: msys64 (`/c/bin/msys64/usr/bin/nc.exe`
-here), Homebrew `netcat`, FreeBSD `net/gnetcat`, Arch `gnu-netcat`, or from
+here), Homebrew `netcat`, FreeBSD `pkg install gnetcat` (found as `gnetcat` on PATH), Arch `gnu-netcat`, or from
 source; Debian/Ubuntu/Fedora/Alpine do not package it. socat: `apt install
 socat`, `dnf install socat`, `apk add socat`, `pkg install socat` (measured:
 1.8.0.0 Ubuntu 24.04, 1.8.0.3 Debian 13, 1.8.1.1 Fedora, 1.8.1.3 FreeBSD 15.1).
