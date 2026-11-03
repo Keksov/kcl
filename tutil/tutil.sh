@@ -210,11 +210,11 @@ fi
 # The CR contract (README §3 "CRLF: one result on every platform", owner
 # DL11, launch L2.7-C). In TEXT mode TGrep/TSed/TAwk deliver records WITHOUT
 # the line-end CR on every platform, and the TOOL does not see that CR either
-# where it can be arranged. The cygwin/msys builds of grep, sed and gawk open
-# their input in text mode and drop that CR themselves (measured on MSYS2 and
-# Git-bash; the cygwin arm of the test below is assumed from them — there is
-# no Cygwin host in the lab); the Linux, BSD and macOS builds (GNU or not)
-# keep it. `__TUTIL_TOOLS_STRIP_CR` says which kind this platform has:
+# where it can be arranged. The MSYS2 / Git-bash builds of grep, sed and gawk
+# open their input in text mode and drop that CR themselves; the Cygwin builds
+# (binary mounts, the default) and the Linux, BSD and macOS builds (GNU or not)
+# keep it — measured on all three Windows runtimes. `__TUTIL_TOOLS_STRIP_CR`
+# says which kind this platform has:
 # 1 = the tool already did it, so the wrappers add NOTHING (no flag, no
 # filter, no extra argv word — the Windows hot path is unchanged); 0 = the
 # wrappers remove the CR themselves:
@@ -223,12 +223,21 @@ fi
 #   * TGrep with no path operand: stdin goes through `tutil._crStdin` first;
 #   * TGrep with file operands (grep has no input-side switch): the OUTPUT is
 #     cleaned — `_textMode = 1`, the sinks' `TPipe -c` and `run`'s filter.
-# Decided once at load from `$OSTYPE` (no fork); a value set before the first
-# load is kept, and the tests flip it per case to drive the other path.
+# Decided once at load, with no fork; a value set before the first load is
+# kept, and the tests flip it per case to drive the other path. `$OSTYPE`
+# cannot tell the runtimes apart (MSYS2 and Git-bash bash report `cygwin` too,
+# MACHTYPE likewise), so on cygwin/msys the first word of /proc/version does:
+# `CYGWIN_NT-…` is Cygwin, `MSYS_NT-…` / `MINGW64_NT-…` / … is MSYS2. An
+# unreadable /proc/version keeps the MSYS answer (no CR prelude).
 if [[ -z ${__TUTIL_TOOLS_STRIP_CR+x} ]]; then
+    declare -g __TUTIL_TOOLS_STRIP_CR=0
     case "${OSTYPE:-}" in
-        cygwin*|msys*) declare -g __TUTIL_TOOLS_STRIP_CR=1 ;;
-        *)             declare -g __TUTIL_TOOLS_STRIP_CR=0 ;;
+        cygwin*|msys*)
+            __tutil_v=
+            { read -r __tutil_v < /proc/version; } 2>/dev/null
+            [[ $__tutil_v == CYGWIN_NT* ]] || __TUTIL_TOOLS_STRIP_CR=1
+            unset __tutil_v
+            ;;
     esac
 fi
 # The filter runs plain `command sed`, NOT ktool's GNU sed (launch L3.4, D-L34-8,

@@ -404,8 +404,9 @@ residuals are in [tutil `README.md` §3 "CRLF: one result on every
 platform"](../tutil/README.md#crlf-one-result-on-every-platform) (owner DL11).
 For this wrapper text mode means no `BINMODE=3` (`binary`, `inPlace` and
 `nullData` all `0`), and in text mode the PROGRAM never sees the line-end CR, on
-every platform: cygwin/msys gawk opens its input in text mode and strips the CR
-before the LF itself; on Linux/BSD/macOS `buildArgv` emits `-v RS='\r?\n'` in
+every platform: MSYS2 / Git-bash gawk opens its input in text mode and strips
+the CR before the LF itself; on Cygwin, Linux, BSD and macOS `buildArgv` emits
+`-v RS='\r?\n'` in
 the BINMODE slot — before the extras and the setVar words — so `$2 == "1"`,
 `length($0)` and `NF` on a blank CRLF line behave as on Windows, also for
 `getline`. A user's RS (setVar, an extra `-v RS=`, `BEGIN{RS=…}`, `RS = ""`)
@@ -423,8 +424,8 @@ mode, and:
 | default | `a 1\r\n` arrives as the record `a 1`, on every platform |
 | `binary = 1` | `-v BINMODE=3`: the CR is kept (`a 1\r`) |
 | `binary = 1` + `crlf = 1` | exactly one trailing CR stripped per record |
-| `inPlace = 1` | **derives `BINMODE=3`**: on cygwin/msys a text-mode in-place rewrite would turn every CRLF into LF on disk; with BINMODE the file keeps every CR on every platform |
-| `nullData = 1` | **derives `BINMODE=3`** and the sinks' `-0`: on cygwin/msys a text-mode run loses a CR *inside* a NUL record (`x\r\ny` → `x\ny`) |
+| `inPlace = 1` | **derives `BINMODE=3`**: on MSYS2 / Git-bash a text-mode in-place rewrite would turn every CRLF into LF on disk; with BINMODE the file keeps every CR on every platform |
+| `nullData = 1` | **derives `BINMODE=3`** and the sinks' `-0`: on MSYS2 / Git-bash a text-mode run loses a CR *inside* a NUL record (`x\r\ny` → `x\ny`) |
 
 The derivation lives in `buildArgv` only; the `binary` property is never
 written, so turning `inPlace`/`nullData` off takes `BINMODE` away again and a

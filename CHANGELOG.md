@@ -6,6 +6,23 @@ wrappers around GNU command-line tools (`TGrep`, `TSed`, `TAwk`, ...). This file
 unit list and the contract every unit meets are in [README.md](README.md).
 Commit hashes in parentheses point at the change for readers who want the diff.
 
+## Unreleased
+
+### Cygwin (2026-11-04)
+
+The first full run on a standalone Cygwin (3.6.10, bash 5.2.21) found two
+places where kcl took the MSYS2 runtime of Git-bash and MSYS2 for all of
+"cygwin" (their bash reports `OSTYPE=cygwin` too):
+
+* **TGrep, TSed, TAwk**: on Cygwin a CRLF record kept its CR in text mode. Cygwin's
+  grep, sed and gawk keep the CR like the Linux tools do (only the MSYS2 builds
+  drop it), but the wrappers assumed they drop it and added nothing. The runtime
+  is now told by `/proc/version` (`CYGWIN_NT-…`), with no fork.
+* **TPath.driveExists**, **TDirectory.getLogicalDrives**: drives were looked up at
+  `/c`, which is MSYS2's mount; on Cygwin (`/cygdrive/c`) every drive was
+  reported missing. Both now look at `/proc/cygdrive/c`, which both runtimes
+  link to their drive prefix.
+
 ## 0.1.0 — 2026-11-01
 
 ### CI and the bash 5.1 floor (2026-10-29 .. 2026-10-30, launch L4.5, L5.4, L5.6, L5.7)

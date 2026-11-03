@@ -26,9 +26,12 @@ esac
 kt_test_start "GetLogicalDrives - lists exactly the mounted drives"
 result=$(tdirectory.getLogicalDrives)
 if (( IS_WINDOWS )); then
+    # the drive prefix from cygpath, not from the code under test: /c/ on
+    # MSYS2 and Git-bash, /cygdrive/c/ on Cygwin
+    croot=$(cygpath -u 'C:/'); croot=${croot%c/}
     expected=""
     for letter in {C..Z}; do
-        if [[ -d "/${letter,}" ]]; then
+        if [[ -d "$croot${letter,}" ]]; then
             expected="${expected}${letter}: "
         fi
     done
@@ -70,7 +73,7 @@ if (( IS_WINDOWS )); then
     result=$(tdirectory.getLogicalDrives)
     missing=""
     for letter in Q R S T U V W X Y Z; do
-        if [[ ! -d "/${letter,}" ]]; then missing="$letter"; break; fi
+        if [[ ! -d "$croot${letter,}" ]]; then missing="$letter"; break; fi
     done
     if [[ "$result" == *"C:"* ]] && { [[ -z "$missing" ]] || [[ "$result" != *"$missing:"* ]]; }; then
         kt_test_pass "GetLogicalDrives - contains C:, not $missing: ('$result')"

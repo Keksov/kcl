@@ -153,8 +153,10 @@ case "$(command uname -s)" in
 
         kt_test_start "driveExists is false for an unmounted drive letter [G6-20]"
         missing=""
+        # the drive prefix from cygpath (/c/ on MSYS2, /cygdrive/c/ on Cygwin)
+        croot=$(cygpath -u 'C:/'); croot=${croot%c/}
         for letter in Q R S T U V W X Y Z; do
-            if [[ ! -d "/${letter,}" ]]; then missing="$letter"; break; fi
+            if [[ ! -d "$croot${letter,}" ]]; then missing="$letter"; break; fi
         done
         if [[ -z "$missing" ]]; then
             kt_test_fail "no unmounted drive letter available to test with"

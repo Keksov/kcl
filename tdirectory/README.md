@@ -85,7 +85,7 @@ getFileSystemEntries … same shape
 | `move src dst` | — | existing `dst` → **rc 1**, source untouched |
 | `isRelativePath p` / `getDirectoryRoot p` / `getParent p` | rc+bool / root / directory | `tpath` semantics; `getParent .` uses `$PWD` |
 | `getCurrentDirectory` / `setCurrentDirectory d` | `$PWD` | the `cd` happens in the caller's shell |
-| `getLogicalDrives` | `C: D: …` / `/` | the mounted MSYS drive mounts; no `uname` fork |
+| `getLogicalDrives` | `C: D: …` / `/` | the mounted drives (`/proc/cygdrive/x`: `/x` on MSYS2, `/cygdrive/x` on Cygwin); no `uname` fork |
 | `getFiles` / `getDirectories` / `getFileSystemEntries` | see **Listings** | |
 | `getAttributes p [followLink]` | FPC token list | delegates to `tpath.getAttributes` |
 | `setAttributes p '[fa…]'` | — | `faReadOnly` → `chmod a-w`, anything else → `chmod u+w` |

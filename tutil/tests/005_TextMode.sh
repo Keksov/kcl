@@ -127,10 +127,13 @@ sinks_of() {
 kt_test_section "A. the property, and text mode OFF"
 # ===========================================================================
 
-kt_test_start "A: \`_textMode\` is a TUtil var, 0 after \`new\`; \`__TUTIL_TOOLS_STRIP_CR\` is 0 or 1 (1 exactly on cygwin/msys)"
+kt_test_start "A: \`_textMode\` is a TUtil var, 0 after \`new\`; \`__TUTIL_TOOLS_STRIP_CR\` is 0 or 1 (1 exactly on the MSYS2 runtime, 0 on Cygwin)"
 TUtil.new uA cr_tool
 d="$(declare -p uA_data 2>/dev/null)"
-case "${OSTYPE:-}" in cygwin*|msys*) wantn=1 ;; *) wantn=0 ;; esac
+wantn=0
+case "${OSTYPE:-}" in
+    cygwin*|msys*) pv=; { read -r pv < /proc/version; } 2>/dev/null; [[ $pv == CYGWIN_NT* ]] || wantn=1 ;;
+esac
 if [[ "$(uA._textMode)" == "0" && "$d" == *'[_textMode]="0"'* && "$NATIVE_AT_LOAD" == "$wantn" ]]; then
     kt_test_pass "_textMode 0; __TUTIL_TOOLS_STRIP_CR=$NATIVE_AT_LOAD on OSTYPE=$OSTYPE"
 else

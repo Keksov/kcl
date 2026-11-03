@@ -380,8 +380,9 @@ residuals are in [tutil `README.md` §3 "CRLF: one result on every
 platform"](../tutil/README.md#crlf-one-result-on-every-platform) (owner DL11).
 For this wrapper text mode means no `-b` (`binary`, `inPlace` and `nullData`
 all `0`), and in text mode the SCRIPT never sees the line-end CR, on every
-platform: cygwin/msys sed opens its input in text mode and strips the CR before
-the LF itself; on Linux/BSD/macOS `buildArgv` puts a **prelude** after the
+platform: MSYS2 / Git-bash sed opens its input in text mode and strips the CR
+before the LF itself; on Cygwin, Linux, BSD and macOS `buildArgv` puts a
+**prelude** after the
 extras, before the first script word:
 
 ```
@@ -405,8 +406,8 @@ text mode, and:
 | default | `a1\r\n` arrives as the record `a1`, on every platform |
 | `binary = 1` | `-b`: the CR is kept (`a1\r`) |
 | `binary = 1` + `crlf = 1` | exactly one trailing CR stripped per record (unless the script appends after `$`) |
-| `inPlace = 1` | **derives `-b`**: on cygwin/msys a text-mode `sed -i` would rewrite every CRLF to LF on disk, even with the identity script; with `-b` the file keeps every CR on every platform |
-| `nullData = 1` | **derives `-b`** and the sinks' `-0`: on cygwin/msys a text-mode `-z` strips a CR *inside* a NUL record (`x\r\ny` → `x\ny`) |
+| `inPlace = 1` | **derives `-b`**: on MSYS2 / Git-bash a text-mode `sed -i` would rewrite every CRLF to LF on disk, even with the identity script; with `-b` the file keeps every CR on every platform |
+| `nullData = 1` | **derives `-b`** and the sinks' `-0`: on MSYS2 / Git-bash a text-mode `-z` strips a CR *inside* a NUL record (`x\r\ny` → `x\ny`) |
 
 The derivation lives in `buildArgv` only — the `binary` property is never
 written, so turning `inPlace`/`nullData` back off takes the `-b` away on the

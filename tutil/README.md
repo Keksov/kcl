@@ -249,12 +249,15 @@ identically everywhere. One script, one result: a CRLF input (a Windows-made
 config or CSV, HTTP text) must not yield `Alice\r` on Linux and `Alice` on
 Windows.
 
-Why the wrappers have to act at all: the cygwin/msys builds of grep, sed and
-gawk open their input in text mode and drop the CR before the LF themselves —
-measured on MSYS2 and Git-bash; the `cygwin*` arm is assumed from those
-measurements (no Cygwin host in the lab). The Linux, BSD and macOS builds (GNU
-or not, brew included) keep it. `__TUTIL_TOOLS_STRIP_CR` is decided once at
-load from `$OSTYPE` (`1` on `cygwin*`/`msys*`, else `0`, no fork); on `1`
+Why the wrappers have to act at all: the MSYS2 and Git-bash builds of grep, sed
+and gawk open their input in text mode and drop the CR before the LF
+themselves. The Cygwin builds (on its default binary mounts) and the Linux, BSD
+and macOS builds (GNU or not, brew included) keep it — measured on all three
+Windows runtimes. `__TUTIL_TOOLS_STRIP_CR` is decided once at load, with no
+fork: `0` unless `$OSTYPE` is `cygwin*`/`msys*`; there `1`, except on Cygwin.
+`$OSTYPE` cannot tell Cygwin from MSYS2 (MSYS2's and Git-bash's bash report
+`cygwin` too), so the first word of `/proc/version` does (`CYGWIN_NT-…` is
+Cygwin, `MSYS_NT-…` / `MINGW64_NT-…` is MSYS2). On `1`
 nothing is added anywhere — no argv word, no flag, no filter — so the Windows
 result and hot path are exactly what they were. On `0` each wrapper uses the
 strongest mechanism its tool allows:

@@ -469,7 +469,7 @@ tdirectory.getLogicalDrives() {
         return 0
     fi
     for letter in {C..Z}; do
-        if [[ -d "/${letter,}" ]]; then
+        if [[ -d "$__TPATH_DRIVE_ROOT${letter,}" ]]; then
             drives="${drives}${letter}: "
         fi
     done

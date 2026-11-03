@@ -93,7 +93,7 @@ bash 5.2/5.3 — that is the mechanism behind G6-01. Use `"$__TPATH_BS"`
 | `isUNCPath p` / `isUNCRooted p` | rc + `true`/`false` | two leading separators of either kind |
 | `isDriveRooted p` | rc + `true`/`false` | `X:` prefix |
 | `isExtendedPrefixed p` | rc + `true`/`false` | `//?/…` |
-| `driveExists p` | rc + `true`/`false` | Windows only, and it asks the filesystem (`/c` for `C:`), not just the syntax |
+| `driveExists p` | rc + `true`/`false` | Windows only, and it asks the filesystem (`/proc/cygdrive/c` for `C:`: `/c` on MSYS2, `/cygdrive/c` on Cygwin), not just the syntax |
 | `getTempPath` / `getHomePath` / `getDocumentsPath` / `getDownloadsPath` | a path | `TMPDIR`/`TEMP`/`TMP`/`/tmp`; `$HOME` |
 | `getTempFileName` | a NEW empty temp file | `mktemp`; the caller owns (and removes) it |
 | `getGUIDFileName [withDashes]` / `getRandomFileName` | a name | `uuidgen` when available |

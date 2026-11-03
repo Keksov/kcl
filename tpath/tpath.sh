@@ -67,10 +67,19 @@ if [[ -z ${__TPATH_BS+x} || ${__TPATH_BS@a} != *r* ]]; then
     # `[[ $p == *"$__TPATH_BS"* ]]` are the forms that do work.
     __TPATH_BS='\'
 
+    # Where drive X: is mounted, as a prefix for the lowercase letter: MSYS2 and
+    # Git-bash mount it at /x, Cygwin at /cygdrive/x (the prefix is
+    # configurable). Both runtimes link /proc/cygdrive to that prefix, so
+    # /proc/cygdrive/x is drive X: on either, with no fork; without it, /x.
+    __TPATH_DRIVE_ROOT=/
+    if (( __TPATH_IS_WINDOWS )) && [[ -d /proc/cygdrive ]]; then
+        __TPATH_DRIVE_ROOT=/proc/cygdrive/
+    fi
+
     readonly __TPATH_IS_WINDOWS __TPATH_DIRECTORY_SEPARATOR_CHAR \
              __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR __TPATH_PATH_SEPARATOR \
              __TPATH_VOLUME_SEPARATOR_CHAR __TPATH_EXTENSION_SEPARATOR_CHAR \
-             __TPATH_BS
+             __TPATH_BS __TPATH_DRIVE_ROOT
 fi
 
 # ---------------------------------------------------------------------------
@@ -911,7 +920,7 @@ tpath.driveExists() {
         return $?
     fi
     letter="${path:0:1}"
-    if [[ -d "/${letter,}" ]]; then
+    if [[ -d "$__TPATH_DRIVE_ROOT${letter,}" ]]; then
         tpath._retBool 0
     else
         tpath._retBool 1

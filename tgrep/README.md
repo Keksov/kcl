@@ -345,8 +345,8 @@ residuals are in [tutil `README.md` §3 "CRLF: one result on every
 platform"](../tutil/README.md#crlf-one-result-on-every-platform) (owner DL11).
 For this wrapper: text mode means `binary = 0` **and** `nullData = 0`, and in
 text mode a line record never carries the line-end CR, on every platform —
-cygwin/msys grep strips it itself. grep has no input-side switch, so on
-Linux/BSD/macOS:
+MSYS2 / Git-bash grep strips it itself. grep has no input-side switch, so on
+Cygwin, Linux, BSD and macOS:
 
 * with **no path operand and no `recursive`** grep reads stdin, and the argv
   starts with `tutil._crStdin`: stdin goes through `sed [-u] 's/<CR>$//'`
