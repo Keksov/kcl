@@ -88,6 +88,7 @@ nothing is written.
 | `fileAttributesToInteger '[fa…]'` / `integerToFileAttributes n` | the number / `[Token, …]` | `n` goes through `kk.isInt` |
 | `getAttributes f [followLink]` | FPC token list | delegates to `tpath.getAttributes`; `followLink=false` describes the LINK |
 | `setAttributes f '[fa…]'` | — | `faReadOnly` → `chmod a-w`, anything else → `chmod u+w` |
+| `getSize f` | bytes | a kcl extension; follows a symlink; a directory, a FIFO, a device or a broken link is rc 1. One `stat`; for a whole directory use `tdirectory.getEntriesInfo` |
 | `getCreationTime[Utc] f` | `YYYY-MM-DD HH:MM:SS` | `stat %W`, falling back to `%Y` when the filesystem has no birth time |
 | `getLastAccessTime[Utc] f` / `getLastWriteTime[Utc] f` | same | `%X` / `%Y` |
 | `setLastAccessTime[Utc] f v` / `setLastWriteTime[Utc] f v` | — | `v` = epoch seconds or a date string (`YYYY-MM-DD HH:MM:SS` everywhere; other forms only where `date -d` parses them: GNU, busybox); the `Utc` form reads a STRING as UTC. Implemented with `touch -t` under `TZ=UTC0`, so a value round-trips exactly |
@@ -190,7 +191,7 @@ Per-member upstream reference (and the map of what is *not* ported):
 
 ## Tests
 
-`bash kcl/tfile/tests/tests.sh` — 278 cases on bash 5.2.37 and 5.3.9 (and on
+`bash kcl/tfile/tests/tests.sh` — 297 cases on bash 5.3.9 and 5.3.15 (and on
 the Windows and lab-VM runtimes). `007_Decrypt.sh` and `009_Encrypt.sh` hold
 the KBTF1 encryption cases (launch L34-F2: refusals, the openssl HMAC oracle,
 the argv and environment shims, caller shell options).
@@ -199,5 +200,5 @@ paths, the return contract, the locale self-heal); `040`–`043` hold the
 2026-09-06 review regressions: real symlinks (G6-05, replacing 12 tests that
 used to "pass as skipped"), the timestamp and attribute setters (G6-07/08/26),
 the byte-faithful reads and `replace` (G6-18/19), and the D3/R8 return
-contract. `tests/symlink_helper.sh` is the shared probe that asks for a NATIVE
+contract. `044_GetSize.sh` holds `getSize`. `tests/symlink_helper.sh` is the shared probe that asks for a NATIVE
 symlink and verifies it with `[[ -L ]]`.

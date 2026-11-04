@@ -8,6 +8,18 @@ Commit hashes in parentheses point at the change for readers who want the diff.
 
 ## Unreleased
 
+### File sizes and a detailed listing (2026-11-04)
+
+Two kcl extensions (neither member is in the upstream `TFile` / `TDirectory`):
+
+* **TFile.getSize** `f`: the size in bytes of a regular file, following a
+  symlink; a directory, a FIFO or a broken link is rc 1. One `stat`, GNU or BSD.
+* **TDirectory.getEntriesInfo** `DIR PREFIX [PATTERN]`: every entry of a
+  directory with its kind, size, write time (epoch) and mode, in five parallel
+  arrays `PREFIX_name`, `_kind`, `_size`, `_mtime`, `_mode`. All entries cost
+  one `stat` call, not one each: the per-entry getters fork once per file,
+  which on Windows is 16 ms a file.
+
 ### Cygwin (2026-11-04)
 
 The first full run on a standalone Cygwin (3.6.10, bash 5.2.21) found two

@@ -11,7 +11,9 @@
 > * current directory / drives — `getCurrentDirectory`, `setCurrentDirectory`,
 >   `getLogicalDrives`
 > * listing — `getDirectories`, `getFiles`, `getFileSystemEntries`, each with
->   an optional output-ARRAY argument
+>   an optional output-ARRAY argument, and the bash extra `getEntriesInfo`
+>   (no member in this reference: every entry with its kind, size, write
+>   time and mode, from one `stat` call)
 > * attributes — `getAttributes`, `setAttributes`
 > * timestamps — `get`/`set` × `CreationTime`, `LastAccessTime`,
 >   `LastWriteTime`, each with a `Utc` twin (`setCreationTime*` answers rc 1:

@@ -94,6 +94,8 @@ class tfile
         static proc integerToFileAttributes
         static proc getAttributes
         static proc setAttributes
+        # size (a kcl extension)
+        static proc getSize
         # timestamps
         static proc getCreationTime
         static proc getCreationTimeUtc
@@ -718,6 +720,37 @@ tfile.getLastAccessTime()     { tfile._getTime "%X" false "${1:-}"; }
 tfile.getLastAccessTimeUtc()  { tfile._getTime "%X" true  "${1:-}"; }
 tfile.getLastWriteTime()      { tfile._getTime "%Y" false "${1:-}"; }
 tfile.getLastWriteTimeUtc()   { tfile._getTime "%Y" true  "${1:-}"; }
+
+# getSize F: the size in bytes of a regular file, following a symlink (a kcl
+# extension). One `stat`, no existence probe. A directory, a FIFO, a device
+# or a broken link is rc 1: only a regular file has a size worth answering
+# (a directory's is 4096 on ext4 and 0 on NTFS). For every entry of a
+# directory at once, tdirectory.getEntriesInfo costs one `stat` in all.
+tfile.getSize() {
+    local __tf_p="${1:-}" __tp_sf __tp_sm __tp_sb __tp_e __tp_k
+    local IFS=$' \t\n'
+    local -a __tf_t
+    if [[ -z "$__tf_p" ]] || ! tpath._statInfoFmt; then
+        tpath._ret "" 1
+        return 1
+    fi
+    if ! __tp_e=$(stat -L "$__tp_sf" "$__tp_sm" -- "$__tf_p" 2>/dev/null); then
+        tpath._ret "" 1
+        return 1
+    fi
+    __tf_t=( $__tp_e )
+    if (( ${#__tf_t[@]} != 3 )) || [[ ! "${__tf_t[0]}" =~ ^[0-9]+$ ]] \
+        || ! tpath._isStatMode "${__tf_t[2]}"; then
+        tpath._ret "" 1
+        return 1
+    fi
+    tpath._modeKind $(( $__tp_sb#${__tf_t[2]} ))
+    if [[ "$__tp_k" != "f" ]]; then
+        tpath._ret "" 1
+        return 1
+    fi
+    tpath._ret "${__tf_t[0]}"
+}
 
 tfile.setCreationTime()       { tpath._ret "" 1; return 1; }
 tfile.setCreationTimeUtc()    { tpath._ret "" 1; return 1; }

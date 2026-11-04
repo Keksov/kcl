@@ -47,6 +47,8 @@ kk.uses tpath || return
 # entries come back newline-joined in RESULT, exactly as they used to be
 # printed. Listings INCLUDE dot-entries (R13, FPC/.NET parity) and recursion
 # does NOT descend into a directory symlink (R13, finding G6-17).
+# getEntriesInfo (a kcl extension) lists one directory with the size, write
+# time, kind and mode of every entry, from one `stat` call.
 #
 # ---- Internal helpers ------------------------------------------------------
 # tdirectory._* are NOT class members: plain functions, so members share logic
@@ -73,6 +75,7 @@ class tdirectory
         static proc getDirectories
         static proc getFiles
         static proc getFileSystemEntries
+        static proc getEntriesInfo
         # attributes
         static proc getAttributes
         static proc setAttributes
@@ -205,6 +208,55 @@ tdirectory._list() {
     fi
     local IFS=$'\n'
     tpath._ret "${__td_acc[*]}"
+}
+
+# Path bytes per `stat` call in getEntriesInfo: far below any ARG_MAX, and a
+# directory of a few hundred entries still costs one call.
+__TD_STAT_CHUNK=65536
+
+# getEntriesInfo: stat the caller's chunk (__td_cn names, __td_cp paths) in
+# one call and append the entries to the caller's __td_o* arrays. A short
+# answer means an entry vanished after the glob: the chunk is stat-ed again
+# one path at a time, and what fails now is dropped.
+tdirectory._statChunk() {
+    local IFS=$' \t\n'
+    local -a __td_tok=()
+    local __td_j __td_k
+    __tp_e=$(stat "$__tp_sf" "$__tp_sm" -- "${__td_cp[@]}" 2>/dev/null)
+    __td_tok=( $__tp_e )
+    if (( ${#__td_tok[@]} == 3 * ${#__td_cn[@]} )); then
+        # Indexed, not sliced: `${a[@]:off:3}` walks the array from its start
+        # and made a 500-entry listing quadratic.
+        for (( __td_j = 0, __td_k = 0; __td_j < ${#__td_cn[@]}; __td_j++, __td_k += 3 )); do
+            tdirectory._infoAdd "${__td_cn[__td_j]}" "${__td_tok[__td_k]}" \
+                "${__td_tok[__td_k + 1]}" "${__td_tok[__td_k + 2]}" || :
+        done
+        return 0
+    fi
+    for (( __td_j = 0; __td_j < ${#__td_cn[@]}; __td_j++ )); do
+        __tp_e=$(stat "$__tp_sf" "$__tp_sm" -- "${__td_cp[__td_j]}" 2>/dev/null) || continue
+        __td_tok=( $__tp_e )
+        if (( ${#__td_tok[@]} == 3 )); then
+            tdirectory._infoAdd "${__td_cn[__td_j]}" "${__td_tok[@]}" || :
+        fi
+    done
+}
+
+# NAME SIZE MTIME MODE -> one entry appended to the caller's __td_o* arrays;
+# rc 1 and nothing appended when a field is not a number.
+tdirectory._infoAdd() {
+    local __td_m
+    if [[ ! "$2" =~ ^[0-9]+$ || ! "$3" =~ ^-?[0-9]+$ ]] || ! tpath._isStatMode "$4"; then
+        return 1
+    fi
+    __td_m=$(( $__tp_sb#$4 ))
+    tpath._modeKind "$__td_m"
+    __td_on+=( "$1" )
+    __td_ok+=( "$__tp_k" )
+    __td_os+=( "$2" )
+    __td_ot+=( "$3" )
+    printf -v __td_m '%o' $(( __td_m & 07777 ))
+    __td_om+=( "$__td_m" )
 }
 
 # ===========================================================================
@@ -489,6 +541,103 @@ tdirectory.getFiles() {
 
 tdirectory.getFileSystemEntries() {
     tdirectory._list e "${1:-}" "${2:-*}" "${3:-TopDirectoryOnly}" "${4:-}"
+}
+
+# getEntriesInfo DIR PREFIX [PATTERN] (a kcl extension): every entry of DIR,
+# not recursive, with its details in five parallel caller arrays:
+#   PREFIX_name   the entry name, without the directory
+#   PREFIX_kind   f regular file, d directory, l symlink, o other (FIFO, ...)
+#   PREFIX_size   bytes
+#   PREFIX_mtime  the write time in epoch seconds
+#   PREFIX_mode   the permission bits in octal: 644, 755, 4755
+# RESULT = the count. The details are the entry's OWN, as `ls -l` shows them:
+# a symlink is kind l with the link's size, and `[[ -d DIR/NAME ]]` tells
+# where it points without a fork. Unlike getFileSystemEntries this lists
+# every entry - a broken link, a FIFO, a socket too.
+#
+# Cost: one `stat` per __TD_STAT_CHUNK bytes of paths, so one fork for an
+# ordinary directory instead of one per entry. An entry that disappears
+# between the glob and the stat shortens stat's output; that chunk is then
+# stat-ed one entry at a time and the vanished entry is dropped.
+tdirectory.getEntriesInfo() {
+    local __td_dir="${1:-}" __td_pre="${2:-}" __td_pat="${3:-*}"
+    local __td_r __td_pfx __td_p __td_base __td_suf __td_i=0 __td_n __td_len
+    local __td_g_dot __td_g_fail __td_g_ext __td_g_null
+    local __tp_sf __tp_sm __tp_sb __tp_e __tp_k
+    local -a __td_names=() __td_cn=() __td_cp=()
+    local -a __td_on=() __td_ok=() __td_os=() __td_ot=() __td_om=()
+
+    if [[ -z "$__td_dir" ]]; then
+        tdirectory._debug "Error: Directory path cannot be empty"
+        tpath._ret "" 1
+        return 1
+    fi
+    for __td_suf in name kind size mtime mode; do
+        if [[ -z "$__td_pre" ]] || tpath._badOutName "${__td_pre}_$__td_suf"; then
+            tdirectory._debug "Error: bad output prefix '$__td_pre'"
+            tpath._ret "" 2
+            return 2
+        fi
+    done
+    tdirectory._trimSeps "$__td_dir"
+    if [[ -n "$__td_r" ]]; then
+        __td_dir="$__td_r"
+    fi
+    if [[ ! -d "$__td_dir" ]]; then
+        tdirectory._debug "Error: Directory does not exist: $__td_dir"
+        tpath._ret "" 1
+        return 1
+    fi
+    # "/" must not become "//": that is a network path on cygwin.
+    __td_pfx="$__td_dir/"
+    if [[ "$__td_dir" == "/" ]]; then
+        __td_pfx="/"
+    fi
+
+    # nullglob instead of an `[[ -e ]]` per entry: that probe is a syscall
+    # each, a third of the time of a 500-entry listing on Windows. The glob
+    # reads the directory itself, so a broken link is matched too.
+    tdirectory._globOn
+    __td_g_null=1; shopt -q nullglob || __td_g_null=0
+    shopt -s nullglob
+    for __td_p in "$__td_pfx"*; do
+        __td_base="${__td_p##*/}"
+        if [[ "$__td_base" == $__td_pat ]]; then
+            __td_names+=( "$__td_base" )
+        fi
+    done
+    if (( __td_g_null == 0 )); then shopt -u nullglob; fi
+    tdirectory._globOff
+
+    __td_n=${#__td_names[@]}
+    if (( __td_n > 0 )) && ! tpath._statInfoFmt; then
+        tdirectory._debug "Error: no usable stat"
+        tpath._ret "" 1
+        return 1
+    fi
+    while (( __td_i < __td_n )); do
+        __td_cn=()
+        __td_cp=()
+        __td_len=0
+        while (( __td_i < __td_n )) \
+            && (( ${#__td_cn[@]} == 0 || __td_len < __TD_STAT_CHUNK )); do
+            __td_cn+=( "${__td_names[__td_i]}" )
+            __td_cp+=( "$__td_pfx${__td_names[__td_i]}" )
+            __td_len=$(( __td_len + ${#__td_pfx} + ${#__td_names[__td_i]} + 1 ))
+            __td_i=$(( __td_i + 1 ))
+        done
+        tdirectory._statChunk
+    done
+
+    local -n __td_rn="${__td_pre}_name" __td_rk="${__td_pre}_kind" \
+        __td_rs="${__td_pre}_size" __td_rt="${__td_pre}_mtime" \
+        __td_rm="${__td_pre}_mode"
+    __td_rn=( ${__td_on[@]+"${__td_on[@]}"} )
+    __td_rk=( ${__td_ok[@]+"${__td_ok[@]}"} )
+    __td_rs=( ${__td_os[@]+"${__td_os[@]}"} )
+    __td_rt=( ${__td_ot[@]+"${__td_ot[@]}"} )
+    __td_rm=( ${__td_om[@]+"${__td_om[@]}"} )
+    tpath._ret "${#__td_on[@]}"
 }
 
 # ---- attributes ------------------------------------------------------------

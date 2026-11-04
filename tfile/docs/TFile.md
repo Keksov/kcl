@@ -16,7 +16,8 @@
 > * links — `createSymLink`, `getSymLinkTarget`
 > * reading — `open`, `openRead`, `openText`, `openWrite`, `readAllBytes`,
 >   `readAllLines`, `readAllText`, and the bash extra `readAllTextVar`
-> * bash extras — `encrypt`, `decrypt` (openssl)
+> * bash extras — `encrypt`, `decrypt` (openssl), and `getSize` (no member
+>   in this reference: the size in bytes of a regular file, following a link)
 >
 > NOT ported: everything that returns a `TStream`/`TStreamReader`/
 > `TStreamWriter` object (`Open*` here answer the file NAME as a handle),

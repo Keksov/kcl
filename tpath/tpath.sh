@@ -428,6 +428,44 @@ tpath._stat() {
     return 0
 }
 
+# The one-call format of size, write time and raw mode, used by
+# tfile.getSize and tdirectory.getEntriesInfo: -> __tp_sf = the flag,
+# __tp_sm = the format (one line "SIZE MTIME MODE" per path), __tp_sb = the
+# base of the MODE field: GNU `%f` is hex, BSD `%p` is octal. Both carry the
+# file-type bits that tpath._modeKind reads. rc 1 = no usable stat.
+tpath._statInfoFmt() {
+    if [[ -z "$__TP_STAT" ]]; then
+        tpath._statFlavour || return 1
+    fi
+    case "$__TP_STAT" in
+        gnu) __tp_sf=-c; __tp_sm='%s %Y %f'; __tp_sb=16 ;;
+        bsd) __tp_sf=-f; __tp_sm='%z %m %p'; __tp_sb=8 ;;
+        *) return 1 ;;
+    esac
+    return 0
+}
+
+# rc 0 when $1 is a MODE field of the format above, in base __tp_sb: the
+# guard that keeps a stray token out of $(( )).
+tpath._isStatMode() {
+    if (( __tp_sb == 8 )); then
+        [[ "$1" =~ ^[0-7]+$ ]]
+    else
+        [[ "$1" =~ ^[0-9a-fA-F]+$ ]]
+    fi
+}
+
+# -> __tp_k = the kind of raw mode $1 (a number): d directory, f regular
+# file, l symlink, o anything else (FIFO, socket, device).
+tpath._modeKind() {
+    case $(( $1 & 0170000 )) in
+        16384) __tp_k=d ;;   # S_IFDIR 0040000
+        32768) __tp_k=f ;;   # S_IFREG 0100000
+        40960) __tp_k=l ;;   # S_IFLNK 0120000
+        *) __tp_k=o ;;
+    esac
+}
+
 # -> __tp_r = "YYYY-MM-DD HH:MM:SS" of stat format $2 (%X, %Y or %W) for path
 # $1. $3 == "true" formats in UTC. rc 1 = no such path / no such timestamp.
 # The formatting is the printf builtin (no `date` fork); a temporary TZ=UTC0

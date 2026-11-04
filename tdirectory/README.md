@@ -73,6 +73,47 @@ getFileSystemEntries … same shape
 * A caller's `failglob` cannot break a listing, and `dotglob`/`failglob`/
   `extglob` are restored exactly as they were found.
 
+### Entries with their details: `getEntriesInfo` (a kcl extension)
+
+```
+getEntriesInfo DIR PREFIX [PATTERN]
+```
+
+One directory, not recursive, with the details of every entry in five
+parallel arrays named after `PREFIX`; `RESULT` is the count:
+
+| Array | Holds |
+|---|---|
+| `PREFIX_name` | the entry name, without the directory |
+| `PREFIX_kind` | `f` regular file, `d` directory, `l` symlink, `o` other (FIFO, socket, device) |
+| `PREFIX_size` | bytes |
+| `PREFIX_mtime` | the write time in epoch seconds |
+| `PREFIX_mode` | the permission bits in octal: `644`, `755`, `4755` |
+
+```bash
+tdirectory.getEntriesInfo /var/log e
+for (( i = 0; i < RESULT; i++ )); do
+    printf -v when '%(%Y-%m-%d %H:%M)T' "${e_mtime[i]}"   # no fork
+    printf '%s %8d %s %s\n' "${e_kind[i]}" "${e_size[i]}" "$when" "${e_name[i]}"
+done
+```
+
+* **One `stat` call for the whole directory** (one per 64 KB of paths), not
+  one per entry: 500 entries take about 0.2 s on Windows, where a fork costs
+  16 ms. An empty directory costs no call.
+* The details are the entry's **own**, as `ls -l` shows them: a symlink is
+  kind `l` with the size of the link text; `[[ -d DIR/NAME ]]` tells a link to
+  a directory without a fork.
+* **Every entry** is listed, a broken link, a FIFO or a socket too, which
+  `getFileSystemEntries` leaves out. Dot-entries are included, `.` and `..`
+  are not. The order is that of `getFileSystemEntries`.
+* `PATTERN` filters by name, as in the other listings (`extglob` on).
+* An entry that disappears between the directory read and the `stat` is
+  dropped; the rest stay aligned.
+* An empty `DIR` or a missing one is rc 1; a `PREFIX` whose array names are
+  reserved or malformed is rc 2 (kcl/README.md §1.7). Call it **directly**:
+  `$( )` throws the arrays away.
+
 ## API
 
 | Member | Result | Notes |
@@ -87,6 +128,7 @@ getFileSystemEntries … same shape
 | `getCurrentDirectory` / `setCurrentDirectory d` | `$PWD` | the `cd` happens in the caller's shell |
 | `getLogicalDrives` | `C: D: …` / `/` | the mounted drives (`/proc/cygdrive/x`: `/x` on MSYS2, `/cygdrive/x` on Cygwin); no `uname` fork |
 | `getFiles` / `getDirectories` / `getFileSystemEntries` | see **Listings** | |
+| `getEntriesInfo d PREFIX [pattern]` | the count | a kcl extension: five arrays of name, kind, size, mtime, mode; see **Listings** |
 | `getAttributes p [followLink]` | FPC token list | delegates to `tpath.getAttributes` |
 | `setAttributes p '[fa…]'` | — | `faReadOnly` → `chmod a-w`, anything else → `chmod u+w` |
 | `getCreationTime[Utc] d` | `YYYY-MM-DD HH:MM:SS` | `stat %W`, falling back to `%Y` |
@@ -111,11 +153,13 @@ Per-member upstream reference (and the map of what is *not* ported):
 
 ## Tests
 
-`bash kcl/tdirectory/tests/tests.sh` — 320 cases on bash 5.2.37 and 5.3.9.
+`bash kcl/tdirectory/tests/tests.sh` — 355 cases on bash 5.3.9 and 5.3.15 (and on Cygwin's 5.2.21).
 `032_Contract.sh` holds the kcl contract (`set -eu`, the return contract, the
 silent error path, the locale self-heal); `033`–`036` hold the 2026-09-06
 review regressions: the listings (G6-09/17/24/25 and the output array), the
 lifecycle (G6-04 symlink delete, G6-10 existing destination, G6-16 forks,
 G6-24 FollowLink), the timestamps (G6-08 and R13) and the D3/R8 return
-contract. `tests/symlink_helper.sh` is the shared probe that asks for a NATIVE
+contract. `037_GetEntriesInfo.sh` holds `getEntriesInfo`: alignment, kinds,
+the per-entry `stat` as the oracle, one call per directory, a vanished entry.
+`tests/symlink_helper.sh` is the shared probe that asks for a NATIVE
 symlink and verifies it with `[[ -L ]]`.
