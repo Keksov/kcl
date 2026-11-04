@@ -2,8 +2,8 @@
   "schema_version": 1,
   "project": "kcl/tutil/HELPERS_PLAN.md — convenience members for the TUtil wrapper family (data in, never tool syntax)",
   "created": "2026-10-22",
-  "updated": "2026-10-30",
-  "status": "H1 DONE 2026-10-22 (launch L2.7-H); H2 DONE 2026-10-30 (launch L6.0)",
+  "updated": "2026-11-04",
+  "status": "H1 DONE 2026-10-22 (launch L2.7-H); H2 DONE 2026-10-30 (launch L6.0); H3 DONE 2026-11-04 (TSed.editInFile, owner)",
   "phases": [
     {
       "id": "H1",
@@ -100,6 +100,44 @@
         },
         "machine": "__GATE__:PASS:8:8:0:0:0:0:0:1862:1862"
       }
+    },
+    {
+      "id": "H3",
+      "unit": "tsed",
+      "status": "done",
+      "date": "2026-11-04",
+      "detail": "owner request (D8): TSed.editInFile EXPR PATH... = TSed.edit with inPlace = 1 (throw-away instance, sandbox forced, >= 1 path or rc 2, derived -b, no backup). Trigger: Cargo.toml [package].version from a git tag, where replaceInFile cannot work (old value unknown, the same line in [dependencies.*]). Tests: kcl/tsed/tests/008_Helpers.sh section I, 11 cases (tsed 408 -> 419). Docs: plan §8, tsed README §1/§4/§6/§7/§9, TEST_COVERAGE_NOTES 008.i01-i11, kcl README tsed row.",
+      "gate": {
+        "out": "scratchpad g_eif2 (session scratch, not kept)",
+        "argv": [
+          "--changed"
+        ],
+        "repos": {
+          "kbool": {
+            "sha": "802c8ac",
+            "dirty": true
+          },
+          "kcl": {
+            "sha": "f78c042",
+            "dirty": true
+          }
+        },
+        "totals": {
+          "5.3.15": {
+            "cells": 2,
+            "PASS": 2,
+            "passed_tests": 601,
+            "total_tests": 601
+          },
+          "5.3.9": {
+            "cells": 2,
+            "PASS": 2,
+            "passed_tests": 601,
+            "total_tests": 601
+          }
+        },
+        "machine": "__GATE__:PASS:4:4:0:0:0:0:0:1202:1202"
+      }
     }
   ],
   "decisions": {
@@ -109,6 +147,7 @@
     "D4": "predicates rc 0/1, tool error rc 1 + debug line, never rc 2 (owner, critique §2)",
     "D5": "quoteRe dialect = explicit 'ere' word on the static (any other word rc 2 — critic F6), extended on the instance (SV)",
     "D6": "FROM with a newline in line mode is rc 2 (SV)",
-    "D7": "flag tokens = TStringHelper's (SV)"
+    "D7": "flag tokens = TStringHelper's (SV)",
+    "D8": "TSed.editInFile added although principle 1 gives the regex forms no twin (owner 2026-11-04)"
   }
 }

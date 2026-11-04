@@ -3,7 +3,8 @@
 Status: **v2, owner agreed to the cut 2026-10-22; H1 DONE 2026-10-22 (launch
 task L2.7-H); H2 DONE 2026-10-30 (launch task L6.0: TGrep `quiet`,
 `TGrep.contains`, `TGrep.countMatching`, `TFind.quoteGlob`; see §3 and
-`helpers_ledger.json`).** v1 proposed ~30 members
+`helpers_ledger.json`); H3 DONE 2026-11-04 (owner: `TSed.editInFile`, §8).**
+v1 proposed ~30 members
 across six wrappers; the critique (§7) cut it to the members that spare the
 caller **escaping data**. Everything else was an alias of an existing property
 or sink.
@@ -157,6 +158,7 @@ Separate cards, Sonnet high, built from H1's pattern.
 | D5 | `quoteRe` dialect is an explicit `ere` argument on the static, `extended` on the instance | SV |
 | D6 | FROM with a newline in line mode is rc 2 | SV |
 | D7 | flag tokens = TStringHelper's | SV |
+| D8 | `TSed.editInFile` is added although principle 1 gives the regex forms no twin: the in-place form of `edit` was a five-line instance dance | owner 2026-11-04 |
 
 ## 6. Ledger
 
@@ -171,3 +173,22 @@ sink; the Re form's delimiter was unsafe; the static `quoteRe` referred to a
 non-existent instance setting; escaping at call time ignored `extended`;
 `TAwk.sum`'s numeric claim was wrong (measured); six gated phases competed with
 the launch queue; four of seven decisions were conventional defaults.
+
+## 8. H3 — `TSed.editInFile` (owner 2026-11-04)
+
+The trigger: setting `[package].version` in a Cargo.toml from a git tag (an
+r/bash thread). `replaceInFile` cannot do it — the old value is unknown and the
+same `version = "…"` line can sit in a `[dependencies.*]` table — and the
+instance form took five lines (`new`, `addExpr`, `inPlace = 1`, `run`,
+`delete`). `editInFile EXPR PATH...` is `edit` with `inPlace = 1`: the same
+throw-away instance, the sandbox forced, ≥ 1 path or rc 2, the derived `-b`,
+no backup (D3). EXPR stays sed syntax (D8): data spliced into it goes through
+`quoteRe` / `quoteRepl`, and the sandbox is the wall behind them.
+
+```bash
+TSed.quoteRepl "version = \"$VER\""
+TSed.editInFile "/^\[package\]/,/^\[/ s/^version[[:space:]]*=.*/$RESULT/" Cargo.toml
+```
+
+Tests: `kcl/tsed/tests/008_Helpers.sh` section I (11 cases); docs:
+`kcl/tsed/README.md` §7.

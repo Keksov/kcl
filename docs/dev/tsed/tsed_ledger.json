@@ -2,7 +2,7 @@
   "schema_version": 1,
   "project": "kcl/tsed — TSed : TUtil, GNU sed 4.9 wrapper (typed options before the expressions, expr + addExpr + scriptFile, sandbox on by default, in-place with run only, static one-liner TSed.edit).",
   "created": "2026-09-22",
-  "updated": "2026-10-22",
+  "updated": "2026-11-04",
   "status": "COMPLETE (P0–P1) 2026-09-23. P0 (eafa7f7): TSed : TUtil, tests 004/005/006, README first cut, TUTIL_OUT_SUFFIXES registry in tutil; review round 1 (sandbox fails closed, `--` on the deny-list). P1 (7ad4ca5): bench.sh + tests/007_Bench.sh (11 cases), README final, TEST_COVERAGE_NOTES.md, kcl README §2 row (23 -> 24). Suite 293/293 on bash 5.2.37 and 5.3.9 (threaded) and --mode single on 5.2.37; bench gate 1.5x 2/2 PASS on both bashes. Master sweep: run by reviewer: 27/27 suites 0 [FAIL] on bash 5.2.37 and 5.3.9 (2026-09-23, after killing a leaked worker 'python -' that had spun one core since 2026-09-15 and made unrelated timing assertions flaky: tinifile 011, tstringlist 013); suite reproduced 293/293 on both bashes. Plan: critic-hardened 2026-09-22 (18 findings, all folded into PLAN.md §8); six owner decisions Q1–Q6. H1 (2026-10-22, launch L2.7-H): literal-replace helpers, tests 402/402 both bashes; see phases[H1].",
   "decisions": {
     "Q1": "sandbox = 1 by default (e, s///e, r, R, w, W refused by sed); sandbox = 0 opts out",
@@ -213,6 +213,11 @@
       "date": "2026-10-22",
       "batch": "H1",
       "summary": "Owner: TSed lacks a replace that hides sed syntax -> HELPERS_PLAN v2 (owner agreed to the cut). H1 built in a private tree copy while another gate ran, copied in, gate PASS 6 cells 1612/1612 (tsed 315->401), critic (no blocker, 10 findings: 4 fixed, 6 open), round 3, final gate PASS 16 cells 4442/4442 (tsed 402; tutil.sh comment change pulled every wrapper suite in). Measured: rfIgnoreCase folds non-ASCII only under a UTF-8 LC_CTYPE (C.UTF-8 'é. É. É.é' -> 'X X Xé', C -> 'X É. É.é')."
+    },
+    {
+      "date": "2026-11-04",
+      "batch": "H3",
+      "summary": "Owner: add TSed.editInFile EXPR PATH... (HELPERS_PLAN §8, D8) after an r/bash thread (Cargo.toml version from a git tag; the instance form took five lines). tsed.sh: static proc editInFile = edit + inPlace = 1 (no backup, derived -b, sandbox forced, >= 1 path or rc 2, __tsd_r__ refused with the instance deleted). 008 section I: 11 cases (bare sed --sandbox -b -i oracle on twin copies with CRLF, Cargo.toml section range with a hostile tag through quoteRepl, sandbox w FILE refused with nothing created, identity, 2q truncation, missing file, three rc 2 refusals, instance cleanup). Gate --changed: PASS 4 cells 1202/1202 on bash 5.3.15 and 5.3.9 (kcl 182, tsed 419). Committed as this kcl commit and pushed 2026-11-04 (owner); bash 5.2.37 = the CI row alpine 5.2. Owner also decided: TAwk gets no applyInFile / replaceInFile (in-place gawk needs sandbox = 0; TSed covers literal replace)."
     }
   ]
 }

@@ -1,6 +1,9 @@
 # tsed — test coverage notes
 
-**Status: FINALIZED at P1 (2026-09-23); extended at L2.7-C, H1 and L3.4.** Suite
+**Status: FINALIZED at P1 (2026-09-23); extended at L2.7-C, H1, L3.4 and H3.** Suite
+`004`–`008` = **419 cases** (H3, 2026-11-04: `TSed.editInFile`, 11 cases in
+`008` section I; 419/419 on bash 5.3.15 and 5.3.9 — the rest of this
+paragraph is the 408-case state),
 `004`–`008` = **408 cases**,
 green on bash 5.2.37 (primary) and on bash 5.3.9 (secondary), in the default
 threaded mode and under `--mode single` (5.2.37), against **GNU sed 4.9**
@@ -633,7 +636,7 @@ installs no `EXIT` trap of its own.
 
 ---
 
-## 008_Helpers.sh — H1 literal replace (launch L2.7-H, 2026-10-22) — 87 cases
+## 008_Helpers.sh — H1 literal replace (launch L2.7-H, 2026-10-22) — 87 cases; H3 `editInFile` (2026-11-04) — +11 = 98
 
 The five members of [`../tutil/HELPERS_PLAN.md`](../tutil/HELPERS_PLAN.md) §2.1
 (**HP** below): `TSed.quoteRe`, `TSed.quoteRepl`, `addReplace`, `TSed.replace`,
@@ -735,3 +738,22 @@ backup; DL11 = the CR contract (tutil README §3).
 | 008.h09 | `s.toArray s_rflags` is rc 2 — one "bad output array name" line, storage intact | HP §2.2 |
 | 008.h10 | each suffix is registered EXACTLY once (`_exprs _rfrom _rto _rflags`), `__tsd_` once | HP §2.2 |
 | 008.h11 | ... still exactly once after a re-source AND after `kk.unit --forget tsed` + a re-source (a child under set -eu) | HP §2.2 |
+
+### I. H3 — `TSed.editInFile EXPR PATH...` (owner 2026-11-04) (11)
+
+`edit` in place (HP §8). The oracle is the bare `sed --sandbox -b -i -e EXPR`
+on a twin copy; the rest pin the contract `edit` and `replaceInFile` share.
+
+| ID | Case | Basis |
+|---|---|---|
+| 008.i01 | `TSed.editInFile` on two copies == bare `sed --sandbox -b -i -e EXPR` (bytes), CRLF kept, stdout empty, NO backup file | HP §8, D3, **Q5** |
+| 008.i02 | the Cargo.toml case: a section range + `quoteRepl` of a hostile tag (`/;1e date;#&\1`) — only [package] changes, the tag lands literally | HP §8 |
+| 008.i03 | the sandbox is FORCED: a `w FILE` script is sed's rc 1 (one line of ours), the file byte-identical, FILE never created | HP §8, **Q1** |
+| 008.i04 | an EMPTY EXPR is the identity (`-e ''`): rc 0, the CRLF bytes identical | HP §8, **Q5** |
+| 008.i05 | the documented trap: `2q` in place TRUNCATES the file to two lines, rc 0 | README §6 |
+| 008.i06 | `TSed.editInFile` on a MISSING file among good ones: rc 1, one line (sed's 2), the good file still edited | **Q3** |
+| 008.i07 | `TSed.editInFile '__tsd_r__' f` is rc 2 with ONE line, the file byte-identical | HP §2.2 (reserved word) |
+| 008.i08 | `TSed.editInFile EXPR` with NO path is rc 2 — one line, nothing printed, stdin unread | HP §8 |
+| 008.i09 | `TSed.editInFile` with no argument at all is rc 2 — one line, nothing printed, stdin unread | HP §8 |
+| 008.i10 | `TSed.editInFile EXPR -` is rc 2 (the in-place refusal of the path `-`) — one line, nothing printed, stdin unread | **Q4** |
+| 008.i11 | `editInFile` deletes its throw-away instance (also on the reserved-word refusal) and bumps `__TSD_SEQ` once per instance | HP §8 |

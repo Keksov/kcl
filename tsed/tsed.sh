@@ -130,7 +130,7 @@ declare -g __TSD_SEQ=0
 # every locale. `TSed.quoteRe` / `TSed.quoteRepl` are the same escapers as
 # statics (`quoteRe TEXT WORD` with WORD other than exactly `ere` is rc 2 — it
 # fails closed); `TSed.replace` / `TSed.replaceInFile` are the one-liners, built
-# like `TSed.edit`.
+# like `TSed.edit`; `TSed.editInFile` is `edit` in place (H3).
 # RESERVED WORDS: the label `__tsd_cr` (the CR prelude) and the marker
 # `__tsd_r__` (`addExpr '__tsd_r__'` is rc 2, nothing appended).
 #
@@ -186,6 +186,7 @@ class TSed : TUtil
         override func first
         override func count
         static proc edit    # EXPR PATH... — `sed --sandbox -e EXPR -- PATH...`
+        static proc editInFile    # EXPR PATH... — the same, in place, no backup
         static proc quoteRe       # TEXT [ere] — RESULT: TEXT as a literal regex
         static proc quoteRepl     # TEXT — RESULT: TEXT as a literal replacement
         static proc replace       # FROM TO PATH... — literal, every occurrence, to stdout
@@ -800,6 +801,34 @@ TSed.edit() {
         return "$__tsd_rc"
     fi
     "$__tsd_i".sandbox = 1
+    "$__tsd_i".run || __tsd_rc=$?
+    "$__tsd_i".delete
+    return "$__tsd_rc"
+}
+
+# editInFile EXPR PATH... — `edit`, IN PLACE (owner 2026-11-04, HELPERS_PLAN
+# H3): `inPlace = 1`, so the derived `-b` keeps every CR on disk; NO backup
+# (D3, as `replaceInFile`). EXPR is sed SYNTAX — data spliced into it goes
+# through `quoteRe` / `quoteRepl`; the forced sandbox is the wall behind that.
+# sed rewrites every file even when EXPR changes nothing (the mtime changes),
+# and `q` / `Q` truncate the file (README §6). Same guards as `edit`; the path `-` is
+# `buildArgv`'s in-place rc 2.
+TSed.editInFile() {
+    if (( $# < 2 )); then
+        kk.debug "Error: TSed.editInFile: usage: TSed.editInFile EXPR PATH... — at least one path is required (sed -i has no stdin form)"
+        return 2
+    fi
+    __TSD_SEQ=$(( __TSD_SEQ + 1 ))
+    local __tsd_i="__tsd_e_${BASHPID}_${__TSD_SEQ}"
+    TSed.new "$__tsd_i" '' "${@:2}"
+    local __tsd_rc=0
+    "$__tsd_i".addExpr "$1" || __tsd_rc=$?
+    if [[ "$__tsd_rc" != 0 ]]; then
+        "$__tsd_i".delete
+        return "$__tsd_rc"
+    fi
+    "$__tsd_i".sandbox = 1
+    "$__tsd_i".inPlace = 1
     "$__tsd_i".run || __tsd_rc=$?
     "$__tsd_i".delete
     return "$__tsd_rc"

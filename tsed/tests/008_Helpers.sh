@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 008_Helpers.sh — tsed H1: the literal-replace helpers (kcl/tutil/HELPERS_PLAN.md
 # §2; launch task L2.7-H): `TSed.quoteRe`, `TSed.quoteRepl`, `addReplace`,
-# `TSed.replace`, `TSed.replaceInFile`.
+# `TSed.replace`, `TSed.replaceInFile`; and H3 (owner 2026-11-04):
+# `TSed.editInFile`.
 #
 # The ORACLE for every behavioural case is the bare GNU tool run with a
 # HAND-ESCAPED expression — never the code under test's own escaper. The
@@ -37,6 +38,10 @@
 #   H  lifecycle and the registries: `delete` frees the three new arrays,
 #      `clearExprs` empties all four, `s_rfrom`/`s_rto`/`s_rflags` refused,
 #      each suffix registered exactly once (also across a `--forget` reload)
+#   I  `TSed.editInFile` (H3): == bare `sed --sandbox -b -i` on copies, CRLF
+#      kept, no backup; the Cargo.toml section range with a hostile tag; the
+#      sandbox forced; the identity; the `q` truncation trap; a missing file;
+#      the rc 2 refusals; the throw-away instance deleted
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KTESTS_LIB_DIR="$SCRIPT_DIR/../../../ktests"
@@ -1156,4 +1161,122 @@ else
     kt_test_fail "rc=$crc out='$out'"
 fi
 fi   # kt_need_timeout
+
+# ===========================================================================
+kt_test_section "I. \`TSed.editInFile EXPR PATH...\` — \`edit\` in place (H3)"
+# ===========================================================================
+
+if [[ "$GNU_OK" == "1" ]]; then
+    mkdir -p "$FX/eif"
+    printf 'a.b\r\nxax\r\na.b a.b\r\n' > "$FX/eif/crlf3.txt"
+fi
+
+if tcase "\`TSed.editInFile\` on two copies == bare \`sed --sandbox -b -i -e EXPR\` (bytes), CRLF kept, stdout empty, NO backup file"; then
+    mkdir -p "$FX/eif/got" "$FX/eif/want"
+    for d in got want; do
+        cp "$FX/lit.txt" "$FX/eif/$d/a.txt"
+        cp "$FX/eif/crlf3.txt" "$FX/eif/$d/b.txt"
+    done
+    before="$(ls -A "$FX/eif/got" | tr '\n' ' ')"
+    rc=0; TSed.editInFile 's/a\.b/[&]/g;/xax/d' "$FX/eif/got/a.txt" "$FX/eif/got/b.txt" > "$TMP/eif1.out" 2>/dev/null || rc=$?
+    after="$(ls -A "$FX/eif/got" | tr '\n' ' ')"
+    "$SED_BIN" --sandbox -b -i -e 's/a\.b/[&]/g;/xax/d' -- "$FX/eif/want/a.txt" "$FX/eif/want/b.txt"
+    wb="$(printf '[a.b]\r\n[a.b] [a.b]\r\n' | od -c)"
+    if [[ $rc -eq 0 && "$before" == "$after" && ! -s "$TMP/eif1.out" && "$(odf "$FX/eif/got/b.txt")" == "$wb" ]] \
+       && cmp -s "$FX/eif/got/a.txt" "$FX/eif/want/a.txt" && cmp -s "$FX/eif/got/b.txt" "$FX/eif/want/b.txt"; then
+        kt_test_pass "both files == the bare tool; the directory still holds exactly: $after"
+    else
+        kt_test_fail "rc=$rc before='$before' after='$after' a=$(odf "$FX/eif/got/a.txt" | tr '\n' '|') b=$(odf "$FX/eif/got/b.txt" | tr '\n' '|')"
+    fi
+fi
+
+if tcase "the Cargo.toml case: a section range + \`quoteRepl\` of a hostile tag — only [package] changes, the tag lands literally"; then
+    printf '%s\n' '# c' '[package]' 'name = "d"' 'version = "0.1.0"' '' '[dependencies.serde]' 'version = "0.1.0"' > "$FX/eif/Cargo.toml"
+    tag='/;1e date;#&\1'
+    TSed.quoteRepl "version = \"$tag\""
+    rc=0; TSed.editInFile "/^\[package\]/,/^\[/ s/^version[[:space:]]*=.*/$RESULT/" "$FX/eif/Cargo.toml" 2>/dev/null || rc=$?
+    want="$(printf '%s\n' '# c' '[package]' 'name = "d"' "version = \"$tag\"" '' '[dependencies.serde]' 'version = "0.1.0"' | od -c)"
+    if [[ $rc -eq 0 && "$(odf "$FX/eif/Cargo.toml")" == "$want" ]]; then
+        kt_test_pass "version = \"$tag\" in [package]; the dependency's version untouched"
+    else
+        kt_test_fail "rc=$rc bytes=$(odf "$FX/eif/Cargo.toml" | tr '\n' '|')"
+    fi
+fi
+
+if tcase "the sandbox is FORCED: a \`w FILE\` script is sed's rc 1 (one line of ours), the file byte-identical, FILE never created"; then
+    cp "$FX/lit.txt" "$FX/eif/sb.txt"
+    ts_dbg TSed.editInFile "w $FX/eif/sb.mark" "$FX/eif/sb.txt"
+    if [[ "$TS_RC" == "1" && "$TS_N" == "1" && "$TS_1" == *"sed exited 1"* && "$TOOL_1" == *sandbox* && ! -e "$FX/eif/sb.mark" ]] \
+       && cmp -s "$FX/eif/sb.txt" "$FX/lit.txt"; then
+        kt_test_pass "rc 1: ${TOOL_1:0:70}"
+    else
+        kt_test_fail "rc=$TS_RC lines=$TS_N first='$TS_1' tool='$TOOL_1' mark=$([[ -e "$FX/eif/sb.mark" ]] && echo yes || echo no)"
+    fi
+fi
+
+if tcase "an EMPTY EXPR is the identity (\`-e ''\`): rc 0, the CRLF bytes identical"; then
+    cp "$FX/eif/crlf3.txt" "$FX/eif/id.txt"
+    rc=0; TSed.editInFile '' "$FX/eif/id.txt" 2>/dev/null || rc=$?
+    if [[ $rc -eq 0 ]] && cmp -s "$FX/eif/id.txt" "$FX/eif/crlf3.txt"; then
+        kt_test_pass "rc 0, byte-identical"
+    else
+        kt_test_fail "rc=$rc bytes=$(odf "$FX/eif/id.txt" | tr '\n' '|')"
+    fi
+fi
+
+if tcase "the documented trap: \`2q\` in place TRUNCATES the file to two lines, rc 0"; then
+    cp "$FX/lit.txt" "$FX/eif/q.txt"
+    rc=0; TSed.editInFile '2q' "$FX/eif/q.txt" 2>/dev/null || rc=$?
+    if [[ $rc -eq 0 && "$(odf "$FX/eif/q.txt")" == "$(printf 'a.b\nxax\n' | od -c)" ]]; then
+        kt_test_pass "a.b xax left on disk"
+    else
+        kt_test_fail "rc=$rc bytes=$(odf "$FX/eif/q.txt" | tr '\n' '|')"
+    fi
+fi
+
+if tcase "\`TSed.editInFile\` on a MISSING file among good ones: rc 1, one line (sed's 2), the good file still edited"; then
+    printf 'a.b\n' > "$FX/eif/g.txt"
+    ts_dbg TSed.editInFile 's/a\.b/Q/' "$FX/eif/no_such.txt" "$FX/eif/g.txt"
+    if [[ "$TS_RC" == "1" && "$TS_N" == "1" && "$TS_1" == *"sed exited 2"* && "$(cat "$FX/eif/g.txt")" == "Q" ]]; then
+        kt_test_pass "rc 1: ${TS_1:0:60}"
+    else
+        kt_test_fail "rc=$TS_RC lines=$TS_N first='$TS_1' g=$(cat "$FX/eif/g.txt")"
+    fi
+fi
+
+if tcase "\`TSed.editInFile '__tsd_r__' f\` is rc 2 with ONE line, the file byte-identical"; then
+    cp "$FX/lit.txt" "$FX/eif/r.txt"
+    ts_dbg TSed.editInFile '__tsd_r__' "$FX/eif/r.txt"
+    if [[ "$TS_RC" == "2" && "$TS_N" == "1" && "$TOOL_N" == "0" && "$TS_1" == *"__tsd_r__"* ]] && cmp -s "$FX/eif/r.txt" "$FX/lit.txt"; then
+        kt_test_pass "${TS_1:0:70}"
+    else
+        kt_test_fail "rc=$TS_RC lines=$TS_N tool=$TOOL_N first='$TS_1'"
+    fi
+fi
+
+st_rc2 "\`TSed.editInFile EXPR\` with NO path is rc 2 (sed -i has no stdin form)" "TSed.editInFile" TSed.editInFile 'p'
+st_rc2 "\`TSed.editInFile\` with no argument at all is rc 2" "TSed.editInFile" TSed.editInFile
+st_rc2 "\`TSed.editInFile EXPR -\` is rc 2 (the in-place refusal of the path \`-\`)" "path '-'" TSed.editInFile 'p' -
+
+if tcase "\`editInFile\` deletes its throw-away instance (also on the reserved-word refusal) and bumps \`__TSD_SEQ\` once per instance"; then
+    cp "$FX/lit.txt" "$FX/eif/s.txt"
+    before="$__TSD_SEQ"
+    TSed.editInFile 's/a/b/' "$FX/eif/s.txt" >/dev/null 2>&1
+    TSed.editInFile '__tsd_r__' "$FX/eif/s.txt" >/dev/null 2>&1
+    TSed.editInFile 'p' >/dev/null 2>&1          # refused before the instance: no bump
+    after="$__TSD_SEQ"
+    left=""
+    for s in "$(( before + 1 ))" "$after"; do
+        nm="__tsd_e_${BASHPID}_${s}"
+        for a in _data _paths _exprs _rfrom _rto _rflags _args _argv; do
+            declare -p "${nm}${a}" >/dev/null 2>&1 && left+=" ${nm}${a}"
+        done
+        declare -F "${nm}.delete" >/dev/null 2>&1 && left+=" ${nm}.delete"
+    done
+    if [[ $(( after - before )) -eq 2 && -z "$left" ]]; then
+        kt_test_pass "__TSD_SEQ $before -> $after, no instance left behind"
+    else
+        kt_test_fail "seq $before -> $after; left:$left"
+    fi
+fi
 

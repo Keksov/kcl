@@ -35,6 +35,11 @@
 > `TSed.quoteRepl` (§7, §7a). Design and decisions:
 > [`../tutil/HELPERS_PLAN.md`](../docs/dev/tutil/HELPERS_PLAN.md) §2 and §5; tests:
 > `tests/008_Helpers.sh` (§9).
+>
+> **H3 (owner, 2026-11-04): `TSed.editInFile EXPR PATH...`** — `TSed.edit` in
+> place, the sed-syntax twin of `replaceInFile`: when the old text is unknown
+> or the change belongs to one spot (a line, a section range), not to every
+> occurrence (§7). Tests: `tests/008_Helpers.sh` section I.
 
 `TSed` is a [`TUtil`](../tutil/README.md) descendant: typed properties instead
 of a hand-built command string, one rc convention, and the five `TPipe` sinks.
@@ -45,6 +50,7 @@ kk.uses tsed
 
 TSed.edit 's/foo/bar/' notes.txt       # the one-liner: `sed --sandbox -e EXPR -- notes.txt`
 TSed.replace 'C:\dir\a.txt' 'D:\x' notes.txt   # LITERAL text, no escaping by hand (§7a)
+TSed.editInFile '/^#/d' notes.txt      # `edit` IN PLACE: CRLF kept, no backup (§7)
 
 TSed.new s 's/a/A/' in.txt             # or an instance, for options
 s.addExpr '/^#/d'                      # more expressions, emitted in call order
@@ -110,6 +116,7 @@ TSed.new INST [EXPR [PATH...]]         # EXPR -> expr, the rest are paths
 | `mapRc RAW` | func | — | override; §2 |
 | `each` `toArray` `toList` `first` `count` | overrides | — | refuse `inPlace` / `--debug` (rc 2), else the base sink |
 | `TSed.edit EXPR PATH...` | static proc | — | §7 |
+| `TSed.editInFile EXPR PATH...` | static proc | — | the same **in place**, no backup — §7 |
 | `TSed.replace FROM TO PATH...` | static proc | — | literal, every occurrence, a stream — §7, §7a |
 | `TSed.replaceInFile FROM TO PATH...` | static proc | — | the same **in place**, no backup — §7, §7a |
 | `TSed.quoteRe TEXT [ere]` | static proc | — | RESULT: TEXT as a literal regex — §7a |
@@ -126,7 +133,7 @@ is used as given (no identity check). The resolved instance is frozen: a later
 **No GNU sed on the box?** `.new` still succeeds (rc 0, silent) with `cmd` `''`;
 the first member that builds the argv (`run`, a sink — after a sink's own
 in-place refusal — or `argv`) — and the statics
-`TSed.edit` / `replace` / `replaceInFile` — answer **rc 2** with one `kk.debug`
+`TSed.edit` / `editInFile` / `replace` / `replaceInFile` — answer **rc 2** with one `kk.debug`
 line carrying ktool's reason, which names the package (`no GNU sed: gsed not on
 PATH; /usr/bin/sed is not GNU sed …; FreeBSD: pkg install gsed`). Nothing runs.
 Setting `cmd` re-arms the instance; `_toolErr` keeps ktool's reason after the
@@ -359,8 +366,8 @@ consequences:
 A caller who needs those commands says so: `s.sandbox = 0` — the exact string
 `0` and nothing else. The property **fails closed**: `''`, `yes`, `2`, `' 0'`,
 `'0 '`, `00`, `-0`, `false`, `off` all keep `--sandbox` (the one exception to
-the family's "on only for `1`" boolean rule, §1). `TSed.edit` forces the sandbox
-and has no way to turn it off.
+the family's "on only for `1`" boolean rule, §1). `TSed.edit` and the other
+statics force the sandbox and have no way to turn it off.
 
 **Trap — callbacks declare `local`.** A callback that assigns a bare
 `expr=`, `quiet=`, `inPlace=` or `sandbox=0` writes the **instance's** property
@@ -439,6 +446,8 @@ applies to **`--debug`** among the extras, in any abbreviation down to `--d`
 (*sed --debug writes to stdout; use run*): its `SED PROGRAM:` / `INPUT:` /
 `PATTERN:` trace would arrive as records. `run` streams either. `-i` implies
 `-s`. Setting `inPlace` back to 0 makes the same instance's sinks work again.
+The one-liner for the common case (one expression, no backup) is
+`TSed.editInFile EXPR PATH...` (§7); the traps below hold for it too.
 
 **`backupSuffix`** is attached to `-i` (one argv word; a space or a leading `-`
 is harmless):
@@ -466,10 +475,17 @@ is harmless):
 | static | what it runs | output |
 |---|---|---|
 | `TSed.edit EXPR PATH...` | `sed --sandbox -e EXPR -- PATH...` — EXPR is sed syntax | a **stream** to stdout |
+| `TSed.editInFile EXPR PATH...` | the same with `-b -i` — **in place, no backup** | nothing; the files are rewritten |
 | `TSed.replace FROM TO PATH...` | `sed --sandbox -e 's/<FROM>/<TO>/g' -- PATH...` — FROM and TO are **literal text**, escaped for you (§7a) | a **stream** to stdout; never in place |
 | `TSed.replaceInFile FROM TO PATH...` | the same with `-b -i` — **in place, no backup** | nothing; the files are rewritten |
 
-All three are `static proc`s built the same way — a throw-away instance
+**`editInFile` or `replaceInFile`?** `replaceInFile` takes **data**: the old
+text must be known, and every occurrence in every line changes. `editInFile`
+takes **sed syntax**: an address or a range picks the spot, the old value need
+not be known, and any command works (`d`, `c`, `i`, `a`, `s`). Data spliced
+into EXPR goes through `quoteRe` / `quoteRepl` (§7a).
+
+All four are `static proc`s built the same way — a throw-away instance
 `__tsd_e_${BASHPID}_${__TSD_SEQ}`, the sandbox forced, `run`, `delete` — so they
 are nested-safe, print nothing of their own, never call `kk._return`, and need
 **at least one path** (rc 2 with one line otherwise; with none sed would read the
@@ -501,6 +517,37 @@ All three deliver bytes identical to `sed --sandbox -e 's/a/A/' -- f.txt`.
 * the throw-away instance is deleted and `__TSD_SEQ` bumped once per call;
   nested `edit` from inside an outer sink's callback is safe (a unique name per
   call) and leaves the outer instance untouched.
+
+### `TSed.editInFile EXPR PATH...`
+
+`TSed.edit` **in place** (H3): `inPlace = 1`, so the derived `-b` keeps every
+CR on disk (§5), and **no backup** (as `replaceInFile`; `backupSuffix` is one
+instance line for those who want one). Bytes identical to
+`sed --sandbox -b -i -e EXPR -- PATH...`; stdout empty.
+
+```bash
+TSed.editInFile '/^#/d' a.txt b.txt             # drop comment lines in both files
+
+# set [package].version in Cargo.toml from a git tag — the tag is DATA
+TSed.quoteRepl "version = \"$VER\""
+TSed.editInFile "/^\[package\]/,/^\[/ s/^version[[:space:]]*=.*/$RESULT/" Cargo.toml
+```
+
+* EXPR is **sed syntax**: a variable spliced into it goes through `quoteRe` /
+  `quoteRepl` (§7a), or `/`, `&`, `\` in its value change the script. The
+  **forced sandbox** is the wall behind that: an `e`, `r` or `w` that slips in
+  is sed's rc 1 and nothing is written (sed refuses the script before it opens a
+  file);
+* everything `edit` says holds: `TSed.editInFile '' f` is the identity, at
+  least one path (rc 2 otherwise, stdin unread), a missing file is rc 1 with
+  one line while the other files are still edited, the throw-away instance is
+  deleted;
+* the path `-` is the in-place rc 2 (§2);
+* the §6 traps hold: **`q` / `Q` truncate the file** (`TSed.editInFile '2q' f`
+  leaves two lines, rc 0), and sed rewrites every file even when EXPR changes
+  nothing (the bytes stay identical, the mtime changes);
+* sed exits 0 whether or not the address matched anything: when the change
+  must have happened, check the file afterwards.
 
 ### `TSed.replace` / `TSed.replaceInFile FROM TO PATH...`
 
@@ -633,10 +680,11 @@ bash kcl/tsed/tests/tests.sh --mode single   # sequential, for a stack trace
 PATH="/c/bin/msys64/usr/bin:$PATH" /c/bin/msys64/usr/bin/bash.exe kcl/tsed/tests/tests.sh
 ```
 
-**408 checks, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
+**419 checks, green on bash 5.2.37 and on bash 5.3.9**, in the default threaded
 mode and (5.2.37) under `--mode single`, against GNU sed 4.9 (315 before H1;
 `008_Helpers.sh` adds 87; the move onto ktool, launch L3.4, adds 5 cases to
-`004` and 1 to `006`). Case by case:
+`004` and 1 to `006`; H3 `editInFile` adds 11 to `008`, green on 5.3.15 and
+5.3.9). Case by case:
 [TEST_COVERAGE_NOTES.md](../docs/dev/tsed/TEST_COVERAGE_NOTES.md).
 
 | file | checks | what | runs sed? |
@@ -645,7 +693,7 @@ mode and (5.2.37) under `--mode single`, against GNU sed 4.9 (315 before H1;
 | `005_Run.sh` | 78 | S5–S12 against bare sed on a fixture tree behind the ktool gate: every sink, multi-`-e`, `-f`, `-n`, `-s`, the unterminated line, the identity, stdin, exotic names; partial / rc 4 / `q N`; the sandbox with marker files; CR and `-z` byte assertions (`od -c`); in-place on copies (backups, `bak_*` both shapes, the truncation trap, every sink refused, `--debug`); `TSed.edit` in three positions, nested, composed | yes (ktool gate first) |
 | `006_Contract.sh` | 67 | S13: source integrity (incl. the rc-preserving overrides and no `-b` bookkeeping var), `set -eu` children through `s.each` and both TPipe forms with every sink call guarded, one debug line per rc 2 / sed-error path and silence on rc 0 and on a `q N` status, D6 + `subshellOk`, the unguarded-sink rule | yes (gated) |
 | `007_Bench.sh` | 11 | the §10 gate as assertions with a **10×** ceiling behind the same ktool gate: `TSed.edit` vs bare `sed --sandbox -e … --` over a 200-line and a one-line file (interleaved, medians, byte-identical outputs asserted), the edit delta under 50 ms, `s.count` vs `sed … \| wc -l`; 200 builds invoke the `cmd` zero times, fork nothing and do not accumulate; a refused (deny-list) build is the cheap path too; zero forks for every property, every builder member, `run`, `edit`, the five sinks' callback and `.Add`, and four rc 2 paths | yes (gated) |
-| `008_Helpers.sh` | 87 | H1 literal replace (§7, §7a): `quoteRe`/`quoteRepl` on the owner probe strings byte-exact (`od -c`), BRE and `ere`, direct call silent, `$( )` once, the round trip through real sed; `addReplace` argv by array comparison (the flags, call order with `addExpr`, `extended` before/after, the -E escapes, the storage shape); every sink and `run` against bare sed with a hand-written escape, zero matches, the metachar soup, `& \1 / newline` in TO, multibyte under C.UTF-8 and C (and `rfIgnoreCase` folding non-ASCII only under UTF-8), a TAB; `quoteRe` refusing any dialect word but `ere`; CR in text mode vs `binary`, `nullData` + a newline in FROM; in place with CRLF kept, `replaceInFile` without backup; the rc 2 list with storage intact and stdin unread, the `addReplace` arity refusal, no scratch global left behind; `TSed.replace` in three positions and nested; `delete`/`clearExprs` and the registries, also across `kk.unit --forget tsed` | yes (gated) |
+| `008_Helpers.sh` | 98 | H1 literal replace (§7, §7a): `quoteRe`/`quoteRepl` on the owner probe strings byte-exact (`od -c`), BRE and `ere`, direct call silent, `$( )` once, the round trip through real sed; `addReplace` argv by array comparison (the flags, call order with `addExpr`, `extended` before/after, the -E escapes, the storage shape); every sink and `run` against bare sed with a hand-written escape, zero matches, the metachar soup, `& \1 / newline` in TO, multibyte under C.UTF-8 and C (and `rfIgnoreCase` folding non-ASCII only under UTF-8), a TAB; `quoteRe` refusing any dialect word but `ere`; CR in text mode vs `binary`, `nullData` + a newline in FROM; in place with CRLF kept, `replaceInFile` without backup; the rc 2 list with storage intact and stdin unread, the `addReplace` arity refusal, no scratch global left behind; `TSed.replace` in three positions and nested; `delete`/`clearExprs` and the registries, also across `kk.unit --forget tsed`; H3 `editInFile` (section I): == bare `sed --sandbox -b -i` on copies, CRLF kept, no backup, the Cargo.toml section range with a hostile tag, the sandbox forced (`w FILE` refused, nothing created), the identity, the `2q` truncation, a missing file, the three rc 2 refusals, the throw-away instance deleted | yes (gated) |
 
 The behavioural files open with a **ktool gate**: one case asks the kkore unit
 ktool (through `kt_gnu_gate sed SED_BIN`, `tutil/tests/gnu_helper.sh`) for a GNU
