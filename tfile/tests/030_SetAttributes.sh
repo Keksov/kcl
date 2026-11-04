@@ -23,12 +23,20 @@ F="$_KT_TMPDIR/setattr.tmp"
 printf '%s\n' "content" > "$F"
 chmod 644 "$F"
 
+# A user who writes through a 0444 mode — root, or an elevated Windows
+# administrator on Cygwin (its backup/restore privileges pass every ACL; CI
+# runners) — sees `-w` true on any file; then only the mode can be checked.
+P="$_KT_TMPDIR/ro_probe.tmp"
+: > "$P"; chmod 444 "$P"
+RO_BYPASS=0; [[ -w "$P" ]] && RO_BYPASS=1
+
 # Test 1: faReadOnly clears every write bit
 kt_test_start "Set attributes on existing file"
 rc=0
 tfile.setAttributes "$F" "[faReadOnly]" || rc=$?
 mode="$(fso_stat a "$F")"
-if (( rc == 0 )) && [[ "$mode" == "444" ]] && [[ ! -w "$F" ]]; then
+if (( rc == 0 )) && [[ "$mode" == "444" ]] && { (( RO_BYPASS )) || [[ ! -w "$F" ]]; }; then
+    (( RO_BYPASS )) && mode+="; -w not checked: this user writes through a 0444 mode"
     kt_test_pass "Set attributes on existing file (mode $mode)"
 else
     kt_test_fail "Set attributes on existing file (rc=$rc mode=$mode)"
