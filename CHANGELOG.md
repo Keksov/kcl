@@ -6,7 +6,15 @@ wrappers around GNU command-line tools (`TGrep`, `TSed`, `TAwk`, ...). This file
 unit list and the contract every unit meets are in [README.md](README.md).
 Commit hashes in parentheses point at the change for readers who want the diff.
 
-## Unreleased
+## 0.1.1 — 2026-11-08
+
+### TSed.editInFile (2026-11-04)
+
+* **TSed.editInFile** `EXPR PATH...`: a sed expression applied to files in place,
+  the sed-syntax twin of `TSed.replaceInFile` for a change at one spot (an address
+  or a section range) when the old text is unknown. The sandbox is forced, at
+  least one path is required, CRLF is kept on disk, no backup is made (f02db39).
+  Its test of the refusals no longer needs GNU sed on the machine (46d7382).
 
 ### File sizes and a detailed listing (2026-11-04)
 
