@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "project": "kcl/fv.* - a Free Vision-style text UI library for bash: fv.video, fv.keyboard, fv.mouse, fv.drivers, fv.views, fv.menus, fv.dialogs, fv.app, fv.msgbox, plus face C (one-shot dialogs) and face B (protocol utility)",
+  "created": "2026-11-09",
+  "updated": "2026-11-09",
+  "status": "PLANNED - P0 next",
+  "plan": "PLAN.md",
+  "decisions": {
+    "D1": "2026-11-08 API model = Free Vision (both loop styles: TProgram.Run + HandleEvent, public GetEvent)",
+    "D2": "2026-11-08 measure on a prototype before the plan - spike done (GO, five rules), then kklass round K",
+    "D3": "2026-11-08 lives in kcl units",
+    "D4": "2026-11-08 v1 = L0-L3 + one-shot dialogs (face C) + protocol utility (face B); file manager after v1",
+    "D5": "2026-11-08 wide characters supported in v1",
+    "D6": "2026-11-08 kklass call-path round K first (parallel to L0/L1); merged + released in 0.1.1 (call 1.8x faster)",
+    "D7": "2026-11-09 unit names carry the prefix fv. (owner 1b): uses fv.views, fv.dialogs",
+    "D8": "2026-11-09 mouse in v1: click focuses/selects/presses, wheel scrolls (owner 2b)",
+    "D9": "2026-11-09 P0 starts without the owner's terminal runs; terminal-check script + English instructions are part of P0 (owner 3b)"
+  },
+  "measurements": {
+    "spike": "2026-11-08 scratchpad tui_spike/REPORT.md: Git-bash 80x24 Down K 7.0 / K_partial 4.4 / P 3.2 / P_partial 0.9 ms; Tab K 22.5; first paint K 17.6; KV (virtual GetText per row) 17.3; kk calls per Down/PgDn/Tab/paint 8/8/18/9",
+    "roundK_ab": "2026-11-08 Git-bash, old kklass 7691162 vs new 5ad6faa interleaved, 4 rounds, loaded machine (plain control 0.88-1.05): Down full 0.74, partial 0.67, PgDn 0.68, Tab 0.74, first paint 0.87, KV 0.58 (25.0 -> 14.6 ms vs plain 4.9)",
+    "dotted_unit_name": "2026-11-09: kk.uses fv.views loads kcl-style fv.views.sh by stem, classes build, fv.views.* functions run; no namespace is declared for a dotted name (finding K-1)"
+  },
+  "design_rules": [
+    "R1 no fork on the per-key path",
+    "R2 about 15-20 kklass calls per key, none per row or cell; lists take a data array + optional plain formatter",
+    "R3 one screen buffer of row strings (chars + palette symbols), per-row damage columns, colour runs, one printf per frame; no z-order clip walk, no group buffers",
+    "R4 partial redraw for lists and editors",
+    "R5 (revised after round K) methods may hold loops; copy fields a hot loop reads into locals"
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "terminal, keys, mouse, events (L0)",
+      "units": [
+        "fv.video (terminal part)",
+        "fv.keyboard",
+        "fv.mouse",
+        "fv.drivers"
+      ],
+      "extras": [
+        "tools/fv_termcheck.sh + docs/TERMINAL_CHECK.md (D9)",
+        "finding K-1"
+      ],
+      "open_items": [
+        "O1"
+      ],
+      "status": "next",
+      "tasks": [
+        {
+          "id": "P0a",
+          "title": "fv.keyboard + fv.mouse decoders (pure), table tests",
+          "status": "next"
+        },
+        {
+          "id": "P0b",
+          "title": "fv.video terminal part + fv.drivers GetEvent, script(1) restore tests",
+          "status": "planned"
+        },
+        {
+          "id": "P0c",
+          "title": "tools/fv_termcheck.sh + docs/TERMINAL_CHECK.md (English) + finding K-1",
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "screen buffer (L1)",
+      "units": [
+        "fv.video (buffer, palette, damage diff, wide characters, VT model test)"
+      ],
+      "extras": [
+        "tools/bench fv suite"
+      ],
+      "open_items": [
+        "O4",
+        "O6"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "P2",
+      "name": "views core and application (L2)",
+      "units": [
+        "fv.views (TView, TGroup, TFrame, TWindow)",
+        "fv.app",
+        "fv.menus (TStatusLine)"
+      ],
+      "extras": [
+        "call-budget test",
+        "mouse routing"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "P3",
+      "name": "widgets (L3)",
+      "units": [
+        "fv.views (TScrollBar, TListViewer)",
+        "fv.dialogs",
+        "fv.msgbox",
+        "fv.menus (TMenuBar/TMenuBox per O3)"
+      ],
+      "open_items": [
+        "O3"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "P4",
+      "name": "one-shot dialogs (face C)",
+      "open_items": [
+        "O2"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "P5",
+      "name": "protocol utility (face B)",
+      "open_items": [
+        "O5"
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "P6",
+      "name": "docs, examples, bench report, changelog",
+      "status": "planned"
+    }
+  ],
+  "open_items": {
+    "O1": "P0: Esc timeout default - rec. 0.02 s + FV_ESC_TIMEOUT",
+    "O2": "P4: one-shot dialog flags whiptail/dialog-compatible subset or own; command name - rec. compatible subset",
+    "O3": "P3: TMenuBar/TMenuBox in v1 - rec. yes if P2 within budget",
+    "O4": "P1: non-UTF-8 locale - rec. local C.UTF-8 in unit functions, else ASCII mode",
+    "O5": "P5: protocol line format - rec. words with %q quoting",
+    "O6": "P1: colours - rec. FV 16-colour palette in v1"
+  },
+  "findings": {
+    "K-1": "kkore: kk.unit declares no namespace for a dotted unit name (fv.views), so kklass's class/instance-vs-unit name guard does not cover fv.* names; harmless (class names cannot contain a dot) but undocumented - P0 documents it or extends the guard"
+  }
+}
