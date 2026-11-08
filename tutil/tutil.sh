@@ -123,7 +123,7 @@ kk.uses ktool || return
 #    RESULT, and still dispatches VIRTUALLY (kklass test 112).
 #  * A `func` that must answer both RESULT and a non-zero rc ends with
 #    `kk._return V; return N`: an explicit `return` skips the compiled
-#    `kk._return "$RESULT"` trailer and `kk._invoke` then restores the CALLER's
+#    `kk._return "$RESULT"` trailer and the kklass dispatcher then restores the CALLER's
 #    RESULT (kklass.sh:399), so a bare `RESULT=V; return N` loses V.
 #  * The constructor assigns EVERY declared var. kklass binds a property as a
 #    nameref onto `${inst}_data[NAME]`; an unassigned one is an UNBOUND variable
@@ -671,7 +671,7 @@ TUtil.mapRc() {
 #
 # ---- The ordered tail, and why the order is not negotiable ----------------
 # An explicit `return` SKIPS the `kk._return "$RESULT"` trailer `build` compiles
-# onto a `func`, and `kk._invoke` then restores the CALLER's RESULT
+# onto a `func`, and the kklass dispatcher then restores the CALLER's RESULT
 # (kklass.sh:399). A `func` that must answer both a value and a non-zero rc has
 # exactly one spelling: `kk._return V; return N`, with V captured BEFORE
 # anything else can overwrite RESULT. Hence:
@@ -724,7 +724,7 @@ TUtil.mapRc() {
 
 # each CB — call `CB RECORD` once per record, IN THIS SHELL.
 #
-# A `proc`: the record count is TPipe's RESULT, but `kk._invoke` restores the
+# A `proc`: the record count is TPipe's RESULT, but the kklass dispatcher restores the
 # CALLER's RESULT when a body never calls `kk._return`, so `each` answers with
 # its rc ALONE. Use `count` (or `toArray` and `${#arr[@]}`) when the number
 # matters.

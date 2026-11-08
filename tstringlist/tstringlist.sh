@@ -278,7 +278,7 @@ TStringList.Add() {
     #         the same Adds on a TList. Unsorted Add is now O(1) and the sorted
     #         one is one binary search of plain function calls.
     #   G1-05 the dupIgnore branch did `RESULT=…; return`, and an explicit
-    #         return skips the func trailer, so `kk._invoke` put the CALLER's
+    #         return skips the func trailer, so the kklass dispatcher put the CALLER's
     #         RESULT back: the existing index never reached the caller.
     #   G1-04 the binary search only makes sense because `sorted = true` now
     #         really sorts.

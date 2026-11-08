@@ -362,7 +362,7 @@ documented default, and that a reused instance name starts clean.
 ### 3.4 C5 — `RESULT=V; return N` loses V
 
 `build` compiles a `kk._return "$RESULT"` trailer onto every `func` body. An
-explicit `return` **skips** it, and `kk._invoke` then restores the **caller's**
+explicit `return` **skips** it, and the kklass dispatcher then restores the **caller's**
 `RESULT`. A sink has to answer both a count and a mapped rc, so this is the one
 spelling that works.
 

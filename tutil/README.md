@@ -324,7 +324,7 @@ part in the text-mode contract (`_textMode` stays `0`).
 
 ### `each` answers with its rc alone
 
-`each` is a `proc`. `TPipe` does count the records, but `kk._invoke` restores the
+`each` is a `proc`. `TPipe` does count the records, but the kklass dispatcher restores the
 **caller's** `RESULT` whenever a body never calls `kk._return`, so reading
 `RESULT` after `u.each cb` gives you back whatever was there before. When the
 number matters use `count`, or `toArray` and `${#arr[@]}`:

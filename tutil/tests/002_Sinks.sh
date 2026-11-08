@@ -262,7 +262,7 @@ kt_test_start "\`each\` is a PROC: it answers with its rc alone and leaves the c
 RESULT="caller-sentinel"
 uA.each cb_collect; rc=$?
 if [[ $rc -eq 0 && "$RESULT" == "caller-sentinel" ]]; then
-    kt_test_pass "RESULT untouched (kk._invoke restores it — use \`count\` for the number)"
+    kt_test_pass "RESULT untouched (the kklass dispatcher restores it — use \`count\` for the number)"
 else
     kt_test_fail "rc=$rc RESULT='$RESULT'"
 fi
