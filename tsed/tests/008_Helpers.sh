@@ -1254,9 +1254,13 @@ if tcase "\`TSed.editInFile '__tsd_r__' f\` is rc 2 with ONE line, the file byte
     fi
 fi
 
+# static refusals: under the stub (as the replace/replaceInFile ones above), so
+# they hold on a box without GNU sed (the cmd check of buildArgv comes first)
+use_stub
 st_rc2 "\`TSed.editInFile EXPR\` with NO path is rc 2 (sed -i has no stdin form)" "TSed.editInFile" TSed.editInFile 'p'
 st_rc2 "\`TSed.editInFile\` with no argument at all is rc 2" "TSed.editInFile" TSed.editInFile
 st_rc2 "\`TSed.editInFile EXPR -\` is rc 2 (the in-place refusal of the path \`-\`)" "path '-'" TSed.editInFile 'p' -
+use_real
 
 if tcase "\`editInFile\` deletes its throw-away instance (also on the reserved-word refusal) and bumps \`__TSD_SEQ\` once per instance"; then
     cp "$FX/lit.txt" "$FX/eif/s.txt"
