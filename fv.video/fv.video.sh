@@ -22,7 +22,8 @@ kk.unit fv.video || return $__kk_unit_rc
 #
 # Out: FV_SCREEN_W, FV_SCREEN_H, FV_VIDEO_ON (1 between init and done),
 # FV_VIDEO_RESIZED (1 after SIGWINCH), FV_TTY_FD (the terminal's fd, '' when
-# off). FV_KEY_FD is set to FV_TTY_FD while on and put back at done.
+# off). FV_KEY_FD is set to FV_TTY_FD (or the reader's pipe, below) while on
+# and put back at done.
 #
 # Ctrl+C stays an interrupt (intr kept); susp, quit, lnext (and dsusp,
 # discard, status, swtch where stty knows them) are undefined, so Ctrl+Z and
@@ -34,8 +35,18 @@ kk.unit fv.video || return $__kk_unit_rc
 # are chained (a subshell's inherited trap texts are dropped first). The
 # restore drains input still on its way (<= ~0.3 s).
 #
-# Forks happen at init (stty, trap -p), at done (stty) and in querySize
-# (stty size: at init and per resize); the WINCH trap only sets a flag.
+# Forks happen at init (stty, trap -p, the reader below), at done (stty) and
+# in querySize (stty size: at init and per resize); the WINCH trap only sets
+# a flag.
+#
+# The reader (D13): on Cygwin-family runtimes (OSTYPE msys* / cygwin*:
+# Git-bash, MSYS2, Cygwin) initVideo starts a background process that reads
+# the terminal one byte at a time and forwards each byte through a pipe;
+# FV_KEY_FD is the pipe's read end, so the timed reads of fv.keyboard never
+# touch the terminal (under ConPTY a WINCH trap + `read -t` on the terminal
+# can hang on a resize). FV_TTY_READER=0|1 forces it off / on anywhere; empty
+# = auto. The reader ends at the restore, and by itself when the owner is
+# gone (a `kill -0` every __FV_VI_POLL s; '' = blocking reads, no check).
 
 # kcl-wide (README §1.6): no locale variable set -> LC_CTYPE=C.UTF-8 (silent
 # where that name does not exist; the buffer then finds its own, below)
@@ -51,10 +62,13 @@ declare -g FV_VIDEO_ON=${FV_VIDEO_ON:-0} FV_VIDEO_RESIZED=${FV_VIDEO_RESIZED:-0}
 # the caller's `trap -p` per signal; PREV: the caller's handler text; XRAN:
 # the caller's EXIT handler already ran; PID: the process that called
 # initVideo, the owner of the TUI (a subshell inherits the state, not the
-# ownership)
+# ownership); RPID/RFD: the reader's pid and the read end of its pipe ('' =
+# no reader); POLL: the reader's timed-read interval in seconds, its owner
+# check ('' = blocking reads)
 declare -g __FV_VI_ACT=${__FV_VI_ACT:-0} __FV_VI_FD=${__FV_VI_FD-} __FV_VI_ALT=${__FV_VI_ALT:-1}
 declare -g __FV_VI_SAVED=${__FV_VI_SAVED-} __FV_VI_KSET=${__FV_VI_KSET-} __FV_VI_KFD=${__FV_VI_KFD-}
 declare -g __FV_VI_XRAN=${__FV_VI_XRAN:-0} __FV_VI_PID=${__FV_VI_PID-}
+declare -g __FV_VI_RPID=${__FV_VI_RPID-} __FV_VI_RFD=${__FV_VI_RFD-} __FV_VI_POLL=${__FV_VI_POLL-0.5}
 declare -ga __FV_VI_UNDEF
 __FV_VI_UNDEF+=()
 declare -gA __FV_VI_TP=() __FV_VI_PREV=()
@@ -115,20 +129,167 @@ fv.video._drain() {
     done
 }
 
+# fv.video._reader TTYFD OWNER POLL US — the reader process (D13; _rstart
+# runs it in a process substitution, its stdout is the pipe): ONE byte at a
+# time from the terminal, each forwarded at once by its own printf (a NUL as a
+# NUL), no buffering. It ignores INT (Ctrl+C goes to the whole foreground
+# process group: the owner restores, then stops the reader), QUIT, TSTP and
+# WINCH; HUP, TERM and PIPE kill it (unless ignored when the shell started:
+# bash cannot reset those; _rstop then uses KILL). It ends at end of file or a read error,
+# when a write fails, and when OWNER is gone: kill -0 after each timed read
+# (POLL s) that brought nothing, and between bytes at most every US us. POLL
+# '' = blocking reads (an orphan then ends at its next byte, by SIGPIPE).
+# Fork-free per byte. The first lines drop what a process substitution
+# inherits: set -e / -u / -x / -v and pipefail, ERR / DEBUG / RETURN traps
+# (with set -E / -T), the caller's stderr (xtrace would hit the screen) and
+# locale (in UTF-8, read -n1 takes a whole character), and every fd of the
+# owner but 0, 1, 2, TTYFD and bash's own 255 (a caller's pipe or coproc fd
+# held here would never see its end of file while the TUI is on; the list
+# from /proc/self/fd, else /dev/fd: fork-free).
+fv.video._reader() {
+    set +efuvx +o pipefail; trap - ERR DEBUG RETURN
+    shopt -u failglob nullglob 2>/dev/null
+    local LC_ALL=C IFS= __fvv_c='' __fvv_r=0 __fvv_t0=${EPOCHREALTIME//[.,]/} __fvv_t __fvv_n __fvv_d=/proc/self/fd
+    exec 2>/dev/null </dev/null
+    trap '' INT QUIT TSTP WINCH
+    trap - HUP TERM PIPE
+    if [[ ! -d $__fvv_d ]]; then __fvv_d=/dev/fd; fi
+    for __fvv_n in "$__fvv_d"/*; do
+        __fvv_n=${__fvv_n##*/}
+        if [[ $__fvv_n == *[!0-9]* || $__fvv_n == [012] || $__fvv_n == 255 || $__fvv_n == "$1" ]]; then continue; fi
+        { exec {__fvv_n}<&-; } 2>/dev/null || :
+    done
+    while :; do
+        __fvv_r=0 __fvv_c=''
+        if [[ -n $3 ]]; then IFS= read -r -n1 -d '' -t "$3" -u "$1" __fvv_c || __fvv_r=$?
+        else IFS= read -r -n1 -d '' -u "$1" __fvv_c || __fvv_r=$?; fi
+        if [[ -n $__fvv_c ]]; then printf '%s' "$__fvv_c" || exit 0       # also a byte with a timeout
+        elif (( __fvv_r == 0 )); then printf '\0' || exit 0
+        elif (( __fvv_r <= 128 )); then exit 0                             # end of file, read error
+        fi
+        __fvv_t=${EPOCHREALTIME//[.,]/}
+        if (( __fvv_r > 128 || __fvv_t - __fvv_t0 >= $4 )); then
+            kill -0 "$2" 2>/dev/null || exit 0
+            __fvv_t0=$__fvv_t
+        fi
+    done
+}
+
+# fv.video._rstart — start the reader when FV_TTY_READER says so (0 off, 1
+# on, '' auto = OSTYPE msys* / cygwin*; anything else: a debug line, auto):
+# FV_KEY_FD = the read end of its pipe. Its pid and fd are recorded right
+# after the start (a signal from then on finds them for the restore). A
+# reader that does not start (no new numeric $!, or not alive) leaves the
+# terminal read directly, with one debug line; a pid it got is stopped
+# (_rstop). rc 0 always. The owner is this process ($BASHPID, taken here:
+# inside <( ) it would be the reader's own).
+fv.video._rstart() {
+    local IFS= __fvv_m=${FV_TTY_READER-} __fvv_w=$__FV_VI_POLL __fvv_u=500000 __fvv_f __fvv_p=$BASHPID
+    local __fvv_r='' __fvv_k='' __fvv_o=${!:-}
+    if [ "$__fvv_m" = 0 ]; then return 0; fi                  # [ ]: exact, whatever nocasematch says
+    if [ "$__fvv_m" != 1 ]; then
+        if [[ -n $__fvv_m ]]; then kk.debug "Error: fv.video.initVideo: FV_TTY_READER='$__fvv_m' is not 0, 1 or empty; using auto"; fi
+        if [[ $OSTYPE != msys* && $OSTYPE != cygwin* ]]; then return 0; fi
+    fi
+    if [[ -n $__fvv_w ]]; then
+        if [[ $__fvv_w != *[!0-9.]* && $__fvv_w != *.*.* && $__fvv_w == *[1-9]* && $__fvv_w != *.???????* && ${#__fvv_w} -le 8 ]]; then
+            __fvv_u=${__fvv_w%%.*} __fvv_f=000000
+            if [[ $__fvv_w == *.* ]]; then __fvv_f=${__fvv_w#*.}000000; fi
+            __fvv_u=$(( 10#${__fvv_u:-0} * 1000000 + 10#${__fvv_f:0:6} ))
+        else
+            kk.debug "Error: fv.video.initVideo: __FV_VI_POLL='$__fvv_w' is not a positive number of seconds; using 0.5"
+            __fvv_w=0.5
+        fi
+    fi
+    { exec {__fvv_r}< <(fv.video._reader "$__FV_VI_FD" "$__fvv_p" "$__fvv_w" "$__fvv_u"); } 2>/dev/null || __fvv_r=''
+    __fvv_k=${!:-}
+    if [[ -n $__fvv_r && -n $__fvv_k && $__fvv_k != *[!0-9]* && $__fvv_k != "$__fvv_o" ]]; then
+        __FV_VI_RPID=$__fvv_k __FV_VI_RFD=$__fvv_r
+        if kill -0 "$__fvv_k" 2>/dev/null; then FV_KEY_FD=$__fvv_r; return 0; fi
+        fv.video._rstop || :
+    elif [[ -n $__fvv_r ]]; then
+        { exec {__fvv_r}<&-; } 2>/dev/null || :
+    fi
+    kk.debug "Error: fv.video.initVideo: the terminal reader did not start (pid '$__fvv_k'); reading the terminal directly"
+}
+
+# fv.video._rstop — stop the reader (at the restore): SIGTERM and up to 0.1
+# s for it to go, then SIGKILL (a TERM ignored when the shell started stays
+# ignored in the reader) and up to 1 s, then, where /proc/PID/winpid exists,
+# taskkill on the Windows side and up to 0.5 s more (_rgone: the pipe read is
+# the fork-free delay, and its end of file says the reader has exited; the
+# zombie is then reaped with wait); the pipe closed. No signal when
+# /proc/PID/ppid exists (Cygwin family) and is not this shell: the pid is no
+# longer the reader. The first kill comes before the globals are cleared (a
+# signal re-entering the restore then kills the same pid once more:
+# harmless). rc 1: the reader is still alive (one debug line).
+fv.video._rstop() {
+    local IFS= __fvv_p=$__FV_VI_RPID __fvv_k=$__FV_VI_RFD __fvv_w='' __fvv_g=0 __fvv_s=1
+    if [[ -n $__fvv_p && -r /proc/$__fvv_p/ppid ]]; then
+        IFS= read -r __fvv_w 2>/dev/null < "/proc/$__fvv_p/ppid" || __fvv_w=''
+        if [[ -n $__fvv_w && $__fvv_w != "$BASHPID" ]]; then __fvv_s=0 __fvv_g=1; fi
+        __fvv_w=''
+    fi
+    if [[ -n $__fvv_p ]] && (( __fvv_s )); then kill "$__fvv_p" 2>/dev/null || :; fi
+    __FV_VI_RPID='' __FV_VI_RFD=''
+    if [[ -n $__fvv_p ]] && (( __fvv_s )); then
+        fv.video._rgone 100000
+        if (( ! __fvv_g )); then
+            kill -KILL "$__fvv_p" 2>/dev/null || :
+            fv.video._rgone 1000000
+        fi
+        if (( ! __fvv_g )) && [[ -r /proc/$__fvv_p/winpid ]]; then
+            IFS= read -r __fvv_w 2>/dev/null < "/proc/$__fvv_p/winpid" || :
+            if [[ -n $__fvv_w && $__fvv_w != *[!0-9]* ]]; then
+                MSYS2_ARG_CONV_EXCL='*' taskkill /F /PID "$__fvv_w" >/dev/null 2>&1 || :
+            fi
+            fv.video._rgone 500000
+        fi
+    fi
+    if (( __fvv_g == 2 || ! __fvv_s )); then wait "$__fvv_p" 2>/dev/null || :; fi   # reap it: it has exited
+    if [[ -n $__fvv_k ]]; then { exec {__fvv_k}<&-; } 2>/dev/null || :; fi
+    if [[ -n $__fvv_p ]] && (( ! __fvv_g )); then
+        kk.debug "Error: fv.video: the terminal reader (pid $__fvv_p) did not stop"
+        return 1
+    fi
+}
+
+# fv.video._rgone US — wait up to US us for the reader __fvv_p to go, reading
+# (and dropping) its pipe __fvv_k as the delay: __fvv_g = 1 when kill -0 says
+# it is gone, 2 at end of file on the pipe (it has exited, but inside a trap
+# handler bash reaps no child, so kill -0 still finds the zombie)
+fv.video._rgone() {
+    local __fvv_c='' __fvv_r __fvv_e=$(( ${EPOCHREALTIME//[.,]/} + $1 ))
+    while (( ${EPOCHREALTIME//[.,]/} < __fvv_e )); do
+        if ! kill -0 "$__fvv_p" 2>/dev/null; then __fvv_g=1; return 0; fi
+        __fvv_r=0
+        IFS= read -r -d '' -n 4096 -t 0.02 -u "$__fvv_k" __fvv_c 2>/dev/null || __fvv_r=$?
+        if (( __fvv_r == 1 )) && [[ -z $__fvv_c && -n $__fvv_k && -e /dev/fd/$__fvv_k ]]; then __fvv_g=2; return 0; fi
+    done
+    if ! kill -0 "$__fvv_p" 2>/dev/null; then __fvv_g=1; fi
+}
+
 # fv.video._restore [quiet] — the terminal as it was (doneVideo, the traps):
-# SGR reset, autowrap, cursor, main screen, mouse reporting off and the input
-# drained (none of it with quiet: a failed init printed nothing), stty, the fd
-# closed, FV_KEY_FD back. Only in the process that called initVideo (a
+# SGR reset, autowrap, cursor, main screen, mouse reporting off, the input
+# drained (with a reader: through its pipe, then the reader stopped — no
+# timed read of the terminal in this shell, whose WINCH trap is still set;
+# else from the terminal itself; none of the output and no drain with quiet:
+# a failed init printed nothing), stty, the fd closed, FV_KEY_FD back. Only in the process that called initVideo (a
 # subshell's inherited state is its parent's). ACT is cleared after stty: a
 # signal in the middle restores once more (harmless; the fd is closed once).
 # Every step may fail (the terminal hung up).
 fv.video._restore() {
     if (( ! __FV_VI_ACT )) || [[ $__FV_VI_PID != "$BASHPID" ]]; then return 0; fi
-    local IFS= __fvv_fd=$__FV_VI_FD __fvv_s=$'\e[0m\e[?7h\e[?25h'
+    local IFS= __fvv_fd=$__FV_VI_FD __fvv_s=$'\e[0m\e[?7h\e[?25h' __fvv_live=0
     if (( __FV_VI_ALT )); then __fvv_s+=$'\e[?1049l'; fi
     __fvv_s+=$'\e[?1006l\e[?1003l\e[?1002l\e[?1000l'
-    if [[ -z ${1-} ]]; then
-        printf '%s' "$__fvv_s" 2>/dev/null >&$__fvv_fd || :
+    if [[ -z ${1-} ]]; then printf '%s' "$__fvv_s" 2>/dev/null >&$__fvv_fd || :; fi
+    # with a reader: drain its pipe while it still forwards, then stop it
+    # (before the stty); the terminal fd stays open while it lives
+    if [[ -n $__FV_VI_RPID$__FV_VI_RFD ]]; then
+        if [[ -z ${1-} && -n $__FV_VI_RFD ]]; then fv.video._drain "$__FV_VI_RFD"; fi
+        if ! fv.video._rstop; then __fvv_live=1; fi
+    elif [[ -z ${1-} ]]; then
         fv.video._drain "$__fvv_fd"
     fi
     if [[ -n $__FV_VI_SAVED ]]; then stty "$__FV_VI_SAVED" >/dev/null 2>&1 <&$__fvv_fd || :; fi
@@ -137,7 +298,7 @@ fv.video._restore() {
     __FV_VS_FORCE=1 __FV_VS_SVIS='' __FV_VS_SPOS=''
     if [[ -n $__fvv_fd && $__FV_VI_FD == "$__fvv_fd" ]]; then
         __FV_VI_FD=''
-        { exec {__fvv_fd}>&-; } 2>/dev/null || :
+        if (( ! __fvv_live )); then { exec {__fvv_fd}>&-; } 2>/dev/null || :; fi
     fi
     FV_TTY_FD=''
     if [[ -n $__FV_VI_KSET ]]; then FV_KEY_FD=$__FV_VI_KFD; else unset FV_KEY_FD; fi
@@ -274,6 +435,7 @@ fv.video.initVideo() {
         kk.debug "Error: fv.video.initVideo: stty cannot set raw mode on '$__fvv_tty'"
         return 1
     fi
+    fv.video._rstart
     # never DECKPAM (ESC =): keypad ESC O p..y would read as vt100 F5-F12
     __fvv_x=$'\e[?25l\e[?7l\e[0m\e[H\e[2J'
     if (( __fvv_alt )); then __fvv_x=$'\e[?1049h'$__fvv_x; fi

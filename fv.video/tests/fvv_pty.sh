@@ -15,11 +15,16 @@
 #                        stdin, then waits for the wrapper to finish; every
 #                        process is bounded and none survives
 #   fvp_ts NAME          REPLY = the typescript (bytes, LC_ALL=C)
+#   fvp_reap PID         kill PID for sure (SIGKILL, then taskkill by its
+#                        Windows pid where /proc/PID/winpid exists)
 #
 # Inside the pty the wrapper takes `stty -g` before and after the child
 # (files before / after), writes the child's $? to rc and the time it ended
 # to t_end; when the child created wantleft, the wrapper then reads what is
-# left on the pty for 0.5 s into leftover. The child writes its pid to pid;
+# left on the pty for 0.5 s into leftover; when the child created hold, the
+# wrapper keeps the pty open until release exists (<= 10 s). The child
+# writes its pid to pid, and the pid of each fv.video reader it starts to a
+# file rpid* (fvp_run reaps any of them still alive: a survivor);
 # BODY uses `note TEXT` (one line to log) and `: > "$D/ready"` once the
 # terminal is set up. Feeder actions:
 #   ready          wait for the ready file (20 s)
@@ -27,6 +32,7 @@
 #   type:BYTES     type BYTES (printf %b) into the pty
 #   sig:SIG        kill -SIG the child (the time before it goes to t_mark)
 #   sleep:S        sleep S seconds
+#   call:FUNC      run the test's function FUNC with the case folder as $1
 
 FVP_KBOOL="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/kbool.sh"
 
@@ -76,6 +82,7 @@ printf '%s' "\$?" > rc
 printf '%s' "\$EPOCHREALTIME" > t_end
 stty -g > after 2>&1
 if [[ -e wantleft ]]; then left=''; IFS= read -r -d '' -n 256 -t 0.5 left; printf '%s' "\$left" > leftover; fi
+if [[ -e hold ]]; then n=0; while [[ ! -e release ]] && (( n++ < 200 )); do sleep 0.05; done; fi
 : > done
 EOF
 }
@@ -100,6 +107,7 @@ fvp_feed() {
             type:*) printf '%b' "${a#type:}" ;;
             sig:*) printf '%s' "$EPOCHREALTIME" > "$d/t_mark"; kill -"${a#sig:}" "$(<"$d/pid")" ;;
             sleep:*) sleep "${a#sleep:}" ;;
+            call:*) "${a#call:}" "$d" ;;
         esac
     done
     fvp_wait "$d/done" 30
@@ -110,13 +118,30 @@ fvp_run() {
     shift
     fvp_feed "$d" "$@" | SHELL=$BASH TERM=xterm-256color "$KT_TIMEOUT" -k 5 60 \
         "$FVP_SCRIPT" -qec "'$BASH' '$d/wrap.sh'" "$d/ts" > "$d/script.out" 2>&1
-    # no survivor: the child and the wrapper by their recorded pids
-    for p in pid wpid; do
+    # no survivor: the child, the wrapper and the readers by their recorded pids
+    for p in pid wpid "$d"/rpid*; do
+        p=${p##*/}
         if [[ -s $d/$p ]] && kill -0 "$(<"$d/$p")" 2>/dev/null; then
-            kill -KILL "$(<"$d/$p")" 2>/dev/null
+            fvp_reap "$(<"$d/$p")"
             printf 'killed %s\n' "$p" >> "$d/survivors"
         fi
     done
+}
+
+# fvp_reap PID — kill PID: SIGKILL, then (a process that ignores the signals
+# of its runtime, /proc/PID/winpid present) taskkill on the Windows side; rc
+# 1 and a loud line on stderr when it is still alive after that
+fvp_reap() {
+    local w='' i
+    kill -KILL "$1" 2>/dev/null
+    for (( i = 0; i < 10; i++ )); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.05; done
+    if [[ -r /proc/$1/winpid ]] && read -r w 2>/dev/null < "/proc/$1/winpid" && [[ -n $w && $w != *[!0-9]* ]]; then
+        MSYS2_ARG_CONV_EXCL='*' taskkill /F /PID "$w" >/dev/null 2>&1
+        for (( i = 0; i < 20; i++ )); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.05; done
+    fi
+    kill -0 "$1" 2>/dev/null || return 0
+    printf 'fvp_reap: PID %s (winpid %s) is STILL ALIVE after SIGKILL and taskkill\n' "$1" "${w:-?}" >&2
+    return 1
 }
 
 fvp_ts() {

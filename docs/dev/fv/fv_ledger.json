@@ -89,7 +89,13 @@
         {
           "id": "P0d",
           "title": "tty reader process on Cygwin-family runtimes (D13, finding W-1)",
-          "status": "next"
+          "status": "done",
+          "date": "2026-11-10",
+          "summary": "fv.video._reader/_rstart/_rstop/_rgone: process-substitution reader (one byte per printf, INT/QUIT/TSTP/WINCH ignored, inherited fds closed, owner kill -0 every __FV_VI_POLL=0.5 s, '' = blocking); restore drains the pipe, then TERM -> KILL -> taskkill; FV_TTY_READER 0/1/auto; 016_Reader 26 tests; critic round R1-R10 fixed; gate Windows 3399/3399, VM 2266/2266 + FV_TTY_READER=1 all fv suites",
+          "open": [
+            "live check under ConPTY (Windows Terminal, conhost): the reader's timed read with WINCH ignored (read_probe_pipe_t.sh 5x) and the full autodrive re-run on 5 terminals - needs an owner slot",
+            "owner question: FV_ESC_TIMEOUT 0.05 on reader runtimes (SGR report inter-byte gap > 20 ms in ~1.5% at 16 busy procs / 16 cores; kept 0.02)"
+          ]
         }
       ]
     },

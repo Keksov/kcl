@@ -3,12 +3,14 @@
 # 1: at start, on resize, at the end):
 #   * with PATH='' (no external command can run): the WINCH trap, updateSize
 #     over an overridden querySize, doneVideo while off and the failing
-#     initVideo calls work;
+#     initVideo calls work; the reader (D13) forwards bytes, _rstart, a key
+#     through its pipe and _rstop work;
 #   * the static scan: a $( ), backtick, process substitution, pipe, ( )
 #     subshell, & or coproc only inside initVideo, its trap setup and
-#     querySize and the subshell trap drop, and the colour-depth detection
-#     (_depth: `tput colors`); stty only in initVideo, querySize and the
-#     restore; tput only in _depth;
+#     querySize and the subshell trap drop, the reader start (_rstart: one
+#     process substitution, D13) and the colour-depth detection (_depth:
+#     `tput colors`); stty only in initVideo, querySize and the restore; tput
+#     only in _depth; taskkill only in the reader stop (_rstop);
 #   * the screen buffer with PATH='': initScreen, every write, updateScreen
 #     (incremental and force), palette and depth changes, resizeScreen,
 #     strWidth, ASCII mode, detectColorDepth when TERM tells (rule R1: every
@@ -72,6 +74,26 @@ size=$(wc -c < "$FVV_TMP/pathless.out" 2>/dev/null || echo 0)
 if [[ $out == '0000400000030256+=+?' && $size -gt 500 ]]; then kt_test_pass "ok ($size bytes emitted)"; else kt_test_fail "got [$out] ($size bytes)"; fi
 done
 
+kt_test_start "PATH='': the reader (D13) forwards bytes and ends at end of file; _rstart, a key through the pipe, _rstop"
+printf 'ab\001\377c' > "$FVV_TMP/rd.in"
+rm -f "$FVV_TMP/rd.fifo"; mkfifo "$FVV_TMP/rd.fifo"
+out=$("$KT_TIMEOUT" -k 2 20 "$BASH" -c "
+source '$FVV_TESTS_DIR/../../../kbool.sh'
+kk.uses fv.drivers || exit 90
+exec {a}<>'$FVV_TMP/rd.fifo'
+exec {t}<'$FVV_TMP/rd.in'
+PATH=''
+x=\$( ( fv.video._reader \$t \$\$ 0.5 500000 ) | { IFS= read -r -d '' -n 9 v; printf '%s' \"\${#v}\"; } )
+FV_KEY_FD=\$a __FV_VI_FD=\$a
+FV_TTY_READER=1 fv.video._rstart
+p=\$__FV_VI_RPID
+printf 'k' >&\$a
+fv.keyboard.getKeyEvent 2; k=\$FV_KEY_CHAR
+fv.video._rstop
+kill -0 \"\$p\" 2>/dev/null && k+=alive
+printf '%s %s' \"\$x\" \"\$k\"" 2>&1)
+if [[ $out == '5 k' ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [5 k]"; fi
+
 kt_test_start "the scan flags each construct in a sample line and passes the safe ones"
 bad=''
 for s in 'x=$(cmd)' 'x="$(cmd)"' 'x=`cmd`' 'a > >(cmd)' 'printf x | read y' '( cd x; y )' 'cmd &' 'coproc cat'; do
@@ -82,15 +104,15 @@ for s in '(( a | b ))' '[[ a || b ]] || c' 'x="a|b"' '# x=$(cmd) | y' 'f() {' 'a
 done
 if [[ -z $bad ]]; then kt_test_pass "ok"; else kt_test_fail "$bad"; fi
 
-kt_test_start "fv.video.sh: fork constructs only in initVideo, _trap, _drop, querySize, _depth; stty only in initVideo, querySize, _restore; tput only in _depth"
-bad='' n=0 fn='' forks='' sttys='' tputs=''
+kt_test_start "fv.video.sh: fork constructs only in initVideo, _trap, _drop, querySize, _rstart, _depth; stty only in initVideo, querySize, _restore; tput only in _depth; taskkill only in _rstop"
+bad='' n=0 fn='' forks='' sttys='' tputs='' tks=''
 while IFS= read -r l || [[ -n $l ]]; do
     n=$(( n + 1 ))
     if [[ $l =~ ^(fv\.video\.[A-Za-z_]+)\(\)\ \{ ]]; then fn=${BASH_REMATCH[1]}; fi
     if [[ $l == '}' ]]; then fn=''; fi
     if fvv_forks "$l"; then
         forks+=" ${fn:-file}"
-        case $fn in fv.video.initVideo|fv.video._trap|fv.video._drop|fv.video.querySize|fv.video._depth) ;; *) bad+=" fork@$n(${fn:-file}):[$l]" ;; esac
+        case $fn in fv.video.initVideo|fv.video._trap|fv.video._drop|fv.video.querySize|fv.video._rstart|fv.video._depth) ;; *) bad+=" fork@$n(${fn:-file}):[$l]" ;; esac
     fi
     c=${l%%#*}
     if [[ $c =~ (^|[^A-Za-z0-9_.-])stty([^A-Za-z0-9_]|$) ]]; then
@@ -101,7 +123,11 @@ while IFS= read -r l || [[ -n $l ]]; do
         tputs+=" ${fn:-file}"
         if [[ $fn != fv.video._depth ]]; then bad+=" tput@$n(${fn:-file}):[$l]"; fi
     fi
+    if [[ $c =~ (^|[^A-Za-z0-9_.-])taskkill([^A-Za-z0-9_]|$) ]]; then
+        tks+=" ${fn:-file}"
+        if [[ $fn != fv.video._rstop ]]; then bad+=" taskkill@$n(${fn:-file}):[$l]"; fi
+    fi
 done < "$FVV_TESTS_DIR/../fv.video.sh"
-if [[ -z $bad && -n $forks && -n $sttys && -n $tputs ]]; then kt_test_pass "$n lines; forks in:$forks; stty in:$sttys; tput in:$tputs"; else kt_test_fail "${bad:-nothing found}"; fi
+if [[ -z $bad && -n $forks && -n $sttys && -n $tputs && -n $tks ]]; then kt_test_pass "$n lines; forks in:$forks; stty in:$sttys; tput in:$tputs; taskkill in:$tks"; else kt_test_fail "${bad:-nothing found}"; fi
 
 kt_test_log "006_ZeroFork.sh completed"

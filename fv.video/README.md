@@ -33,8 +33,8 @@ fv.video.doneVideo                        # also done by the traps if you forget
 
 | Function | Answer |
 |---|---|
-| `fv.video.initVideo [noalt]` | opens the terminal, saves its `stty -g` and the caller's traps, installs the traps below, sets raw mode, then prints: alternate screen `ESC[?1049h` (not with `noalt`), cursor hidden `?25l`, autowrap off `?7l`, SGR reset, clear; reads the size. Typed-ahead input is kept. rc 0 = on (also when it already was — here or in the parent of this subshell: a no-op); rc 1 = no terminal / stty failed — nothing printed to any terminal, nothing left open, one debug line; rc 2 = a mode other than `noalt` |
-| `fv.video.doneVideo` | SGR reset, `?7h`, `?25h`, `?1049l` (if used), mouse reporting off (`?1006l ?1003l ?1002l ?1000l`, always), the pending input drained (below), `stty` back to the saved state, the fd closed, `FV_KEY_FD` put back, the caller's traps put back **exactly**. Idempotent: done twice, or done and then the EXIT trap, restores once. In a subshell of the process that called `initVideo`: a no-op (below). rc 0 |
+| `fv.video.initVideo [noalt]` | opens the terminal, saves its `stty -g` and the caller's traps, installs the traps below, sets raw mode, then starts [the reader](#the-reader-process-git-bash-msys2-cygwin) where `FV_TTY_READER` says so (default: Git-bash, MSYS2, Cygwin), then prints: alternate screen `ESC[?1049h` (not with `noalt`), cursor hidden `?25l`, autowrap off `?7l`, SGR reset, clear; reads the size. Typed-ahead input is kept. rc 0 = on (also when it already was — here or in the parent of this subshell: a no-op); rc 1 = no terminal / stty failed — nothing printed to any terminal, nothing left open, one debug line; rc 2 = a mode other than `noalt` |
+| `fv.video.doneVideo` | SGR reset, `?7h`, `?25h`, `?1049l` (if used), mouse reporting off (`?1006l ?1003l ?1002l ?1000l`, always), the reader stopped, the pending input drained (below), `stty` back to the saved state, the fd closed, `FV_KEY_FD` put back, the caller's traps put back **exactly**. Idempotent: done twice, or done and then the EXIT trap, restores once. In a subshell of the process that called `initVideo`: a no-op (below). rc 0 |
 | `fv.video.updateSize` | `FV_SCREEN_W` / `FV_SCREEN_H` from `querySize`; a dimension that is 0, missing, not a number or longer than 5 digits comes from `COLUMNS` / `LINES`, else 80 × 24, with one debug line. Clears `FV_VIDEO_RESIZED` first. rc 0, `RESULT=''` |
 | `fv.video.querySize` | the size source: `RESULT="ROWS COLS"`, rc 0; rc 1 when it cannot tell. Default: `stty size` on `FV_TTY_FD` (a fork). **Override it** to take the size from elsewhere; the tests stub it |
 
@@ -45,7 +45,8 @@ fv.video.doneVideo                        # also done by the traps if you forget
 | `FV_VIDEO_RESIZED` | 1 after a SIGWINCH; `updateSize` (and so `fv.drivers.getEvent`) clears it |
 | `FV_TTY_FD` | the terminal's fd while on, else `''`. **All terminal output goes here**, never to stdout |
 | `FV_TTY` | *input*: the terminal's path, default `/dev/tty` |
-| `FV_KEY_FD` | fv.keyboard's input fd: set to `FV_TTY_FD` by `initVideo`, its old value (or unset state) put back by the restore |
+| `FV_KEY_FD` | fv.keyboard's input fd: set to `FV_TTY_FD` by `initVideo` — or to the reader's pipe where the reader runs — its old value (or unset state) put back by the restore |
+| `FV_TTY_READER` | *input*: `1` / `0` force [the reader](#the-reader-process-git-bash-msys2-cygwin) on / off; empty = auto (on for `OSTYPE` `msys*`, `cygwin*`) |
 
 Internal state is `__FV_VI_*`.
 
@@ -119,13 +120,109 @@ harmless, the fd is closed once).
 
 **The drain:** after mouse reporting goes off, input already on its way (mouse
 reports, keys typed during the exit) is read and dropped until 0.05 s pass
-without a byte, at most ~0.3 s or 64 KiB, fork-free — so it never lands on the
+without a byte, at most ~0.3 s or 64 KiB, fork-free (from the terminal, or
+with [the reader](#the-reader-process-git-bash-msys2-cygwin) through its pipe) — so it never lands on the
 shell prompt after the program. It costs one idle wait (~0.05 s, ~0.06 s on
 Windows) per restore. Nothing is drained at init. `kill` uses `$BASHPID`, so a TUI running
 inside `x=$(…)` kills its own subshell, not the script around it. A trapped
 signal does not interrupt bash's `read`, so the event loop must read with a
 timeout (`fv.drivers.getEvent` always does); SIGTERM during an idle loop ends
 the process in ~0.1 s (the read timeout plus the drain).
+
+## The reader process (Git-bash, MSYS2, Cygwin)
+
+**Why.** Under ConPTY (Windows Terminal, the classic console) a Cygwin-based
+bash that has a `WINCH` trap and does a timed `read -t` on the terminal can
+hang for good when the window is resized (seen in 4 of 7 runs with Git-bash
+5.3.15; a hung process ignores even `kill -9` from its own runtime). The event
+loop needs both: the trap for the resize flag and timed reads for the idle
+timeout. So on these runtimes the timed reads never touch the terminal
+(decision D13).
+
+**When.** `initVideo` starts a background **reader** when `FV_TTY_READER` says
+so, decided at each `initVideo`:
+
+| `FV_TTY_READER` | reader |
+|---|---|
+| empty or unset (default) | auto: on where `OSTYPE` is `msys*` or `cygwin*` (Git-bash, MSYS2, Cygwin); off on Linux, macOS, BSD |
+| `1` | on, on any system |
+| `0` | off: the terminal is read directly, as on Linux |
+| anything else | one debug line, then auto |
+
+**How.** The reader is one bash process (a process substitution started right
+after raw mode is set, in the process that owns the TUI). It has no `WINCH`
+trap (it ignores the signal), reads the terminal **one byte at a time** and
+forwards each byte at once with its own `printf` (a NUL as a NUL), so nothing
+is buffered or delayed. `FV_KEY_FD` is the read end of its pipe;
+[fv.keyboard](../fv.keyboard/README.md) reads it as before (same API; the Esc
+timeout and the "byte already waiting" fast path behave the same on a pipe).
+Output still goes to `FV_TTY_FD`, the terminal.
+
+**What the caller sees while the TUI is on:**
+
+* **one extra process**, a child of the shell that called `initVideo`;
+* `FV_KEY_FD` is a pipe, not a terminal (`[[ -t $FV_KEY_FD ]]` is false);
+  `FV_TTY_FD` is the terminal for output and `stty`. **Never read
+  `FV_TTY_FD` yourself:** the reader takes every byte that arrives there. A
+  cursor-position reply (`ESC [ 6 n`) arrives on `FV_KEY_FD`;
+* **`$!` changes** at `initVideo` (it is the reader's pid);
+* **a bare `wait` never returns while the TUI is on** — bash also waits for
+  its last process substitution, and the reader ends only at the restore: a
+  deadlock (`wait -n` with no other child likewise). Wait for your own jobs
+  by pid;
+* the programs the TUI starts inherit the read end of the reader's pipe (bash
+  sets no close-on-exec on it); the reader itself keeps only fds 0, 1, 2 and
+  the terminal, so a pipe or coproc fd the caller closes still reaches its
+  end of file;
+* `exec` of another program while the TUI is on is **unsupported**: the pid
+  lives on, so the reader would not notice that its owner is gone.
+
+**Lifecycle and signals.**
+
+* **Stop:** the restore (`doneVideo`, the EXIT trap, INT / TERM / HUP — every
+  exit path of [the table above](#exit-paths-and-traps)) first drains the
+  input still on its way **through the reader's pipe** (the same quiet-period
+  rule as the drain below; the shell never does a timed read of the terminal
+  while its `WINCH` trap is set), then stops the reader before the `stty`:
+  `SIGTERM` and up to 0.1 s, then `SIGKILL` (a `TERM` ignored when the shell
+  started stays ignored in the reader: bash cannot reset it) and up to 1 s,
+  then, where `/proc/PID/winpid` exists, `taskkill` on the Windows side and
+  0.5 s more. The end of file on its pipe tells that it has exited (inside a
+  trap handler bash reaps no child, so `kill -0` would still find the zombie;
+  it is reaped with `wait`). Where `/proc/PID/ppid` exists (Cygwin family) and
+  is not this shell, the pid is no longer the reader: no signal. One debug
+  line if it still lives (the terminal fd is then left open, never closed
+  under a live reader). Its pipe is closed. The stop takes ~1–6 ms, ~125 ms
+  with `TERM` ignored at shell start.
+* **Signals:** the reader ignores `INT` (Ctrl+C goes to the whole foreground
+  process group: the owner restores the terminal and then stops the reader),
+  `QUIT`, `TSTP` and `WINCH`; `HUP`, `TERM` and `PIPE` kill it (unless the
+  shell started with them ignored; the stop then uses `KILL`). If it dies
+  early (a hung-up terminal, a stray `kill`), its pipe reaches end of file and
+  `fv.drivers.getEvent` answers end of input (rc 1, `FV_EV_EOF=1`), as a
+  hung-up terminal does without a reader.
+* **The owner dies without a restore** (`kill -9`): the reader reads the
+  terminal with **timed** reads (`read -t 0.5`; it has no `WINCH` trap, so the
+  hang above does not apply to it as far as tested — see below) and checks
+  its owner (`kill -0`, a builtin) after each one that brought nothing, and
+  between bytes at most every 0.5 s; a failed write (the pipe has no reader
+  any more) ends it too. It is gone within about 0.5 s of the owner (measured
+  0.53 s). A key typed in that interval may be eaten by the dying reader.
+* **A subshell** of the owner (`x=$(…)`, `( … )`) inherits the state, not the
+  ownership: its `initVideo` / `doneVideo` and its exit leave the reader
+  alone. A re-init (`doneVideo` → `initVideo`) starts a new reader.
+* **No reader starts** (no numeric `$!`, or the process is already gone):
+  the terminal is read directly, with one debug line; rc 0.
+
+**The poll interval** is the internal `__FV_VI_POLL` (seconds, default `0.5`):
+
+* timed reads (default): an orphaned reader ends within one interval; an idle
+  reader wakes twice a second. Whether a timed read *without* a `WINCH`
+  handler (the signal ignored) is safe under ConPTY is **not yet verified
+  live**;
+* `__FV_VI_POLL=''`: blocking reads, no idle wake-ups — but a reader orphaned
+  by `kill -9` of its owner lives until the next byte reaches it (it forwards
+  that byte, the write fails, it ends).
 
 ## Screen buffer
 
@@ -310,7 +407,7 @@ every text new 153–169 → 227–260. `strWidth` ASCII 24 → 30.
 ## Cost
 
 Forks happen at init (`stty -g`, `stty -a` once per process, the raw-mode
-`stty`, `stty size`, five `trap -p`), at done (`stty`) and per resize (`stty
+`stty`, `stty size`, five `trap -p`, the reader where it runs), at done (`stty`) and per resize (`stty
 size` in the default `querySize`), and at most one `tput colors` in the
 colour-depth detection. The WINCH trap, `updateSize` over an overridden
 `querySize`, every buffer write, `updateScreen` and everything on the event
@@ -328,6 +425,31 @@ pre-written into the pty under `script(1)`, 2026-11-09):
 
 So the per-read terminal mode switch costs ~15–20 µs per byte: no workaround
 is needed.
+
+**With the reader** (median of 5 × 500, `script(1)` pty, 2026-11-10;
+`FV_TTY_READER=1` vs `0` in the same runtime):
+
+| runtime | `read -n1` per byte, pipe / pty | `getKeyEvent` per key, pipe / pty | `initVideo` with / without | `doneVideo` with / without |
+|---|---|---|---|---|
+| MSYS2, bash 5.3.9 | 11 / 33 µs | 195 / 218 µs | 199 / 190 ms | 79 / 86 ms |
+| Cygwin, bash 5.2.21 | 12 / 33 µs | 229 / 261 µs | 183 / 180 ms | 82 / 84 ms |
+
+Reading the pipe is cheaper than reading the terminal (no mode switch per
+read). The reader starts in ~3–9 ms and stops in ~1–6 ms (~125 ms when `TERM`
+was ignored at shell start; the rest of `done` is the drain). **Latency**, a key written to the terminal → `getKeyEvent`
+returns in an idle loop of 0.05 s polls: through `script(1)` it is dominated
+by script's own relay (17–30 ms, bimodal, in both modes; medians of three
+interleaved runs × 5 × 100 keys on Cygwin: 18.9 ms with the reader, 19.1 ms
+without); with a fifo standing in for the terminal (no `script`), the reader
+adds ~0.1 ms per key (MSYS2 333 / 246 µs, Cygwin 376 / 275 µs, Git-bash
+348 / 265 µs with / without).
+
+**Under CPU load** the reader adds one scheduling hop per byte: a 12-byte SGR
+mouse report through it, 500 reports, the largest gap between two of its
+bytes: with 8 busy processes on 16 cores never above 10 ms; with 16, 1.5 % of
+the reports above `FV_ESC_TIMEOUT` (20 ms), none above 50 ms; with 32, ~8 %
+above 50 ms (direct reading: ~0.4 %). A report cut by the Esc timeout decodes
+as `kbEsc` plus junk keys.
 
 ## Contract (kcl README §1) and deviations
 
@@ -352,7 +474,7 @@ is needed.
 
 ## Tests
 
-`bash kcl/fv.video/tests/tests.sh` — 217 tests. `initVideo` runs only under
+`bash kcl/fv.video/tests/tests.sh` — 246 tests. `initVideo` runs only under
 `script(1)`'s pty (the harness is `tests/fvv_pty.sh`, shared with
 fv.drivers), never on the terminal the tests were started from; without a
 util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
@@ -363,9 +485,9 @@ util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
 | 001_NoTerminal | bad mode, a missing / plain-file / `/dev/null` `FV_TTY`, `/dev/tty` without a controlling terminal (setsid): rc 1, nothing printed, nothing left |
 | 002_Size | `updateSize` over a stubbed `querySize`, the fallbacks, the default `querySize` without a terminal |
 | 003_Traps | the trap chain in child shells: verbatim save/restore, ignored signals, WINCH, INT/TERM/HUP order and statuses, `set -e` / `set -eE` handlers against plain bash, subshells chain only their own traps |
-| 004_Restore | `script(1)`: every exit path restores the terminal (stty, `?1049l ?25h ?7h`, mouse off), statuses 0/3/1/1/130/143/129, the caller's handlers once, SIGTERM ends an idle loop within 1 s; `set -e` + a false `&&` WINCH handler; SIGTERM during the restore's `stty`; the drain |
+| 004_Restore | `script(1)`: every exit path restores the terminal (stty, `?1049l ?25h ?7h`, mouse off), statuses 0/3/1/1/130/143/129, the caller's handlers once, SIGTERM ends an idle loop within 1 s; `set -e` + a false `&&` WINCH handler; SIGTERM during the restore's `stty`; the drain (as the runtime runs and with `FV_TTY_READER=0`) |
 | 005_Terminal | `script(1)`: the stty state while on, the fds, the size, the traps, SIGWINCH → `cmResizeApp`, init/done twice, `noalt`, `x=$(…)`, `FV_TTY`, raw mode refused (rc 1, nothing printed) |
-| 006_ZeroFork | `PATH=''` (the terminal part and the whole screen buffer) and the static scan (forks only in init, trap setup, `querySize`, the depth detection; `tput` only there) |
+| 006_ZeroFork | `PATH=''` (the terminal part, the reader and the whole screen buffer) and the static scan (forks only in init, trap setup, `querySize`, the reader start, the depth detection; `tput` only there; `taskkill` only in the reader stop) |
 | 007_Contract | `set -eu` (also the buffer), reload (the buffer state kept), no stdout, no stray globals or functions |
 | 008_Subshells | `script(1)`: parent traps never chained in a subshell's TUI, the owner rule (a subshell's init/done under an active parent are no-ops; a subshell's own TUI) |
 | 009_Buffer | allocation, every write and its RESULT, clipping, `setClip`, bad arguments, the shown copy, damaged columns, SGR on change, `force`, the cursor, the output-fd rules, a failed `printf` |
@@ -374,10 +496,10 @@ util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
 | 012_VtModel | every frame replayed through the pure-bash VT model (`tests/fvv_vt.sh`, grid starting as garbage): scripted scenes, resize, and a seeded random property test (`FVV_SEED`, `FVV_FRAMES`): VT grid = buffer = a per-cell shadow model after every update, incremental = one forced repaint |
 | 013_CallerState | nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS, `set -eu`, C locale: same output, state kept |
 | 014_Perf | repaint and partial-update cost against 3× the targets (numbers in the log) |
-| 015_ShellState | `script(1)`: init / done / the EXIT trap under an IFS holding digits, init under `IFS=$'
-	'` and `$'
-'`, done → init → a full repaint |
+| 015_ShellState | `script(1)`: init / done / the EXIT trap under an IFS holding digits, init under `IFS=$'\n\t'` and `$'\n'`, done → init → a full repaint |
+| 016_Reader | the reader (D13). Without a terminal (a fifo stands in, every runtime): all 256 byte values forwarded unchanged and the end at end of file (under `set -eEuxT`, pipefail, ERR/DEBUG/RETURN traps, a UTF-8 locale), the end when the owner is gone (timed; blocking: at the next byte), INT/QUIT/TSTP/WINCH ignored, TERM/HUP/a failed write end it, `_rstart` / `_rstop`, `FV_TTY_READER` 0 / 1 / auto by `OSTYPE` / junk, `__FV_VI_POLL` '' and junk, a reader that does not start (stopped), `TERM` ignored at shell start (stopped by `KILL`), the reader keeps only fds 0/1/2/tty, `_rstop` never signals a pid that is not its child. `script(1)`: alive while on (one child), keys / NUL / CSI / SGR mouse / UTF-8 / a 300-byte burst through it, Esc alone vs a sequence, gone after doneVideo, exit, `set -e`, Ctrl+C, SIGTERM, SIGHUP (within 1 s) and `kill -9` of the main shell (within 3 s; blocking: at the next byte), re-init, a subshell under an active parent, `FV_TTY_READER=0` and auto, signals to the reader alone, the reader killed → end of input, the restore drains through the pipe and never reads the terminal (with a reader) / drains the terminal (without), `TERM` ignored at shell start. Every reader pid is reaped if it survives |
 
 Run on Git-bash 5.3.15 (pty cases SKIP), MSYS2 5.3.9, Cygwin 5.2.21 and Debian
 (bash 5.1.16 and 5.2.37, util-linux script 2.41.5) in the lab VM (2026-11-09; the
-screen buffer, 009-014, the same day).
+screen buffer, 009-014, the same day; the reader, 016, on 2026-11-10, in the VM also with
+`FV_TTY_READER=1` for every fv suite).

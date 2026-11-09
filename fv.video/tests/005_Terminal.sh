@@ -28,7 +28,7 @@ count() {
 }
 
 TITLES=("raw mode: -echo -icanon -ixon min 1 time 0, intr = ^C, susp/quit/lnext (and the listed dsusp/discard/status/swtch) undefined"
-    "FV_TTY_FD is an open tty, FV_KEY_FD = FV_TTY_FD while on; after done FV_KEY_FD is back, FV_TTY_FD '' and the fd closed"
+    "FV_TTY_FD is an open tty, FV_KEY_FD = FV_TTY_FD while on (the reader's pipe where the reader runs); after done FV_KEY_FD is back, FV_TTY_FD '' and the fds closed"
     "the size comes from the pty: FV_SCREEN_W x FV_SCREEN_H = 100 x 30"
     "the caller's traps: ours while on, exactly the caller's again after doneVideo"
     "SIGWINCH sets FV_VIDEO_RESIZED and runs the caller's WINCH handler; getEvent -> evCommand cmResizeApp 120 40"
@@ -48,7 +48,8 @@ FV_KEY_FD=0
 fv.video.initVideo || exit 91
 note "stty $(stty -a <&"$FV_TTY_FD" | tr "\n" " ")"
 fd=$FV_TTY_FD
-if [[ -t $fd && $FV_KEY_FD == "$fd" ]]; then note "fd ok"; else note "fd bad [$fd] [$FV_KEY_FD]"; fi
+rf=$__FV_VI_RFD
+if [[ -t $fd && ( ( -z $rf && $FV_KEY_FD == "$fd" ) || ( -n $rf && $FV_KEY_FD == "$rf" && ! -t $rf ) ) ]]; then note "fd ok"; else note "fd bad [$fd] [$FV_KEY_FD] [$rf]"; fi
 note "size ${FV_SCREEN_W}x$FV_SCREEN_H"
 during=$(trap -p EXIT INT TERM HUP WINCH)
 [[ $during == *fv.video._onexit*fv.video._onsig\ INT*fv.video._onsig\ TERM*fv.video._onsig\ HUP*fv.video._onwinch* ]] && note "traps on ok"
@@ -60,7 +61,7 @@ note "event $FV_EV_WHAT $FV_EV_COMMAND $FV_EV_ID $FV_EV_INFO ${FV_SCREEN_W}x$FV_
 fv.video.doneVideo
 after=$(trap -p EXIT INT TERM HUP WINCH)
 [[ $before == "$after" ]] && note "traps back ok"
-if [[ $FV_KEY_FD == 0 && -z $FV_TTY_FD && ! -e /dev/fd/$fd ]]; then note "after ok"; else note "after bad [$FV_KEY_FD] [$FV_TTY_FD]"; fi
+if [[ $FV_KEY_FD == 0 && -z $FV_TTY_FD && ! -e /dev/fd/$fd && ( -z $rf || ! -e /dev/fd/$rf ) ]]; then note "after ok"; else note "after bad [$FV_KEY_FD] [$FV_TTY_FD]"; fi
 trap - WINCH
 exit 0'
 fvp_run state

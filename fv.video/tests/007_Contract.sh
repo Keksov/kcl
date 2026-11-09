@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # 007_Contract.sh - the kcl-wide contract for fv.video (kcl/README.md §1):
 # source integrity; loads, re-loads, loads by name (without any other fv
-# unit) and runs its no-terminal path under `set -eu`; a reload after
+# unit) and runs its no-terminal path and the reader (D13, a fifo as the
+# terminal) under `set -eu`; a reload after
 # `kk.unit --forget` is clean and keeps the state; a failing call returns to
 # the caller from `if` / `||`; nothing is printed to stdout, also inside
-# $( ); using it (the screen buffer too) leaves only FV_SCREEN_W/H,
+# $( ); using it (the screen buffer and the reader too) leaves only FV_SCREEN_W/H,
 # FV_VIDEO_*, FV_TTY_FD, __FV_VI_*, __FV_VS_*, RESULT and fv.video.* behind.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvv_testlib.sh"
@@ -77,6 +78,19 @@ kk.unit --forget fv.video
 source '$UNIT'
 [[ \${__FV_VS_CH[0]} == 'hi   ' && \$FV_VIDEO_COLORS == 16 && \${__FV_VS_PAL[3]} == '8 7 0' && \$__FV_VS_H == 2 ]]"
 
+rm -f "$TMP/c.fifo"; mkfifo "$TMP/c.fifo"
+expect_clean "the reader (D13) under set -eu: start, a key through its pipe, stop (a fifo as the terminal)" "
+source '$KBOOL'; kk.uses fv.drivers
+exec {f}<>'$TMP/c.fifo'
+FV_KEY_FD=\$f; __FV_VI_FD=\$f
+FV_TTY_READER=1 fv.video._rstart
+[[ -n \$__FV_VI_RPID && \$FV_KEY_FD == \"\$__FV_VI_RFD\" ]]
+printf q >&\$f
+fv.keyboard.getKeyEvent 2
+[[ \$FV_KEY_CHAR == q ]]
+fv.video._rstop
+[[ -z \$__FV_VI_RPID\$__FV_VI_RFD ]]"
+
 kt_test_start "a failing call returns to the caller under set -e"
 out="$(bash -c "set -e
 source '$UNIT'
@@ -115,6 +129,9 @@ fv.video.definePalette z 9 9; fv.video.setColorDepth 16; fv.video.detectColorDep
 fv.video.updateScreen; fv.video.updateScreen force; fv.video.resizeScreen; fv.video.clearScreen
 FV_ASCII=1 fv.video.initScreen; fv.video.writeStr 0 0 '═ж' 1; fv.video.updateScreen
 exec {fd}>&-; unset fd
+exec {fd}<>'$TMP/c.fifo'
+__FV_VI_FD=\$fd FV_TTY_READER=1 fv.video._rstart; fv.video._rstop
+exec {fd}>&-; unset fd FV_KEY_FD
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"

@@ -11,7 +11,8 @@
 # within 1 s. Also: set -e with a WINCH handler ending in a false `&&` (the
 # loop goes on); SIGTERM while the restore's stty runs (a slow stty function
 # stands in: the nested restore still restores, status 143); input pending at
-# doneVideo is drained and never reaches the shell after the child.
+# doneVideo is drained and never reaches the shell after the child (with the
+# reader as this runtime runs, and with FV_TTY_READER=0).
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvv_testlib.sh"
 fvv_init "$(basename "$0" .sh)" "$@"
@@ -55,7 +56,8 @@ if ! fvp_detect; then
     fvv_skip "SIGTERM ends an idle getEvent loop within 1 s"
     fvv_skip "set -e + a false && in the WINCH handler: restored" "set -e + a false && in the WINCH handler: status and handlers"
     fvv_skip "SIGTERM during the restore's stty: restored" "SIGTERM during the restore's stty: status and handlers"
-    fvv_skip "input pending at doneVideo is drained: nothing reaches the shell after the child"
+    fvv_skip "input pending at doneVideo is drained: nothing reaches the shell after the child (FV_TTY_READER=auto)" \
+        "input pending at doneVideo is drained: nothing reaches the shell after the child (FV_TTY_READER=0)"
 else
     fvp_case done "$PRE"'
 fv.video.doneVideo
@@ -129,25 +131,30 @@ note "not reached"'
     fvp_run midrestore ready wait:instty sig:TERM
     path midrestore "SIGTERM during the restore's stty" 143 EXIT-143
 
-    fvp_case drain '
+    # twice: as this runtime runs (the reader on Cygwin-family runtimes: the
+    # input waits in its pipe) and with FV_TTY_READER=0 (the input waits on
+    # the terminal itself)
+    for m in auto 0; do
+        fvp_case "drain$m" "$( [[ $m == 0 ]] && echo 'export FV_TTY_READER=0' )"'
 fv.video.initVideo || exit 91
 fv.drivers.initEvents
 : > "$D/ready"
-for (( i = 0; i < 100; i++ )); do if read -t 0 -u "$FV_TTY_FD"; then break; fi; sleep 0.05; done
+for (( i = 0; i < 100; i++ )); do if read -t 0 -u "$FV_KEY_FD"; then break; fi; sleep 0.05; done
 note "pending=$i"
 : > "$D/wantleft"
 fv.video.doneVideo
 exit 0'
-    fvp_run drain ready 'type:\e[<35;10;5M\e[<35;11;5M\e[<0;11;5Mabc'
-    kt_test_start "input pending at doneVideo is drained: nothing reaches the shell after the child"
-    fvp_file drain log; l=$REPLY
-    fvp_file drain leftover; left=$REPLY
-    fvp_file drain rc
-    if [[ $REPLY == 0 && $l == pending=* && ${l#pending=} -lt 100 && -e $FVP_ROOT/drain/leftover && -z $left ]] && fvp_restored drain; then
-        kt_test_pass "ok ($l)"
-    else
-        kt_test_fail "rc=$REPLY log=[$l] leftover=$(printf '%q' "$left") $REPLY"
-    fi
+        fvp_run "drain$m" ready 'type:\e[<35;10;5M\e[<35;11;5M\e[<0;11;5Mabc'
+        kt_test_start "input pending at doneVideo is drained: nothing reaches the shell after the child (FV_TTY_READER=$m)"
+        fvp_file "drain$m" log; l=$REPLY
+        fvp_file "drain$m" leftover; left=$REPLY
+        fvp_file "drain$m" rc
+        if [[ $REPLY == 0 && $l == pending=* && ${l#pending=} -lt 100 && -e $FVP_ROOT/drain$m/leftover && -z $left ]] && fvp_restored "drain$m"; then
+            kt_test_pass "ok ($l)"
+        else
+            kt_test_fail "rc=$REPLY log=[$l] leftover=$(printf '%q' "$left") $REPLY"
+        fi
+    done
 fi
 
 kt_test_log "004_Restore.sh completed"
