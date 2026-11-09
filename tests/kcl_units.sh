@@ -84,6 +84,12 @@ KCL_UNITS=(
     "thttprouter|ths||thttpserver"
     "thttpserver|ths||"
     "thttpapplication|||thttpserver"
+    # G6, the fv.* text UI (kcl/docs/dev/fv/PLAN.md): DOTTED unit names (D7).
+    # kk.unit declares no namespace for a dotted name (kkore finding K-1), so
+    # the censuses (001 and `name`) count a function named `UNIT.*` as the
+    # unit's own, and `taken` expects the "not an identifier" refusals
+    "fv.keyboard|||"
+    "fv.mouse|||"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),
@@ -342,8 +348,13 @@ set +eu
 # name: runtime census, owners, old variables
 KC_cls=" ${__KK_UNIT_CLASSES[*]} " KC_bad=""
 declare -A KC_seen=()
+# a DOTTED unit name (fv.keyboard) owns the functions named after it: kk.unit
+# declares no namespace for it (kkore finding K-1, kcl/docs/dev/fv/PLAN.md §3)
+KC_dot=()
+for KC_x in "${!__KK_UNITS[@]}"; do [[ $KC_x == *.* ]] && KC_dot+=("$KC_x."); done
 while IFS= read -r KC_l; do
     [[ $KC_l == *.* ]] || continue
+    for KC_x in "${KC_dot[@]}"; do [[ $KC_l == "$KC_x"* ]] && continue 2; done
     KC_x=${KC_l%%.*}
     [[ -n ${KC_seen[$KC_x]+x} ]] && continue
     KC_seen[$KC_x]=1
@@ -353,15 +364,16 @@ KC_o="census:${KC_bad:-ok}"
 KC_bad=""
 for KC_p in "${KC_names[@]}"; do
     KC_x=${KC_p%%:*} KC_own=${KC_p##*:} KC_w=${__KK_NAMESPACES[${KC_p%%:*}]-}; KC_w=${KC_w%%$__KK_SEP*}
-    [[ $KC_w == "$KC_own" ]] || KC_bad+=" $KC_x:${KC_w:-none}"
+    [[ $KC_w == "$KC_own" || ( $KC_x == *.* && -z $KC_w ) ]] || KC_bad+=" $KC_x:${KC_w:-none}"
 done
 KC_o+=" owners:${KC_bad:-ok}"
 KC_bad=""
 while IFS= read -r KC_l; do
     [[ $KC_l == *_${KC_U}_SOURCED ]] && KC_bad+=" $KC_l"
 done < <(compgen -v)
-for KC_v in "${KC_U}_DIR" "${KC_u}_DIR"; do
-    if [[ " $KC_fl " == *" rundir "* && $KC_v == "${KC_U}_DIR" ]]; then
+# a dotted unit (fv.keyboard): its would-be folder variables are FV_KEYBOARD_DIR / fv_keyboard_DIR
+for KC_v in "${KC_U//./_}_DIR" "${KC_u//./_}_DIR"; do
+    if [[ " $KC_fl " == *" rundir "* && $KC_v == "${KC_U//./_}_DIR" ]]; then
         [[ ${!KC_v-} -ef ${KC_f%/*} ]] || KC_bad+=" $KC_v=${!KC_v-unset}"
     elif [[ -n ${!KC_v+x} ]]; then
         KC_bad+=" $KC_v"
@@ -369,14 +381,19 @@ for KC_v in "${KC_U}_DIR" "${KC_u}_DIR"; do
 done
 echo "$KC_o old:${KC_bad:-none}"
 # taken
+# a unit without classes (fv.keyboard) does not load kklass: the checks do
+declare -F defineClass >/dev/null || kk.uses kklass_pascal || { echo "kklass rc=$?"; exit 1; }
 defineClass TKclZz "" property a || { echo "TKclZz rc=$?"; exit 1; }
 for KC_p in "${KC_names[@]}"; do
     KC_x=${KC_p%%:*} KC_fn=${KC_p#*:}; KC_fn=${KC_fn%%:*}
     KC_before=""; [[ -n $KC_fn ]] && KC_before="$(declare -f "$KC_fn")"
     TKclZz.new "$KC_x" 2>"$KCLT_TMP/n.err"; KC_i=$?
-    if (( KC_i != 0 )) && grep -qF "Invalid instance name: $KC_x (" "$KCLT_TMP/n.err"; then KC_i=refused; else KC_i="ACCEPTED($KC_i):$(<"$KCLT_TMP/n.err")"; fi
+    # a dotted name is never an identifier: refused as such, not as taken
+    KC_ni="Invalid instance name: $KC_x (" KC_nc="Duplicate identifier"
+    if [[ $KC_x == *.* ]]; then KC_ni="Invalid instance name: $KC_x" KC_nc="Invalid class name: '$KC_x'"; fi
+    if (( KC_i != 0 )) && grep -qF "$KC_ni" "$KCLT_TMP/n.err"; then KC_i=refused; else KC_i="ACCEPTED($KC_i):$(<"$KCLT_TMP/n.err")"; fi
     defineClass "$KC_x" "" property zz 2>"$KCLT_TMP/c.err"; KC_c=$?
-    if (( KC_c != 0 )) && grep -q "Duplicate identifier" "$KCLT_TMP/c.err"; then KC_c=refused; else KC_c="ACCEPTED($KC_c):$(<"$KCLT_TMP/c.err")"; fi
+    if (( KC_c != 0 )) && grep -qF "$KC_nc" "$KCLT_TMP/c.err"; then KC_c=refused; else KC_c="ACCEPTED($KC_c):$(<"$KCLT_TMP/c.err")"; fi
     if [[ -z $KC_fn ]]; then KC_fs=nofn; elif [[ -n $KC_before && "$(declare -f "$KC_fn")" == "$KC_before" ]]; then KC_fs=same; else KC_fs=changed; fi
     printf '%s new=%s class=%s fn=%s\n' "$KC_x" "$KC_i" "$KC_c" "$KC_fs"
 done

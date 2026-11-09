@@ -147,12 +147,13 @@ agent) goes into every brief.
     loop polls it);
   * `TUI_ASCII=1` gives ASCII frames.
 * **fv.keyboard:**
-  * the spike decoder made a unit, its 67-case table extended;
+  * the spike decoder made a unit, its 67 checks (66 byte strings + one stream case) extended;
   * the Esc timeout and its environment override (open item O1);
   * the partial-read fix.
 * **fv.mouse:**
   * SGR 1006 press/release/wheel with modifiers;
-  * X10 parsed but clamped at column 223;
+  * X10 parsed; it cannot express a column past 223, and xterm's NUL for a past-the-end
+    position is read as that clamp;
   * mouse reporting is enabled at init and disabled on every exit path.
 * **fv.drivers:** the event globals, `GetEvent` (key, mouse, resize, idle) and the command
   constants.
@@ -171,6 +172,20 @@ agent) goes into every brief.
   * P0a: fv.keyboard + fv.mouse decoders, pure, table tests;
   * P0b: fv.video terminal part + fv.drivers `GetEvent`, `script(1)` restore tests;
   * P0c: `tools/fv_termcheck.sh` + TERMINAL_CHECK.md + finding K-1.
+* **Requirements on P0b from the P0a review (2026-11-09):**
+  * on a tty, bash's `read -n1` puts the terminal into "one char" mode for each read and turns
+    ISIG, ICRNL and IEXTEN back on (bash `tt_setonechar`), so `stty raw` alone does not make
+    Ctrl+C / Ctrl+Z / Ctrl+\ arrive as keys: fv.video undefines `intr`, `susp`, `quit` (and
+    `lnext`) at init and restores them on every exit path; CR arrives as LF (both are kbEnter);
+  * measure the per-byte cost of `read -n1` on a real pty (`script(1)` on Linux, MSYS2,
+    Cygwin) and put it next to the file-fd numbers; if the mode switch costs too much on the
+    hot path, report before working around it;
+  * fv.video never sends DECKPAM (`ESC =`): keypad application keys `ESC O p..y` clash with
+    the vt100 F5–F12 entries (`ESC O t` = F5);
+  * a cursor-position query (`ESC [ 6 n`, a later wide-character probe) must read its reply
+    with its own reader: `ESC [ r ; c R` decodes as a modified F3;
+  * the idle / SIGWINCH loop uses `getKeyEvent 0.05`-style timeouts, not `pollKeyEvent`
+    (which peeks, as in FPC); a trap handler only sets a flag.
 
 ### P1 — screen buffer (L1)
 

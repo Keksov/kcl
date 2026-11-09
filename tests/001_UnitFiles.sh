@@ -76,8 +76,9 @@ for row in "${KCL_UNITS[@]}"; do
             if [[ $t == *../../kklass* || $t == *../kkore* ]]; then bad+=" path@${c%%:*}"; fi
             if [[ $t == *'$(cd '* || $t =~ dirname[[:space:]]+\"?\$\{?BASH_SOURCE ]]; then bad+=" fork@${c%%:*}"; fi
             if [[ $t =~ ^[[:space:]]*(source|\.)[[:space:]] ]]; then bad+=" source@${c%%:*}"; fi
-            if [[ $t =~ ^kk\.uses[[:space:]] && ! $t =~ ^kk\.uses(\ [A-Za-z_][A-Za-z0-9_]*)+\ \|\|\ return$ \
-                  && ! $t =~ ^kk\.uses\ --optional(\ [A-Za-z_][A-Za-z0-9_]*)+\ \|\|\  ]]; then bad+=" uses-form@${c%%:*}"; fi
+            # a unit name may be dotted (fv.keyboard, D7)
+            if [[ $t =~ ^kk\.uses[[:space:]] && ! $t =~ ^kk\.uses(\ [A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*)+\ \|\|\ return$ \
+                  && ! $t =~ ^kk\.uses\ --optional(\ [A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*)+\ \|\|\  ]]; then bad+=" uses-form@${c%%:*}"; fi
             # `kk.uses --optional X || <fallback>` only where the row says so
             # (flag optional; none does today) — the fallback is not checked (R5)
             if [[ $t =~ ^kk\.uses[[:space:]]+--optional && " $KFL " != *" optional "* ]]; then bad+=" optional-without-flag@${c%%:*}"; fi
@@ -93,6 +94,8 @@ for row in "${KCL_UNITS[@]}"; do
         while IFS= read -r l || [[ -n $l ]]; do
             if [[ $l =~ ^[[:space:]]*class[[:space:]]+([A-Za-z_][A-Za-z0-9_]*) ]]; then cls[${BASH_REMATCH[1]}]=1; fi
             if [[ $l =~ ^[[:space:]]*(defineClass|declareClass|defineSerializableClass)[[:space:]]+\"?([A-Za-z_][A-Za-z0-9_]*) ]]; then cls[${BASH_REMATCH[2]}]=1; fi
+            # a dotted unit (fv.keyboard) owns its `UNIT.*` functions (K-1)
+            if [[ $KU == *.* && $l =~ ^(function[[:space:]]+)?([A-Za-z0-9_.]*) && ${BASH_REMATCH[2]} == "$KU".* ]]; then continue; fi
             if [[ $l =~ ^(function[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z_][A-Za-z0-9_.]*[[:space:]]*(\(\)|\{|$) ]]; then pre[${BASH_REMATCH[2]}]=1; fi
         done < "$KF"
         # the kk.namespace lines: their form and their place (code lines right
@@ -171,10 +174,16 @@ FNR == 1 { delete seen }
         if (!((FILENAME, p) in seen)) { seen[FILENAME, p] = 1; print FILENAME "\t" p }
     }
     l = " " l
-    while (match(l, /[^A-Za-z0-9_.][A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_]/)) {
-        p = substr(l, RSTART + 1, RLENGTH - 3)
-        l = substr(l, RSTART + RLENGTH - 1)
-        if (!((FILENAME, p) in seen)) { seen[FILENAME, p] = 1; print FILENAME "\t" p }
+    # a dotted chain a.b.c names the prefixes a and a.b (a dotted unit,
+    # fv.keyboard.getKeyEvent -> fv.keyboard); a.b names a, as before
+    while (match(l, /[^A-Za-z0-9_.][A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+/)) {
+        n = split(substr(l, RSTART + 1, RLENGTH - 1), w, ".")
+        l = substr(l, RSTART + RLENGTH)
+        p = ""
+        for (k = 1; k < n; k++) {
+            p = (k == 1) ? w[1] : p "." w[k]
+            if (!((FILENAME, p) in seen)) { seen[FILENAME, p] = 1; print FILENAME "\t" p }
+        }
     }
 }
 EOF
