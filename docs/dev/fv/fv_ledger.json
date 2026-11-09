@@ -14,7 +14,10 @@
     "D6": "2026-11-08 kklass call-path round K first (parallel to L0/L1); merged + released in 0.1.1 (call 1.8x faster)",
     "D7": "2026-11-09 unit names carry the prefix fv. (owner 1b): uses fv.views, fv.dialogs",
     "D8": "2026-11-09 mouse in v1: click focuses/selects/presses, wheel scrolls (owner 2b)",
-    "D9": "2026-11-09 P0 starts without the owner's terminal runs; terminal-check script + English instructions are part of P0 (owner 3b)"
+    "D9": "2026-11-09 P0 starts without the owner's terminal runs; terminal-check script + English instructions are part of P0 (owner 3b)",
+    "D10": "2026-11-09 256 colours from v1 (owner, O6): palette entries fg/bg 0-255, nearest-16 fallback",
+    "D11": "2026-11-09 non-UTF-8 locale: local C.UTF-8 in unit functions, ASCII mode fallback (owner, O4 a)",
+    "D12": "2026-11-09 terminal check automated on Windows via SendInput driver synced with termcheck (owner request); live runs only in an owner-agreed slot"
   },
   "measurements": {
     "spike": "2026-11-08 scratchpad tui_spike/REPORT.md: Git-bash 80x24 Down K 7.0 / K_partial 4.4 / P 3.2 / P_partial 0.9 ms; Tab K 22.5; first paint K 17.6; KV (virtual GetText per row) 17.3; kk calls per Down/PgDn/Tab/paint 8/8/18/9",
@@ -93,10 +96,7 @@
       "extras": [
         "tools/bench fv suite"
       ],
-      "open_items": [
-        "O4",
-        "O6"
-      ],
+      "open_items": [],
       "status": "next"
     },
     {
@@ -153,9 +153,9 @@
     "O1": "P0: Esc timeout default - rec. 0.02 s + FV_ESC_TIMEOUT - implemented as recommended; asked owner 2026-11-09 (no answer yet = keep)",
     "O2": "P4: one-shot dialog flags whiptail/dialog-compatible subset or own; command name - rec. compatible subset",
     "O3": "P3: TMenuBar/TMenuBox in v1 - rec. yes if P2 within budget",
-    "O4": "P1: non-UTF-8 locale - rec. local C.UTF-8 in unit functions, else ASCII mode",
+    "O4": "DECIDED D11",
     "O5": "P5: protocol line format - rec. words with %q quoting",
-    "O6": "P1: colours - rec. FV 16-colour palette in v1"
+    "O6": "DECIDED D10"
   },
   "findings": {
     "K-1": "kkore: kk.unit declares no namespace for a dotted unit name (fv.views), so kklass's class/instance-vs-unit name guard does not cover fv.* names; harmless (class names cannot contain a dot) but undocumented - P0 documents it or extends the guard; P0a: kcl/tests harness made dotted-aware (001 uses-form + xref, kcl_units census/owners/taken); the taken check is vacuous for dotted names until kk.unit declares them - CLOSED 2026-11-09: documented in kkore/README.md (kk.unit section)",

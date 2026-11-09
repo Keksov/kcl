@@ -29,6 +29,9 @@ Sources:
 | D7 | 2026-11-09 | **Unit names carry the prefix `fv.`**: `uses fv.views, fv.dialogs`. Generic names such as `app` or `views` stay free for user units. |
 | D8 | 2026-11-09 | **Mouse in v1**: a click focuses a window, selects a list row or presses a button; the wheel scrolls. |
 | D9 | 2026-11-09 | **P0 starts without the owner's real-terminal runs.** A ready terminal-check script with English instructions is part of P0; the owner runs it when convenient. |
+| D10 | 2026-11-09 | **256 colours from v1** (open item O6): a palette entry holds a foreground and a background index 0–255 (SGR `38;5;N` / `48;5;N`); terminals with fewer colours (Linux console, `TERM` without 256) get the nearest of the 16. |
+| D11 | 2026-11-09 | **Non-UTF-8 locale** (open item O4, choice a): unit functions switch to `C.UTF-8` locally; when the system has no UTF-8 locale at all, ASCII mode (`+-|` frames, `?` for non-ASCII) is the fallback. |
+| D12 | 2026-11-09 | **Terminal check automated on Windows** (owner request): a driver injects real keyboard/mouse input (`SendInput`) into each terminal window and syncs with termcheck; live runs only in a slot the owner agrees to. |
 
 ## 2. What the measurements say
 
@@ -192,7 +195,7 @@ agent) goes into every brief.
 ### P1 — screen buffer (L1)
 
 * **Buffer** (rule 3): row strings plus palette symbols, `SCR_DX1/DX2` damage, colour runs,
-  one `printf` per frame. FV's 16-colour palette, with open item O6.
+  one `printf` per frame. Palette entries with 256-colour indices (D10), nearest-16 fallback.
 * **Writes:** `fv.video` writes (`WriteStr`, `WriteChar`, `FillRect` equivalents of
   `TDrawBuffer` + `WriteLine`) with clipping to a rectangle.
 * **Wide characters (D5):**
@@ -202,7 +205,7 @@ agent) goes into every brief.
   * fast path: a string with only ASCII, Latin-1, Cyrillic and box drawing skips the table;
   * a wide character takes its cell plus a continuation cell that the update never emits;
   * a write that covers half of a wide character blanks both halves, as ncurses does.
-* **Locale:** at init, check that the locale is UTF-8. Behaviour without UTF-8 per open item O4.
+* **Locale:** at init, check that the locale is UTF-8; without it, local `C.UTF-8`, else ASCII mode (D11).
 * **Tests:** a pure-bash VT model of exactly the sequences fv.video emits (cursor moves, SGR,
   text) replays every frame and compares with the buffer. The spike used Python for this; CI
   rows do not all have Python.
@@ -308,9 +311,9 @@ Linux targets are set after the first native numbers.
 | O1 | P0 | Esc timeout default | 0.02 s, override `FV_ESC_TIMEOUT` (0.1 over ssh) |
 | O2 | P4 | One-shot dialogs: whiptail/dialog-compatible flags (`--msgbox TEXT H W`) or own syntax? Also the command name | compatible subset: scripts can switch with one word |
 | O3 | P3 | TMenuBar/TMenuBox in v1? | yes if P2 lands within budget; the file manager needs them |
-| O4 | P1 | Not a UTF-8 locale | try `C.UTF-8` locally in the unit's functions; else ASCII mode with `?` for non-ASCII |
+| O4 | P1 | **DECIDED D11 (a)** — Not a UTF-8 locale | try `C.UTF-8` locally in the unit's functions; else ASCII mode with `?` for non-ASCII |
 | O5 | P5 | Protocol line format: words with shell quoting, `key=value`, or JSON lines | words with `%q` quoting: bash reads them with `read -a`, no parser needed |
-| O6 | P1 | Colours: FV's 16-colour palette only, or 256/true colour too | 16 in v1; the palette symbol leaves room for more |
+| O6 | P1 | **DECIDED D10: 256 colours from v1** — Colours: FV's 16-colour palette only, or 256/true colour too | (was: 16 in v1) |
 
 ## 7. Risks
 
