@@ -17,7 +17,8 @@
     "D9": "2026-11-09 P0 starts without the owner's terminal runs; terminal-check script + English instructions are part of P0 (owner 3b)",
     "D10": "2026-11-09 256 colours from v1 (owner, O6): palette entries fg/bg 0-255, nearest-16 fallback",
     "D11": "2026-11-09 non-UTF-8 locale: local C.UTF-8 in unit functions, ASCII mode fallback (owner, O4 a)",
-    "D12": "2026-11-09 terminal check automated on Windows via SendInput driver synced with termcheck (owner request); live runs only in an owner-agreed slot"
+    "D12": "2026-11-09 terminal check automated on Windows via SendInput driver synced with termcheck (owner request); live runs only in an owner-agreed slot",
+    "D13": "2026-11-10 reader process on Cygwin-family runtimes (owner choice a, finding W-1): background reader without WINCH trap forwards tty bytes through a pipe"
   },
   "measurements": {
     "spike": "2026-11-08 scratchpad tui_spike/REPORT.md: Git-bash 80x24 Down K 7.0 / K_partial 4.4 / P 3.2 / P_partial 0.9 ms; Tab K 22.5; first paint K 17.6; KV (virtual GetText per row) 17.3; kk calls per Down/PgDn/Tab/paint 8/8/18/9",
@@ -84,6 +85,11 @@
           "date": "2026-11-09",
           "result": "termcheck: ~100-140 items (arrows, nav, fkeys x Shift/Ctrl/Alt, special, chars, keypad, mouse, resize), per-item log with raw bytes, OK/DIFF/NONE/INFO, Alt+F4 skipped by default, extra capped (Shift+Ins paste), 120 s finish timeout, incomplete marker; --feed test mode; selftest 132/132 on MSYS2 and Cygwin, 100 + 2 SKIP on Git-bash; pty runs check stty and restore sequences; logs gitignored (/fv_termcheck_*.log). K-1 documented in kkore README (probe: dotted unit registers, no namespace, a.b refused as class/instance name)",
           "review": "card-lint (Sonnet) before dispatch, Sonnet worker; supervisor read the owner README and reran selftest on MSYS2 (132/132); no critic (tool, not a core layer)"
+        },
+        {
+          "id": "P0d",
+          "title": "tty reader process on Cygwin-family runtimes (D13, finding W-1)",
+          "status": "next"
         }
       ]
     },
@@ -181,7 +187,7 @@
     "K-1": "kkore: kk.unit declares no namespace for a dotted unit name (fv.views), so kklass's class/instance-vs-unit name guard does not cover fv.* names; harmless (class names cannot contain a dot) but undocumented - P0 documents it or extends the guard; P0a: kcl/tests harness made dotted-aware (001 uses-form + xref, kcl_units census/owners/taken); the taken check is vacuous for dotted names until kk.unit declares them - CLOSED 2026-11-09: documented in kkore/README.md (kk.unit section)",
     "T-1": "P0c termcheck item: Ctrl+Backspace (0x08 on xterm/Windows Terminal) is read as kbBack, so FV kbCtrlBack is lost; confirm per terminal - termcheck records Ctrl+Backspace as INFO",
     "N-1": "later: fv.keyboard queue is not reset when FV_KEY_FD changes outside fv.drivers (feed before first getEvent must survive); documented",
-    "W-1": "2026-11-09 Git-bash under ConPTY (Windows Terminal, conhost): SIGWINCH trap + read -t on the tty fd hangs intermittently on resize (4/7 with trap, 0/2 without; mintty fine); reader-coproc workaround verified 5/5 - owner decision pending (rec. reader process on Cygwin-family runtimes)"
+    "W-1": "2026-11-09 Git-bash under ConPTY (Windows Terminal, conhost): SIGWINCH trap + read -t on the tty fd hangs intermittently on resize (4/7 with trap, 0/2 without; mintty fine); reader-coproc workaround verified 5/5 - owner chose a (D13): reader process on Cygwin-family runtimes"
   },
   "owner_pending": [
     "terminal runs with tools/termcheck in each terminal (Windows Terminal, mintty Git Bash, VS Code, conhost, MSYS2, Cygwin; optional WSL/SSH)",

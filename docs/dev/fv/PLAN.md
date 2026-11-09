@@ -32,6 +32,7 @@ Sources:
 | D10 | 2026-11-09 | **256 colours from v1** (open item O6): a palette entry holds a foreground and a background index 0–255 (SGR `38;5;N` / `48;5;N`); terminals with fewer colours (Linux console, `TERM` without 256) get the nearest of the 16. |
 | D11 | 2026-11-09 | **Non-UTF-8 locale** (open item O4, choice a): unit functions switch to `C.UTF-8` locally; when the system has no UTF-8 locale at all, ASCII mode (`+-|` frames, `?` for non-ASCII) is the fallback. |
 | D12 | 2026-11-09 | **Terminal check automated on Windows** (owner request): a driver injects real keyboard/mouse input (`SendInput`) into each terminal window and syncs with termcheck; live runs only in a slot the owner agrees to. |
+| D13 | 2026-11-10 | **Reader process on Cygwin-family runtimes** (finding W-1, owner choice a): on Git-bash, MSYS2 and Cygwin, fv.video starts a background reader without a WINCH trap that reads the tty and forwards bytes through a pipe; fv.keyboard reads the pipe. Under ConPTY a WINCH trap + `read -t` on the tty hangs intermittently on resize. Linux, macOS and BSD read the tty directly. The reader ends with the TUI on every exit path. |
 
 ## 2. What the measurements say
 
