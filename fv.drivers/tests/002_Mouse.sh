@@ -85,4 +85,12 @@ get "evMouseUp x=2 y=3"
 FVD_NOTE="X10 Ctrl+Shift" get "evMouseDown x=0 y=0 b=1 m=5"
 get "evMouseUp x=0 y=0"
 
+fvd_feed $'\e[<0;3;3M\e[<65;4;4M\e[<0;3;3m'
+get "evMouseDown x=2 y=2 b=1"
+kt_test_start "IFS=0123456789: a wheel with a held button keeps the button mask (the number must not split)"
+tick; IFS=0123456789 fv.drivers.getEvent 0; rc=$?
+fvd_ev
+if [[ $rc == 0 && $REPLY == "evMouseWheel x=3 y=3 b=1 wheel=2" ]]; then kt_test_pass "ok"; else kt_test_fail "rc=$rc got [$REPLY]"; fi
+get "evMouseUp x=2 y=2"
+
 kt_test_log "002_Mouse.sh completed"

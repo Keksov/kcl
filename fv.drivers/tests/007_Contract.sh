@@ -105,7 +105,7 @@ unset FV_KEY_FD FV_IDLE_TIMEOUT FV_DOUBLE_DELAY
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
-newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_EV_[A-Z_]+|__FV_DR_[A-Z]+|FV_KEY|FV_KEY_[A-Z]+|__FV_KB_[A-Z0-9]+|FV_MOUSE_[A-Z]+|__FV_MS_ORD|FV_SCREEN_[WH]|FV_VIDEO_(ON|RESIZED)|FV_TTY_FD|__FV_VI_[A-Z]+|RESULT|KK_UNIT_DIR)$' | tr '\n' ' ')"
+newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_EV_[A-Z_]+|__FV_DR_[A-Z]+|FV_KEY|FV_KEY_[A-Z]+|__FV_KB_[A-Z0-9]+|FV_MOUSE_[A-Z]+|__FV_MS_ORD|FV_SCREEN_[WH]|FV_VIDEO_(ON|RESIZED|ASCII|COLORS|OUT_FD)|FV_TTY_FD|__FV_VI_[A-Z]+|__FV_VS_[A-Z0-9]+|RESULT|KK_UNIT_DIR)$' | tr '\n' ' ')"
 newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^fv\.(drivers|keyboard|mouse|video)\.' | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass "ok"; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi
 

@@ -76,4 +76,13 @@ for s in "$ON_ANY" "$OFF"; do
 done
 if (( ok )); then kt_test_pass "ok"; else kt_test_fail "unparsed tail"; fi
 
+kt_test_start "a caller IFS holding digits: enable / disable to fd N still print (the fd must not split)"
+exec {fd}> "$TMP/ifs"
+r=''
+IFS=0123456789 fv.mouse.enable "$fd"; r+=$?
+IFS=0123456789 fv.mouse.disable "$fd"; r+=$?
+exec {fd}>&-
+got=$(<"$TMP/ifs")
+if [[ $r == 00 && $got == "$ON$OFF" ]]; then kt_test_pass "ok"; else kt_test_fail "rc=$r got $(printf '%q' "$got")"; fi
+
 kt_test_log "003_EnableDisable.sh completed"

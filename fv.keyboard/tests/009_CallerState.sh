@@ -80,4 +80,15 @@ printf '%s|%s|%s' \"\$r\" \"\${LC_ALL-unset}\" \"\${LC_CTYPE-unset}\"" 2>&1)
 done
 exec {nullfd}<&-
 
+kt_test_start "nocasematch + IFS=0123456789: the return status is kept (rc 2 for a bad timeout, rc 1 for an empty decode)"
+exec {nullfd2}</dev/null
+FV_KEY_FD=$nullfd2
+shopt -s nocasematch; IFS=0123456789
+r=''
+fv.keyboard.getKeyEvent junk; r+=$?
+fv.keyboard.decode ''; r+=$?
+IFS=$' \t\n'; shopt -u nocasematch
+exec {nullfd2}<&-
+if [[ $r == 21 ]]; then kt_test_pass "ok"; else kt_test_fail "rc=$r"; fi
+
 kt_test_log "009_CallerState.sh completed"

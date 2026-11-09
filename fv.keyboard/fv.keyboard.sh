@@ -384,7 +384,7 @@ fv.keyboard._nc() {
     shopt -u nocasematch
     "$@" || __fvk_r=$?
     shopt -s nocasematch
-    return $__fvk_r
+    return "$__fvk_r"
 }
 
 fv.keyboard.getKeyEvent() {

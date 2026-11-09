@@ -1,12 +1,14 @@
-# kcl/fv.video — the terminal for the fv.* text UI
+# kcl/fv.video — the terminal and the screen buffer for the fv.* text UI
 
-Layer L0 of the `fv.*` text UI ([plan](../docs/dev/fv/PLAN.md)). It sets the
+Layers L0 and L1 of the `fv.*` text UI ([plan](../docs/dev/fv/PLAN.md)). It sets the
 terminal up for a full-screen program and puts it back on **every** exit path:
 raw mode, alternate screen, hidden cursor, autowrap off, the screen size and a
-resize flag. It is a port in spirit of the FPC rtl-console `Video` unit
-(`InitVideo`, `DoneVideo`, `ScreenWidth` / `ScreenHeight`): **plain functions,
-no classes**. The screen buffer (writes, palette, damage diff, wide
-characters) is P1 and will live in this unit too.
+resize flag. Over it, the [screen buffer](#screen-buffer): writes, a 256-colour
+palette and a damage diff that sends only what changed, in one `printf` per
+frame. It is a port in spirit of the FPC rtl-console `Video` unit
+(`InitVideo`, `DoneVideo`, `ScreenWidth` / `ScreenHeight`, `VideoBuf`,
+`UpdateScreen`) and FV's `TDrawBuffer` writes: **plain functions, no
+classes**. Wide characters come with P1b.
 
 The unit loads no other `fv.*` unit. [`fv.drivers`](../fv.drivers/README.md)
 builds the event loop on it; [`fv.keyboard`](../fv.keyboard/README.md) reads the
@@ -125,13 +127,194 @@ signal does not interrupt bash's `read`, so the event loop must read with a
 timeout (`fv.drivers.getEvent` always does); SIGTERM during an idle loop ends
 the process in ~0.1 s (the read timeout plus the drain).
 
+## Screen buffer
+
+FPC Video's `VideoBuf` + `UpdateScreen`, with FV `TDrawBuffer` writes. The
+program writes into the buffer; `updateScreen` sends the terminal only what
+changed. It works headless (no `initVideo`, frames to any fd), which is how
+the tests check it.
+
+```bash
+FV_SCREEN_W=40 FV_SCREEN_H=10 fv.video.initScreen      # or after initVideo: its size
+exec {out}>frame.txt; FV_VIDEO_OUT_FD=$out             # headless; with initVideo: FV_TTY_FD
+fv.video.fillRect 0 0 40 10 1 '░'                      # desktop
+fv.video.writeStr 5 2 '╔══ Hello ══╗' 9
+fv.video.writeCStr 7 4 '~F~ile  ~E~dit' 8 C            # ~ switches between the two attributes
+fv.video.setCursorPos 7 4; fv.video.setCursorType 2
+fv.video.updateScreen                                  # one printf; again: only the changes
+```
+
+### Model
+
+* **One row = a character string + an attribute string of equal length in
+  cells.** An attribute is one symbol of `[0-9A-Za-z]` (62) that indexes the
+  palette, as FV's `GetColor` does. 62 symbols are enough for v1; revisit if
+  P2 palettes need more.
+* **Coordinates are 0-based**, X a column, Y a row. Every write is clipped to
+  the screen and to the clip rectangle.
+* **Damage:** each write records the leftmost and rightmost cell it wrote per
+  row. **The shown copy:** per row, what the terminal shows. A damaged row
+  equal to its copy sends nothing; otherwise its damaged columns are sent.
+  Allocation, `resizeScreen`, `force`, `setColorDepth` and a palette change
+  forget the copy of the rows they affect.
+* **A frame** = per sent row one cursor move (CUP), then colour runs: an SGR
+  only where the look changes (two symbols with the same colours share one;
+  the SGR state is unknown at the start of every frame), then the cursor.
+  **One `printf` per frame**; nothing at all when nothing changed.
+* **P1a: one character = one cell.** P1b adds wide characters: a wide
+  character's second cell will hold the continuation placeholder `$'\x01'`
+  (reserved now; writes can never store it, see control characters), which
+  updates never send; a per-row "has wide" flag (`__FV_VS_WIDE`, 0 for now)
+  keeps rows without them on the fast path.
+* **P1a: characters past U+FFFF (emoji, …) are stored as one `?`.** On
+  Cygwin-based bash (Git-bash, MSYS2, Cygwin) such a character counts as
+  **two** characters in `${#}` and in substrings (a UTF-16 surrogate pair):
+  it would take two buffer cells, and an overwrite of one of them would leave
+  half a UTF-8 sequence that the terminal shows as garbage. Storing `?`
+  keeps every platform alike and no cut sequence can ever be sent. P1b
+  designs real support (width 2, the continuation cell).
+* **Re-init:** `initVideo` clears the screen, so after it (also after a
+  `doneVideo` → `initVideo` shell-out) the next `updateScreen` repaints
+  every cell and re-sends the cursor state, as FPC does with a fresh
+  `OldVideoBuf`. `doneVideo` does the same.
+
+### API
+
+Every write sets `RESULT` to the cells it advances along its row (the
+unclipped width, so the next write goes at X+RESULT). Bad arguments: rc 2,
+`RESULT=''`, nothing written, one debug line. Before `initScreen`: rc 1.
+
+| Function | FPC / FV | Answer |
+|---|---|---|
+| `fv.video.initScreen` | `InitVideo` (buffer part) | allocates `FV_SCREEN_W` × `FV_SCREEN_H` blanks (a bad size: 80 × 24; W at most 1024, FV's `FVMaxWidth`) in the default symbol `0`; the default palette; the colour depth (below); the ASCII-mode decision; the clip reset; the cursor hidden at 0,0; everything damaged. Usable without `initVideo`. Call it again after `initVideo` to detect the depth. **It resets the palette, the clip, the cursor and the contents**: a palette defined before `initScreen` is lost (define it after); `detectColorDepth` changes only the depth and keeps all of them |
+| `fv.video.resizeScreen` | — | after `updateSize` / on `cmResizeApp`: reallocates at the new size, clears, resets the clip, damages everything; palette, depth, cursor kept (`updateSize` itself does not reallocate) |
+| `fv.video.writeStr X Y TEXT ATTR` | `MoveStr` + `WriteLine` | TEXT in the symbol ATTR |
+| `fv.video.writeChar X Y CH ATTR [COUNT]` | `MoveChar` | CH (its first character; `''` = blank) COUNT times (default 1); RESULT = COUNT |
+| `fv.video.writeBuf X Y TEXT ATTRS` | `MoveBuf` | one symbol per cell; ATTRS as long as TEXT (in cells), else rc 2 |
+| `fv.video.writeCStr X Y TEXT ATTR1 ATTR2` | `MoveCStr` | each `~` switches between ATTR1 and ATTR2 and takes no cell |
+| `fv.video.fillRect X Y W H ATTR [CH]` | — | the rectangle filled with CH (default blank); RESULT = W (0 when negative) |
+| `fv.video.clearScreen [ATTR]` | `ClearScreen` | the whole screen blank in ATTR (default `0`), **whatever the clip**; nothing is sent until `updateScreen` (FPC's ClearScreen updates at once) |
+| `fv.video.setClip X1 Y1 X2 Y2` | `TRect` | writes go only into [X1,X2) × [Y1,Y2), intersected with the screen; an empty rectangle writes nothing; reallocation resets it |
+| `fv.video.resetClip` | — | the clip = the whole screen |
+| `fv.video.setCursorPos X Y` | `SetCursorPos` | where the cursor stands after the next update (clamped to the screen there); X, Y ≥ 0 |
+| `fv.video.setCursorType 0..3` | `SetCursorType` | `crHidden` 0 → `ESC[?25l`; `crUnderLine`, `crBlock`, `crHalfBlock` 1–3 → `ESC[?25h` (no shape sequence) |
+| `fv.video.updateScreen [force]` | `UpdateScreen(Force)` | the frame (above) to `FV_VIDEO_OUT_FD`, else `FV_TTY_FD`. The cursor: when visible, its position after any text or when it moved; `?25h`/`?25l` only on a change. `force`: every cell of every row (no `ESC[2J`) and the cursor state re-sent. rc 1: no fd (nothing sent, the damage kept), or the `printf` failed (the next frame is forced) |
+| `fv.video.strWidth TEXT` | `StringDisplayWidth` | RESULT = the cells TEXT takes as a write stores it (P1a: characters; P1b: display width) |
+| `fv.video.definePalette SYM FG BG [BOLD]` | palette entry | SYM one symbol, FG / BG 0–255, BOLD 0 / 1 (default 0). A change of a symbol in use repaints the rows holding it (the default symbol: every row) |
+| `fv.video.setColorDepth 16\|256` | — | rebuilds every symbol's SGR and repaints everything |
+| `fv.video.detectColorDepth` | — | the detection below on demand, applied like `setColorDepth`; RESULT = 16 / 256 |
+
+| Global | Meaning |
+|---|---|
+| `FV_VIDEO_OUT_FD` | *input*: the fd frames go to; wins over `FV_TTY_FD`; `''` by default |
+| `FV_VIDEO_COLORS` | the colour depth in use, 16 or 256 |
+| `FV_VIDEO_ASCII` | 1 in ASCII mode (below) |
+| `FV_COLORS` | *input*: `16` or `256` overrides the detection (any other value: ignored, one debug line) |
+| `FV_ASCII` | *input*: `1` forces ASCII mode (replaces the spike's `TUI_ASCII`); read by `initScreen` |
+
+Internal state is `__FV_VS_*`.
+
+### Palette and colour depth (D10)
+
+* **An entry** maps a symbol to a foreground and a background index 0–255
+  and an optional bold. Its SGR is precomputed whole: `ESC[0;38;5;FG;48;5;BGm`
+  (with `1;` after the `0` for bold). Bold is SGR 1 only and never derived
+  from a bright index.
+* **16 colours:** every index maps to the nearest of xterm's 16 default
+  colours (squared RGB distance; cube levels 0, 95, 135, 175, 215, 255; greys
+  8 + 10k; ties to the lower index; 0–15 are themselves), memoised per index
+  when `definePalette` first uses it. fg 0–7 → 30–37, 8–15 → 90–97; bg 0–7 →
+  40–47, 8–15 → 100–107.
+* **An undefined symbol** shows as the default symbol `0`.
+* **The default palette** (`initScreen`): FV's classic colours as ANSI
+  indices. Symbol `0` is FPC's `DefaultAttr` $07; `1`–`9`, `A`–`U` are the 30
+  distinct attribute bytes of FV's `CAppColor` (app.inc) in order of first
+  appearance. FV bytes are $BF (B = background, F = foreground) in DOS colour
+  order, mapped to ANSI with 0 4 2 6 1 5 3 7 8 12 10 14 9 13 11 15:
+
+  | sym | byte | sym | byte | sym | byte | sym | byte |
+  |---|---|---|---|---|---|---|---|
+  | `0` | $07 | `8` | $17 | `G` | $13 | `O` | $2E |
+  | `1` | $71 | `9` | $1F | `H` | $3E | `P` | $30 |
+  | `2` | $70 | `A` | $1A | `I` | $21 | `Q` | $72 |
+  | `3` | $78 | `B` | $31 | `J` | $7F | `R` | $38 |
+  | `4` | $74 | `C` | $1E | `K` | $7A | `S` | $10 |
+  | `5` | $20 | `D` | $37 | `L` | $7E | `T` | $12 |
+  | `6` | $28 | `E` | $3F | `M` | $2B | `U` | $32 |
+  | `7` | $24 | `F` | $3A | `N` | $2F | | |
+
+* **The depth:** `FV_COLORS` when it is 16 or 256. Otherwise headless
+  `initScreen` takes 256 without asking anything; with the terminal on
+  (`initScreen` after `initVideo`, or `detectColorDepth`): `TERM` matching
+  `*256color*` or `COLORTERM` set → 256 (no fork); `TERM=linux` → 16; else one
+  `tput colors` fork: ≥ 256 → 256 (any length, e.g. xterm-direct's
+  16777216), anything else, a failure or no `tput` → 16.
+
+### Text, locale and ASCII mode (D11)
+
+* **Control characters:** every C0, DEL and C1 character in written text is
+  stored as `?`.
+* **Invalid UTF-8:** every invalid or cut sequence (a lone `\xff`, `e2 94`
+  without its last byte, a stray `0x9b`, an overlong `c0 80`, a surrogate
+  `ed a0 80`) is stored as **one** `?`, and so is a character past U+FFFF
+  (above). The check runs on bytes in the C locale (no collation, no
+  platform `mbrtowc` quirk) and only for text with a non-ASCII byte: valid
+  text is confirmed by removing its valid 2- and 3-byte sequences with four
+  pattern substitutions; only text that still has a non-ASCII byte takes the
+  byte-by-byte pass. Results are cached (at most 512 texts; `initScreen`
+  empties the cache).
+* **Locale:** every entry point needs UTF-8 character semantics. Each call
+  first tests the caller's locale: two probes, a 2-byte (`ж`) and a 3-byte
+  (`─`) character, must each count as one character (legacy CJK locales —
+  eucJP, GBK, Big5, eucKR — pass the first alone). Only when it is not UTF-8
+  does the call run with `local LC_ALL=` a UTF-8 locale found once at load:
+  the caller's own locale name if it is UTF-8, then `C.UTF-8`, `C.utf8`,
+  `en_US.UTF-8`, `en_US.utf8` (silent probes). The caller's locale is
+  unchanged after every call. When no locale variable is set at all, loading
+  exports `LC_CTYPE=C.UTF-8`, the kcl-wide convention (kcl README §1.6).
+* **ASCII mode** (`FV_VIDEO_ASCII=1`): when no UTF-8 locale exists, or with
+  `FV_ASCII=1`. Calls then run in the C locale where needed, and every
+  non-ASCII character (one UTF-8 sequence, not one byte) is stored as: box
+  drawing horizontals `-` (double `=`), verticals `|`, corners and junctions
+  `+`; `↑▲` `^`, `↓▼` `v`, `→►` `>`, `←◄` `<`, `■` `*`; anything else `?`.
+* **Caller state:** every entry point clears `nocasematch` for the call and
+  puts it back on every return path; `failglob`, `nullglob`, `noglob`,
+  `extglob`, `globasciiranges`, `IFS` and `set -eu` change nothing
+  (`tests/013`). Every function with a bare fd redirect (`>&$fd`, the form
+  bash 5.1 prints correctly) sets `local IFS=`, so a caller IFS holding
+  digits cannot split the fd (`tests/015`, on a pty).
+
+### Cost of the buffer
+
+Every write and every `updateScreen` is fork-free (`tests/006`); the only
+fork is `tput colors` in the depth detection. Git-bash 5.3.15, two-panel
+scene (~10 colour runs per row, Cyrillic and box drawing), median of 5 × N
+in one process (N = 10), frames to a file fd, 2026-11-09, the machine in use
+(an unloaded run gave 9.4–9.9 ms at 80 × 24 and 24–26 ms at 200 × 50; MSYS2
+5.3.9 within 5 %; an independent review run on a loaded machine gave
+200 × 50 32 / 32 ms); `tests/014` checks 3× limits. The repaint time is the
+colour-run loop (~25 cycles of slicing per run); the `printf` is ~1 %.
+
+The text check (invalid UTF-8) per 80-character `writeStr`, Git-bash, median
+µs, before → after: ASCII 133–149 → 138–143 (no change beyond noise);
+Cyrillic + box drawing, the same text again (cached) 144–162 → 188–190;
+every text new 153–169 → 227–260. `strWidth` ASCII 24 → 30.
+
+| measure | 256 colours | 16 colours | plain `printf` of the frame |
+|---|---|---|---|
+| 80 × 24 full repaint (`force`) | 10.5 ms | 10.8 ms | 0.10 / 0.08 ms (8.5 / 5.6 K chars) |
+| 80 × 24, 2 rows (2 `writeBuf` + update) | 0.65 ms | 0.63 ms | 0.02 ms |
+| 80 × 24, 24 whole-row `writeBuf` (no update) | 3.8 ms | 3.6 ms | — |
+| 200 × 50 full repaint (`force`) | 27.6 ms | 30.9 ms | 0.26 / 0.22 ms (24 / 18 K chars) |
+
 ## Cost
 
 Forks happen at init (`stty -g`, `stty -a` once per process, the raw-mode
 `stty`, `stty size`, five `trap -p`), at done (`stty`) and per resize (`stty
-size` in the default `querySize`). The WINCH trap, `updateSize` over an
-overridden `querySize` and everything on the event path are fork-free
-(`tests/006`).
+size` in the default `querySize`), and at most one `tput colors` in the
+colour-depth detection. The WINCH trap, `updateSize` over an overridden
+`querySize`, every buffer write, `updateScreen` and everything on the event
+path are fork-free (`tests/006`).
 
 `read -n1` on a real pty against a file fd, per byte (median of 5 × 500 bytes
 pre-written into the pty under `script(1)`, 2026-11-09):
@@ -158,11 +341,18 @@ is needed.
   `x=$(…)` must not write the size into `x`);
 * **the unit sets traps** (EXIT INT TERM HUP WINCH) between init and done, and
   chains the caller's (above);
-* `initVideo` forks (`stty`, `trap -p`) — once per start, not per key.
+* `initVideo` forks (`stty`, `trap -p`) — once per start, not per key;
+* **screen buffer:** the answer of a write is `RESULT` = cells advanced
+  (FV's `MoveStr` family returns nothing); attributes are palette symbols,
+  not FV attribute bytes; colours are 256-colour indices (D10), and with 16
+  colours bright colours are SGR 90–97 / 100–107, not blink/bold as in FPC;
+  bold is a separate flag; cursor types 1–3 all just show the cursor (no
+  shape sequence); `clearScreen` sends nothing until `updateScreen` and
+  ignores the clip; the buffer is at most 1024 columns wide (FVMaxWidth).
 
 ## Tests
 
-`bash kcl/fv.video/tests/tests.sh` — 102 tests. `initVideo` runs only under
+`bash kcl/fv.video/tests/tests.sh` — 217 tests. `initVideo` runs only under
 `script(1)`'s pty (the harness is `tests/fvv_pty.sh`, shared with
 fv.drivers), never on the terminal the tests were started from; without a
 util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
@@ -175,9 +365,19 @@ util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
 | 003_Traps | the trap chain in child shells: verbatim save/restore, ignored signals, WINCH, INT/TERM/HUP order and statuses, `set -e` / `set -eE` handlers against plain bash, subshells chain only their own traps |
 | 004_Restore | `script(1)`: every exit path restores the terminal (stty, `?1049l ?25h ?7h`, mouse off), statuses 0/3/1/1/130/143/129, the caller's handlers once, SIGTERM ends an idle loop within 1 s; `set -e` + a false `&&` WINCH handler; SIGTERM during the restore's `stty`; the drain |
 | 005_Terminal | `script(1)`: the stty state while on, the fds, the size, the traps, SIGWINCH → `cmResizeApp`, init/done twice, `noalt`, `x=$(…)`, `FV_TTY`, raw mode refused (rc 1, nothing printed) |
-| 006_ZeroFork | `PATH=''` and the static scan (forks only in init, trap setup, `querySize`) |
-| 007_Contract | `set -eu`, reload, no stdout, no stray globals or functions |
+| 006_ZeroFork | `PATH=''` (the terminal part and the whole screen buffer) and the static scan (forks only in init, trap setup, `querySize`, the depth detection; `tput` only there) |
+| 007_Contract | `set -eu` (also the buffer), reload (the buffer state kept), no stdout, no stray globals or functions |
 | 008_Subshells | `script(1)`: parent traps never chained in a subshell's TUI, the owner rule (a subshell's init/done under an active parent are no-ops; a subshell's own TUI) |
+| 009_Buffer | allocation, every write and its RESULT, clipping, `setClip`, bad arguments, the shown copy, damaged columns, SGR on change, `force`, the cursor, the output-fd rules, a failed `printf` |
+| 010_Palette | the default palette, `definePalette`, SGR with 256 / 16 colours, nearest-16 for all 256 indices against the VT model, repaints on depth and palette changes, the detection chain (FV_COLORS, TERM, COLORTERM, a `tput` stub, no `tput`) |
+| 011_Locale | silent load, a C caller (UTF-8 inside, locale back), ASCII mode (candidates stubbed to none; `FV_ASCII=1`), the maps, one `?` per sequence, control characters, invalid / cut / overlong / surrogate / 4-byte UTF-8, C1 with `globasciiranges` off, legacy CJK caller locales, the caller's own locale as candidate, the text cache |
+| 012_VtModel | every frame replayed through the pure-bash VT model (`tests/fvv_vt.sh`, grid starting as garbage): scripted scenes, resize, and a seeded random property test (`FVV_SEED`, `FVV_FRAMES`): VT grid = buffer = a per-cell shadow model after every update, incremental = one forced repaint |
+| 013_CallerState | nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS, `set -eu`, C locale: same output, state kept |
+| 014_Perf | repaint and partial-update cost against 3× the targets (numbers in the log) |
+| 015_ShellState | `script(1)`: init / done / the EXIT trap under an IFS holding digits, init under `IFS=$'
+	'` and `$'
+'`, done → init → a full repaint |
 
 Run on Git-bash 5.3.15 (pty cases SKIP), MSYS2 5.3.9, Cygwin 5.2.21 and Debian
-(bash 5.1.16 and 5.2.37, util-linux script 2.41.5) in the lab VM (2026-11-09).
+(bash 5.1.16 and 5.2.37, util-linux script 2.41.5) in the lab VM (2026-11-09; the
+screen buffer, 009-014, the same day).

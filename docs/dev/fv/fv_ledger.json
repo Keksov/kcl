@@ -2,7 +2,7 @@
   "schema_version": 1,
   "project": "kcl/fv.* - a Free Vision-style text UI library for bash: fv.video, fv.keyboard, fv.mouse, fv.drivers, fv.views, fv.menus, fv.dialogs, fv.app, fv.msgbox, plus face C (one-shot dialogs) and face B (protocol utility)",
   "created": "2026-11-09",
-  "updated": "2026-11-09",
+  "updated": "2026-11-10",
   "status": "IN PROGRESS - P0 done (owner terminal logs + O1 pending), P1 next",
   "plan": "PLAN.md",
   "decisions": {
@@ -97,7 +97,27 @@
         "tools/bench fv suite"
       ],
       "open_items": [],
-      "status": "next"
+      "status": "in progress",
+      "tasks": [
+        {
+          "id": "P1a",
+          "title": "fv.video screen buffer, 256-colour palette, damage diff with shown copy, pure-bash VT model",
+          "status": "done",
+          "date": "2026-11-10",
+          "result": "fv.video 217 tests (buffer, palette D10, locale D11 with two probes and caller-locale candidate, invalid UTF-8 -> ?, astral -> ? until P1b, control chars -> ?, VT-model property test); 80x24 force ~10 ms, 2-row partial 0.65 ms, 200x50 25-32 ms (Git-bash); host gate 105/105 cells 32353/32353 on 5.3.15/5.3.9/5.2.21; VM gate 5.1.16/5.2.37 PASS; unit 685 code lines (split decided with P1b)",
+          "review": "card-lint (Sonnet) B1-B9; independent Opus critic: P0 IFS-digit redirect bugs (terminal left raw), IFS=$'\n\t' broke initVideo, re-init blank frame, tput 16777216, invalid UTF-8, CJK locale probe; all fixed with fail-before tests, also IFS-digit fixes in fv.mouse/fv.keyboard/fv.drivers"
+        },
+        {
+          "id": "P1b",
+          "title": "wide characters: width table generator + data, continuation cells, astral support on Cygwin-family (UTF-16 surrogates)",
+          "status": "planned"
+        },
+        {
+          "id": "P1c",
+          "title": "tools/bench fv suite",
+          "status": "planned"
+        }
+      ]
     },
     {
       "id": "P2",
@@ -160,7 +180,8 @@
   "findings": {
     "K-1": "kkore: kk.unit declares no namespace for a dotted unit name (fv.views), so kklass's class/instance-vs-unit name guard does not cover fv.* names; harmless (class names cannot contain a dot) but undocumented - P0 documents it or extends the guard; P0a: kcl/tests harness made dotted-aware (001 uses-form + xref, kcl_units census/owners/taken); the taken check is vacuous for dotted names until kk.unit declares them - CLOSED 2026-11-09: documented in kkore/README.md (kk.unit section)",
     "T-1": "P0c termcheck item: Ctrl+Backspace (0x08 on xterm/Windows Terminal) is read as kbBack, so FV kbCtrlBack is lost; confirm per terminal - termcheck records Ctrl+Backspace as INFO",
-    "N-1": "later: fv.keyboard queue is not reset when FV_KEY_FD changes outside fv.drivers (feed before first getEvent must survive); documented"
+    "N-1": "later: fv.keyboard queue is not reset when FV_KEY_FD changes outside fv.drivers (feed before first getEvent must survive); documented",
+    "W-1": "2026-11-09 Git-bash under ConPTY (Windows Terminal, conhost): SIGWINCH trap + read -t on the tty fd hangs intermittently on resize (4/7 with trap, 0/2 without; mintty fine); reader-coproc workaround verified 5/5 - owner decision pending (rec. reader process on Cygwin-family runtimes)"
   },
   "owner_pending": [
     "terminal runs with tools/termcheck in each terminal (Windows Terminal, mintty Git Bash, VS Code, conhost, MSYS2, Cygwin; optional WSL/SSH)",

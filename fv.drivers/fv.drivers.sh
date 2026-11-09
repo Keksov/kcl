@@ -129,7 +129,7 @@ fv.drivers._mouse() {
     case $FV_MOUSE_WHAT in
         wheel)
             FV_EV_WHAT=evMouseWheel FV_EV_WHEEL=$(( __fvd_b == 8 ? 1 : 2 ))
-            fv.drivers._click $(( __FV_DR_HELD | __fvd_b )) 1 ;;
+            fv.drivers._click "$(( __FV_DR_HELD | __fvd_b ))" 1 ;;
         down)
             __FV_DR_HELD=$(( __FV_DR_HELD | __fvd_b )) FV_EV_WHAT=evMouseDown
             fv.drivers._click "$__FV_DR_HELD" 0 ;;

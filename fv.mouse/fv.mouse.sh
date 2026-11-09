@@ -63,7 +63,7 @@ fv.mouse._nc() {
     shopt -u nocasematch
     "$@" || __fvm_rc=$?
     shopt -s nocasematch
-    return $__fvm_rc
+    return "$__fvm_rc"
 }
 
 fv.mouse.decode() {
@@ -84,7 +84,7 @@ fv.mouse.decode() {
                 return 1
             fi
             if [[ $__fvm_r == *m ]]; then __fvm_t=1; else __fvm_t=0; fi
-            fv.mouse._bits $(( 10#$__fvm_b )) "$__fvm_t"
+            fv.mouse._bits "$(( 10#$__fvm_b ))" "$__fvm_t"
             FV_MOUSE_X=$(( 10#$__fvm_x - 1 )) FV_MOUSE_Y=$(( 10#$__fvm_y - 1 )) ;;
         $'\e[M'???)
             # one byte each: value + 32, coordinates 1-based, so 255 = column
@@ -98,7 +98,7 @@ fv.mouse.decode() {
                 RESULT=''
                 return 1
             fi
-            fv.mouse._bits $(( __fvm_b - 32 )) 0
+            fv.mouse._bits "$(( __fvm_b - 32 ))" 0
             FV_MOUSE_X=$(( __fvm_x - 33 )) FV_MOUSE_Y=$(( __fvm_y - 33 )) ;;
         *)
             kk.debug "Error: fv.mouse.decode: not a mouse report"
@@ -112,8 +112,11 @@ fv.mouse.decode() {
 
 # fv.mouse._emit FD SEQ — print SEQ to FD, then RESULT = SEQ. rc 2, RESULT=''
 # and nothing printed when FD is not a number, not open, or not writable (the
-# write fails: its message is dropped, FD's own stream is untouched)
+# write fails: its message is dropped, FD's own stream is untouched). IFS is
+# empty here: `>&$1` is a bare redirect target (bash 5.1 prints >&"$1" as
+# &> "$1"), and a caller IFS holding digits must not split it.
 fv.mouse._emit() {
+    local IFS=
     if [[ -z $1 || $1 == *[!0-9]* || ${#1} -gt 4 || ! -e /dev/fd/$1 ]] \
        || ! printf '%s' "$2" >&$1 2>/dev/null; then
         kk.debug "Error: fv.mouse: '$1' is not a file descriptor open for writing"
