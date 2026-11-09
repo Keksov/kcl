@@ -90,6 +90,8 @@ KCL_UNITS=(
     # unit's own, and `taken` expects the "not an identifier" refusals
     "fv.keyboard|||"
     "fv.mouse|||"
+    "fv.video|||"
+    "fv.drivers|||"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),

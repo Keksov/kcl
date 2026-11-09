@@ -14,7 +14,7 @@ key, and the two units do not load each other.
 source /path/to/kbool/kbool.sh
 kk.uses fv.keyboard fv.mouse
 
-fv.mouse.enable 1                 # P0b's fv.video calls these at init / exit
+fv.mouse.enable 1                 # fv.drivers.initEvents / doneEvents call these; fv.video turns it off on exit
 while fv.keyboard.getKeyEvent; do
     if [[ $FV_KEY == kbMouse ]] && fv.mouse.decode "$FV_KEY_SEQ"; then
         printf '%s button %s at %s,%s\n' "$FV_MOUSE_WHAT" "$FV_MOUSE_BUTTON" "$FV_MOUSE_X" "$FV_MOUSE_Y"

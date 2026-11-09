@@ -3,7 +3,7 @@
   "project": "kcl/fv.* - a Free Vision-style text UI library for bash: fv.video, fv.keyboard, fv.mouse, fv.drivers, fv.views, fv.menus, fv.dialogs, fv.app, fv.msgbox, plus face C (one-shot dialogs) and face B (protocol utility)",
   "created": "2026-11-09",
   "updated": "2026-11-09",
-  "status": "IN PROGRESS - P0a done, P0b next",
+  "status": "IN PROGRESS - P0a, P0b done, P0c next",
   "plan": "PLAN.md",
   "decisions": {
     "D1": "2026-11-08 API model = Free Vision (both loop styles: TProgram.Run + HandleEvent, public GetEvent)",
@@ -20,7 +20,9 @@
     "spike": "2026-11-08 scratchpad tui_spike/REPORT.md: Git-bash 80x24 Down K 7.0 / K_partial 4.4 / P 3.2 / P_partial 0.9 ms; Tab K 22.5; first paint K 17.6; KV (virtual GetText per row) 17.3; kk calls per Down/PgDn/Tab/paint 8/8/18/9",
     "roundK_ab": "2026-11-08 Git-bash, old kklass 7691162 vs new 5ad6faa interleaved, 4 rounds, loaded machine (plain control 0.88-1.05): Down full 0.74, partial 0.67, PgDn 0.68, Tab 0.74, first paint 0.87, KV 0.58 (25.0 -> 14.6 ms vs plain 4.9)",
     "dotted_unit_name": "2026-11-09: kk.uses fv.views loads kcl-style fv.views.sh by stem, classes build, fv.views.* functions run; no namespace is declared for a dotted name (finding K-1)",
-    "p0a_cost": "2026-11-09 Git-bash 5.3.15 median 5x500, loaded: decode a/ESC[A/ESC[1;5D/zh 0.09/0.23/0.54/0.24 ms; getKeyEvent file fd 0.15/0.32/0.76/0.37 ms; mouse decode 0.14-0.15 ms"
+    "p0a_cost": "2026-11-09 Git-bash 5.3.15 median 5x500, loaded: decode a/ESC[A/ESC[1;5D/zh 0.09/0.23/0.54/0.24 ms; getKeyEvent file fd 0.15/0.32/0.76/0.37 ms; mouse decode 0.14-0.15 ms",
+    "p0b_pty_read": "2026-11-09 read -n1 per byte pty/file us: MSYS2 24/7, Cygwin 23/8, Debian 5.2.37 22/11, 5.1.16 19/12 (+~15 us on a pty; no workaround needed)",
+    "p0b_event_cost": "2026-11-09 Git-bash file fd median 5x500 loaded: key getKeyEvent 160 / getKeyEvent 0.05 190 / getEvent 245-255 us; SGR mouse 570-590 / 620-630 / 895-940 us"
   },
   "design_rules": [
     "R1 no fork on the per-key path",
@@ -59,20 +61,23 @@
         {
           "id": "P0b",
           "title": "fv.video terminal part + fv.drivers GetEvent, script(1) restore tests",
-          "status": "next",
+          "status": "done",
           "requirements_from_P0a": [
-            "undefine intr/susp/quit/lnext at init, restore on every exit path (read -n1 forces ISIG on a tty)",
+            "undefine susp/quit/lnext (+dsusp/discard/status where present) at init, restore on every exit path (read -n1 forces ISIG on a tty); intr kept: Ctrl+C = interrupt + restore",
             "measure read -n1 per-byte cost on a real pty (script(1): Linux, MSYS2, Cygwin)",
             "never send DECKPAM (ESC =): keypad ESC O p..y clashes with vt100 F5-F12",
             "a CPR query reads its reply with its own reader (ESC [ r;c R decodes as modified F3)",
             "idle/SIGWINCH loop uses getKeyEvent 0.05-style timeouts; trap handler only sets a flag",
             "check [[ -e /dev/fd/N ]] fd test on the FreeBSD/macOS/Linux CI rows (bash emulates /dev/fd where absent)"
-          ]
+          ],
+          "date": "2026-11-09",
+          "result": "fv.video (terminal: /dev/tty on own fd, raw mode with intr kept and susp/quit/lnext(+dsusp/discard/status/swtch) undefined, alt screen, caller-trap chaining, restore once on every exit path, owner-process rule, input drain at restore; 102 tests) + fv.drivers (getEvent: put -> resize cmResizeApp -> key/mouse -> evNothing, FV button mask, double/triple 0.44 s, put/clear, init/doneEvents; 141 tests); pty restore tests under script(1) on MSYS2, Cygwin, Debian 5.1.16/5.2.37 (Git-bash SKIP ENV); gate Windows 15/15 cells 2940/2940, VM 10/10 1960/1960; ShellCheck clean",
+          "review": "card-lint (Sonnet) 27 items applied before dispatch; independent Opus critic: B1 set -e + failing chained handler, B2 parent traps chained in subshells, B3 subshell doneVideo restored the parent's terminal, R1 signal during restore, R3 leftover input; all fixed with fail-before tests (B1 via trailing ':' after the handler text, B2 via re-setting an unused signal to drop inherited trap texts, B3 owner BASHPID); R2 (event loop in a pipeline subshell) documented. No second critic: supervisor-read diff, fail-before tests per item"
         },
         {
           "id": "P0c",
           "title": "tools/fv_termcheck.sh + docs/TERMINAL_CHECK.md (English) + finding K-1",
-          "status": "planned"
+          "status": "next"
         }
       ]
     },
@@ -142,7 +147,7 @@
     }
   ],
   "open_items": {
-    "O1": "P0: Esc timeout default - rec. 0.02 s + FV_ESC_TIMEOUT",
+    "O1": "P0: Esc timeout default - rec. 0.02 s + FV_ESC_TIMEOUT - implemented as recommended; asked owner 2026-11-09 (no answer yet = keep)",
     "O2": "P4: one-shot dialog flags whiptail/dialog-compatible subset or own; command name - rec. compatible subset",
     "O3": "P3: TMenuBar/TMenuBox in v1 - rec. yes if P2 within budget",
     "O4": "P1: non-UTF-8 locale - rec. local C.UTF-8 in unit functions, else ASCII mode",
@@ -151,6 +156,7 @@
   },
   "findings": {
     "K-1": "kkore: kk.unit declares no namespace for a dotted unit name (fv.views), so kklass's class/instance-vs-unit name guard does not cover fv.* names; harmless (class names cannot contain a dot) but undocumented - P0 documents it or extends the guard; P0a: kcl/tests harness made dotted-aware (001 uses-form + xref, kcl_units census/owners/taken); the taken check is vacuous for dotted names until kk.unit declares them",
-    "T-1": "P0c termcheck item: Ctrl+Backspace (0x08 on xterm/Windows Terminal) is read as kbBack, so FV kbCtrlBack is lost; confirm per terminal"
+    "T-1": "P0c termcheck item: Ctrl+Backspace (0x08 on xterm/Windows Terminal) is read as kbBack, so FV kbCtrlBack is lost; confirm per terminal",
+    "N-1": "later: fv.keyboard queue is not reset when FV_KEY_FD changes outside fv.drivers (feed before first getEvent must survive); documented"
   }
 }

@@ -4,7 +4,7 @@
 
 kcl is a set of bash ports of Free Pascal RTL/FCL units, built on the
 [kklass](https://github.com/Keksov/kklass/tree/main) OOP framework and the [kkore](https://github.com/Keksov/kkore/tree/main) helpers. Every
-file is a kbool **unit** (section 1.10): 31 units in 28 folders — each folder
+file is a kbool **unit** (section 1.10): 33 units in 30 folders — each folder
 `kcl/<unit>/` holds `<unit>.sh`, except the thttpserver package, whose folder
 holds four (`thttpmessage`, `thttprouter`, `thttpserver`, `thttpapplication`).
 Each folder has its own test suite (`kcl/<unit>/tests/tests.sh`); development
@@ -325,7 +325,7 @@ for every unit by `kcl/tests` (section 3):
 
 ## 2. Units
 
-Thirty-one units in twenty-eight folders are implemented — one row per folder
+Thirty-three units in thirty folders are implemented — one row per folder
 below; the thttpserver row is a package of four units — and `fpjson` is
 planned. **Kind** is how the unit is called: a *static* unit has one class
 whose members are called on the class (`tpath.getFileName x`), an *instance*
@@ -338,8 +338,10 @@ documented, not designed. Every unit meets 1.10 (checked by `kcl/tests`).
 | Unit | Ported class(es) | Kind | Contract |
 |---|---|---|---|
 | [dateutils](dateutils/README.md) | `DateUtils` (185 members) | static | §1; deviations, all FPC-checked: `TryISOStrToDateTime` rejects `2011` / `20110326` / `T19:25` because FPC splits ISO strings **by position** (`dateutil.inc:2849`); `tryISO8601ToDate` still accepts a date-only string, which FPC rejects; a boolean member reports a non-numeric argument as rc 1 + `RESULT=''`, not as `false` |
+| [fv.drivers](fv.drivers/README.md) | FV `Drivers` in spirit (`TEvent`, `GetMouseEvent`'s double/triple clicks) + `TProgram.GetEvent` / `PutEvent`: keys, mouse, resize and idle as one event in `FV_EV_*` (FV names as values, commands by name: `cmResizeApp`); idle timeout `FV_IDLE_TIMEOUT` (0.05 s), `FV_DOUBLE_DELAY` (0.44 s); layer L0 of the `fv.*` text UI | functions | §1; deviations: plain functions; the answer is the `FV_EV_*` globals (`RESULT` = `FV_EV_WHAT`); `getEvent` never prints, also under `$( )`; its rc 1 is end of input (`evNothing` is rc 0); a bad `FV_IDLE_TIMEOUT` / `FV_DOUBLE_DELAY` falls back to the default. From FV: the resize flag is checked before keys; `evMouseAuto` is not produced (P3) |
 | [fv.keyboard](fv.keyboard/README.md) | FPC rtl-console `Keyboard` in spirit (`GetKeyEvent`, `PollKeyEvent`): terminal bytes → Free Vision key names (`kbCtrlLeft`, `kbF5`, …), UTF-8 characters, raw mouse reports; Esc timeout `FV_ESC_TIMEOUT` (0.02 s); layer L0 of the `fv.*` text UI | functions | §1; deviations: plain functions; the answer is the `FV_KEY*` globals (`RESULT` = the name); `getKeyEvent`/`pollKeyEvent` never print, also under `$( )`; their rc 1 is "no key", not an error; a bad `FV_ESC_TIMEOUT` falls back to the default; `FV_KEY_FD` is checked once per value (closed later: bash's read error, then rc 2; write-only: bash's read error, rc 1 + `FV_KEY_EOF=1`). The polls wait the Esc timeout for each missing byte of a started sequence |
 | [fv.mouse](fv.mouse/README.md) | FPC rtl-console `Mouse` in spirit: SGR 1006 and X10 reports → what / button / 0-based cell / modifiers (X10 clamped at column 223); the enable / disable sequences | functions | §1; deviations: plain functions; the answer is the `FV_MOUSE_*` globals; `enable`/`disable` print by definition (to an fd open for writing, else rc 2 with nothing printed) |
+| [fv.video](fv.video/README.md) | FPC rtl-console `Video` in spirit (`InitVideo`, `DoneVideo`, `ScreenWidth`/`ScreenHeight`), terminal part: `/dev/tty` on its own fd, raw mode with Ctrl+C kept as an interrupt (susp/quit/lnext undefined), alternate screen, hidden cursor, autowrap off, all restored on every exit path; screen size and the SIGWINCH flag; layer L0 of the `fv.*` text UI | functions | §1; deviations: plain functions; the answer is the globals (`FV_SCREEN_*`, `FV_VIDEO_*`, `FV_TTY_FD`); nothing is printed to stdout, also under `$( )` (terminal output goes to `FV_TTY_FD`); the unit sets EXIT/INT/TERM/HUP/WINCH traps between init and done, chaining the caller's; init and resize fork (`stty`) |
 | [math](math/README.md) | `Math` (123 members) | static (+ awk float engine) | §1; deviations: `sumInt` answers the Double on overflow where FPC's Int64 `SumInt` wraps (`math.pp:1224`); FPU/precision control is not ported — getters report the default mode, setters rc 1; the engine is not called through `read -t` on the hot path (see the unit README) |
 | [tarray](tarray/README.md) | `TArray` (`TArrayHelper<T>`) | static | §1; deviation: `min`/`max` are deliberately not strict about the comparator slot — the positional after it is a free-form default value, so a non-function token there is data |
 | [tawk](tawk/README.md) | **GNU Awk wrapper over [`TUtil`](tutil/README.md) (gawk 5.0.0 / 5.4.0)** — no FPC/Delphi source: `TAwk : TUtil`, typed options into a pinned argv, `program` + `addProgram` + `programFile`, verbatim `setVar` — the tool is resolved by `ktool` to an absolute path (`gawk` on FreeBSD), and with no usable tool every sink is rc 2 with `ktool`'s reason | instance (+ static `apply`) | §1; deviations: the family's inherited (a) and **named ones of its own**: (a) `run` **streams to stdout by definition** — a stream member prints, and the tool's bytes pass through untouched in every position; (b) **the sandbox is on by default and fails closed** — `--sandbox` is dropped only for the exact string `0`, so `system()`, every output redirection (`> "/dev/stderr"` and `> "/dev/stdout"` included), pipes, `\|&`, **input** redirection `getline < f` and extensions are gawk's fatal error (rc 1) unless the caller says `sandbox = 0`; (c) **a missing input file stops there** — gawk's FATAL rc 2: the earlier files' records are kept (`RESULT` = their count, rc 1, raw 2 in `lastRc`) and the later files are never read or edited, while **a directory operand is skipped** with gawk's warning and rc 0; (d) **gawk's own stderr passes through unconditionally**, its text differing between the two versions; (e) **a program's `exit N` is rc 1 silent**, the raw value (N mod 256) in `lastRc` (`exit 1`/`exit 2` get the one debug line, worded to say they may be the program's); (f) **`inPlace` and `nullData` derive `-v BINMODE=3`**, because text mode rewrites CRLF to LF on disk under in-place and strips a CR inside a NUL record — the `binary` property is never written; (g) **`setVar` is verbatim, unlike `-v`**: it emits `-v NAME=enc(VALUE)` (every `\` doubled, a newline `\n`, a leading `@` `\100`), byte-exact on both versions, while plain `-v` — still available through `addArg` — processes escapes and differs between 5.0 and 5.4; `backupSuffix` is encoded the same way; (h) **`print` terminates an unterminated last line** (it appends ORS; also under `nullData`); and `programFile` is resolved through AWKPATH (`-` is rc 2). Also: **in-place is `run` only and needs `sandbox = 0`** (the sandbox refuses the extension, so `inPlace` with the default sandbox is rc 2) — the five sinks are rc 2 with `inPlace = 1`, the extension is loaded by its **absolute** path (`-i inplace` would load a planted `./inplace.awk`), END output goes to stdout and `exit` mid-file truncates that file; **no program at all is rc 2** and an empty chunk is never emitted (gawk drops `-e ''` and compiles the first path as the program — `TAwk.apply ''` is rc 2 too); a path gawk reads as an assignment (`k=v`, `a::b=v`) is rc 2 (pass `./k=v`); the **`addArg` deny-list** follows gawk's getopt on both versions — every option that is modelled, skips the program, writes files under the sandbox, reads stdin or loses the input (`-e -f -i -l -E -F -S -o -g -h -V -C -d -p -D -M`), in short, attached, bundled and long form, **any prefix** of a long name and every **`-W long-option`** spelling, plus `-P`/`-c` while BINMODE is derived, `--`, a non-option word (it would become THE program) and a dangling `-v`/`-W`; a `setVar` name that is not an identifier, a keyword, a builtin or a gawk array is rc 2; a callback that assigns a bare `sandbox=0` or `program=` writes the instance's property, so callbacks declare `local`. `__taw_` and `_progs`/`_vnames`/`_vvals` are appended to the two out-name registries |
@@ -429,10 +431,10 @@ FreeBSD and Windows, bash 5.1 to 5.3 — is [the CI in the kbool repo](https://g
 ### `kcl/tests` — the unit shape of every unit
 
 ```bash
-bash kcl/tests/tests.sh                           # 192 tests, ~75 s threaded
+bash kcl/tests/tests.sh                           # 203 tests, ~75 s threaded
 ```
 
-One kcl-level suite checks section 1.10 for all 31 units, so the unit suites
+One kcl-level suite checks section 1.10 for all 33 units, so the unit suites
 keep their own concerns and totals:
 
 * `kcl_units.sh` — the table `KCL_UNITS`, one row per unit
@@ -446,7 +448,7 @@ keep their own concerns and totals:
   and the row's namespaces, the lint, `--optional` only with its flag, every
   cross-unit reference inside the `kk.uses` closure, rows ↔ stubs.
 * `NNN_<UNIT>.sh` — one runtime stub per row (101–107, 201–204, 301–305,
-  401–408, 501–505: the migration groups; 601–602 the dotted `fv.*` units,
+  401–408, 501–505: the migration groups; 601–604 the dotted `fv.*` units,
   whose `UNIT.*` functions the censuses count as the unit's own — kk.unit
   declares no namespace for a dotted name; 001 accepts a dotted name in
   `kk.uses` lines and reads `fv.keyboard.getKeyEvent` as a reference to the unit

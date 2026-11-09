@@ -114,7 +114,7 @@ the kkore README, or extends the guard if that is cheap.
 | fv.video | rtl-console Video | terminal init/done (raw mode, alternate screen, cursor, autowrap, restore on every exit path), screen size, resize flag; the screen buffer, palette, `UpdateScreen` damage diff, wide characters | L0 + L1 |
 | fv.keyboard | rtl-console Keyboard | byte reader with the Esc timeout; sequence → FV key code (`kbUp`, `kbF5`, `kbCtrlLeft`, `kbAltX`, …) and UTF-8 characters | L0 |
 | fv.mouse | rtl-console Mouse | SGR 1006 (and X10 fallback) reports → button, wheel, position; enable/disable sequences | L0 |
-| fv.drivers | FV Drivers | the event (`EV_WHAT EV_KEY EV_CHAR EV_MOUSE_*` globals, as the spike did), `GetEvent` = keyboard + mouse + idle + resize, command constants | L0/L2 |
+| fv.drivers | FV Drivers | the event (`FV_EV_WHAT FV_EV_KEY FV_EV_CHAR FV_EV_COMMAND FV_EV_MOUSE_*` globals, string values with FV names, as the spike did with `EV_*`), `GetEvent` = keyboard + mouse + idle + resize; commands are names (`cmQuit`, `cmResizeApp`), no constants table | L0/L2 |
 | fv.views | FV Views | TView, TGroup, TFrame, TScrollBar, TListViewer, TWindow | L2/L3 |
 | fv.menus | FV Menus | TStatusLine (key table, hints); TMenuBar/TMenuBox per open item O3 | L3 |
 | fv.dialogs | FV Dialogs | TDialog, TButton, TStaticText, TLabel, TInputLine, TCheckBoxes, TRadioButtons, TListBox | L3 |
@@ -134,7 +134,7 @@ Rules for every unit:
 
 A phase runs as: Opus worker → I review against the live tree → independent critic for
 P0–P3 → fixes → local gate → commit. CI runs on the push the owner allows. Nothing is pushed
-without the owner's word. The hygiene block (no stray processes, `strays_win.ps1` after every
+without the owner's word. The hygiene block (no stray processes, `ktests/tools/strays.sh list --all` in Git-bash and MSYS2 after every
 agent) goes into every brief.
 
 ### P0 — terminal, keys, mouse, events (L0)
@@ -145,7 +145,7 @@ agent) goes into every brief.
   * alternate screen, hidden cursor and autowrap off, each undone on exit;
   * size from `stty size` at init and on the resize flag (SIGWINCH sets a flag, the idle
     loop polls it);
-  * `TUI_ASCII=1` gives ASCII frames.
+  * ASCII frames (`TUI_ASCII=1` in the spike) belong to drawing and move to P1.
 * **fv.keyboard:**
   * the spike decoder made a unit, its 67 checks (66 byte strings + one stream case) extended;
   * the Esc timeout and its environment override (open item O1);
@@ -155,8 +155,8 @@ agent) goes into every brief.
   * X10 parsed; it cannot express a column past 223, and xterm's NUL for a past-the-end
     position is read as that clamp;
   * mouse reporting is enabled at init and disabled on every exit path.
-* **fv.drivers:** the event globals, `GetEvent` (key, mouse, resize, idle) and the command
-  constants.
+* **fv.drivers:** the event globals, `GetEvent` (key, mouse, resize, idle); commands are names,
+  not constants.
 * **Tests:**
   * decoder tables (byte strings in, codes out, no tty);
   * terminal restore under `script(1)` on every exit path, on Linux, MSYS2 and Cygwin; a
@@ -175,8 +175,10 @@ agent) goes into every brief.
 * **Requirements on P0b from the P0a review (2026-11-09):**
   * on a tty, bash's `read -n1` puts the terminal into "one char" mode for each read and turns
     ISIG, ICRNL and IEXTEN back on (bash `tt_setonechar`), so `stty raw` alone does not make
-    Ctrl+C / Ctrl+Z / Ctrl+\ arrive as keys: fv.video undefines `intr`, `susp`, `quit` (and
-    `lnext`) at init and restores them on every exit path; CR arrives as LF (both are kbEnter);
+    Ctrl+Z / Ctrl+\ arrive as keys: fv.video undefines `susp`, `quit`, `lnext` (and `dsusp`,
+    `discard`, `status` where they exist) at init and restores them on every exit path; `intr`
+    stays, so Ctrl+C remains an interrupt that restores the terminal (decided 2026-11-09, "Ctrl-C
+    keeps working"); CR arrives as LF (both are kbEnter);
   * measure the per-byte cost of `read -n1` on a real pty (`script(1)` on Linux, MSYS2,
     Cygwin) and put it next to the file-fd numbers; if the mode switch costs too much on the
     hot path, report before working around it;

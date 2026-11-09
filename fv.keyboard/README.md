@@ -139,8 +139,12 @@ Names are `kb` + modifiers in the order **Ctrl, Alt, Shift** + a base name.
   `tt_setonechar`) turns ISIG, ICRNL and IEXTEN back on. So Ctrl+C, Ctrl+Z and
   Ctrl+\ reach the decoder as keys only when the terminal's `intr`, `susp` and
   `quit` characters are undefined, and CR arrives as LF — one more reason both
-  map to `kbEnter`. Setting the characters up is fv.video's job; P0b measures the
-  per-byte cost of this on a tty.
+  map to `kbEnter`. [fv.video](../fv.video/README.md) **keeps `intr`** (Ctrl+C
+  stays an interrupt that restores the terminal, so `kbCtrlC` does not arrive
+  in a TUI) and **undefines `susp`, `quit` and `lnext`** (plus `dsusp`,
+  `discard`, `status`, `swtch` where they exist), so Ctrl+Z, Ctrl+\ and Ctrl+V
+  arrive as `kbCtrlZ`, `kbCtrlBackslash`, `kbCtrlV`. The mode switch costs
+  ~15–20 µs per byte on a pty (measured in P0b, fv.video README "Cost").
 
 ## Cost
 
