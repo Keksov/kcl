@@ -161,7 +161,7 @@ agent) goes into every brief.
   * decoder tables (byte strings in, codes out, no tty);
   * terminal restore under `script(1)` on every exit path, on Linux, MSYS2 and Cygwin; a
     runtime without `script` is reported as ENV.
-* **`tools/fv_termcheck.sh`** + `docs/TERMINAL_CHECK.md` in English (D9). The owner opens the
+* **`tools/termcheck/`** in kbool (`termcheck.sh` + an English `README.md`, D9). The owner opens the
   script in each terminal (Windows Terminal, mintty, VS Code, conhost) and presses the listed
   keys and mouse actions. The script writes a log the owner sends back. The decoder table grows
   from those logs.
@@ -171,7 +171,7 @@ agent) goes into every brief.
 * **Task split** (delegation rules: one subsystem × one concern, ~≤300 lines, own gate):
   * P0a: fv.keyboard + fv.mouse decoders, pure, table tests;
   * P0b: fv.video terminal part + fv.drivers `GetEvent`, `script(1)` restore tests;
-  * P0c: `tools/fv_termcheck.sh` + TERMINAL_CHECK.md + finding K-1.
+  * P0c: `tools/termcheck/` (termcheck.sh + README.md) + finding K-1.
 * **Requirements on P0b from the P0a review (2026-11-09):**
   * on a tty, bash's `read -n1` puts the terminal into "one char" mode for each read and turns
     ISIG, ICRNL and IEXTEN back on (bash `tt_setonechar`), so `stty raw` alone does not make
