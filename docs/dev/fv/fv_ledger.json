@@ -94,9 +94,9 @@
           "date": "2026-11-10",
           "summary": "fv.video reader (D13 + D13a): BLOCKING one-byte tty reader (process substitution; INT/QUIT/TSTP/WINCH ignored; inherited fds incl. tty 255 closed) + watchdog process (timed reads only on a pipe from the owner; EOF / owner gone -> stops the reader; exits silently when the reader is gone); restore drains the pipe, stops reader (TERM -> KILL -> taskkill) and watchdog (KILL + wait); RMODE: never a timed tty read, also on re-entry; FV_TTY_READER 0/1/auto; 016_Reader 35 tests; two critic rounds (R1-R10, R12-R18); gate Windows 3426/3426, VM 2284/2284 + FV_TTY_READER=1 all fv suites",
           "open": [
-            "full autodrive re-run on 5 terminals (wt, conhost, mintty x3) with the reader - needs an owner slot; also check key latency under ConPTY (blocking fifo reads wake in ~15.5 ms steps on Cygwin runtimes)",
             "owner question: FV_ESC_TIMEOUT 0.05 on reader runtimes (kept 0.02; earlier gap measurement was on a fifo, to redo live)"
-          ]
+          ],
+          "live_check": "2026-11-11 autodrive -Live on 5 terminals (kcl 85f63d5): wt 107 OK/1 DIFF/7 NONE, conhost 109/0/6, mintty-git/msys2/cygwin 96/1/18 each - all 'complete 130', stty restored, windows closed by themselves, no strays; wt+conhost no longer hang on Resize/F11. DIFF/NONE = terminal-owned keys only (Shift+Ins paste, F11 fullscreen, Shift+Click selection, mintty Alt+Fn) + 5 hotkeys taken by other programs. Key timing (driver send -> getEvent) same distribution as the 2026-11-09 direct-read run: no extra latency from the reader"
         }
       ]
     },
