@@ -84,12 +84,12 @@ source '$KBOOL'; kk.uses fv.drivers
 exec {f}<>'$TMP/c.fifo'
 FV_KEY_FD=\$f; __FV_VI_FD=\$f
 FV_TTY_READER=1 fv.video._rstart
-[[ -n \$__FV_VI_RPID && \$FV_KEY_FD == \"\$__FV_VI_RFD\" ]]
+[[ -n \$__FV_VI_RPID && -n \$__FV_VI_WPID && -n \$__FV_VI_WFD && \$FV_KEY_FD == \"\$__FV_VI_RFD\" ]]
 printf q >&\$f
 fv.keyboard.getKeyEvent 2
 [[ \$FV_KEY_CHAR == q ]]
 fv.video._rstop
-[[ -z \$__FV_VI_RPID\$__FV_VI_RFD ]]"
+[[ -z \$__FV_VI_RPID\$__FV_VI_RFD\$__FV_VI_WPID\$__FV_VI_WFD ]]"
 
 kt_test_start "a failing call returns to the caller under set -e"
 out="$(bash -c "set -e

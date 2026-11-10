@@ -23,8 +23,9 @@
 # to t_end; when the child created wantleft, the wrapper then reads what is
 # left on the pty for 0.5 s into leftover; when the child created hold, the
 # wrapper keeps the pty open until release exists (<= 10 s). The child
-# writes its pid to pid, and the pid of each fv.video reader it starts to a
-# file rpid* (fvp_run reaps any of them still alive: a survivor);
+# writes its pid to pid, and the pid of each fv.video reader and reader
+# watchdog it starts to a file rpid* (fvp_run reaps any of them still alive:
+# a survivor);
 # BODY uses `note TEXT` (one line to log) and `: > "$D/ready"` once the
 # terminal is set up. Feeder actions:
 #   ready          wait for the ready file (20 s)

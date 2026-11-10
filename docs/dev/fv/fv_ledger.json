@@ -18,7 +18,8 @@
     "D10": "2026-11-09 256 colours from v1 (owner, O6): palette entries fg/bg 0-255, nearest-16 fallback",
     "D11": "2026-11-09 non-UTF-8 locale: local C.UTF-8 in unit functions, ASCII mode fallback (owner, O4 a)",
     "D12": "2026-11-09 terminal check automated on Windows via SendInput driver synced with termcheck (owner request); live runs only in an owner-agreed slot",
-    "D13": "2026-11-10 reader process on Cygwin-family runtimes (owner choice a, finding W-1): background reader without WINCH trap forwards tty bytes through a pipe"
+    "D13": "2026-11-10 reader process on Cygwin-family runtimes (owner choice a, finding W-1): background reader without WINCH trap forwards tty bytes through a pipe",
+    "D13a": "2026-11-10 D13 amendment after the live check: the reader never does a timed tty read (blocking only); a watchdog process with timed reads on a pipe from the owner stops it (end of file / owner gone)"
   },
   "measurements": {
     "spike": "2026-11-08 scratchpad tui_spike/REPORT.md: Git-bash 80x24 Down K 7.0 / K_partial 4.4 / P 3.2 / P_partial 0.9 ms; Tab K 22.5; first paint K 17.6; KV (virtual GetText per row) 17.3; kk calls per Down/PgDn/Tab/paint 8/8/18/9",
@@ -91,10 +92,10 @@
           "title": "tty reader process on Cygwin-family runtimes (D13, finding W-1)",
           "status": "done",
           "date": "2026-11-10",
-          "summary": "fv.video._reader/_rstart/_rstop/_rgone: process-substitution reader (one byte per printf, INT/QUIT/TSTP/WINCH ignored, inherited fds closed, owner kill -0 every __FV_VI_POLL=0.5 s, '' = blocking); restore drains the pipe, then TERM -> KILL -> taskkill; FV_TTY_READER 0/1/auto; 016_Reader 26 tests; critic round R1-R10 fixed; gate Windows 3399/3399, VM 2266/2266 + FV_TTY_READER=1 all fv suites",
+          "summary": "fv.video reader (D13 + D13a): BLOCKING one-byte tty reader (process substitution; INT/QUIT/TSTP/WINCH ignored; inherited fds incl. tty 255 closed) + watchdog process (timed reads only on a pipe from the owner; EOF / owner gone -> stops the reader; exits silently when the reader is gone); restore drains the pipe, stops reader (TERM -> KILL -> taskkill) and watchdog (KILL + wait); RMODE: never a timed tty read, also on re-entry; FV_TTY_READER 0/1/auto; 016_Reader 35 tests; two critic rounds (R1-R10, R12-R18); gate Windows 3426/3426, VM 2284/2284 + FV_TTY_READER=1 all fv suites",
           "open": [
-            "live check under ConPTY (Windows Terminal, conhost): the reader's timed read with WINCH ignored (read_probe_pipe_t.sh 5x) and the full autodrive re-run on 5 terminals - needs an owner slot",
-            "owner question: FV_ESC_TIMEOUT 0.05 on reader runtimes (SGR report inter-byte gap > 20 ms in ~1.5% at 16 busy procs / 16 cores; kept 0.02)"
+            "full autodrive re-run on 5 terminals (wt, conhost, mintty x3) with the reader - needs an owner slot; also check key latency under ConPTY (blocking fifo reads wake in ~15.5 ms steps on Cygwin runtimes)",
+            "owner question: FV_ESC_TIMEOUT 0.05 on reader runtimes (kept 0.02; earlier gap measurement was on a fifo, to redo live)"
           ]
         }
       ]
@@ -193,7 +194,7 @@
     "K-1": "kkore: kk.unit declares no namespace for a dotted unit name (fv.views), so kklass's class/instance-vs-unit name guard does not cover fv.* names; harmless (class names cannot contain a dot) but undocumented - P0 documents it or extends the guard; P0a: kcl/tests harness made dotted-aware (001 uses-form + xref, kcl_units census/owners/taken); the taken check is vacuous for dotted names until kk.unit declares them - CLOSED 2026-11-09: documented in kkore/README.md (kk.unit section)",
     "T-1": "P0c termcheck item: Ctrl+Backspace (0x08 on xterm/Windows Terminal) is read as kbBack, so FV kbCtrlBack is lost; confirm per terminal - termcheck records Ctrl+Backspace as INFO",
     "N-1": "later: fv.keyboard queue is not reset when FV_KEY_FD changes outside fv.drivers (feed before first getEvent must survive); documented",
-    "W-1": "2026-11-09 Git-bash under ConPTY (Windows Terminal, conhost): SIGWINCH trap + read -t on the tty fd hangs intermittently on resize (4/7 with trap, 0/2 without; mintty fine); reader-coproc workaround verified 5/5 - owner chose a (D13): reader process on Cygwin-family runtimes"
+    "W-1": "2026-11-09 Git-bash under ConPTY (Windows Terminal, conhost): SIGWINCH trap + read -t on the tty fd hangs intermittently on resize (4/7 with trap, 0/2 without; mintty fine); reader-coproc workaround verified 5/5 - owner chose a (D13): reader process on Cygwin-family runtimes. 2026-11-10 live: a timed read -t on the tty hangs also with WINCH ignored (timed reader 5/5 hung in WT) - the timed tty read is the cause; blocking reader + pipe watchdog clean (WT 5/5, conhost 3/3, kill -9 2/2) - D13a"
   },
   "owner_pending": [
     "terminal runs with tools/termcheck in each terminal (Windows Terminal, mintty Git Bash, VS Code, conhost, MSYS2, Cygwin; optional WSL/SSH)",
