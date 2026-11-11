@@ -89,16 +89,19 @@ check "the reserved continuation placeholder is \\x01" "01" "$(printf '%02x' "'$
 # --- invalid UTF-8 and characters past U+FFFF (UTF-8 mode) -------------------------
 E1=$'\xcc\x81'                        # U+0301, a combining mark
 # a lone \xff, a cut sequence (e2 94 then 'a'), a raw 0x9b, an overlong c0 80,
-# a surrogate ed a0 80, a 4-byte emoji, the highest 4-byte f4 8f bf bf: one
-# '?' each; valid 2- and 3-byte characters and a combining mark are kept
+# a surrogate ed a0 80: one '?' each; valid 2-, 3- and 4-byte characters are
+# kept (P1b): the emoji U+1F600 is a wide marker cell (\x02 \x01 in the row,
+# shown here as # <), U+10FFFF (class n, past U+FFFF) a narrow marker, e +
+# U+0301 one marker cell (a cluster); the contents are in __FV_VS_X
 for setup in 'export LC_ALL=C.UTF-8' 'export LC_ALL=C' 'export LC_ALL=C.UTF-8; shopt -u globasciiranges'; do
     r=$(child "$setup" "fv.video.initScreen
 t=\$'<\\xff|\\xe2\\x94a|\\x9b|\\xc0\\x80|\\xed\\xa0\\x80|\\xf0\\x9f\\x98\\x80|\\xf4\\x8f\\xbf\\xbf|\\xd0\\xb6\\xe2\\x94\\x80e\\xcc\\x81|\\xc3\\xa9\\xc2\\x85\\xc3\\x80>'
 fv.video.writeStr 0 0 \"\$t\" 1; printf '%s ' \"\$RESULT\"
 fv.video.strWidth \"\$t\"; printf '%s ' \"\$RESULT\"
-LC_ALL=C.UTF-8; printf '[%s]' \"\${__FV_VS_CH[0]:0:25}\"")
-    check "invalid, cut, overlong, surrogate and 4-byte sequences -> one '?' each; valid text kept ($setup)" \
-        "25 25 [<?|?a|?|?|?|?|?|ж─e${E1}|é?À>]" "$r"
+LC_ALL=C.UTF-8; c=\${__FV_VS_CH[0]:0:25}; c=\${c//\$'\\x01'/'<'}; c=\${c//\$'\\x02'/'#'}
+printf '[%s] %s %s %s %s' \"\$c\" \"\${#__FV_VS_X[@]}\" \"\${__FV_VS_X[0 12]}\" \"\${__FV_VS_X[0 15]}\" \"\${__FV_VS_X[0 19]}\"")
+    check "invalid, cut, overlong and surrogate sequences -> one '?' each; valid text kept, 4-byte and clusters as marker cells ($setup)" \
+        "25 25 [<?|?a|?|?|?|#<|#|ж─#|é?À>] 3 "$'\xf0\x9f\x98\x80 \xf4\x8f\xbf\xbf e\xcc\x81' "$r"
 done
 
 # glibc collates bracket ranges by locale when globasciiranges is off: the C1

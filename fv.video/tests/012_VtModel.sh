@@ -8,8 +8,9 @@
 #     equals the buffer, the buffer equals an independent per-cell shadow
 #     model of the writes, and every few frames the incremental grid equals
 #     one forced full repaint into a fresh garbage grid. The text pieces
-#     include control characters, DEL, C1, invalid and cut UTF-8, a 4-byte
-#     emoji and a combining mark (the shadow knows the cells each becomes).
+#     include control characters, DEL, C1, invalid and cut UTF-8 (the shadow
+#     knows the cells each becomes). Wide characters, emoji and clusters come
+#     with the width-aware model (P1c); 017_Wide checks their frames meanwhile.
 # FVV_SEED (default 20261109) picks the random sequence; FVV_FRAMES (default
 # 240) the number of frames.
 
@@ -73,14 +74,15 @@ scene "an 80x24 scene from scratch" \
 # --- the property test -------------------------------------------------------------
 SEED=${FVV_SEED:-20261109} FRAMES=${FVV_FRAMES:-240}
 # POOL: raw text pieces; POOLC: the cells a write stores for each (control,
-# DEL, C1, invalid, cut, overlong and 4-byte sequences -> '?'; a combining
-# mark is a cell of its own in P1a). No piece starts with a continuation byte
-# except the lone 0x9b, and the cut e2 94 is always followed by a blank, so
+# DEL, C1, invalid, cut and overlong sequences -> '?'; no wide character, no
+# cluster: their frames are 017_Wide's until P1c). No piece starts with a
+# continuation byte except the lone 0x9b, and the cut e2 94 is always
+# followed by a blank, so
 # no two pieces can join into another character.
 POOL=(a b c Q x ' ' ' ' ж ю ё ─ │ ┌ ═ '~' '*' '?' '[' ']' $'\x01' $'\t' é 7 '#'
-    $'\x7f' $'\xc2\x85' $'\xf0\x9f\x98\x80' $'\xcc\x81' $'\xff' $'\xe2\x94 ' $'\x9b' $'\xc0\x80')
+    $'\x7f' $'\xc2\x85' $'\xff' $'\xe2\x94 ' $'\x9b' $'\xc0\x80')
 POOLC=(a b c Q x ' ' ' ' ж ю ё ─ │ ┌ ═ '~' '*' '?' '[' ']' '?' '?' é 7 '#'
-    '?' '?' '?' $'\xcc\x81' '?' '? ' '?' '?')
+    '?' '?' '?' '? ' '?' '?')
 SYMS=(a b c d e 0 1 9 U z)
 declare -a SH_C=() SH_A=()
 SW=0 SH=0 SX1=0 SY1=0 SX2=0 SY2=0

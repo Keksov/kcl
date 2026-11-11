@@ -42,10 +42,18 @@ kt_test_section "016: the reader process (D13)"
 # child BODY — run BODY in a fresh bash (kbool + fv.drivers loaded, a fifo
 # open read-write on $a as the "terminal"), at most 20 s; REPLY = its stdout,
 # CHILD_ERR = its stderr. BODY puts reader pids into $T/pids (reaped after).
+# Hardening (a child once hung past its timeout on MSYS2 with an empty log):
+# the child's stdout goes to a file, not $( ), so the parent never waits on a
+# pipe a leftover process inherited; the caller's line is the first word of
+# the child's command line (a stray report shows it) and the breadcrumb
+# $T/current; the child records its pid, and a child still alive after the
+# timeout is reaped (fvp_reap: KILL, then taskkill) and counted in SURV.
 child() {
-    local d=$T/c$RANDOM$RANDOM
+    local d=$T/c$RANDOM$RANDOM cp=''
     mkdir -p "$d"
-    REPLY=$("$KT_TIMEOUT" -k 2 20 "$BASH" -c "
+    printf '016_Reader: child of line %s\n' "${BASH_LINENO[0]}" > "$T/current"
+    "$KT_TIMEOUT" -k 2 20 "$BASH" -c ": child-of-line-${BASH_LINENO[0]}
+echo \$\$ > '$d/pid'
 cd '$d' || exit 89
 source '$KBOOL'
 kk.uses fv.drivers || exit 90
@@ -53,8 +61,14 @@ mkfifo '$d/f' || exit 88
 exec {a}<>'$d/f'
 pids() { printf '%s\n' \"\$@\" >> '$T/pids'; }
 gone() { local i; for (( i = 0; i < \${2:-40}; i++ )); do kill -0 \"\$1\" 2>/dev/null || return 0; sleep 0.05; done; return 1; }
-$1" 2> "$d/err")
+$1" > "$d/out" 2> "$d/err"
+    REPLY=$(<"$d/out")
     CHILD_ERR=$(<"$d/err")
+    if [[ -r $d/pid ]]; then read -r cp < "$d/pid" || :; fi
+    if [[ -n $cp && $cp != *[!0-9]* ]] && kill -0 "$cp" 2>/dev/null; then
+        fvp_reap "$cp"
+        SURV+=" child:$cp"
+    fi
     reap_all
 }
 
@@ -331,13 +345,20 @@ FV_TTY_READER=1 fv.video._rstart
 rp=$__FV_VI_RPID wp=$__FV_VI_WPID rf=$__FV_VI_RFD; pids "$rp" "$wp"
 sleep 0.3
 if [[ ! -d /proc/$rp/fd ]]; then echo "n/a"; fv.video._rstop; exit 0; fi
+# three snapshots ~50 ms apart, only the fds in all three count: the
+# watchdog reading /proc/PID/stat holds that file and the saved stdin for a
+# moment
+fds() { local f s=" "; for f in /proc/"$1"/fd/*; do s+="${f##*/} "; done; FDS=$s; }
+fds "$rp"; r1=$FDS; fds "$wp"; w1=$FDS; sleep 0.05
+fds "$rp"; r2=$FDS; fds "$wp"; w2=$FDS; sleep 0.05
+fds "$rp"; r3=$FDS; fds "$wp"; w3=$FDS
 bad="" seen=""
-for f in /proc/"$rp"/fd/*; do
-    n=${f##*/}
+for n in $r1; do
+    [[ $r2 == *" $n "* && $r3 == *" $n "* ]] || continue
     case $n in 0|1|2|255) ;; "$a") seen=1 ;; *) bad+=" r$n" ;; esac
 done
-for f in /proc/"$wp"/fd/*; do
-    n=${f##*/}
+for n in $w1; do
+    [[ $w2 == *" $n "* && $w3 == *" $n "* ]] || continue
     case $n in 0|1|2|255) ;; *) bad+=" w$n" ;; esac
 done
 fv.video._rstop

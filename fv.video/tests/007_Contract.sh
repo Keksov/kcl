@@ -6,7 +6,8 @@
 # `kk.unit --forget` is clean and keeps the state; a failing call returns to
 # the caller from `if` / `||`; nothing is printed to stdout, also inside
 # $( ); using it (the screen buffer and the reader too) leaves only FV_SCREEN_W/H,
-# FV_VIDEO_*, FV_TTY_FD, __FV_VI_*, __FV_VS_*, RESULT and fv.video.* behind.
+# FV_VIDEO_*, FV_TTY_FD, __FV_VI_*, __FV_VS_*, RESULT and fv.video.* behind
+# (plus what the unit it loads leaves: __FV_UC_* and fv.unicode.*).
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvv_testlib.sh"
 fvv_init "$(basename "$0" .sh)" "$@"
@@ -109,7 +110,7 @@ x=\$(FV_TTY=/nonexistent fv.video.initVideo; fv.video.initVideo bad; fv.video.up
 printf '[%s]' \"\$x\"" 2>&1)"
 if [[ $out == '[]' ]]; then kt_test_pass "ok"; else kt_test_fail "out='$out'"; fi
 
-kt_test_start "loading and using the unit leaves only FV_SCREEN_W/H, FV_VIDEO_ON/RESIZED/ASCII/COLORS/OUT_FD, FV_TTY_FD, __FV_VI_*, __FV_VS_*, RESULT and fv.video.* behind"
+kt_test_start "loading and using the unit leaves only FV_SCREEN_W/H, FV_VIDEO_ON/RESIZED/ASCII/COLORS/OUT_FD, FV_TTY_FD, __FV_VI_*, __FV_VS_*, RESULT and fv.video.* behind (+ fv.unicode's __FV_UC_*, fv.unicode.*)"
 out="$(bash -c "
 export LC_ALL=C.UTF-8
 source '$KBOOL'
@@ -135,8 +136,8 @@ exec {fd}>&-; unset fd FV_KEY_FD
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
-newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_SCREEN_[WH]|FV_VIDEO_(ON|RESIZED|ASCII|COLORS|OUT_FD)|FV_TTY_FD|__FV_VI_[A-Z]+|__FV_VS_[A-Z0-9]+|RESULT|KK_UNIT_DIR)$' | tr '\n' ' ')"
-newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -v '^fv\.video\.' | tr '\n' ' ')"
+newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_SCREEN_[WH]|FV_VIDEO_(ON|RESIZED|ASCII|COLORS|OUT_FD)|FV_TTY_FD|__FV_VI_[A-Z]+|__FV_VS_[A-Z0-9]+|__FV_UC_[A-Z]+|RESULT|KK_UNIT_DIR)$' | tr '\n' ' ')"
+newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^fv\.(video|unicode)\.' | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass "ok"; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi
 
 kt_test_log "007_Contract.sh completed"

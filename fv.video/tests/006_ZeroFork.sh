@@ -11,7 +11,8 @@
 #     process substitutions, the reader and its watchdog, D13) and the colour-depth detection (_depth:
 #     `tput colors`); stty only in initVideo, querySize and the restore; tput
 #     only in _depth; taskkill only in the two stops of the reader (_rkill: the
-#     owner's, _wdstop: the watchdog's);
+#     owner's, _wdstop: the watchdog's); fv.unicode.sh (the width table the
+#     writes look up): none at all;
 #   * the screen buffer with PATH='': initScreen, every write, updateScreen
 #     (incremental and force), palette and depth changes, resizeScreen,
 #     strWidth, ASCII mode, detectColorDepth when TERM tells (rule R1: every
@@ -44,7 +45,7 @@ want=$'caller-winch\n1 0 111x33 0 70x20 0 2 1'
 if [[ $out == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [$want]"; fi
 
 for setup in 'export LC_ALL=C.UTF-8' 'export LC_ALL=C' 'export LC_ALL=C.UTF-8; shopt -s nocasematch'; do
-kt_test_start "PATH='': the screen buffer (init, writes, updates, palette, depth, resize, ASCII mode, invalid UTF-8) works and emits ($setup)"
+kt_test_start "PATH='': the screen buffer (init, writes, updates, palette, depth, resize, wide characters, emoji, clusters, ASCII mode, invalid UTF-8) works and emits ($setup)"
 out=$("$BASH" -c "
 $setup
 source '$FVV_TESTS_DIR/../fv.video.sh'
@@ -68,11 +69,14 @@ fv.video.updateScreen force; r+=\$?
 fv.video.strWidth 'жук'; r+=\$RESULT
 FV_SCREEN_W=10 FV_SCREEN_H=3 fv.video.resizeScreen; fv.video.clearScreen 1; fv.video.updateScreen; r+=\$?
 TERM=xterm-256color fv.video.detectColorDepth; r+=\$RESULT
+fv.video.writeStr 0 1 \$'\\xe6\\xbc\\xa2\\xf0\\x9f\\x98\\x80e\\xcc\\x81\\xc2\\xa9\\xef\\xb8\\x8f' 2; r+=\$RESULT
+fv.video.writeChar 0 2 \$'\\xf0\\x9f\\x8e\\x89' 3 2; r+=\$RESULT
+fv.video.updateScreen; r+=\$?
 FV_ASCII=1 fv.video.initScreen; fv.video.writeStr 0 0 '╔═╗ж' 1; fv.video.updateScreen; r+=\${__FV_VS_CH[0]:0:4}
 exec {fd}>&-
 printf '%s' \"\$r\"" 2>&1)
 size=$(wc -c < "$FVV_TMP/pathless.out" 2>/dev/null || echo 0)
-if [[ $out == '0000400000030256+=+?' && $size -gt 500 ]]; then kt_test_pass "ok ($size bytes emitted)"; else kt_test_fail "got [$out] ($size bytes)"; fi
+if [[ $out == '0000400000030256740+=+?' && $size -gt 500 ]]; then kt_test_pass "ok ($size bytes emitted)"; else kt_test_fail "got [$out] ($size bytes)"; fi
 done
 
 kt_test_start "PATH='': the reader (D13) forwards bytes and ends at end of file; _rstart (reader + watchdog), a key through the pipe, _rstop"
@@ -130,5 +134,13 @@ while IFS= read -r l || [[ -n $l ]]; do
     fi
 done < "$FVV_TESTS_DIR/../fv.video.sh"
 if [[ -z $bad && -n $forks && -n $sttys && -n $tputs && -n $tks ]]; then kt_test_pass "$n lines; forks in:$forks; stty in:$sttys; tput in:$tputs; taskkill in:$tks"; else kt_test_fail "${bad:-nothing found}"; fi
+
+kt_test_start "fv.unicode.sh (the width table the writes look up): no fork construct in any code line"
+bad='' n=0
+while IFS= read -r l || [[ -n $l ]]; do
+    n=$(( n + 1 ))
+    if fvv_forks "$l"; then bad+=" $n:[$l]"; fi
+done < "$FVV_TESTS_DIR/../../fv.unicode/fv.unicode.sh"
+if [[ -z $bad ]] && (( n > 100 )); then kt_test_pass "$n lines clean"; else kt_test_fail "${bad:-only $n lines}"; fi
 
 kt_test_log "006_ZeroFork.sh completed"

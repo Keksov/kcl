@@ -20,7 +20,7 @@
     "D12": "2026-11-09 terminal check automated on Windows via SendInput driver synced with termcheck (owner request); live runs only in an owner-agreed slot",
     "D13": "2026-11-10 reader process on Cygwin-family runtimes (owner choice a, finding W-1): background reader without WINCH trap forwards tty bytes through a pipe",
     "D13a": "2026-11-10 D13 amendment after the live check: the reader never does a timed tty read (blocking only); a watchdog process with timed reads on a pipe from the owner stops it (end of file / owner gone)",
-    "D14": "2026-11-11 VS16 after a narrow base = 2 cells (P1b Q3, owner choice a)",
+    "D14": "2026-11-11 VS16 after a narrow base = 2 cells (P1b Q3, owner choice a); scope (1b): Extended_Pictographic narrow base or keycap base only, a letter + VS16 stays 1",
     "D15": "2026-11-11 full resync in the frame: CHA after every wide/cluster cell + pre-blank for emoji-like cells (P1b Q4, owner choice a)"
   },
   "measurements": {
@@ -138,12 +138,14 @@
             {
               "id": "P1b-1b",
               "title": "buffer storage, writes, strWidth, sanitiser, ASCII mode, fast path",
-              "status": "next"
+              "status": "done",
+              "date": "2026-11-11",
+              "summary": "cell grammar lead/marker + placeholder 0x01, side map __FV_VS_X with per-row versions, cluster walker (D14 scope: VS16 widens only an ExtPict narrow base or keycap base; ZWJ per GB11; keycap 2), Cygwin byte walk for astral text, text caches (writeCStr own caches), ASCII mode decided once per screen; critic: _rect narrow-marker fill short (fixed), writeCStr cache key collision (fixed), locale cache poisoning (fixed); 016_Reader fd-snapshot race and child() hang hardening; fv.video 309 tests; gate host 3699/3699, VM 5.1/5.2 2466/2466; perf A/B within 1.05 or A/A noise except Cygwin cached writes 1.07 measured beside a foreign process at 100% of a core (rebench pending on a quiet machine); 012 random pool without astral/combining until 1c"
             },
             {
               "id": "P1b-1c",
               "title": "frame emitter, resync (D15), VT model, property tests",
-              "status": "planned"
+              "status": "next"
             },
             {
               "id": "P1b-1d",
