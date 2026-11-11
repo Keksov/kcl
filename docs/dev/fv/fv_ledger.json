@@ -145,12 +145,14 @@
             {
               "id": "P1b-1c",
               "title": "frame emitter, resync (D15), VT model, property tests",
-              "status": "next"
+              "status": "done",
+              "date": "2026-11-11",
+              "summary": "CHA resync after every wide/marker cell, pre-blank for every 2-wide marker (class y BMP pictographs now always markers), no resync right before a wide marker, a range ending on a narrow marker re-sends the next cell; per-column CHA table + one split per run; VT model with CHA, wide cells, deviating-width terminal; 018_WideVt (scripted, exact bytes, 3 random seeds x 200 frames with minimum resync share, incremental disagreeing-terminal run proven to catch the narrow-marker bug); critic: emitter 4x slower than 1b, redundant CHA, next-cell clobber, weak random coverage - fixed; full repaint vs plain scene: CJK 1.04-1.10x, emoji 1.44-1.64x (host under a foreign busy core, VM clean); fv.video 328 tests; gate host 3756/3756, VM 5.1/5.2 2504/2504"
             },
             {
               "id": "P1b-1d",
               "title": "termcheck widths group + autodrive + selftest",
-              "status": "planned"
+              "status": "next"
             }
           ]
         },

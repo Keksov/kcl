@@ -253,14 +253,14 @@ row 0; xs; inv; check "fillRect with an emoji (a marker): every pair has its sid
 scr 8 1
 fv.video.writeStr 0 0 "a${HAN}${EMO}b" 1; frame
 r="[$FR] "; [[ $FO == *$'\x01'* || $FO == *$'\x02'* ]] && r+=placeholder-sent
-check "a frame sends a wide character once, a marker's content, never a placeholder" "[a${HAN}${EMO}b  ] " "$r"
+check "a frame sends a wide character once, a marker's content (a wide one after its pre-blank space), never a placeholder" "[a${HAN} ${EMO}b  ] " "$r"
 
 scr 4 1
 fv.video.writeStr 0 0 "e${ACU}" 1; frame; r="[$FR] "
 fv.video.writeStr 0 0 "e${DIA}" 1; frame; r+="[$FR] "
 frame; r+="[$FR]"
-check "cluster A -> update -> cluster B in the same cell -> update: the frame has B (the row strings are equal, the side map's version is not); then nothing" \
-    "[e${ACU}   ] [e${DIA}] []" "$r"
+check "cluster A -> update -> cluster B in the same cell -> update: the frame has B (the row strings are equal, the side map's version is not) and the cell after the narrow marker; then nothing" \
+    "[e${ACU}   ] [e${DIA} ] []" "$r"
 
 scr 6 2
 fv.video.writeStr 0 0 "${EMO}${HAN}" 1; fv.video.writeStr 0 1 "x${HI}" 2; frame
@@ -268,7 +268,7 @@ frame force; r="[$FR] "
 fv.video.setColorDepth 16; frame; r+="[$FR] "
 fv.video.definePalette 1 3 4; frame; r+="[$FR]"
 check "force, setColorDepth and a palette change repaint the marker contents too" \
-    "[${EMO}${HAN}  x${HI}    ] [${EMO}${HAN}  x${HI}    ] [${EMO}${HAN}  ]" "$r"
+    "[ ${EMO}${HAN}  x${HI}    ] [ ${EMO}${HAN}  x${HI}    ] [ ${EMO}${HAN}  ]" "$r"
 
 scr 6 1
 fv.video.writeStr 0 0 "a${HAN}" 1; fv.video.setCursorPos 2 0; fv.video.setCursorType 1; frame

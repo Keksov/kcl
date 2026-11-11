@@ -9,8 +9,8 @@
 #     model of the writes, and every few frames the incremental grid equals
 #     one forced full repaint into a fresh garbage grid. The text pieces
 #     include control characters, DEL, C1, invalid and cut UTF-8 (the shadow
-#     knows the cells each becomes). Wide characters, emoji and clusters come
-#     with the width-aware model (P1c); 017_Wide checks their frames meanwhile.
+#     knows the cells each becomes). Wide characters, emoji and clusters run
+#     in 018_WideVt (its own width table, the resync, a disagreeing terminal).
 # FVV_SEED (default 20261109) picks the random sequence; FVV_FRAMES (default
 # 240) the number of frames.
 
@@ -75,7 +75,7 @@ scene "an 80x24 scene from scratch" \
 SEED=${FVV_SEED:-20261109} FRAMES=${FVV_FRAMES:-240}
 # POOL: raw text pieces; POOLC: the cells a write stores for each (control,
 # DEL, C1, invalid, cut and overlong sequences -> '?'; no wide character, no
-# cluster: their frames are 017_Wide's until P1c). No piece starts with a
+# cluster: those run in 018_WideVt). No piece starts with a
 # continuation byte except the lone 0x9b, and the cut e2 94 is always
 # followed by a blank, so
 # no two pieces can join into another character.

@@ -648,6 +648,12 @@ declare -g __FV_VS_P=$'\xd0\xb6' __FV_VS_B=$'\xe2\x94\x80' __FV_VS_CONT=$'\x01' 
 # the marker cell (its content in __FV_VS_X), the marker list separator, the
 # two characters the cluster rules look at: VS16 U+FE0F and ZWJ U+200D
 declare -g __FV_VS_MARK=$'\x02' __FV_VS_US=$'\x1f' __FV_VS_VS16=$'\xef\xb8\x8f' __FV_VS_ZWJ=$'\xe2\x80\x8d'
+# a continuation or a marker (a pattern); the frame's resync after wide and
+# marker cells (D15): 1, or 0 to turn it off (tests only)
+declare -g __FV_VS_CM=$'[\x01\x02]' __FV_VS_RSYNC=${__FV_VS_RSYNC:-1}
+# CHA[x] = ESC[x+1G for every column (built by the allocation, kept growing)
+declare -ga __FV_VS_CHA
+__FV_VS_CHA+=()
 # the UTF-8 sequences a write keeps (C-locale byte patterns): 2 bytes, 3 bytes
 # without overlongs and surrogates, 4 bytes up to U+10FFFF without overlongs
 declare -ga __FV_VS_UV=($'[\xc2-\xdf][\x80-\xbf]' $'\xe0[\xa0-\xbf][\x80-\xbf]'
@@ -883,8 +889,9 @@ fv.video._fast() {
 # fv.video._text — __fvv_t ready to store, as CELLS: one bash character per
 # display cell; a wide character is its character + the continuation \x01,
 # a cell whose content is not exactly one BMP character (a cluster, an
-# orphan zero-width character, anything past U+FFFF) is the marker \x02 (+
-# \x01 when wide) and its content goes to __fvv_xl as "OFFSET:CONTENT\x1f".
+# orphan zero-width character, anything past U+FFFF) and every class-y
+# character (the frame pre-blanks it) is the marker \x02 (+ \x01 when wide)
+# and its content goes to __fvv_xl as "OFFSET:CONTENT\x1f".
 # Sets __fvv_w = 1 when the cells hold \x01 or \x02 (the caller's locals
 # __fvv_w / __fvv_xl start as 0 / ''). The writes call it only for text with
 # a non-printable or a non-ASCII character.
@@ -1022,7 +1029,8 @@ fv.video._walk() {
             if [[ $__fvv_ch == "$__FV_VS_ZWJ" ]]; then __fvv_pz=1; fi
         else
             __fvv_pc=$__fvv_ch __fvv_pk=$__fvv_k __fvv_pp=$__fvv_p __fvv_pw=1
-            if [[ $__fvv_k == w || $__fvv_k == y || $__fvv_k == m ]]; then __fvv_pw=2
+            if [[ $__fvv_k == w || $__fvv_k == m ]]; then __fvv_pw=2
+            elif [[ $__fvv_k == y ]]; then __fvv_pw=2 __fvv_pp=0     # a marker: the frame pre-blanks it
             elif [[ $__fvv_k == r ]]; then __fvv_pr=1; fi
         fi
     done
@@ -1130,6 +1138,10 @@ fv.video._alloc() {
     for (( __fvv_y = 0; __fvv_y < __fvv_h; __fvv_y++ )); do
         __FV_VS_CH[__fvv_y]=$__FV_VS_SP __FV_VS_AT[__fvv_y]=$__fvv_a __FV_VS_WIDE[__fvv_y]=0
         __FV_VS_DX1[__fvv_y]=0 __FV_VS_DX2[__fvv_y]=$__fvv_w
+    done
+    # the frame's resync strings: CHA[x] = ESC[x+1G, one per column (W + 1)
+    for (( __fvv_y = ${#__FV_VS_CHA[@]}; __fvv_y <= __fvv_w; __fvv_y++ )); do
+        __FV_VS_CHA[__fvv_y]=$'\e['"$(( __fvv_y + 1 ))G"
     done
     __FV_VS_CX1=0 __FV_VS_CY1=0 __FV_VS_CX2=$__fvv_w __FV_VS_CY2=$__fvv_h
     __FV_VS_FORCE=0 __FV_VS_SVIS='' __FV_VS_SPOS=''
@@ -1608,16 +1620,26 @@ fv.video.strWidth() {
 # fv.video._roww — updateScreen's body for a row with wide cells (its
 # locals): equal to the shown copy only when the side map's version is too;
 # the range widened to whole wide characters (the writes keep it so); the
-# colour runs sent as the terminal's text (_cells)
+# colour runs sent as the terminal's text with the resync (_cells)
 fv.video._roww() {
     if (( __fvv_f )) || [[ -z ${__FV_VS_OCH[__fvv_y]+1} ]]; then __fvv_x0=0 __fvv_n=$__fvv_w
     elif [[ $__fvv_c == "${__FV_VS_OCH[__fvv_y]}" && $__fvv_a == "${__FV_VS_OAT[__fvv_y]}" && ${__FV_VS_XV[__fvv_y]-} == "${__FV_VS_OXV[__fvv_y]-}" ]]; then return 0
     else __fvv_x0=${__FV_VS_DX1[__fvv_y]} __fvv_n=$(( __FV_VS_DX2[__fvv_y] - __FV_VS_DX1[__fvv_y] )); fi
     if (( __fvv_x0 > 0 )) && [[ ${__fvv_c:__fvv_x0:1} == "$__FV_VS_CONT" ]]; then __fvv_x0=$(( __fvv_x0 - 1 )) __fvv_n=$(( __fvv_n + 1 )); fi
     if [[ ${__fvv_c:__fvv_x0+__fvv_n:1} == "$__FV_VS_CONT" ]]; then __fvv_n=$(( __fvv_n + 1 )); fi
+    # a range ending on a narrow marker takes the cell after it (and that
+    # cell's second half): a terminal that draws the marker 2 wide (a newer
+    # table, a lone regional indicator) covers that cell, which would else
+    # never be sent again. (A range starting right after one needs nothing:
+    # in such a terminal the marker is lost to the cell after it whenever
+    # that cell is written, re-sent or not.)
+    if (( __FV_VS_WIDE[__fvv_y] & 2 && __fvv_x0 + __fvv_n < __fvv_w )) && [[ ${__fvv_c:__fvv_x0+__fvv_n-1:1} == "$__FV_VS_MARK" ]]; then
+        __fvv_n=$(( __fvv_n + 1 ))
+        if [[ ${__fvv_c:__fvv_x0+__fvv_n:1} == "$__FV_VS_CONT" ]]; then __fvv_n=$(( __fvv_n + 1 )); fi
+    fi
     __FV_VS_OCH[__fvv_y]=$__fvv_c __FV_VS_OAT[__fvv_y]=$__fvv_a
     if [[ -n ${__FV_VS_XV[__fvv_y]-} ]]; then __FV_VS_OXV[__fvv_y]=${__FV_VS_XV[__fvv_y]}; else unset '__FV_VS_OXV[__fvv_y]'; fi
-    __fvv_xx=$__fvv_x0
+    __fvv_xx=$__fvv_x0 __fvv_re=$(( __fvv_x0 + __fvv_n ))
     __fvv_sa=${__fvv_a:__fvv_x0:__fvv_n} __fvv_sc=${__fvv_c:__fvv_x0:__fvv_n}
     if (( __fvv_y != __fvv_py || __fvv_x0 != __fvv_px )); then __fvv_o+=$'\e['"$(( __fvv_y + 1 ));$(( __fvv_x0 + 1 ))H"; fi
     fv.video._runsw
@@ -1625,7 +1647,9 @@ fv.video._roww() {
     if (( __fvv_px >= __fvv_w )); then __fvv_py=-1; fi
 }
 
-# fv.video._runsw — _roww's colour runs, each sent as the terminal's text
+# fv.video._runsw — _roww's colour runs, each sent by _cells; __fvv_nw = 1
+# when the cell after the run is a wide marker (its pre-blank starts with an
+# absolute cursor move: no resync before it)
 fv.video._runsw() {
     while [[ -n $__fvv_sa ]]; do
         __fvv_s=${__fvv_sa:0:1}
@@ -1635,20 +1659,107 @@ fv.video._runsw() {
             __fvv_l=$__fvv_s __fvv_sg=${__FV_VS_SGR[$__fvv_s]:-$__fvv_d}
             if [[ $__fvv_sg != "$__fvv_lg" ]]; then __fvv_o+=$__fvv_sg __fvv_lg=$__fvv_sg; fi
         fi
-        __fvv_q=${__fvv_sc:0:__fvv_k}
+        __fvv_q=${__fvv_sc:0:__fvv_k} __fvv_sa=${__fvv_sa:__fvv_k} __fvv_sc=${__fvv_sc:__fvv_k}
+        if [[ ${__fvv_sc:0:2} == "$__FV_VS_MARK$__FV_VS_CONT" ]]; then __fvv_nw=1; else __fvv_nw=0; fi
         fv.video._cells
-        __fvv_o+=$__fvv_q __fvv_xx=$(( __fvv_xx + __fvv_k ))
-        __fvv_sa=${__fvv_sa:__fvv_k} __fvv_sc=${__fvv_sc:__fvv_k}
     done
 }
 
-# fv.video._cells — __fvv_q, the cells of row __fvv_y from column __fvv_xx,
-# made the terminal's text: a marker sends its content (__FV_VS_X), a
-# continuation \x01 nothing (the terminal fills it with the wide character)
+# fv.video._cells — the cells __fvv_q of row __fvv_y from column __fvv_xx
+# appended to the frame as the terminal's text (decision D15). A plain
+# character goes as itself; a continuation \x01 sends nothing (the terminal
+# fills that cell with the wide character before it); a marker sends its
+# content (__FV_VS_X). The resync: after every wide cell and every marker
+# cell (narrow ones too) that another cell of the row's range follows,
+# ESC[nG (__FV_VS_CHA[column]) puts the cursor where the buffer says it is,
+# so a terminal whose width table disagrees garbles only that cell; not
+# before a wide marker, whose pre-blank starts with such a move anyway. The
+# pre-blank: a wide marker (every cluster or character past U+FFFF that is
+# 2 wide, and every class y character, which the walk always stores as a
+# marker) is sent as ESC[x+2G, a space, ESC[x+1G, the content: a terminal
+# that draws it narrow shows a blank in its second half, never what was
+# there before. __fvv_re = the end of the row's range; __FV_VS_RSYNC=0
+# (tests only) turns both off.
+#
+# The run is split once at its continuations (IFS, no globbing: `local -`
+# puts set -f back; the '.' keeps an empty last piece): each piece but the
+# last ends with the first half of a wide cell (a plain character, or a
+# marker \x02: then a wide marker); markers elsewhere are narrow.
 fv.video._cells() {
-    if [[ $__fvv_q != *"$__FV_VS_MARK"* ]]; then __fvv_q=${__fvv_q//"$__FV_VS_CONT"/}; return 0; fi
-    # split at the markers in one go (IFS = the marker, no globbing: `local -`
-    # puts set -f back); the '.' keeps the field after a last marker
+    if [[ $__fvv_q != *$__FV_VS_CM* ]]; then
+        __fvv_o+=$__fvv_q __fvv_xx=$(( __fvv_xx + ${#__fvv_q} ))
+        return 0
+    fi
+    if (( ! __FV_VS_RSYNC )); then fv.video._cells0; return 0; fi
+    local - IFS=$__FV_VS_CONT __fvv_e __fvv_z='' __fvv_pd='' __fvv_i __fvv_n __fvv_j
+    local -a __fvv_fs
+    set -f
+    __fvv_fs=($__fvv_q.)
+    __fvv_n=$(( ${#__fvv_fs[@]} - 1 ))
+    __fvv_fs[__fvv_n]=${__fvv_fs[__fvv_n]%.}
+    if [[ $__fvv_q != *"$__FV_VS_MARK"* ]]; then
+        # plain wide characters only (CJK): a resync after each, one step per
+        # character; none after the last when the range ends there or a wide
+        # marker follows in the next run
+        for (( __fvv_i = 0; __fvv_i < __fvv_n; __fvv_i++ )); do
+            __fvv_z+=${__fvv_fs[__fvv_i]}${__FV_VS_CHA[__fvv_xx += ${#__fvv_fs[__fvv_i]} + 1]}
+        done
+        if [[ -z ${__fvv_fs[__fvv_n]} ]] && (( __fvv_xx >= __fvv_re || __fvv_nw )); then __fvv_z=${__fvv_z%"${__FV_VS_CHA[__fvv_xx]}"}; fi
+        __fvv_o+=$__fvv_z${__fvv_fs[__fvv_n]} __fvv_xx=$(( __fvv_xx + ${#__fvv_fs[__fvv_n]} ))
+        return 0
+    fi
+    # with markers: the resync after a cell waits in __fvv_pd and is dropped
+    # when a wide marker comes next (its pre-blank moves the cursor anyway)
+    for (( __fvv_i = 0; __fvv_i < __fvv_n; __fvv_i++ )); do
+        __fvv_e=${__fvv_fs[__fvv_i]}
+        if [[ $__fvv_e != *"$__FV_VS_MARK"* ]]; then
+            # narrow cells and a plain wide character
+            __fvv_z+=$__fvv_pd$__fvv_e __fvv_xx=$(( __fvv_xx + ${#__fvv_e} + 1 ))
+            __fvv_pd=${__FV_VS_CHA[__fvv_xx]}
+        elif [[ $__fvv_e == "$__FV_VS_MARK" ]]; then
+            # a wide marker alone (emoji): the pre-blank
+            __fvv_j="$__fvv_y $__fvv_xx"
+            __fvv_z+=${__FV_VS_CHA[__fvv_xx + 1]}' '${__FV_VS_CHA[__fvv_xx]}${__FV_VS_X[$__fvv_j]-?} __fvv_xx=$(( __fvv_xx + 2 ))
+            __fvv_pd=${__FV_VS_CHA[__fvv_xx]}
+        else
+            fv.video._cellsm 1
+        fi
+    done
+    # the last piece: narrow cells only
+    __fvv_e=${__fvv_fs[__fvv_n]}
+    if [[ $__fvv_e == *"$__FV_VS_MARK"* ]]; then fv.video._cellsm 0
+    elif [[ -n $__fvv_e ]]; then __fvv_z+=$__fvv_pd$__fvv_e __fvv_xx=$(( __fvv_xx + ${#__fvv_e} )) __fvv_pd=''; fi
+    if [[ -n $__fvv_pd ]] && (( __fvv_xx < __fvv_re && ! __fvv_nw )); then __fvv_z+=$__fvv_pd; fi
+    __fvv_o+=$__fvv_z
+}
+
+# fv.video._cellsm WIDE — _cells' piece __fvv_e that holds markers: narrow
+# cells, narrow markers (each followed by a pending resync), and with WIDE 1
+# a wide cell at its end (a plain character or a wide marker)
+fv.video._cellsm() {
+    local __fvv_c __fvv_t __fvv_j
+    while [[ $__fvv_e == *"$__FV_VS_MARK"* ]]; do
+        __fvv_c=${__fvv_e%%"$__FV_VS_MARK"*} __fvv_e=${__fvv_e#*"$__FV_VS_MARK"}
+        if [[ -n $__fvv_c ]]; then __fvv_z+=$__fvv_pd$__fvv_c __fvv_xx=$(( __fvv_xx + ${#__fvv_c} )) __fvv_pd=''; fi
+        __fvv_j="$__fvv_y $__fvv_xx" __fvv_t=${__FV_VS_X[$__fvv_j]-?}
+        if [[ -z $__fvv_e ]] && (( $1 )); then
+            # a wide marker: the pre-blank (a pending resync dropped)
+            __fvv_z+=${__FV_VS_CHA[__fvv_xx + 1]}' '${__FV_VS_CHA[__fvv_xx]}$__fvv_t __fvv_xx=$(( __fvv_xx + 2 ))
+            __fvv_pd=${__FV_VS_CHA[__fvv_xx]}
+            return 0
+        fi
+        __fvv_z+=$__fvv_pd$__fvv_t __fvv_xx=$(( __fvv_xx + 1 ))
+        __fvv_pd=${__FV_VS_CHA[__fvv_xx]}
+    done
+    if [[ -n $__fvv_e ]]; then
+        __fvv_z+=$__fvv_pd$__fvv_e __fvv_xx=$(( __fvv_xx + ${#__fvv_e} )) __fvv_pd=''
+        if (( $1 )); then __fvv_xx=$(( __fvv_xx + 1 )) __fvv_pd=${__FV_VS_CHA[__fvv_xx]}; fi
+    fi
+}
+
+# fv.video._cells0 — _cells without the resync (__FV_VS_RSYNC=0, the tests'
+# disagreeing terminal): markers' contents, no continuation
+fv.video._cells0() {
     local - IFS=$__FV_VS_MARK __fvv_p=$__fvv_xx __fvv_e __fvv_j __fvv_z='' __fvv_i=0
     local -a __fvv_fs
     set -f
@@ -1660,7 +1771,7 @@ fv.video._cells() {
         fi
         __fvv_z+=${__fvv_e//"$__FV_VS_CONT"/} __fvv_p=$(( __fvv_p + ${#__fvv_e} )) __fvv_i=1
     done
-    __fvv_q=${__fvv_z%.}
+    __fvv_o+=${__fvv_z%.} __fvv_xx=$(( __fvv_xx + ${#__fvv_q} ))
 }
 
 # fv.video.updateScreen [force] — one printf to FV_VIDEO_OUT_FD, else
@@ -1676,7 +1787,7 @@ fv.video.updateScreen() {
     # IFS empty: the fd below is a bare redirect target (bash 5.1 prints >&"$fd" as &> "$fd"),
     # so a caller IFS holding digits must not split it
     local IFS= __fvv_f=0 __fvv_fd=${FV_VIDEO_OUT_FD:-${FV_TTY_FD-}} __fvv_w=$__FV_VS_W __fvv_h=$__FV_VS_H __fvv_y __fvv_c __fvv_a
-    local __fvv_x0 __fvv_n __fvv_sa __fvv_sc __fvv_s __fvv_r __fvv_k __fvv_o='' __fvv_l='' __fvv_lg='' __fvv_sg __fvv_q __fvv_xx
+    local __fvv_x0 __fvv_n __fvv_sa __fvv_sc __fvv_s __fvv_r __fvv_k __fvv_o='' __fvv_l='' __fvv_lg='' __fvv_sg __fvv_q __fvv_xx __fvv_re __fvv_nw=0
     local __fvv_d=${__FV_VS_SGR[$__FV_VS_DEF]-} __fvv_py=-1 __fvv_px=-1 __fvv_cx=$__FV_VS_CURX __fvv_cy=$__FV_VS_CURY __fvv_v=l
     local -a __fvv_ys
     RESULT=''

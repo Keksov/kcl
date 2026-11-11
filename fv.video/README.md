@@ -407,7 +407,7 @@ Internal state is `__FV_VS_*`.
 
 ### Wide characters, emoji and clusters
 
-Decision D5 (P1b; the frame's resync after wide cells, D15, comes with P1c).
+Decisions D5 (P1b), D14 (VS16) and D15 (the frame's resync, P1c).
 Widths and cluster roles come from [`fv.unicode`](../fv.unicode/README.md)
 (Unicode 16.0.0, the glibc 2.41 width rules).
 
@@ -419,9 +419,11 @@ Widths and cluster roles come from [`fv.unicode`](../fv.unicode/README.md)
   * a cell whose content is not exactly one BMP character is a **marker**:
     `\x02` in the row (+ `\x01` when wide) and its content in the side map
     `__FV_VS_X["Y X"]`. That is every cluster (a base + marks), every orphan
-    zero-width character and **every character past U+FFFF on every runtime**
+    zero-width character, **every character past U+FFFF on every runtime**
     — Cygwin-based bash holds such a character as two bash characters, which
-    a substring can cut into 3 + 1 bytes, so it never enters a row string.
+    a substring can cut into 3 + 1 bytes, so it never enters a row string —
+    and every class-y character (wide Extended_Pictographic, e.g. `⌚`), so
+    that the frame pre-blanks it.
   * `\x01`, `\x02` (and the list separator `\x1f`) are control characters: a
     caller's text can never store them (they become `?`).
 * **Clusters** (small, not full UAX #29): a cell is a base character plus
@@ -466,10 +468,44 @@ Widths and cluster roles come from [`fv.unicode`](../fv.unicode/README.md)
   `clearScreen`, `resizeScreen` and allocation empty the side map; every
   write removes the entries of the markers it overwrites (`tests/017` checks
   after every operation of a random mix that no entry is stale).
-* **The frame:** a marker sends its content, a `\x01` nothing (the terminal
-  fills that cell with the wide character). P1b sends no cursor resync
-  after wide cells: a terminal whose width table disagrees shifts the rest of
-  that row until P1c's resync (D15).
+* **The frame** (decision D15): a plain character goes as itself, a marker
+  sends its content, a `\x01` nothing (the terminal fills that cell with the
+  wide character before it). Rows without wide cells are sent exactly as in
+  P1a; in a row with them:
+  * **resync:** after every wide cell and every marker cell (narrow clusters
+    too) that another cell of the row's sent range follows, `ESC[nG` (CHA)
+    puts the cursor in the column the buffer says (`__FV_VS_CHA[x]`, a
+    string per column built with the screen), except right before a wide
+    marker, whose pre-blank starts with such a move anyway (also across a
+    colour change). After the range's last cell nothing is sent: the next
+    row starts with its own cursor move, and the cursor's final place comes
+    from the CUP that follows any text when the cursor is shown (a hidden
+    cursor's place does not matter);
+  * **after a narrow marker:** a damaged range that ends on a narrow marker
+    also sends the cell after it (and that cell's second half): a terminal
+    that draws the marker 2 wide (a newer width table, a lone regional
+    indicator) covers that cell, which would otherwise never be sent again.
+    A range that starts right after a narrow marker is not widened: in such
+    a terminal writing the next cell erases the marker either way;
+  * **pre-blank:** a **wide marker** — every 2-wide cluster (flags, keycaps,
+    ZWJ sequences, modifier sequences, `©️` widened by VS16, a CJK character
+    with a mark), every 2-wide character past U+FFFF (emoji) and every
+    character of class y (wide Extended_Pictographic in the BMP, such as `⌚`,
+    which the walk therefore always stores as a marker) — is sent as
+    `ESC[x+2G`, a space (in the cell's colours), `ESC[x+1G`, the content, then
+    the resync. Plain wide characters (CJK, fullwidth forms: widths terminals
+    agree on) get the resync only;
+  * **what a disagreeing terminal shows:** one that draws a wide marker
+    narrow shows it in the first cell and a blank in the second (never stale
+    text); one that draws a plain CJK character narrow shows it and leaves the
+    second cell as it was; one that draws a narrow marker wide loses the
+    marker to the cell after it; in every case every other cell of the row is
+    right (`tests/018` replays such terminals, and fails with the resync
+    turned off). Newly wide BMP symbols of Unicode 16 (`☰` U+2630–2637, `⚊`
+    U+268A–268F, `䷀` U+4DC0–4DFF) are class w, plain wide characters: an
+    older terminal that draws them narrow leaves their second cell as it was.
+  `__FV_VS_RSYNC=0` (internal, for the tests) sends the row without resync
+  and pre-blank.
 * **The walk:** text that the fast path does not take is walked character
   by character in the call's UTF-8 locale (one `printf %d` per new
   character, its class from `fv.unicode.charClass`, kept in a per-character
@@ -549,7 +585,37 @@ A row of wide characters repaints faster than the scene (fewer colour runs);
 a row of 20 emoji is ~1.6–1.7 × the scene's full repaint (each marker is a
 side-map lookup), inside the 2 × limit of the plan. The walk costs ~60–90 µs
 per new character (a `printf %d` and a table lookup, then cached per
-character); a cached wide text costs about twice an ASCII one.
+character); a cached wide text costs about twice an ASCII one. (These
+repaint times are P1b's, without the resync.)
+
+**P1c, the resync** (2026-11-11). Bytes, counted: a CHA is `ESC[nG`, 4–6
+bytes (n = the column); a pre-blanked wide marker costs a space and two CHA,
+~11 bytes (no resync between two wide markers). An 80 × 24 full repaint
+with 40 ASCII cells per row on the right:
+
+| left half of every row | bytes with the resync | without | per row |
+|---|---|---|---|
+| 40 ASCII cells | 3329 | 3329 | +0 |
+| 20 CJK characters | 6113 | 3809 | +96 (20 CHA) |
+| 20 emoji (wide markers) | 9473 | 4289 | +216 (20 pre-blanks, 2 CHA) |
+
+Time, the same full repaints (left half: 20 CJK, 20 emoji, or 10 × CJK +
+emoji; right half 40 ASCII) against the P1a two-panel scene's full repaint;
+median of 9 repaints per process, processes of P1b (`git show HEAD`) and
+P1c alternated × 5, the median of those (on the host a process outside the
+tests kept one core busy throughout):
+
+| µs | Git-bash 5.3.15 | MSYS2 5.3.9 | VM bash 5.2.37 |
+|---|---|---|---|
+| two-panel scene (plain) | 9742 | 9843 | 16364 |
+| CJK: P1b → P1c (P1c without resync) | 4423 → 10582 (6419) | 4506 → 10822 (6479) | 8647 → 17043 (11045) |
+| emoji: P1b → P1c (without) | 11744 → 15948 (13054) | 11693 → 15258 (12827) | 17119 → 23535 (18857) |
+| mixed: P1b → P1c (without) | 8930 → 14800 (10555) | 9002 → 14404 (10172) | 14191 → 21299 (14528) |
+| P1c / scene: CJK, emoji, mixed | 1.09, 1.64, 1.52 | 1.10, 1.55, 1.46 | 1.04, 1.44, 1.30 |
+
+The resync costs ~9–13 µs per wide cell (a CJK run takes one step per
+character; a run with markers one per piece); the CJK frame stays within
+1.5 × and the emoji frame within 1.8 × the plain repaint.
 
 ## Cost
 
@@ -615,7 +681,7 @@ Cygwin runtimes wakes in timer steps (~15.5 ms per byte).
 
 ## Tests
 
-`bash kcl/fv.video/tests/tests.sh` — 309 tests. `initVideo` runs only under
+`bash kcl/fv.video/tests/tests.sh` — 328 tests. `initVideo` runs only under
 `script(1)`'s pty (the harness is `tests/fvv_pty.sh`, shared with
 fv.drivers), never on the terminal the tests were started from; without a
 util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
@@ -634,12 +700,13 @@ util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
 | 009_Buffer | allocation, every write and its RESULT, clipping, `setClip`, bad arguments, the shown copy, damaged columns, SGR on change, `force`, the cursor, the output-fd rules, a failed `printf` |
 | 010_Palette | the default palette, `definePalette`, SGR with 256 / 16 colours, nearest-16 for all 256 indices against the VT model, repaints on depth and palette changes, the detection chain (FV_COLORS, TERM, COLORTERM, a `tput` stub, no `tput`) |
 | 011_Locale | silent load, a C caller (UTF-8 inside, locale back), ASCII mode (candidates stubbed to none; `FV_ASCII=1`), the maps, one `?` per sequence, control characters, invalid / cut / overlong / surrogate UTF-8 one `?` each while 4-byte characters and clusters become marker cells, C1 with `globasciiranges` off, legacy CJK caller locales, the caller's own locale as candidate, the text cache |
-| 012_VtModel | every frame replayed through the pure-bash VT model (`tests/fvv_vt.sh`, grid starting as garbage): scripted scenes, resize, and a seeded random property test (`FVV_SEED`, `FVV_FRAMES`): VT grid = buffer = a per-cell shadow model after every update, incremental = one forced repaint. Narrow text only until the width-aware model (P1c); wide frames are 017's |
+| 012_VtModel | every frame replayed through the pure-bash VT model (`tests/fvv_vt.sh`, grid starting as garbage): scripted scenes, resize, and a seeded random property test (`FVV_SEED`, `FVV_FRAMES`): VT grid = buffer = a per-cell shadow model after every update, incremental = one forced repaint. Narrow text; the wide frames are 018's |
 | 013_CallerState | nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS, `set -eu`, C locale: same output, state kept; a second scene with wide characters, emoji, clusters, classes x / y and the fast path under the same setups |
 | 014_Perf | repaint and partial-update cost against 3× the targets (numbers in the log) |
 | 015_ShellState | `script(1)`: init / done / the EXIT trap under an IFS holding digits, init under `IFS=$'\n\t'` and `$'\n'`, done → init → a full repaint |
 | 016_Reader | the reader and its watchdog (D13 + amendment). Without a terminal (a fifo stands in, every runtime): all 256 byte values forwarded unchanged and the end at end of file (under `set -eEuxT`, pipefail, ERR/DEBUG/RETURN traps, a UTF-8 locale); the owner killed with no byte typed (both gone within 1 s; with a child holding the watchdog pipe within 2 s); the reader alone blocks and ends at the next byte; INT/QUIT/TSTP/WINCH ignored by both, TERM/HUP/a failed write end the reader; `_rstart` / `_rstop`; `FV_TTY_READER` 0 / 1 / auto by `OSTYPE` / junk; `__FV_VI_POLL` '' and junk; a reader or a watchdog that does not start (both stopped); `TERM` ignored at shell start (stopped by `KILL`); the stop's timing; the reader keeps only fds 0/1/2/tty, the watchdog 0/1/2; `_rstop` never signals a pid that is not its child; the watchdog killed alone; data on the watchdog pipe; the reader dying alone (the watchdog exits without a signal, the stop signals nothing); the stop while a background child holds the watchdog pipe (no wait). `script(1)`: both alive while on (two children), keys / NUL / CSI / SGR mouse / UTF-8 / a 300-byte burst through the reader, Esc alone vs a sequence, both gone after doneVideo, exit, `set -e`, Ctrl+C, SIGTERM, SIGHUP (within 1 s) and `kill -9` of the main shell (no byte typed: within 1 s; a child holding the watchdog pipe: within 2 s), re-init, a subshell under an active parent, `FV_TTY_READER=0` and auto, signals to the reader alone, the reader killed → end of input, the restore drains through the pipe and never reads the terminal (with a reader) / drains the terminal (without), `TERM` ignored at shell start, a restore re-entered mid-stop drains only the pipe, an interactive shell's fd 255 (the terminal) is held by neither. Every reader / watchdog pid is reaped if it survives; every child shell too (its pid recorded, its stdout a file, the calling line in its command line and in `current`); the fds counted are those in three snapshots 50 ms apart |
 | 017_Wide | wide characters (D5): the fast path (every accepted code point has class n / x, the refused ones), the cell grammar and RESULT / strWidth, 24 cluster widths (VS16 after © ❤ and keycaps 2, D14; ZWJ sequences; modifiers; flags from the left; orphans, also across calls), the screen and clip edges, half-overwrites (also of a half outside the clip; the damage), writeBuf / writeCStr / writeChar / fillRect units and symbols, frames (a marker's content, never a placeholder; cluster A -> B in one cell is sent; force, depth and palette changes repaint markers), the cursor on a second half, the side map after fill / clear / resize and through 250 random operations (the grammar, also markers = side entries per row, checked after each), fillRect W 1..12 and writeChar COUNT 1..6 with four kinds of unit, the text cache and writeCStr's separate one, the screen's mode decided once, ASCII mode with the table stubbed, a C caller, nocasematch, `set -eu` |
+| 018_WideVt | wide frames through the VT model (`fvv_vt.sh` with the test's own width table: CHA, 2-wide cells, half-overwrites, marks, ZWJ / modifier / flag / VS16 joins): scripted scenes (CJK, emoji, clusters, a flag, a keycap, ⌚, ©️, orphans; half-overwrites; a cluster replaced in the same cell; the cursor after a resync), the bytes of a row (CHA after a wide cell, the pre-blank, nothing after the range's last cell), three disagreeing terminals (emoji, a CJK character, VS16 drawn narrow: every other cell right with the resync, a blank after a narrow-drawn marker, a failure with `__FV_VS_RSYNC=0`), a narrow marker drawn wide (the cell after it re-sent), three seeded random runs of `FVV_FRAMES` (200) frames, one wide-heavy, most frames with a wide write: VT grid = buffer and the grammar after every update, incremental = forced repaint, a minimum share of frames with a resync and a pre-blank; and an incremental random run against a disagreeing terminal (every cell but the deviating ones equals the buffer after every frame) |
 
 Run on Git-bash 5.3.15 (pty cases SKIP), MSYS2 5.3.9, Cygwin 5.2.21 and Debian
 (bash 5.1.16 and 5.2.37, util-linux script 2.41.5) in the lab VM (2026-11-09; the
