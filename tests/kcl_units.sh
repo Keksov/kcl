@@ -90,6 +90,7 @@ KCL_UNITS=(
     # unit's own, and `taken` expects the "not an identifier" refusals
     "fv.keyboard|||"
     "fv.mouse|||"
+    "fv.unicode|||"
     "fv.video|||"
     "fv.drivers|||"
 )

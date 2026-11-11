@@ -19,7 +19,9 @@
     "D11": "2026-11-09 non-UTF-8 locale: local C.UTF-8 in unit functions, ASCII mode fallback (owner, O4 a)",
     "D12": "2026-11-09 terminal check automated on Windows via SendInput driver synced with termcheck (owner request); live runs only in an owner-agreed slot",
     "D13": "2026-11-10 reader process on Cygwin-family runtimes (owner choice a, finding W-1): background reader without WINCH trap forwards tty bytes through a pipe",
-    "D13a": "2026-11-10 D13 amendment after the live check: the reader never does a timed tty read (blocking only); a watchdog process with timed reads on a pipe from the owner stops it (end of file / owner gone)"
+    "D13a": "2026-11-10 D13 amendment after the live check: the reader never does a timed tty read (blocking only); a watchdog process with timed reads on a pipe from the owner stops it (end of file / owner gone)",
+    "D14": "2026-11-11 VS16 after a narrow base = 2 cells (P1b Q3, owner choice a)",
+    "D15": "2026-11-11 full resync in the frame: CHA after every wide/cluster cell + pre-blank for emoji-like cells (P1b Q4, owner choice a)"
   },
   "measurements": {
     "spike": "2026-11-08 scratchpad tui_spike/REPORT.md: Git-bash 80x24 Down K 7.0 / K_partial 4.4 / P 3.2 / P_partial 0.9 ms; Tab K 22.5; first paint K 17.6; KV (virtual GetText per row) 17.3; kk calls per Down/PgDn/Tab/paint 8/8/18/9",
@@ -123,7 +125,32 @@
         {
           "id": "P1b",
           "title": "wide characters: width table generator + data, continuation cells, astral support on Cygwin-family (UTF-16 surrogates)",
-          "status": "planned"
+          "status": "in_progress",
+          "design": "Stage 0 DESIGN (2026-11-11): Unicode 16.0.0, glibc 2.41 width parity, new unit fv.unicode (page table, classes z n w x y m r), astral = marker cells on every runtime, no fv.video split; Stage 1 = 1a table+unit, 1b buffer/writes, 1c frame/VT model, 1d termcheck widths",
+          "subtasks": [
+            {
+              "id": "P1b-1a",
+              "title": "tools/unicode generator + fv.unicode unit + kcl/tests registration",
+              "status": "done",
+              "date": "2026-11-11",
+              "summary": "glibc 2.41 cross-check 292464 code points equal; critic: full independent decoder equal on all 1114112 code points; fixed nocasematch x/X (class X renamed y), input version check, https-only fetch, cache version; gate host 3528/3528 (+ light 717/717), VM 5.1/5.2 pass"
+            },
+            {
+              "id": "P1b-1b",
+              "title": "buffer storage, writes, strWidth, sanitiser, ASCII mode, fast path",
+              "status": "next"
+            },
+            {
+              "id": "P1b-1c",
+              "title": "frame emitter, resync (D15), VT model, property tests",
+              "status": "planned"
+            },
+            {
+              "id": "P1b-1d",
+              "title": "termcheck widths group + autodrive + selftest",
+              "status": "planned"
+            }
+          ]
         },
         {
           "id": "P1c",

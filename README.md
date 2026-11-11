@@ -4,7 +4,7 @@
 
 kcl is a set of bash ports of Free Pascal RTL/FCL units, built on the
 [kklass](https://github.com/Keksov/kklass/tree/main) OOP framework and the [kkore](https://github.com/Keksov/kkore/tree/main) helpers. Every
-file is a kbool **unit** (section 1.10): 33 units in 30 folders — each folder
+file is a kbool **unit** (section 1.10): 34 units in 31 folders — each folder
 `kcl/<unit>/` holds `<unit>.sh`, except the thttpserver package, whose folder
 holds four (`thttpmessage`, `thttprouter`, `thttpserver`, `thttpapplication`).
 Each folder has its own test suite (`kcl/<unit>/tests/tests.sh`); development
@@ -325,7 +325,7 @@ for every unit by `kcl/tests` (section 3):
 
 ## 2. Units
 
-Thirty-three units in thirty folders are implemented — one row per folder
+Thirty-four units in thirty-one folders are implemented — one row per folder
 below; the thttpserver row is a package of four units — and `fpjson` is
 planned. **Kind** is how the unit is called: a *static* unit has one class
 whose members are called on the class (`tpath.getFileName x`), an *instance*
@@ -341,6 +341,7 @@ documented, not designed. Every unit meets 1.10 (checked by `kcl/tests`).
 | [fv.drivers](fv.drivers/README.md) | FV `Drivers` in spirit (`TEvent`, `GetMouseEvent`'s double/triple clicks) + `TProgram.GetEvent` / `PutEvent`: keys, mouse, resize and idle as one event in `FV_EV_*` (FV names as values, commands by name: `cmResizeApp`); idle timeout `FV_IDLE_TIMEOUT` (0.05 s), `FV_DOUBLE_DELAY` (0.44 s); layer L0 of the `fv.*` text UI | functions | §1; deviations: plain functions; the answer is the `FV_EV_*` globals (`RESULT` = `FV_EV_WHAT`); `getEvent` never prints, also under `$( )`; its rc 1 is end of input (`evNothing` is rc 0); a bad `FV_IDLE_TIMEOUT` / `FV_DOUBLE_DELAY` falls back to the default. From FV: the resize flag is checked before keys; `evMouseAuto` is not produced (P3) |
 | [fv.keyboard](fv.keyboard/README.md) | FPC rtl-console `Keyboard` in spirit (`GetKeyEvent`, `PollKeyEvent`): terminal bytes → Free Vision key names (`kbCtrlLeft`, `kbF5`, …), UTF-8 characters, raw mouse reports; Esc timeout `FV_ESC_TIMEOUT` (0.02 s); layer L0 of the `fv.*` text UI | functions | §1; deviations: plain functions; the answer is the `FV_KEY*` globals (`RESULT` = the name); `getKeyEvent`/`pollKeyEvent` never print, also under `$( )`; their rc 1 is "no key", not an error; a bad `FV_ESC_TIMEOUT` falls back to the default; `FV_KEY_FD` is checked once per value (closed later: bash's read error, then rc 2; write-only: bash's read error, rc 1 + `FV_KEY_EOF=1`). The polls wait the Esc timeout for each missing byte of a started sequence |
 | [fv.mouse](fv.mouse/README.md) | FPC rtl-console `Mouse` in spirit: SGR 1006 and X10 reports → what / button / 0-based cell / modifiers (X10 clamped at column 223); the enable / disable sequences | functions | §1; deviations: plain functions; the answer is the `FV_MOUSE_*` globals; `enable`/`disable` print by definition (to an fd open for writing, else rc 2 with nothing printed) |
+| [fv.unicode](fv.unicode/README.md) | FPC rtl-unicode `eastasianwidth` + the width part of rtl-console `video.pp` in spirit: the display width (0/1/2) and the cluster role (`z n w x y m r`) of every code point; Unicode 16.0.0 with the glibc 2.41 width rules, a generated table (kbool `tools/unicode`, sources and sha256 in its header) checked against glibc's `wcwidth()`; layer L1 of the `fv.*` text UI | functions | §1; deviations: plain functions taking code points; nothing is printed, also under `$( )` (the answer is `RESULT`); a malformed argument is rc 2, a code point above U+10FFFF rc 1 |
 | [fv.video](fv.video/README.md) | FPC rtl-console `Video` in spirit (`InitVideo`, `DoneVideo`, `ScreenWidth`/`ScreenHeight`, `VideoBuf`, `UpdateScreen`) + FV `TDrawBuffer` writes. Terminal: `/dev/tty` on its own fd, raw mode with Ctrl+C kept as an interrupt (susp/quit/lnext undefined), alternate screen, hidden cursor, autowrap off, all restored on every exit path; screen size and the SIGWINCH flag; on Git-bash, MSYS2 and Cygwin a reader process (blocking reads) forwards the terminal's input through a pipe, with a watchdog that stops it when the owner is gone (D13: a timed `read -t` on the terminal can hang under ConPTY; `FV_TTY_READER=0|1` forces it off/on). Screen buffer: rows of characters + palette symbols, `writeStr`/`writeChar`/`writeBuf`/`writeCStr`/`fillRect` with clipping, a 256-colour palette with nearest-16 fallback, a damage diff against the shown copy in one `printf` per frame, ASCII mode; layers L0 + L1 of the `fv.*` text UI | functions | §1; deviations: plain functions; the answer is the globals (`FV_SCREEN_*`, `FV_VIDEO_*`, `FV_TTY_FD`) and, for writes, `RESULT` = cells advanced; nothing is printed to stdout, also under `$( )` (terminal output goes to `FV_TTY_FD` or `FV_VIDEO_OUT_FD`); the unit sets EXIT/INT/TERM/HUP/WINCH traps between init and done, chaining the caller's; where the reader runs, two extra processes while the TUI is on (`$!` changes, a bare `wait` never returns until done); init and resize fork (`stty`), the colour detection may fork once (`tput colors`); writes and updates are fork-free |
 | [math](math/README.md) | `Math` (123 members) | static (+ awk float engine) | §1; deviations: `sumInt` answers the Double on overflow where FPC's Int64 `SumInt` wraps (`math.pp:1224`); FPU/precision control is not ported — getters report the default mode, setters rc 1; the engine is not called through `read -t` on the hot path (see the unit README) |
 | [tarray](tarray/README.md) | `TArray` (`TArrayHelper<T>`) | static | §1; deviation: `min`/`max` are deliberately not strict about the comparator slot — the positional after it is a free-form default value, so a non-function token there is data |
@@ -431,10 +432,10 @@ FreeBSD and Windows, bash 5.1 to 5.3 — is [the CI in the kbool repo](https://g
 ### `kcl/tests` — the unit shape of every unit
 
 ```bash
-bash kcl/tests/tests.sh                           # 203 tests, ~75 s threaded
+bash kcl/tests/tests.sh                           # 208 tests, ~75 s threaded
 ```
 
-One kcl-level suite checks section 1.10 for all 33 units, so the unit suites
+One kcl-level suite checks section 1.10 for all 34 units, so the unit suites
 keep their own concerns and totals:
 
 * `kcl_units.sh` — the table `KCL_UNITS`, one row per unit
