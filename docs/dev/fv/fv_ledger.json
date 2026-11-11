@@ -125,7 +125,8 @@
         {
           "id": "P1b",
           "title": "wide characters: width table generator + data, continuation cells, astral support on Cygwin-family (UTF-16 surrogates)",
-          "status": "in_progress",
+          "status": "done",
+          "date": "2026-11-11",
           "design": "Stage 0 DESIGN (2026-11-11): Unicode 16.0.0, glibc 2.41 width parity, new unit fv.unicode (page table, classes z n w x y m r), astral = marker cells on every runtime, no fv.video split; Stage 1 = 1a table+unit, 1b buffer/writes, 1c frame/VT model, 1d termcheck widths",
           "subtasks": [
             {
@@ -152,14 +153,17 @@
             {
               "id": "P1b-1d",
               "title": "termcheck widths group + autodrive + selftest",
-              "status": "next"
+              "status": "done",
+              "date": "2026-11-11",
+              "summary": "kbool tools/termcheck: group widths (13 samples, kind info), CPR query on rows 14/15 in turn, own raw reader on FV_KEY_FD with a 2 s cap, NONE without reply, never a query without the reader on msys/cygwin (D13a); feed fifo; autodrive AllGroups + info items skipped by Test-KeyTable/injection; critic: D13a sound; Cygwin UTF-8 selftest regex fail (fixed: byte-wise matching), late reply credited to the next item (fixed: alternating rows), README wording; selftest 188/238/238 (Git/MSYS2/Cygwin) and 230 (VM 5.1/5.2) under C, C.UTF-8 and no locale; Pester dry 179/179. Live run in real terminals pending an owner slot."
+
             }
           ]
         },
         {
           "id": "P1c",
           "title": "tools/bench fv suite",
-          "status": "planned"
+          "status": "next"
         }
       ]
     },
@@ -225,10 +229,13 @@
     "K-1": "kkore: kk.unit declares no namespace for a dotted unit name (fv.views), so kklass's class/instance-vs-unit name guard does not cover fv.* names; harmless (class names cannot contain a dot) but undocumented - P0 documents it or extends the guard; P0a: kcl/tests harness made dotted-aware (001 uses-form + xref, kcl_units census/owners/taken); the taken check is vacuous for dotted names until kk.unit declares them - CLOSED 2026-11-09: documented in kkore/README.md (kk.unit section)",
     "T-1": "P0c termcheck item: Ctrl+Backspace (0x08 on xterm/Windows Terminal) is read as kbBack, so FV kbCtrlBack is lost; confirm per terminal - termcheck records Ctrl+Backspace as INFO",
     "N-1": "later: fv.keyboard queue is not reset when FV_KEY_FD changes outside fv.drivers (feed before first getEvent must survive); documented",
+    "R-1": "2026-11-11 (P1b-1d critic, pre-existing): fv.keyboard does read -t 0 polls on FV_KEY_FD, which is the console tty when the reader is off (FV_TTY_READER=0 or failed start) on msys/cygwin; whether a zero-timeout select can hang under ConPTY is unverified - treat FV_TTY_READER=0 on Windows consoles as comparison-only (termcheck README says so); verify in a VM-free live probe slot or avoid the poll when RMODE 0",
+    "P-1": "2026-11-11 P1b-1b perf A/B: Cygwin cached writes 1.07 (limit 1.05) measured beside a foreign bun.exe spinning a core; rebench on a quiet machine",
     "W-1": "2026-11-09 Git-bash under ConPTY (Windows Terminal, conhost): SIGWINCH trap + read -t on the tty fd hangs intermittently on resize (4/7 with trap, 0/2 without; mintty fine); reader-coproc workaround verified 5/5 - owner chose a (D13): reader process on Cygwin-family runtimes. 2026-11-10 live: a timed read -t on the tty hangs also with WINCH ignored (timed reader 5/5 hung in WT) - the timed tty read is the cause; blocking reader + pipe watchdog clean (WT 5/5, conhost 3/3, kill -9 2/2) - D13a"
   },
   "owner_pending": [
     "terminal runs with tools/termcheck in each terminal (Windows Terminal, mintty Git Bash, VS Code, conhost, MSYS2, Cygwin; optional WSL/SSH)",
-    "O1 Esc timeout (silence = keep 0.02 s)"
+    "O1 Esc timeout (silence = keep 0.02 s)",
+    "live run of termcheck widths group in the 5 terminals (autodrive -Groups widths -Live)"
   ]
 }
