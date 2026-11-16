@@ -4,7 +4,11 @@
 # names differ only in case: Win / win, Lab / lab; insert, insertBefore,
 # makeFirst, putInFrontOf, the navigation, locate / moveTo / growTo,
 # changeBounds with GrowMode, makeLocal / makeGlobal / mouseInView,
-# GetHelpCtx, refusals on every return path, delete and .delete, and at the
+# GetHelpCtx, refusals on every return path, delete and .delete; the
+# drawing of stage 2c-2: a frame with a Cyrillic title cut to its room, a
+# shadowed window, drawView, a move, a resize under lock / unlock, the
+# border-only redraw under lockScreenUpdate, hide / show, drawPart with the
+# writers, getColor, a refused writer, screen cells read back; and at the
 # end the constructor guard: a live leaf re-created -> refused with its Error
 # line, the tree repaired, insert refusing the bare instance, .delete)
 # runs in a child shell under each setup - nocasematch, failglob, nullglob,
@@ -31,6 +35,10 @@ TGroup.new win 40 0 80 20
 TView.new Lab 1 1 10 2
 TView.new lab 2 2 12 3
 TView.new st 0 22 80 23
+TFrame.new frm 0 0 1 1
+exec {FVO}>/dev/null; FV_VIDEO_OUT_FD=$FVO FV_SCREEN_W=80 FV_SCREEN_H=24; fv.video.initScreen
+pf12() { fv.views.writeStr 0 0 "Part" 1; fv.views.writeCStr 4 0 "~ok~" 1 2; fv.views.fill 6 0 2 1 "#" 3; }
+cut12() { local LC_ALL=C.UTF-8; fv.video.getRow "$1"; r+="${RESULT:$2:$3}|${REPLY:$2:$3}$4"; }   # (cells of row Y, sliced in UTF-8 whatever the setup)
 '
 SCENE='
 r=""
@@ -62,6 +70,23 @@ fv.views.first st || r+="$?;"
 fv.views.delete Win lab; fvw_tree desk; r+="$REPLY;"
 lab.delete; Win.delete
 fvw_tree desk; r+="$REPLY"
+# the drawing (stage 2c-2): a frame in win (shadowed), the first paint, a
+# move, a resize under lock, the border-only redraw under lockScreenUpdate,
+# hide / show, drawPart with the writers, getColor, a refused writer, the
+# screen cells read back
+desk_data[State]=$(( desk_data[State] | FV_SF_EXPOSED )) win_data[State]=$(( win_data[State] | FV_SF_SHADOW ))
+win_data[Title]="Кейсы окна" win_data[Flags]=15 win_data[Number]=2
+fv.views.locate frm 0 0 20 34; fv.views.insertBefore win frm ""
+frm_data[State]=$(( frm_data[State] | FV_SF_ACTIVE ))
+fv.views.drawView desk
+fv.views.moveTo win 50 2; fv.views.lock desk; fv.views.growTo win 25 18; fv.views.unlock desk
+fv.views.lockScreenUpdate; frm_data[State]=$(( frm_data[State] & ~FV_SF_ACTIVE )); fv.views._frameBorder frm; fv.views.unlockScreenUpdate
+fv.views.hide st; fv.views.show st; fv.views.drawPart st pf12 0 1 || r+="dp$?,"
+fv.views.getColor frm 3; r+="|D=$RESULT,"
+fv.views.writeStr 0 0 x 1 || r+="$?,"
+cut12 3 48 29 ,
+cut12 21 50 27 ,
+cut12 23 0 9 ""
 # the constructor guard: st (a live leaf in desk) re-created -> refused, the
 # tree repaired, insert refuses the bare instance, .delete frees it. Not run
 # where the .new of kklass cannot (NOKKNEW: an IFS of letters, see the header)
@@ -99,7 +124,15 @@ kt_test_start "reference run: the scene as expected"
 # BY (20*39 + 23 shr 1) div 23 = 34; Win: gfGrowAll, +40 / +16
 want='desk[st {Win[Lab lab]*lab} {win[]}]*win;desk[st {Win[lab Lab]*lab} {win[]}]*win;win,st,st,win,nil1,nil1;'
 want+='Win=41 18 74 35,win=60 0 80 34,Lab=1 1 10 2,lab=2 2 12 3,st=0 22 80 23,abs=43:21:53:22;-23 -1,42 20,in,out,help=17;'
-want+='1,2,1,2,2,1,2;desk[st {Win[Lab]} {win[]}]*win;desk[st {win[]}]*win|G=1,E,desk[{win[]}]*win,2,del,gone'
+want+='1,2,1,2,2,1,2;desk[st {Win[Lab]} {win[]}]*win;desk[st {win[]}]*win'
+# the drawing: getColor frm 3 (win has no palette: app entry 2), the refused
+# writer; row 3 = win's top row after the move and the resize (inactive after
+# the border-only redraw; the title cut to L = 25-10-6-4 = 5 characters,
+# centred; the cells beside it stale: desk has no background); row 21 = win's
+# bottom shadow row (its characters kept, symbol V); row 23 = st after
+# drawPart (Part, ~ok~ in colours 1 / 2, ## in colour 3)
+want+='|D=2,2,  ┌──────── Кейсы ──2─────┐  |00111111111111111111111111122,║                  ║       |22VVVVVVVVVVVVVVVVVVVVVVVVV,'
+want+='Partok## |111122331|G=1,E,desk[{win[frm]}]*win,2,del,gone'
 if [[ $ref == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$ref] want [$want]"; fi
 
 # (an IFS of letters: kklass's .new crashes bash, so that setup skips the

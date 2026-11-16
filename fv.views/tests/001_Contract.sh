@@ -6,11 +6,13 @@
 # readonly constants) and rebuilds the classes; a failing call returns to the
 # caller from `if` / `||`; nothing is ever printed on stdout, also inside
 # $( ); using the unit leaves only its constants and FV_RECT_* / FV_POINT_* /
-# FV_MIN_* / FV_MAX_*, __FV_VW_*, RESULT, the classes' kklass tables and
-# fv.views.* / TView.* / TGroup.* behind (instances deleted; kklass's own
-# build globals and its __kkc. / __kkm. functions of the two classes
-# allowed); the public API of this stage exists; the test lib's shims
-# (dispatch and write counters), buffer reader and fvw_budget work.
+# FV_MIN_* / FV_MAX_* (and FV_DRAW_* / FV_CLIP_*), __FV_VW_*, RESULT, the
+# classes' kklass tables and fv.views.* / TView.* / TGroup.* / TFrame.*
+# behind (instances deleted; kklass's own build globals and its __kkc. /
+# __kkm. functions of the three classes allowed); the main path draws too (a
+# frame, locks, show / hide, drawPart); the public API of both stages exists;
+# the test lib's shims (dispatch and write counters), buffer reader and
+# fvw_budget work.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -24,14 +26,16 @@ kt_test_section "001: the kcl contract"
 kt_test_start "the unit source parses"
 if err="$(bash -n "$UNIT" 2>&1)"; then kt_test_pass "bash -n clean"; else kt_test_fail "bash -n: $err"; fi
 
-kt_test_start "the public API of stage 2c-1 is defined"
+kt_test_start "the public API of stages 2c-1 and 2c-2 is defined"
 miss=''
 for f in insert insertBefore delete makeFirst putInFrontOf first last next prev nextView prevView \
     getBounds getExtent locate moveTo growTo changeBounds makeLocal makeGlobal mouseInView isView \
+    drawView redraw drawPart show hide lock unlock lockScreenUpdate unlockScreenUpdate getColor resetPalette \
+    writeStr writeChar writeCStr writeLine fill _frameBorder \
     _virt _changed _setCurrent _newReserved; do
     declare -F "fv.views.$f" >/dev/null || miss+=" fv.views.$f"
 done
-for c in TView TGroup; do declare -F "$c.new" >/dev/null || miss+=" $c.new"; done
+for c in TView TGroup TFrame; do declare -F "$c.new" >/dev/null || miss+=" $c.new"; done
 if [[ -z $miss ]]; then kt_test_pass "ok"; else kt_test_fail "missing:$miss"; fi
 
 expect_clean() {
@@ -80,6 +84,21 @@ w1.MoveTo 3 3; w1.GrowTo 10 5; w1.Locate 0 0 5 5; w1.MakeFirst; w1.PutInFrontOf 
 desk.Insert lab 2>/dev/null || :
 fv.views.delete w1 lab
 desk.InsertBefore lab w1
+exec {FV_VIDEO_OUT_FD}>/dev/null
+fv.video.initScreen
+desk_data[State]=\$(( desk_data[State] | FV_SF_EXPOSED ))
+TFrame.new fr 0 0 20 10
+fv.views.insert w2 fr
+fv.views.drawView desk
+fv.views.redraw w2
+fv.views.lock desk; fv.views.moveTo w2 41 1; fv.views.unlock desk
+fv.views.lockScreenUpdate; fv.views._frameBorder fr; fv.views.unlockScreenUpdate
+fv.views.hide w2; fv.views.show w2
+fv.views.getColor fr 3; [[ \$RESULT == 2 ]]
+fv.views.resetPalette w2; fv.views.resetPalette
+fv.views.drawPart lab fv.views.isView 0 1; fv.views.drawPart w2 fv.views.isView 0 1 || :
+fv.views.writeStr 0 0 x 1 || :
+w2.DrawView; w2.Hide; w2.Show; desk.Lock; desk.Unlock
 fv.views.insert nosuch lab || :
 fv.views.locate w1 x 0 0 0 || :
 TView.new lab 0 0 1 1 2>/dev/null || :
@@ -131,7 +150,7 @@ printf '[%s][%s]' \"\$x\" \"\$y\"" 2>/dev/null)"
 # value, 0 each; the plain functions print nothing)
 if [[ $out == '[00][]' ]]; then kt_test_pass "ok"; else kt_test_fail "out='$out'"; fi
 
-kt_test_start "loading and using the unit leaves only its names behind (FV_* constants and var parameters, __FV_VW_*, RESULT, TView* / TGroup* class tables, fv.views.* / TView.* / TGroup.* functions)"
+kt_test_start "loading and using the unit leaves only its names behind (FV_* constants and var parameters, __FV_VW_*, RESULT, FV_DRAW_* / FV_CLIP_*, TView* / TGroup* / TFrame* class tables, fv.views.* / TView.* / TGroup.* / TFrame.* functions)"
 out="$(bash -c "
 export LC_ALL=C.UTF-8
 source '$KBOOL'
@@ -143,8 +162,8 @@ $MAIN
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
-newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_(SF|OF|GF|DM|HC|EM)_[A-Z]+|FV_(RECT_[AB][XY]|POINT_[XY]|MIN_[XY]|MAX_[XY])|__FV_VW_[A-Z0-9]+|RESULT|(TView|TGroup)_[A-Za-z_]+|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft)$' | tr '\n' ' ')"
-newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^((fv\.views|TView|TGroup)\.|__kk[cm]\.(TView|TGroup)(\.|$))' | tr '\n' ' ')"
+newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_(SF|OF|GF|DM|HC|EM|WF|WP|WN|FM)_[A-Z]+|FV_DRAW_(VIEW|X|Y|PAL)|FV_CLIP_[XY][12]|FV_(RECT_[AB][XY]|POINT_[XY]|MIN_[XY]|MAX_[XY])|__FV_VW_[A-Z0-9]+|RESULT|(TView|TGroup|TFrame)_[A-Za-z_]+|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft)$' | tr '\n' ' ')"
+newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^((fv\.views|TView|TGroup|TFrame)\.|__kk[cm]\.(TView|TGroup|TFrame)(\.|$))' | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass "ok"; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi
 
 

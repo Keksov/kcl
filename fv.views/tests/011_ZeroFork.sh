@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # 011_ZeroFork.sh - fv.views never forks (PLAN.md rule 1; design §1.3: every
 # plain function is fork-free):
-#   * with PATH='' (no external command can run): the whole stage's path —
+#   * with PATH='' (no external command can run): both stages' paths —
 #     construction, the tree, navigation, geometry with GrowMode, the
-#     elision through a user override, the guard and its repair, .delete —
+#     elision through a user override, the guard and its repair, .delete,
+#     and the drawing (a frame with a shadowed owner, drawView, redraw, a
+#     move, lock / unlock, the border-only redraw, hide / show, drawPart
+#     with every writer, getColor) —
 #     works and prints no "command not found";
 #   * the static scan (fv.video's 006 scanner): no $( ), backtick, process
 #     substitution, pipe, ( ) subshell, & or coproc on any code line of
@@ -36,12 +39,24 @@ fv.views.moveTo w1 5 5; fv.views.growTo w1 30 15; fv.views.changeBounds desk 0 1
 fv.views.getBounds w1; r+=\"|\$RESULT\"
 fv.views.makeLocal u 9 9; fv.views.makeGlobal u 0 0; fv.views.mouseInView u 0 0 || :
 w1.GetHelpCtx; fv.views.delete w1 v
+exec {o}>/dev/null; FV_VIDEO_OUT_FD=\$o; fv.video.initScreen
+desk_data[State]=\$(( desk_data[State] | FV_SF_EXPOSED )) w1_data[State]=\$(( w1_data[State] | FV_SF_SHADOW ))
+w1_data[Title]=Zero w1_data[Flags]=15 w1_data[Number]=3
+TFrame.new fr 0 0 30 15; fv.views.insertBefore w1 fr ''
+fr_data[State]=\$(( fr_data[State] | FV_SF_ACTIVE ))
+pf() { fv.views.writeStr 0 0 'part' 1; fv.views.fill 0 0 1 1 '#' 2; fv.views.writeCStr 0 0 'a~b~' 1 2; fv.views.writeLine 0 0 1 x 1; fv.views.writeChar 0 0 y 1; }
+fv.views.drawView desk; fv.views.redraw w1; fv.views.moveTo w1 6 6
+fv.views.lock desk; fv.views.growTo w1 31 16; fv.views.unlock desk
+fv.views.lockScreenUpdate; fv.views._frameBorder fr; fv.views.unlockScreenUpdate
+fv.views.hide w1; fv.views.show w1; fv.views.makeFirst u; fv.views.drawPart u pf 0 1
+fv.views.getColor fr 5; r+=\"|\$RESULT\"
+fv.video.getRow 7; r+=\"|\${RESULT:6:9}|\${REPLY:6:9}\"
 TView.new u 0 0 1 1 2>/dev/null || r+=\"|guard\$?\"
 TView.new x__fvy 0 0 1 1 2>/dev/null || r+=\"|res\$?\"
 fv.views._newReserved w1 frame TView 0 0 1 1; r+=\"|\$RESULT\"
 u.delete; v.delete; x__fvy.delete; desk.delete
 printf '%s' \"\$r\"" 2>&1)
-want='00u|0 0 4 1|25 11 55 26|guard1|res2|w1__fvframe'
+want='00u|0 0 4 1|25 11 55 26|3|ybrt]════|121122222|guard1|res2|w1__fvframe'
 if [[ $out == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [$want]"; fi
 
 kt_test_start "the scanner flags a fork construct in a sample line and passes the safe ones"

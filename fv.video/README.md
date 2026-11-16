@@ -779,6 +779,14 @@ Cygwin runtimes wakes in timer steps (~15.5 ms per byte).
   bold is a separate flag; cursor types 1–3 all just show the cursor (no
   shape sequence); `clearScreen` sends nothing until `updateScreen` and
   ignores the clip; the buffer is at most 1024 columns wide (FVMaxWidth).
+* **friend entry for fv.\* units:** `fv.video._g CMD [ARGS…]` runs `CMD` under
+  this unit's caller-state guard (nocasematch off, a UTF-8 character locale
+  for a non-UTF-8 caller, both restored as above; rc = CMD's). fv.views uses
+  it to cut a frame title by characters for a C-locale caller. fv.views also
+  reads the per-row flag `__FV_VS_WIDE[y]` (non-zero = the row holds wide
+  cells or markers) to repaint such rows across the full width. Both are
+  private to the fv.\* units (not for scripts); a change to them is a
+  versioned change that fv.views' tests pin.
 
 ## Tests
 

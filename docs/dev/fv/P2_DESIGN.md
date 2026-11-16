@@ -282,6 +282,10 @@ S(V) is V's rect, extended by its shadow when `sfShadow` is set (FV `ShadowSize`
     meaning: while G is locked, a `drawView` of G or of a view inside it is not drawn; G is marked
     instead. At the outermost `unlock`, each marked group is redrawn once (a marked group inside
     another marked group is covered by the outer one). It also holds the flush.
+    *Stage 2c-2 (as built):* `unlock` redraws G whenever its count returns to 0, marked or not
+    (FV `Unlock` → `DrawView`, so "Lock; change fields; Unlock" shows the new content); an
+    owner-level repaint still paints a locked group (skipping it would leave a hole FV never
+    shows), so a group can be drawn twice around a reverse-order unlock, as in FV.
   * The framework's own sequences (setCurrent/select, putInFrontOf, changeBounds, show/hide) do
     **not** go through `lock`/`unlock`. They use `lockScreenUpdate` and redraw only what changed:
     the border of the old and new window, the exposed part, the union rectangle. This is a

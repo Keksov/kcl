@@ -3,7 +3,11 @@
 # item 2): fv.views._virt runs a built-in virtual's plain body without a
 # kklass dispatch unless the view's class overrides the method; it reads the
 # owner table on every call (no cache).
-#   * every built-in virtual of this stage (TView ChangeBounds CalcBounds
+#   * stage 2c-2: Draw (a proc) and GetPalette (a func) of TView, TGroup and
+#     TFrame overridden with `inherited`: 0 / 2 dispatches, the RESULT rule
+#     both ways, and in the painter (one dispatch per Draw, the override's
+#     palette resolved into the drawing, fields intact, RESULT kept);
+#   * every built-in virtual of stage 2c-1 (TView ChangeBounds CalcBounds
 #     SizeLimits GetHelpCtx, TGroup ChangeBounds GetHelpCtx) overridden with
 #     `inherited` in user subclasses whose fields are named like common
 #     locals (i k n x y s d r c f v o w h): the dispatch counts (0 without an
@@ -251,6 +255,79 @@ fv.views.delete hg r0; fv.views.insert hg rs
 RESULT=x; fv.views._virt hg GetHelpCtx; b=$RESULT
 if [[ $a == 3 && $b == 44 ]]; then kt_test_pass "ok"; else kt_test_fail "[$a] [$b]"; fi
 hg.delete; r0.delete; ri.delete; rf.delete
+
+# --- stage 2c-2: Draw (proc) and GetPalette (func), on TView, TGroup, TFrame -----
+class TUd : TView
+    public
+        var i
+        var x
+        var y
+        override proc Draw
+        override func GetPalette
+end
+TUd.Draw() { i=a x=b y=c; RESULT=clobbered-by-draw; inherited Draw; DLOG+="d:$FV_DRAW_VIEW;"; }
+TUd.GetPalette() { inherited GetPalette; RESULT="${RESULT}3 4"; }
+build TUd
+class TUgd : TGroup
+    public
+        var k
+        override proc Draw
+        override func GetPalette
+end
+TUgd.Draw() { k=z; inherited Draw; DLOG+="g:$FV_DRAW_VIEW;"; }
+TUgd.GetPalette() { inherited GetPalette; RESULT="${RESULT}5 6 7 8 9"; }
+build TUgd
+class TUfr : TFrame
+    public
+        override proc Draw
+        override func GetPalette
+end
+TUfr.Draw() { inherited Draw; DLOG+="f:$FV_DRAW_VIEW;"; }
+TUfr.GetPalette() { inherited GetPalette; RESULT="$RESULT 4"; }
+build TUfr
+class TKidF : TFrame
+    public
+        var n
+end
+build TKidF
+
+kt_test_start "2c-2: Draw and GetPalette: 0 dispatches for the built-ins (TView, TGroup, TFrame and a subclass that inherits), 2 for each override + inherited"
+TUd.new ud 0 0 2 1; TUgd.new ugd 0 0 9 4; TUfr.new ufr 0 0 9 4; TKidF.new kf 0 0 9 4; TFrame.new pfr 0 0 9 4
+out=''
+for m in Draw GetPalette; do
+    for vw in pv pg pfr kf ud ugd ufr; do count fv.views._virt "$vw" "$m"; out+="$REPLY"; done
+    out+=' '
+done
+if [[ $out == '0000222 0000222 ' ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out]"; fi
+
+kt_test_start "2c-2: the RESULT rule: Draw (a proc) leaves the caller's RESULT on both paths (the override sets RESULT itself); GetPalette (a func) answers on both"
+out=''
+RESULT=caller; fv.views._virt pv Draw; out+="$RESULT,"
+RESULT=caller; fv.views._virt ud Draw; out+="$RESULT,"
+RESULT=caller; fv.views._virt pv GetPalette; out+="[$RESULT],"
+RESULT=caller; fv.views._virt pfr GetPalette; out+="[$RESULT],"
+RESULT=caller; fv.views._virt ud GetPalette; out+="[$RESULT],"
+RESULT=caller; fv.views._virt ufr GetPalette; out+="[$RESULT]"
+if [[ $out == 'caller,caller,[],[1 1 2 2 3],[3 4],[1 1 2 2 3 4]' ]]; then kt_test_pass "ok"; else kt_test_fail "[$out]"; fi
+
+kt_test_start "2c-2: in the painter: each user Draw dispatched once (+ inherited), the user's GetPalette shapes the resolved palette, fields intact, RESULT kept"
+fvw_screen 20 6
+fv.views.insert ugd ufr; fv.views.insert ugd ud
+fvw_expose ugd
+fv.views.resetPalette
+DLOG=''
+fvw_count_on; FVW_CALLS=0
+RESULT=keep
+fv.views.drawView ugd
+n=$FVW_CALLS r=$RESULT
+fvw_count_off
+# ugd: app entries 5..9 = symbols 5 6 7 8 9; ufr: CFrame + 4 -> 5 5 6 6 7 8; ud: '' + "3 4" -> 7 8
+p="${__FV_VW_PAL[ugd]} ${__FV_VW_PAL[ufr]} ${__FV_VW_PAL[ud]}"
+fvw_cells 0 0 3; c=$REPLY
+# dispatches: 3 Draws + 3 inherited, 3 GetPalettes + 3 inherited
+if [[ $n == 12 && $r == keep && $DLOG == 'f:ufr;d:ud;g:ugd;' && $p == '56789 556678 78' && ${ud_data[i]}${ud_data[x]}${ud_data[y]}${ugd_data[k]} == abcz && $c == 775 ]]; then kt_test_pass "ok"
+else kt_test_fail "calls=$n RESULT=$r log=[$DLOG] pal=[$p] fields=[${ud_data[i]}${ud_data[x]}${ud_data[y]}${ugd_data[k]}] cells=[$c]"; fi
+ugd.delete; kf.delete; pfr.delete
 
 kt_test_start "an unknown method: a kklass dispatch that fails like a direct call (rc 127), RESULT kept"
 RESULT=caller; fv.views._virt pv NoSuchMethod 2>/dev/null; r=$?
