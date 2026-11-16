@@ -155,7 +155,7 @@
               "title": "termcheck widths group + autodrive + selftest",
               "status": "done",
               "date": "2026-11-11",
-              "summary": "kbool tools/termcheck: group widths (13 samples, kind info), CPR query on rows 14/15 in turn, own raw reader on FV_KEY_FD with a 2 s cap, NONE without reply, never a query without the reader on msys/cygwin (D13a); feed fifo; autodrive AllGroups + info items skipped by Test-KeyTable/injection; critic: D13a sound; Cygwin UTF-8 selftest regex fail (fixed: byte-wise matching), late reply credited to the next item (fixed: alternating rows), README wording; selftest 188/238/238 (Git/MSYS2/Cygwin) and 230 (VM 5.1/5.2) under C, C.UTF-8 and no locale; Pester dry 179/179. Live run in real terminals pending an owner slot."
+              "summary": "kbool tools/termcheck: group widths (13 samples, kind info), CPR query on rows 14/15 in turn, own raw reader on FV_KEY_FD with a 2 s cap, NONE without reply, never a query without the reader on msys/cygwin (D13a); feed fifo; autodrive AllGroups + info items skipped by Test-KeyTable/injection; critic: D13a sound; Cygwin UTF-8 selftest regex fail (fixed: byte-wise matching), late reply credited to the next item (fixed: alternating rows), README wording; selftest 188/238/238 (Git/MSYS2/Cygwin) and 230 (VM 5.1/5.2) under C, C.UTF-8 and no locale; Pester dry 179/179. Live run 2026-11-16 (owner: можно тестировать; kbool tools/termcheck/runs/20261116-104226): all 5 terminals complete, 13 INFO each, stty restored, no strays. Measured widths (table / wt conhost mintty-git msys2 cygwin): CJK 2/2 2 2 2 2; Fullwidth 2/2 2 2 2 2; Emoji 2/2 2 2 2 2; Heart-VS16 2/2 2 1 1 1; Keycap 2/2 3 1 1 1; ZWJ-Family 2/2 8 6 6 6; Flag 2/2 4 2 2 2; Combining 1/1 2 1 1 1; Hangul 2/2 2 2 2 2; Ambiguous 1/1 1 1 1 1; Watch 2/2 2 2 2 2; Trigram-U16 2/2 1 2 2 2; U17-1FAEA 1/1 1 2 2 2. Windows Terminal agrees 13/13 with the table; conhost counts code points (no clusters); mintty draws VS16/keycap narrow, a ZWJ family as its parts, and U+1FAEA wide (Unicode 17) - the D15 resync keeps rows aligned in all of them."
 
             }
           ]
@@ -165,7 +165,7 @@
           "title": "tools/bench fv suite",
           "status": "done",
           "date": "2026-11-16",
-          "summary": "kbool tools/bench: suite fv (fvcases.sh): two-panel file-manager scene, actions paint (cold first paint), down, scroll, tab, resize 80x24<->200x50, wide variants; prepare.sh pins NAME=PIN[,PIN] with PIN=[kklass|kcl@]REF[+PATCH]; ci.conf/bench.yml documented (default CI run unchanged); critic: caller C locale broke every case (widths now from fv.video.strWidth, ASCII mode a working path), wide paint not cold (class cache reset per run), behaviour check for wide support, prepare.sh messages. Git-bash 80x24: down 0.75 ms (target 4), tab 0.76 (20), full update ~6 ms, first paint ~32 ms (target 15, see F-1); 200x50 paint ~70 ms. P-1 rebench closed. Native CI numbers need a kcl perf branch push (owner)."
+          "summary": "kbool tools/bench: suite fv (fvcases.sh): two-panel file-manager scene, actions paint (cold first paint), down, scroll, tab, resize 80x24<->200x50, wide variants; prepare.sh pins NAME=PIN[,PIN] with PIN=[kklass|kcl@]REF[+PATCH]; ci.conf/bench.yml documented (default CI run unchanged); critic: caller C locale broke every case (widths now from fv.video.strWidth, ASCII mode a working path), wide paint not cold (class cache reset per run), behaviour check for wide support, prepare.sh messages. Git-bash 80x24: down 0.75 ms (target 4), tab 0.76 (20), full update ~6 ms, first paint ~32 ms (target 15, see F-1); 200x50 paint ~70 ms. P-1 rebench closed. Native numbers 2026-11-16 (bench.yml run 43825952669, kbool perf 0be642f, kcl perf c1400d5, 11 rows all green; cur = kcl c1400d5, ms, 80x24 paint / down / tab, 200x50 paint, wide 80x24 paint): debian 13 18.1/0.44/0.46/40.7/48.5; ubuntu 22.04 21.2/0.51/0.53/48.0/55.3; ubuntu host 29.5/0.71/0.75/69.1/76.2; fedora 44 30.0/0.69/0.72/71.4/78.3; alpine 5.1 44.3/1.06/1.04/100.7/116.1; alpine 5.2 50.0/1.20/1.21/113.0/131.5; alpine 5.3 31.1/0.71/0.73/70.5/83.3; macOS brew 5.3 29.8/0.62/0.66/59.6/65.7; Git-bash 43.0/1.01/1.05/94.1/117.5; MSYS2 54.1/1.26/1.31/118.7/147.6; Cygwin 54.7/1.31/1.34/119.0/149.4. cur/p1a on narrow paint 1.03-1.07 (P1b+L-1 cost; macOS 1.25 with a wide min-max = noise, its 200x50 rows are 0.86-0.99); Down/Tab meet the targets everywhere, first paint misses 15 ms everywhere (F-1)."
         }
       ]
     },
@@ -242,7 +242,6 @@
   "owner_pending": [
     "terminal runs with tools/termcheck in each terminal (Windows Terminal, mintty Git Bash, VS Code, conhost, MSYS2, Cygwin; optional WSL/SSH)",
     "O1 Esc timeout (silence = keep 0.02 s)",
-    "live run of termcheck widths group in the 5 terminals (autodrive -Groups widths -Live)",
-    "permission to push a kcl perf branch for bench.yml native numbers of the fv suite"
+    "kcl perf branch allowed 2026-11-16"
   ]
 }
