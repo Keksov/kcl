@@ -163,7 +163,9 @@
         {
           "id": "P1c",
           "title": "tools/bench fv suite",
-          "status": "next"
+          "status": "done",
+          "date": "2026-11-16",
+          "summary": "kbool tools/bench: suite fv (fvcases.sh): two-panel file-manager scene, actions paint (cold first paint), down, scroll, tab, resize 80x24<->200x50, wide variants; prepare.sh pins NAME=PIN[,PIN] with PIN=[kklass|kcl@]REF[+PATCH]; ci.conf/bench.yml documented (default CI run unchanged); critic: caller C locale broke every case (widths now from fv.video.strWidth, ASCII mode a working path), wide paint not cold (class cache reset per run), behaviour check for wide support, prepare.sh messages. Git-bash 80x24: down 0.75 ms (target 4), tab 0.76 (20), full update ~6 ms, first paint ~32 ms (target 15, see F-1); 200x50 paint ~70 ms. P-1 rebench closed. Native CI numbers need a kcl perf branch push (owner)."
         }
       ]
     },
@@ -230,12 +232,15 @@
     "T-1": "P0c termcheck item: Ctrl+Backspace (0x08 on xterm/Windows Terminal) is read as kbBack, so FV kbCtrlBack is lost; confirm per terminal - termcheck records Ctrl+Backspace as INFO",
     "N-1": "later: fv.keyboard queue is not reset when FV_KEY_FD changes outside fv.drivers (feed before first getEvent must survive); documented",
     "R-1": "2026-11-11 (P1b-1d critic, pre-existing): fv.keyboard does read -t 0 polls on FV_KEY_FD, which is the console tty when the reader is off (FV_TTY_READER=0 or failed start) on msys/cygwin; whether a zero-timeout select can hang under ConPTY is unverified - treat FV_TTY_READER=0 on Windows consoles as comparison-only (termcheck README says so); verify in a VM-free live probe slot or avoid the poll when RMODE 0",
-    "P-1": "2026-11-11 P1b-1b perf A/B: Cygwin cached writes 1.07 (limit 1.05) measured beside a foreign bun.exe spinning a core; rebench on a quiet machine",
+    "P-1": "2026-11-11 P1b-1b perf A/B: Cygwin cached writes 1.07 (limit 1.05) measured beside a foreign bun.exe spinning a core - CLOSED 2026-11-16: quiet-machine rebench (P1c Task B) MSYS2/Git-bash within 1.05; Cygwin writeStr ASCII and comp80 +5-6 % for 1b and 1c, inside the per-round A/A spread (0.06-0.22): accepted as a possible small systematic cost",
+    "F-1": "2026-11-16 (P1c): 80x24 first paint ~32 ms on Windows vs the 15 ms target (PLAN 5.4): initScreen ~3.3 ms, scene composition ~22.5 ms, full update ~6 ms; 84 single-character writeStr of frame sides ~135 us each = 5.7 ms; a call costs ~125 us on Windows bash. Input for P2: TFrame/TView drawing must batch (whole rows via writeBuf, columns via fillRect), and the per-call cost of short writes is worth a look",
+    "L-1": "2026-11-16 (P1c, confirmed): a caller locale that does not exist (LANG=xx_YY.UTF-8) breaks fv.video: bash cannot restore LC_ALL to that name and keeps the active locale, so after initScreen the caller's shell is left in UTF-8 (caller state leak) and later calls skip _g, _san's local LC_ALL=C leaves C, the walk poisons __FV_VS_CC; strWidth of a CJK char gives 3 then 1 (want 2); on all runtimes incl. VM 5.1/5.2. Repro scratchpad p1c/locbug.sh",
     "W-1": "2026-11-09 Git-bash under ConPTY (Windows Terminal, conhost): SIGWINCH trap + read -t on the tty fd hangs intermittently on resize (4/7 with trap, 0/2 without; mintty fine); reader-coproc workaround verified 5/5 - owner chose a (D13): reader process on Cygwin-family runtimes. 2026-11-10 live: a timed read -t on the tty hangs also with WINCH ignored (timed reader 5/5 hung in WT) - the timed tty read is the cause; blocking reader + pipe watchdog clean (WT 5/5, conhost 3/3, kill -9 2/2) - D13a"
   },
   "owner_pending": [
     "terminal runs with tools/termcheck in each terminal (Windows Terminal, mintty Git Bash, VS Code, conhost, MSYS2, Cygwin; optional WSL/SSH)",
     "O1 Esc timeout (silence = keep 0.02 s)",
-    "live run of termcheck widths group in the 5 terminals (autodrive -Groups widths -Live)"
+    "live run of termcheck widths group in the 5 terminals (autodrive -Groups widths -Live)",
+    "permission to push a kcl perf branch for bench.yml native numbers of the fv suite"
   ]
 }
