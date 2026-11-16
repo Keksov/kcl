@@ -130,6 +130,14 @@ fv.video.updateSize() {
 # ~0.3 s or 64 KiB. Fork-free; at restore only (typed-ahead keys before init
 # are the program's)
 fv.video._drain() {
+    local __fvv_pe=${#__FV_VS_P}${#__FV_VS_B}
+    # its scope in _drain1, whose stderr is /dev/null (bash warns when it
+    # fails to restore a rejected LC_ALL); outside an entry point (the traps)
+    # a failed restore is put right here (L-1)
+    fv.video._drain1 "$1" 2>/dev/null
+    if [[ ${#__FV_VS_P}${#__FV_VS_B} != "$__fvv_pe" ]]; then fv.video._lcx "$__fvv_pe" 2>/dev/null; fi
+}
+fv.video._drain1() {
     local LC_ALL=C __fvv_c='' __fvv_n=0 __fvv_t0=${EPOCHREALTIME//[.,]/} __fvv_t
     while (( __fvv_n < 65536 )) && IFS= read -r -n1 -d '' -t 0.05 -u "$1" __fvv_c 2>/dev/null; do
         __fvv_n=$(( __fvv_n + 1 )) __fvv_t=${EPOCHREALTIME//[.,]/}
@@ -687,6 +695,11 @@ declare -gA __FV_VS_FILL __FV_VS_PAL __FV_VS_SGR __FV_VS_AMAP __FV_VS_TC
 declare -ga __FV_VS_XV __FV_VS_OXV
 declare -gA __FV_VS_X __FV_VS_TX __FV_VS_TB __FV_VS_CC __FV_VS_SC __FV_VS_SX
 declare -g __FV_VS_XSEQ=${__FV_VS_XSEQ:-0} __FV_VS_V=
+# a caller locale bash cannot restore (L-1, fv.video._g): LOK[value of the
+# caller's LC_ALL] 1 = a `local LC_ALL` restores it, 0 = it does not or it
+# cannot be told (no UTF-8 locale): swapped by hand
+declare -gA __FV_VS_LOK
+__FV_VS_LOK+=()
 # set (for set -u) without losing what a reload finds
 __FV_VS_CH+=() __FV_VS_AT+=() __FV_VS_OCH+=() __FV_VS_OAT+=() __FV_VS_DX1+=() __FV_VS_DX2+=() __FV_VS_WIDE+=() __FV_VS_N16+=()
 __FV_VS_FILL+=() __FV_VS_PAL+=() __FV_VS_SGR+=() __FV_VS_AMAP+=() __FV_VS_TC+=()
@@ -711,20 +724,80 @@ fv.video._locok() {
     (( ${#__FV_VS_P} == 1 && ${#__FV_VS_B} == 1 ))
 }
 
+# A caller locale bash cannot restore (L-1): when a `local LC_ALL` goes out of
+# scope, bash sets the caller's LC_ALL again or, when it is empty, does
+# setlocale(LC_ALL, LANG or "") and then each LC_* variable; when setlocale
+# rejects a name on that way (LANG, LC_ALL or, through "", any exported LC_*
+# naming a missing locale) the locale of the scope just left stays. So no
+# name is modelled: the unit looks at what a restore did. Every scope of its
+# own LC_ALL that can be the outermost one is left, and then the caller's
+# probe (${#__FV_VS_P}${#__FV_VS_B}: 11 = UTF-8) compared with the one taken
+# before; a difference means bash could not restore here, and fv.video._lcx
+# sets the probe's locale (C or the UTF-8 one) in a scope whose restore fails
+# the same way, so that it stays. That covers fv.video._g (a non-UTF-8
+# caller's call), _san and the byte walk (a UTF-8 caller's text-cache miss),
+# _drain (the traps) and the load (_findloc, _mode). A non-empty LC_ALL is
+# the one case where bash also warns on a failed restore: fv.video._gx swaps
+# a rejected one by hand, silently (fv.video._lcknown, cached per value).
+# Inside a scope of fv.video the outer LC_ALL is C or the UTF-8 locale, so a
+# nested restore never fails. The fast path (a cached or ASCII text) changes
+# no locale and checks nothing. Left: a shell left in UTF-8 under a rejected
+# LC_ALL (only by assigning it over a UTF-8 one) sees bash's warning on a
+# text-cache miss.
+
+# fv.video._lcx PE — a scope of the locale of the probe PE (11: the UTF-8
+# locale, else C) and nothing else: called where bash failed to restore the
+# caller's locale, it fails again and leaves that locale (2>/dev/null at the
+# call: a rejected LC_ALL warns)
+fv.video._lcx() {
+    if [[ $1 == 11 && -n $__FV_VS_LOC ]]; then local LC_ALL=$__FV_VS_LOC; else local LC_ALL=C; fi
+}
+
+# fv.video._lcok NAME — rc 0 when setlocale takes NAME. A rejected name
+# leaves the locale as it was, so from C it stays C: a taken name shows by
+# UTF-8 character counts or by a Latin-1 letter (é) counting as a letter;
+# a name that looks like C from there is told apart from the UTF-8 locale,
+# where a rejected one stays UTF-8 (without that locale: rc 1, cannot be
+# told). Call it with 2>/dev/null; for a rejected NAME that is the caller's
+# LC_ALL the caller's locale is left to be put back (fv.video._gx).
+fv.video._lcok() {
+    local LC_ALL=C
+    { LC_ALL=$1; } 2>/dev/null
+    if (( ${#__FV_VS_P} == 1 )) || [[ $'\xe9' == [[:alpha:]] ]]; then return 0; fi
+    if [[ -z $__FV_VS_LOC ]]; then return 1; fi
+    LC_ALL=$__FV_VS_LOC
+    { LC_ALL=$1; } 2>/dev/null
+    (( ${#__FV_VS_P} == 2 ))
+}
+
+# fv.video._lcknown — rc 0 when the caller's LC_ALL (non-empty) is a value a
+# `local LC_ALL` restores (cached in __FV_VS_LOK); one that cannot be told
+# counts as not (a swap by hand is right either way)
+fv.video._lcknown() {
+    local __fvv_k=${__FV_VS_LOK[$LC_ALL]-}
+    if [[ -z $__fvv_k ]]; then
+        __fvv_k=0
+        if fv.video._lcok "$LC_ALL" 2>/dev/null; then __fvv_k=1; fi
+        __FV_VS_LOK[$LC_ALL]=$__fvv_k
+    fi
+    (( __fvv_k ))
+}
+
 # the first working candidate -> __FV_VS_LOC ('' when none); once at load.
 # The caller's own locale name is tried first (when it is UTF-8 and the
-# fixed candidates do not exist, it is the only one there is).
+# fixed candidates do not exist, it is the only one there is). The probes
+# run in a scope of its own LC_ALL (fv.video._load checks what its end did).
 fv.video._findloc() {
-    local __fvv_n __fvv_o=${LC_ALL:-${LC_CTYPE:-${LANG:-}}}
+    local __fvv_n __fvv_o=${LC_ALL:-${LC_CTYPE:-${LANG:-}}} __fvv_r=1
     local -a __fvv_l=()
     __FV_VS_LOC=''
     if [[ -n $__fvv_o ]] && (( ${#__FV_VS_P} == 1 && ${#__FV_VS_B} == 1 )); then __fvv_l=("$__fvv_o"); fi
+    local LC_ALL=C
     for __fvv_n in "${__fvv_l[@]}" "${__FV_VS_LOCS[@]}"; do
-        if fv.video._locok "$__fvv_n"; then __FV_VS_LOC=$__fvv_n; return 0; fi
+        if fv.video._locok "$__fvv_n"; then __FV_VS_LOC=$__fvv_n __fvv_r=0; break; fi
     done
-    return 1
+    return "$__fvv_r"
 }
-fv.video._findloc || :
 
 # every text cache emptied (initScreen, a full cache)
 fv.video._tcclear() {
@@ -738,33 +811,75 @@ fv.video._tcclear() {
 # without a name ASCII mode it is (a call from a C caller could otherwise
 # store and cache the ASCII form of a text the next UTF-8 call reads back)
 fv.video._mode() {
-    local __fvv_n=${LC_ALL:-${LC_CTYPE:-${LANG:-}}}
+    local __fvv_n=${LC_ALL:-${LC_CTYPE:-${LANG:-}}} __fvv_pe=${#__FV_VS_P}${#__FV_VS_B}
     FV_VIDEO_ASCII=0
     fv.video._tcclear
     if [[ ${FV_ASCII-} == 1 ]]; then FV_VIDEO_ASCII=1; return 0; fi
     if [[ -n $__FV_VS_LOC ]]; then return 0; fi
-    if [[ ${#__FV_VS_P}${#__FV_VS_B} == 11 && -n $__fvv_n ]] && fv.video._locok "$__fvv_n"; then __FV_VS_LOC=$__fvv_n
+    if [[ ${#__FV_VS_P}${#__FV_VS_B} == 11 && -n $__fvv_n ]] && fv.video._locok "$__fvv_n" 2>/dev/null; then __FV_VS_LOC=$__fvv_n
     else FV_VIDEO_ASCII=1; fi
+    if [[ ${#__FV_VS_P}${#__FV_VS_B} != "$__fvv_pe" ]]; then fv.video._lcx "$__fvv_pe" 2>/dev/null; fi
 }
-fv.video._mode
+# the load: the UTF-8 locale and the mode; what the probes' restores did is
+# checked against the caller's probe taken before (L-1)
+fv.video._load() {
+    local __fvv_pe=${#__FV_VS_P}${#__FV_VS_B}
+    fv.video._findloc 2>/dev/null || :
+    fv.video._mode
+    if [[ ${#__FV_VS_P}${#__FV_VS_B} != "$__fvv_pe" ]]; then fv.video._lcx "$__fvv_pe" 2>/dev/null; fi
+}
+fv.video._load
 
 # fv.video._g FUNC ARGS — FUNC with nocasematch off and a UTF-8 locale (C
 # when there is none), both put back on every return path. An entry point
 # runs itself through it when the caller's state needs it; __fvv_g stops the
-# second round.
+# second round. nocasematch goes off first (the name compares are
+# case-sensitive). The locale (L-1): LC_ALL C, or a value a restore takes
+# (__FV_VS_LOK) -> a `local LC_ALL` here; every other caller in
+# fv.video._gx (kept apart: bash copies a function body on each call, so
+# this one stays short).
 fv.video._g() {
     local __fvv_g=1 __fvv_rc=0 __fvv_nc=0
     if [[ $BASHOPTS == *nocasematch* ]]; then __fvv_nc=1; shopt -u nocasematch; fi
     if [[ ${#__FV_VS_P}${#__FV_VS_B} == 11 ]]; then "$@" || __fvv_rc=$?
-    elif [[ -n $__FV_VS_LOC ]]; then
-        local LC_ALL=$__FV_VS_LOC
+    elif [[ ${LC_ALL-} == C || ${__FV_VS_LOK[${LC_ALL:-.}]-} == 1 ]]; then
+        local LC_ALL=${__FV_VS_LOC:-C}
         "$@" || __fvv_rc=$?
-    else
-        local LC_ALL=C
-        "$@" || __fvv_rc=$?
+    else fv.video._gx "$@" || __fvv_rc=$?
     fi
     if (( __fvv_nc )); then shopt -s nocasematch; fi
     return "$__fvv_rc"
+}
+
+# fv.video._gx FUNC ARGS — _g for the other non-UTF-8 callers (L-1):
+#   * LC_ALL empty: the scope in fv.video._g1; a restore that failed leaves
+#     its UTF-8 locale (the caller was not UTF-8) -> fv.video._lcx sets C;
+#   * LC_ALL POSIX, or a value a restore takes (fv.video._lcknown) -> a
+#     `local LC_ALL`;
+#   * any other LC_ALL (rejected, or no UTF-8 locale to tell): swapped by
+#     hand and put back silently, C set first so that it stays when the
+#     value is rejected.
+fv.video._gx() {
+    local __fvv_rc=0 __fvv_sv
+    if [[ -z ${LC_ALL-} ]]; then
+        fv.video._g1 "$@" || __fvv_rc=$?
+        if [[ ${#__FV_VS_P}${#__FV_VS_B} == 11 ]]; then fv.video._lcx 0; fi
+    elif [[ $LC_ALL == POSIX ]] || { [[ -z ${__FV_VS_LOK[$LC_ALL]-} ]] && fv.video._lcknown; }; then
+        local LC_ALL=${__FV_VS_LOC:-C}
+        "$@" || __fvv_rc=$?
+    else
+        __fvv_sv=$LC_ALL
+        LC_ALL=${__FV_VS_LOC:-C}
+        "$@" || __fvv_rc=$?
+        # (without a UTF-8 locale the swap was to C already)
+        if [[ -n $__FV_VS_LOC ]]; then { LC_ALL=C; LC_ALL=$__fvv_sv; } 2>/dev/null
+        else { LC_ALL=$__fvv_sv; } 2>/dev/null; fi
+    fi
+    return "$__fvv_rc"
+}
+fv.video._g1() {
+    local LC_ALL=${__FV_VS_LOC:-C}
+    "$@"
 }
 
 # fv.video._num VALUE — __fvv_v = VALUE when it is an integer (an optional
@@ -854,8 +969,13 @@ fv.video._bytes() {
 # call, or the fast set __FV_VS_FP holds nothing of it), 0 = the walk must
 # build the cells (then __fvv_a4 = 1 when the text holds a 4-byte sequence).
 fv.video._san() {
-    local __fvv_u=0 __fvv_s __fvv_p
-    if [[ ${#__FV_VS_P}${#__FV_VS_B} == 11 ]] && (( ! FV_VIDEO_ASCII )); then __fvv_u=1; fi
+    local __fvv_u=0 __fvv_s __fvv_p __fvv_pe=${#__FV_VS_P}${#__FV_VS_B}
+    if [[ $__fvv_pe == 11 ]] && (( ! FV_VIDEO_ASCII )); then __fvv_u=1; fi
+    fv.video._san1
+    # outside an entry point's scope (a UTF-8 caller): a failed restore put right (L-1)
+    if [[ ${#__FV_VS_P}${#__FV_VS_B} != "$__fvv_pe" ]]; then fv.video._lcx "$__fvv_pe" 2>/dev/null; fi
+}
+fv.video._san1() {
     local LC_ALL=C
     __fvv_f=1
     if [[ $__fvv_t == *[[:cntrl:]]* ]]; then __fvv_t=${__fvv_t//[[:cntrl:]]/"?"}; fi
@@ -977,7 +1097,14 @@ fv.video._wclsb() {
 # none), __fvv_pw its width, __fvv_pk its base's class (o = orphan), __fvv_pp
 # 1 = it is one BMP character, __fvv_pz 1 = it ends in a ZWJ, __fvv_pr 1 = a
 # lone regional indicator, __fvv_ps its symbol (writeCStr: __fvv_wa).
+# (fv.video._walk1 is the walk; this wrapper checks what the end of its
+# byte-mode scope did: L-1)
 fv.video._walk() {
+    local __fvv_wp=${#__FV_VS_P}${#__FV_VS_B}
+    fv.video._walk1
+    if [[ ${#__FV_VS_P}${#__FV_VS_B} != "$__fvv_wp" ]]; then fv.video._lcx "$__fvv_wp" 2>/dev/null; fi
+}
+fv.video._walk1() {
     local __fvv_r=$__fvv_t __fvv_ch __fvv_v __fvv_k __fvv_p __fvv_bm=0 __fvv_e=$'\xf0\x9f\x98\x80' __fvv_l
     # Cygwin-family bash holds a character past U+FFFF as two halves, and
     # printf %d of a half leaves the conversion state broken for the next

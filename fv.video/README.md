@@ -381,8 +381,38 @@ Internal state is `__FV_VS_*`.
   does the call run with `local LC_ALL=` a UTF-8 locale found once at load:
   the caller's own locale name if it is UTF-8, then `C.UTF-8`, `C.utf8`,
   `en_US.UTF-8`, `en_US.utf8` (silent probes). The caller's locale is
-  unchanged after every call. When no locale variable is set at all, loading
-  exports `LC_CTYPE=C.UTF-8`, the kcl-wide convention (kcl README §1.6).
+  unchanged after every call (for setups bash cannot restore see L-1
+  below). When no locale variable is set at all, loading exports
+  `LC_CTYPE=C.UTF-8`, the kcl-wide convention (kcl README §1.6).
+* **A caller locale bash cannot restore** (L-1): when a `local LC_ALL`
+  ends, bash sets the caller's `LC_ALL` again or, when it is empty, does
+  `setlocale(LC_ALL, LANG or "")` before the `LC_*` variables; when that
+  fails (`LANG` or `LC_ALL` naming an uninstalled locale, or with `LANG`
+  empty any exported `LC_*` that does, even when `LC_CTYPE` works) the
+  locale of the scope just left stays. The unit models no names: after each
+  such scope that can be the outermost one it compares the caller's probe
+  with the one taken before, and on a difference sets the caller's locale
+  (C, or the UTF-8 one) in a scope whose restore fails the same way, so that
+  it stays. The calls of such a caller give what a C caller gets, and its
+  locale (variables, export attributes, character handling) is the same
+  after every call and after the load. A non-empty `LC_ALL` is checked once
+  per value (cached) and, when rejected, swapped and put back by hand, so
+  bash's warning about restoring it stays off the caller's stderr (except
+  in a shell left in UTF-8 under such an `LC_ALL`, only reachable by
+  assigning it over a UTF-8 one: there on a text-cache miss). Only the paths
+  that change the locale check anything (a non-UTF-8 caller's call, a
+  text-cache miss, the load, the restore); a cached or ASCII write checks
+  nothing. Name compares are case-sensitive whatever `nocasematch` says.
+  Limits (all three behave the same before L-1; character widths and cells
+  stay right in each): the repair restores a whole locale, C or the UTF-8
+  one, so in such a broken setup (a) a caller that assigned a valid
+  single-byte `LC_CTYPE` (Latin-1, a legacy CJK charset) in the shell ends
+  up in C, (b) categories other than `LC_CTYPE` that the caller set in the
+  shell (`LC_NUMERIC`, `LC_COLLATE`, `LC_TIME`) end up as C or the UTF-8
+  locale, and (c) with `LANG` a valid UTF-8 locale and `LC_CTYPE` assigned an
+  uninstalled name in the shell, the caller stays in UTF-8 after the load
+  (bash's own restore applies `LANG` and then fails, so no restore can put
+  it back to C).
 * **The mode is decided per screen, never per call** (`initScreen`, and
   once at load): UTF-8 mode needs a named UTF-8 locale for the calls of a
   non-UTF-8 caller, so when the load found none but `initScreen` runs in a
@@ -701,7 +731,7 @@ util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
 | 010_Palette | the default palette, `definePalette`, SGR with 256 / 16 colours, nearest-16 for all 256 indices against the VT model, repaints on depth and palette changes, the detection chain (FV_COLORS, TERM, COLORTERM, a `tput` stub, no `tput`) |
 | 011_Locale | silent load, a C caller (UTF-8 inside, locale back), ASCII mode (candidates stubbed to none; `FV_ASCII=1`), the maps, one `?` per sequence, control characters, invalid / cut / overlong / surrogate UTF-8 one `?` each while 4-byte characters and clusters become marker cells, C1 with `globasciiranges` off, legacy CJK caller locales, the caller's own locale as candidate, the text cache |
 | 012_VtModel | every frame replayed through the pure-bash VT model (`tests/fvv_vt.sh`, grid starting as garbage): scripted scenes, resize, and a seeded random property test (`FVV_SEED`, `FVV_FRAMES`): VT grid = buffer = a per-cell shadow model after every update, incremental = one forced repaint. Narrow text; the wide frames are 018's |
-| 013_CallerState | nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS, `set -eu`, C locale: same output, state kept; a second scene with wide characters, emoji, clusters, classes x / y and the fast path under the same setups |
+| 013_CallerState | nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS, `set -eu`, C locale: same output, state kept; a second scene with wide characters, emoji, clusters, classes x / y and the fast path under the same setups; a caller locale bash cannot restore (LANG / LC_ALL / LC_CTYPE missing; LANG missing or empty beside a working LC_CTYPE and a missing LC_MESSAGES / LC_NUMERIC / LC_TIME; a shell left in UTF-8 under a missing name, before and after the load; a case-variant name under nocasematch): every entry point, the load, `_drain` (also from a real trap) keep the caller's locale variables and probe (after each call) and give a C caller's results (L-1) |
 | 014_Perf | repaint and partial-update cost against 3× the targets (numbers in the log) |
 | 015_ShellState | `script(1)`: init / done / the EXIT trap under an IFS holding digits, init under `IFS=$'\n\t'` and `$'\n'`, done → init → a full repaint |
 | 016_Reader | the reader and its watchdog (D13 + amendment). Without a terminal (a fifo stands in, every runtime): all 256 byte values forwarded unchanged and the end at end of file (under `set -eEuxT`, pipefail, ERR/DEBUG/RETURN traps, a UTF-8 locale); the owner killed with no byte typed (both gone within 1 s; with a child holding the watchdog pipe within 2 s); the reader alone blocks and ends at the next byte; INT/QUIT/TSTP/WINCH ignored by both, TERM/HUP/a failed write end the reader; `_rstart` / `_rstop`; `FV_TTY_READER` 0 / 1 / auto by `OSTYPE` / junk; `__FV_VI_POLL` '' and junk; a reader or a watchdog that does not start (both stopped); `TERM` ignored at shell start (stopped by `KILL`); the stop's timing; the reader keeps only fds 0/1/2/tty, the watchdog 0/1/2; `_rstop` never signals a pid that is not its child; the watchdog killed alone; data on the watchdog pipe; the reader dying alone (the watchdog exits without a signal, the stop signals nothing); the stop while a background child holds the watchdog pipe (no wait). `script(1)`: both alive while on (two children), keys / NUL / CSI / SGR mouse / UTF-8 / a 300-byte burst through the reader, Esc alone vs a sequence, both gone after doneVideo, exit, `set -e`, Ctrl+C, SIGTERM, SIGHUP (within 1 s) and `kill -9` of the main shell (no byte typed: within 1 s; a child holding the watchdog pipe: within 2 s), re-init, a subshell under an active parent, `FV_TTY_READER=0` and auto, signals to the reader alone, the reader killed → end of input, the restore drains through the pipe and never reads the terminal (with a reader) / drains the terminal (without), `TERM` ignored at shell start, a restore re-entered mid-stop drains only the pipe, an interactive shell's fd 255 (the terminal) is held by neither. Every reader / watchdog pid is reaped if it survives; every child shell too (its pid recorded, its stdout a file, the calling line in its command line and in `current`); the fds counted are those in three snapshots 50 ms apart |
