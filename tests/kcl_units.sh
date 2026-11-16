@@ -93,6 +93,9 @@ KCL_UNITS=(
     "fv.unicode|||"
     "fv.video|||"
     "fv.drivers|||"
+    # (fv.views: the first dotted unit with classes, TView / TGroup; readonly:
+    # its FV_* constants are assigned once per process)
+    "fv.views||readonly|"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),

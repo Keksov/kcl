@@ -195,8 +195,10 @@
         {"id": "P2-2b", "title": "kklass friend contract (book + pinning test, D19)", "status": "done", "date": "2026-11-16",
          "result": "kklass e2c4753 (book section Friend tables, README pointer, tests/151_FriendTables.sh 10 tests; no runtime change), kbool cb07979; kklass suite 937/937 on 3 bashes",
          "found": "kklass (open, not P2): a Pascal-syntax func body that itself calls kk._return prints its value twice when captured with $( ); the documented way is to set RESULT - worth a kklass guard or a book note"},
-        {"id": "P2-2c-1", "title": "fv.views core I: tree, geometry, _virt, names guard, test lib with both shims", "status": "next"},
-        {"id": "P2-2c-2", "title": "fv.views core II: drawing, shadows, both lock counters, minimal TFrame", "status": "planned"},
+        {"id": "P2-2c-1", "title": "fv.views core I: tree, geometry, _virt, names guard, test lib with both shims", "status": "done", "date": "2026-11-16",
+         "result": "new unit kcl/fv.views (TView/TGroup, FV-corner constructors, insert/insertBefore/delete/makeFirst/putInFrontOf, FV rings, ResetCurrent, bounds cache, GrowMode/CalcBounds incl. gfGrowRel, SizeLimits clamp, makeLocal/makeGlobal/mouseInView, _virt elision without cache, reserved names + constructor guard with tree repair, D16 aliases without Delete); var parameters answer in FV_RECT_*/FV_POINT_*/FV_MIN_*/FV_MAX_*; hooks fv.views._changed WHY V G rect (2c-2 draws from it) and fv.views._setCurrent (2c-3 focus chain); KCL_UNITS row + stub 606; 108 tests",
+         "review": "independent critic + supervisor: RESULT rule false for two kklass func shapes (documented as kklass behaves + pinned, finding K-2), wrong old rect for subviews when a group moves and resizes at once (fixed), cache vs direct Origin/Size writes (documented), 012 guard claim (guard added to the scene), silent rc-2 refusals (fv.views._bad), kid loop with a dead sibling / non-setting CalcBounds (fv.views._kid), FV_OF_VALIDATE; gate host 2157/0 (3 bashes), VM 646/0 (5.1/5.2)"},
+        {"id": "P2-2c-2", "title": "fv.views core II: drawing, shadows, both lock counters, minimal TFrame", "status": "next"},
         {"id": "P2-2c-3", "title": "fv.views core III: events, focus, modal, basic TWindow", "status": "planned"},
         {"id": "P2-2d", "title": "TWindow drag, zoom, icons, mouse", "status": "planned"},
         {"id": "P2-2e", "title": "fv.menus TStatusLine", "status": "planned"},
@@ -249,6 +251,9 @@
     "O6": "DECIDED D10"
   },
   "findings": {
+    "K-2": "2026-11-16 (P2-2c-1, open, kklass): a func body's kk._return trailer runs only when the body ends without an explicit return: `RESULT=7; return 0` leaves the caller's RESULT (answer lost), a failing last command without return gives rc 0 (rc lost); also a func that itself calls kk._return prints twice inside $( ) (P2-2b). fv.views documents the supported form (set RESULT, no explicit return; fail with return N != 0) and 013 pins today's behaviour. Owner decision: fix in kklass or keep as documented",
+    "K-3": "2026-11-16 (P2-2c-1, open, kklass): under an IFS holding letters `.new` segfaults bash (rc 139, Git-bash 5.3.15) and `inherited` fails (kklass.sh:1546 command not found); a class build under IFS='0123456789 ' fails (property token, arithmetic error kklass.sh:2091). fv.views 012/013 set the odd IFS after classes and instances exist; the letters IFS skips the guard scene",
+    "T-3": "2026-11-16 (P2-2c-1, open, ktests): tests.sh -n 018 fails 'printf: 018: invalid octal number' (ktest_runner.sh:469); -n 18 works",
     "K-1": "kkore: kk.unit declares no namespace for a dotted unit name (fv.views), so kklass's class/instance-vs-unit name guard does not cover fv.* names; harmless (class names cannot contain a dot) but undocumented - P0 documents it or extends the guard; P0a: kcl/tests harness made dotted-aware (001 uses-form + xref, kcl_units census/owners/taken); the taken check is vacuous for dotted names until kk.unit declares them - CLOSED 2026-11-09: documented in kkore/README.md (kk.unit section)",
     "T-1": "P0c termcheck item: Ctrl+Backspace (0x08 on xterm/Windows Terminal) is read as kbBack, so FV kbCtrlBack is lost; confirm per terminal - termcheck records Ctrl+Backspace as INFO",
     "N-1": "later: fv.keyboard queue is not reset when FV_KEY_FD changes outside fv.drivers (feed before first getEvent must survive); documented",

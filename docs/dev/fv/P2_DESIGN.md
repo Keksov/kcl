@@ -711,7 +711,9 @@ Size: fv.views ~1400–1600 lines, fv.menus ~250, fv.app ~450.
 
 Functions are `fv.views.*`, `fv.menus.*`, `fv.app.*` (unit names; K-1). Private globals:
 `__FV_VW_*`, `__FV_MN_*`, `__FV_AP_*`. Public: `FV_APP FV_DESKTOP FV_STATUSLINE FV_MENUBAR
-FV_DRAW_* FV_CLIP_* FV_APP_HEADLESS` and the constants.
+FV_DRAW_* FV_CLIP_* FV_APP_HEADLESS`, the answers of FV's `var` parameters `FV_RECT_* FV_POINT_*
+FV_MIN_* FV_MAX_*` (stage 2c-1: CalcBounds / SizeLimits are procs and leave RESULT) and the
+constants (`FV_SF_* FV_OF_* FV_GF_* FV_DM_* FV_HC_* FV_EM_*`: the FV identifier upper-cased).
 
 ### 5.3 kcl/tests registration
 
