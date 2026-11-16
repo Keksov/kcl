@@ -16,7 +16,9 @@
 #   * the screen buffer with PATH='': initScreen, every write, updateScreen
 #     (incremental and force), palette and depth changes, resizeScreen,
 #     strWidth, ASCII mode, detectColorDepth when TERM tells (rule R1: every
-#     write and every frame fork-free).
+#     write and every frame fork-free). The scan covers every function of
+#     the file, the P2 additions (writeBuf H, shadeRect, getRow, getClip, the
+#     kept palette) included; 019 runs those with PATH=''.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvv_testlib.sh"
 fvv_init "$(basename "$0" .sh)" "$@"

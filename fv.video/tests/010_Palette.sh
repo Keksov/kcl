@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 010_Palette.sh - the palette and the colour depth (D10):
 #   * the default palette: symbol 0 = FPC's DefaultAttr $07, 1-9 A-U = the 30
-#     distinct bytes of FV's CAppColor, DOS nibbles mapped to ANSI;
+#     distinct bytes of FV's CAppColor, V = FV's ShadowAttr $08 (P2), DOS
+#     nibbles mapped to ANSI;
 #   * definePalette: values, SGR strings with 256 and 16 colours, bold as
 #     SGR 1 only;
 #   * nearest-16 for all 256 indices against the VT model's own computation
@@ -37,10 +38,10 @@ scr 4 2
 # hand-converted from FV app.inc CAppColor (byte $BF: B = background, F =
 # foreground, DOS order 0 black 1 blue 2 green 3 cyan 4 red 5 magenta 6 brown
 # 7 lightgray, +8 bright)
-want='0=7 0 0 1=4 7 0 2=0 7 0 3=8 7 0 4=1 7 0 5=0 2 0 6=8 2 0 7=1 2 0 8=7 4 0 9=15 4 0 A=10 4 0 B=4 6 0 C=11 4 0 D=7 6 0 E=15 6 0 F=10 6 0 G=6 4 0 H=11 6 0 I=4 2 0 J=15 7 0 K=10 7 0 L=11 7 0 M=14 2 0 N=15 2 0 O=11 2 0 P=0 6 0 Q=2 7 0 R=8 6 0 S=0 4 0 T=2 4 0 U=2 6 0'
+want='0=7 0 0 1=4 7 0 2=0 7 0 3=8 7 0 4=1 7 0 5=0 2 0 6=8 2 0 7=1 2 0 8=7 4 0 9=15 4 0 A=10 4 0 B=4 6 0 C=11 4 0 D=7 6 0 E=15 6 0 F=10 6 0 G=6 4 0 H=11 6 0 I=4 2 0 J=15 7 0 K=10 7 0 L=11 7 0 M=14 2 0 N=15 2 0 O=11 2 0 P=0 6 0 Q=2 7 0 R=8 6 0 S=0 4 0 T=2 4 0 U=2 6 0 V=8 0 0'
 got=''
-for s in 0 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U; do got+="$s=${__FV_VS_PAL[$s]} "; done
-check "the default palette: 31 symbols, FV classic colours as ANSI indices" "$want 31" "${got% } ${#__FV_VS_PAL[@]}"
+for s in 0 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V; do got+="$s=${__FV_VS_PAL[$s]} "; done
+check "the default palette: 32 symbols, FV classic colours as ANSI indices, V = ShadowAttr \$08" "$want 32" "${got% } ${#__FV_VS_PAL[@]}"
 check "headless initScreen: 256 colours, no detection" "256 256" "$FV_VIDEO_COLORS $__FV_VS_DEPTH"
 check "the default symbol's SGR (256)" "${E}[0;38;5;7;48;5;0m" "${__FV_VS_SGR[0]}"
 

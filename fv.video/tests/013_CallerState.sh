@@ -168,6 +168,11 @@ c fv.video.setCursorPos 3 1
 c fv.video.setCursorType 1
 c fv.video.definePalette 7 1 2
 c fv.video.setColorDepth 16
+c fv.video.writeBuf 2 1 $'\xd0\xb6\xe6\xbc\xa2' 123 2
+c fv.video.shadeRect 1 0 3 3
+c fv.video.getRow 1
+r+="$REPLY,"
+c fv.video.getClip
 c fv.video.updateScreen
 c fv.video.writeStr x 0 a 1
 c fv.video.writeBuf 0 0 ab 1

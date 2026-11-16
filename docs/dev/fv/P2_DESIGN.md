@@ -342,14 +342,15 @@ S(V) is V's rect, extended by its shadow when `sfShadow` is set (FV `ShadowSize`
 * **`fv.app.setAppPalette ENTRY FG BG [BOLD]`** (256-colour indices, D10) changes one entry
   without touching the other entries that share its symbol:
   1. if the entry's symbol is used only by it, `fv.video.definePalette` changes it in place;
-  2. otherwise it reuses a symbol with the same colours, or allocates a free one (31 free:
-     `V`–`Z`, `a`–`z`);
+  2. otherwise it reuses a symbol with the same colours, or allocates a free one (30 free:
+     `W`–`Z`, `a`–`z`; `V` is the shadow symbol since stage 2a);
   3. it re-resolves every live view's cached palette and redraws.
 
   With all 62 symbols in use, the call is rc 1 with one `Error:` line. FV's black-and-white and
   monochrome palettes are not in v1 (D10).
-* **Shadow attribute**: FV `ShadowAttr $08` (dark grey on black). fv.app defines it once on a
-  reserved symbol at Init.
+* **Shadow attribute**: FV `ShadowAttr $08` (dark grey on black). Stage 2a put it into
+  fv.video's default palette as symbol `V` (`__FV_VS_SHADOW`, `shadeRect`'s default), so
+  `definePalette V` re-themes every shadow; fv.app does not define it again.
 
 ### 1.10 Shadows (finding 7)
 

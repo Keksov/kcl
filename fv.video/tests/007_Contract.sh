@@ -6,7 +6,7 @@
 # `kk.unit --forget` is clean and keeps the state; a failing call returns to
 # the caller from `if` / `||`; nothing is printed to stdout, also inside
 # $( ); using it (the screen buffer and the reader too) leaves only FV_SCREEN_W/H,
-# FV_VIDEO_*, FV_TTY_FD, __FV_VI_*, __FV_VS_*, RESULT and fv.video.* behind
+# FV_VIDEO_*, FV_TTY_FD, __FV_VI_*, __FV_VS_*, RESULT, REPLY and fv.video.* behind
 # (plus what the unit it loads leaves: __FV_UC_* and fv.unicode.*).
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvv_testlib.sh"
@@ -66,7 +66,10 @@ fv.video.writeStr 0 0 'abc жук' 1; fv.video.writeBuf 0 1 xy AB; fv.video.writ
 fv.video.writeChar 5 2 '#' 3 4; fv.video.fillRect 0 0 3 3 4; fv.video.clearScreen; fv.video.strWidth x
 fv.video.setClip 0 0 5 5; fv.video.resetClip; fv.video.setCursorPos 1 1; fv.video.setCursorType 2
 fv.video.definePalette z 1 2 1; fv.video.setColorDepth 16; fv.video.detectColorDepth
+fv.video.writeBuf 0 0 ab AB 3; fv.video.shadeRect 0 0 4 2; fv.video.getRow 1; fv.video.getClip
 if fv.video.writeStr x 0 a 1; then exit 9; fi
+if fv.video.writeBuf 0 0 a A -1; then exit 9; fi
+if fv.video.getRow 99; then exit 9; fi
 fv.video.updateScreen bad || :
 fv.video.updateScreen; fv.video.updateScreen force
 FV_VIDEO_OUT_FD='' fv.video.updateScreen || :
@@ -106,11 +109,12 @@ source '$UNIT'
 x=\$(FV_TTY=/nonexistent fv.video.initVideo; fv.video.initVideo bad; fv.video.updateSize; fv.video.querySize; fv.video.doneVideo
      fv.video.querySize() { RESULT='1 2'; }; fv.video.updateSize
      fv.video.initScreen; fv.video.writeStr 0 0 x 1; fv.video.updateScreen; fv.video.writeStr x; fv.video.strWidth abc
-     fv.video.definePalette q 1 1; fv.video.detectColorDepth)
+     fv.video.definePalette q 1 1; fv.video.detectColorDepth; fv.video.writeBuf 0 0 a 1 2; fv.video.shadeRect 0 0 1 1
+     fv.video.getRow 0; fv.video.getClip; fv.video.getRow x)
 printf '[%s]' \"\$x\"" 2>&1)"
 if [[ $out == '[]' ]]; then kt_test_pass "ok"; else kt_test_fail "out='$out'"; fi
 
-kt_test_start "loading and using the unit leaves only FV_SCREEN_W/H, FV_VIDEO_ON/RESIZED/ASCII/COLORS/OUT_FD, FV_TTY_FD, __FV_VI_*, __FV_VS_*, RESULT and fv.video.* behind (+ fv.unicode's __FV_UC_*, fv.unicode.*)"
+kt_test_start "loading and using the unit leaves only FV_SCREEN_W/H, FV_VIDEO_ON/RESIZED/ASCII/COLORS/OUT_FD, FV_TTY_FD, __FV_VI_*, __FV_VS_*, RESULT, REPLY (getRow) and fv.video.* behind (+ fv.unicode's __FV_UC_*, fv.unicode.*)"
 out="$(bash -c "
 export LC_ALL=C.UTF-8
 source '$KBOOL'
@@ -128,6 +132,7 @@ fv.video.writeStr 0 0 'жук ─' 1; fv.video.writeCStr 0 1 '~a~b' 1 2; fv.vide
 fv.video.fillRect 0 0 2 2 3; fv.video.setClip 0 0 1 1; fv.video.resetClip; fv.video.setCursorPos 1 1; fv.video.setCursorType 1
 fv.video.definePalette z 9 9; fv.video.setColorDepth 16; fv.video.detectColorDepth; fv.video.strWidth x
 fv.video.updateScreen; fv.video.updateScreen force; fv.video.resizeScreen; fv.video.clearScreen
+fv.video.writeBuf 0 0 ab AB 2; fv.video.shadeRect 0 0 2 2; fv.video.getRow 0; fv.video.getClip; fv.video.initScreen
 FV_ASCII=1 fv.video.initScreen; fv.video.writeStr 0 0 '═ж' 1; fv.video.updateScreen
 exec {fd}>&-; unset fd
 exec {fd}<>'$TMP/c.fifo'
@@ -136,7 +141,7 @@ exec {fd}>&-; unset fd FV_KEY_FD
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
-newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_SCREEN_[WH]|FV_VIDEO_(ON|RESIZED|ASCII|COLORS|OUT_FD)|FV_TTY_FD|__FV_VI_[A-Z]+|__FV_VS_[A-Z0-9]+|__FV_UC_[A-Z]+|RESULT|KK_UNIT_DIR)$' | tr '\n' ' ')"
+newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_SCREEN_[WH]|FV_VIDEO_(ON|RESIZED|ASCII|COLORS|OUT_FD)|FV_TTY_FD|__FV_VI_[A-Z]+|__FV_VS_[A-Z0-9]+|__FV_UC_[A-Z]+|RESULT|REPLY|KK_UNIT_DIR)$' | tr '\n' ' ')"
 newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^fv\.(video|unicode)\.' | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass "ok"; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi
 
