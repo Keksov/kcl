@@ -21,7 +21,11 @@
     "D13": "2026-11-10 reader process on Cygwin-family runtimes (owner choice a, finding W-1): background reader without WINCH trap forwards tty bytes through a pipe",
     "D13a": "2026-11-10 D13 amendment after the live check: the reader never does a timed tty read (blocking only); a watchdog process with timed reads on a pipe from the owner stops it (end of file / owner gone)",
     "D14": "2026-11-11 VS16 after a narrow base = 2 cells (P1b Q3, owner choice a); scope (1b): Extended_Pictographic narrow base or keycap base only, a letter + VS16 stays 1",
-    "D15": "2026-11-11 full resync in the frame: CHA after every wide/cluster cell + pre-blank for emoji-like cells (P1b Q4, owner choice a)"
+    "D15": "2026-11-11 full resync in the frame: CHA after every wide/cluster cell + pre-blank for emoji-like cells (P1b Q4, owner choice a)",
+    "D16": "2026-11-16 FV non-virtual methods: plain fv.views.* functions + thin kklass aliases on TView/TGroup for set-up code, no Delete alias (P2 Q1)",
+    "D17": "2026-11-16 redraw only what changed (Tab 12.0 vs 25.3 ms FV-exact); user lock/unlock keep FV meaning; lockScreenUpdate holds only the terminal update (P2 Q2)",
+    "D18": "2026-11-16 first paint counted from Run; P2 gate = P2 scene <= 15 ms Git-bash 80x24; list scene + native rows stay under F-1 (P2 Q3)",
+    "D19": "2026-11-16 kklass friend contract: _class, _data, _class_method_owner, dispatcher names documented in the kklass book + one pinning test; no helpers (P2 Q4)"
   },
   "measurements": {
     "spike": "2026-11-08 scratchpad tui_spike/REPORT.md: Git-bash 80x24 Down K 7.0 / K_partial 4.4 / P 3.2 / P_partial 0.9 ms; Tab K 22.5; first paint K 17.6; KV (virtual GetText per row) 17.3; kk calls per Down/PgDn/Tab/paint 8/8/18/9",
@@ -181,7 +185,19 @@
         "call-budget test",
         "mouse routing"
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "design": "Stage 0 2026-11-16: docs/dev/fv/P2_DESIGN.md (prototype-backed, critic round fixed 14 findings: FV Lock/Unlock meaning, saved drawing context, per-loop event save, EOF latch, no elision cache, friend contract, shadows via shadeRect, reserved names, palette model, EventMask defaults, PgDn inside Run 9.3 ms -> P3); owner D16-D19",
+      "subtasks": [
+        {"id": "P2-2a", "title": "fv.video for P2: writeBuf repeat count, shadeRect, getRow, getClip, fast entry, palette caching", "status": "next"},
+        {"id": "P2-2b", "title": "kklass friend contract (book + pinning test, D19)", "status": "next"},
+        {"id": "P2-2c-1", "title": "fv.views core I: tree, geometry, _virt, names guard, test lib with both shims", "status": "planned"},
+        {"id": "P2-2c-2", "title": "fv.views core II: drawing, shadows, both lock counters, minimal TFrame", "status": "planned"},
+        {"id": "P2-2c-3", "title": "fv.views core III: events, focus, modal, basic TWindow", "status": "planned"},
+        {"id": "P2-2d", "title": "TWindow drag, zoom, icons, mouse", "status": "planned"},
+        {"id": "P2-2e", "title": "fv.menus TStatusLine", "status": "planned"},
+        {"id": "P2-2f", "title": "fv.app (TBackground, TDesktop, TProgram, TApplication, pty test)", "status": "planned"},
+        {"id": "P2-2g", "title": "call budget, fvviews bench inside Run, docs", "status": "planned"}
+      ]
     },
     {
       "id": "P3",
