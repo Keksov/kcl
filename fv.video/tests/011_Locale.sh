@@ -34,7 +34,14 @@ $2" 2>&1
 r=$(child 'export LC_ALL=C' ':')
 r+=$(child '' ':')
 r+=$(child 'export LC_ALL=C' "__FV_VS_LOCS=(xx_YY.UTF-8 zz.utf8 C.UTF-8); fv.video._findloc; printf %s \"\$__FV_VS_LOC\"")
-check "loading is silent (C caller, no locale variable); probing bad names is silent" "C.UTF-8" "$r"
+# the first of the three names that setlocale takes as a UTF-8 locale when a
+# C shell assigns it: C.UTF-8 (glibc, BSD, macOS, Cygwin), but musl takes
+# every name as a UTF-8 locale, so xx_YY.UTF-8 there
+loc1=''
+for n in xx_YY.UTF-8 zz.utf8 C.UTF-8; do
+    if [[ $("$BASH" -c 'LC_ALL=C; LC_ALL=$1; p=$'"'"'\xd0\xb6\xe2\x94\x80'"'"'; printf %s "${#p}"' _ "$n" 2>/dev/null) == 2 ]]; then loc1=$n; break; fi
+done
+check "loading is silent (C caller, no locale variable); probing bad names is silent" "${loc1:-none}" "$r"
 r=$(child '' "printf '%s %s' \"\${LC_CTYPE-unset}\" \"\${LC_ALL-unset}\"")
 check "no locale variable at all: the kcl-wide LC_CTYPE=C.UTF-8 at load (README §1.6)" "C.UTF-8 unset" "$r"
 
@@ -140,8 +147,12 @@ done1='' notes=''
 for loc in ja_JP.eucJP zh_CN.GBK zh_TW.Big5 ko_KR.eucKR; do
     probe=$("$BASH" -c "export LC_ALL=$loc; p=\$'\\xd0\\xb6' b=\$'\\xe2\\x94\\x80'; printf '%s/%s' \${#p} \${#b}" 2>/dev/null)
     if [[ $probe != 1/1 && $probe == 1/* ]]; then
-        r=$(child "export LC_ALL=$loc" "fv.video.initScreen; printf '%s ' \"\$FV_VIDEO_ASCII\"
-fv.video.writeStr 0 0 'жук─┐' 1; printf '%s %s ' \"\$RESULT\" \"\$LC_ALL\"
+        # (the text is set in C, before the locale: a script line parsed in
+        # $loc, a raw 'жук─┐' or its $'\x..' form alike, can have a UTF-8
+        # byte and the quote after it read as one legacy character, e.g.
+        # 0x90 0x27 in FreeBSD's GBK, which checks no trail byte)
+        r=$(child "t=\$'\\xd0\\xb6\\xd1\\x83\\xd0\\xba\\xe2\\x94\\x80\\xe2\\x94\\x90'; export LC_ALL=$loc" "fv.video.initScreen; printf '%s ' \"\$FV_VIDEO_ASCII\"
+fv.video.writeStr 0 0 \"\$t\" 1; printf '%s %s ' \"\$RESULT\" \"\$LC_ALL\"
 LC_ALL=C.UTF-8; printf '[%s]' \"\${__FV_VS_CH[0]:0:6}\"")
         if [[ $r != "0 5 $loc [жук─┐ ]" ]]; then notes+=" $loc:[$r]"; fi
         done1+=" $loc"

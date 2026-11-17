@@ -236,7 +236,7 @@ fv.unicode._expand() {
     local __fvu_s=${__FV_UC_M[$1]} __fvu_o='' __fvu_k __fvu_n __fvu_p __fvu_i
     while [[ -n $__fvu_s ]]; do
         __fvu_k=${__fvu_s:0:1} __fvu_s=${__fvu_s:1}
-        __fvu_n=${__fvu_s%%[![:digit:]]*}
+        __fvu_n=${__fvu_s%%[!0123456789]*}
         __fvu_s=${__fvu_s:${#__fvu_n}}
         printf -v __fvu_p '%*s' "$__fvu_n" ''
         __fvu_o+=${__fvu_p// /$__fvu_k}
@@ -248,7 +248,7 @@ fv.unicode._expand() {
 
 # fv.unicode.charClass CP — RESULT = the class letter (z n w x y m r)
 fv.unicode.charClass() {
-    if [[ -z ${1-} || $1 == *[![:digit:]]* || ${#1} -gt 7 ]]; then
+    if [[ -z ${1-} || $1 == *[!0123456789]* || ${#1} -gt 7 ]]; then
         kk.debug "Error: fv.unicode.charClass: not a code point: '${1-}'"
         RESULT=''
         return 2

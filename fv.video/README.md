@@ -423,9 +423,10 @@ Internal state is `__FV_VS_*`.
   locale (variables, export attributes, character handling) is the same
   after every call and after the load. A non-empty `LC_ALL` is checked once
   per value (cached) and, when rejected, swapped and put back by hand, so
-  bash's warning about restoring it stays off the caller's stderr (except
-  in a shell left in UTF-8 under such an `LC_ALL`, only reachable by
-  assigning it over a UTF-8 one: there on a text-cache miss). Only the paths
+  bash's warning about restoring it stays off the caller's stderr; a shell
+  left in UTF-8 under such an `LC_ALL` (by assigning it over a UTF-8 one,
+  and on macOS also by starting with it) runs the byte scopes of a
+  text-cache miss with stderr off for the same reason. Only the paths
   that change the locale check anything (a non-UTF-8 caller's call, a
   text-cache miss, the load, the restore); a cached or ASCII write checks
   nothing. Name compares are case-sensitive whatever `nocasematch` says.
@@ -461,6 +462,15 @@ Internal state is `__FV_VS_*`.
   (`tests/013`). Every function with a bare fd redirect (`>&$fd`, the form
   bash 5.1 prints correctly) sets `local IFS=`, so a caller IFS holding
   digits cannot split the fd (`tests/015`, on a pty).
+* **Platform notes (PORT-1):** an integer argument is checked against
+  `[0123456789]`, never `[[:digit:]]`: on macOS and FreeBSD that class also
+  matches other scripts' digits in a UTF-8 locale (`٣`, U+0663), which
+  bash arithmetic rejects. The byte pass takes a byte's value as
+  `printf %d "'B"` `& 255`: in musl's C locale (Alpine) that gives a byte
+  ≥ 0x80 as 0xDF00 + the byte. musl takes every locale name as a UTF-8
+  locale, so the candidates never fail there and L-1 does not arise; on
+  macOS a shell started with `LC_ALL` naming a missing locale is already in
+  UTF-8 (the case above, handled the same way).
 
 ### Wide characters, emoji and clusters
 
@@ -846,7 +856,7 @@ the views' work ([fv.views "Cost"](../fv.views/README.md#cost)).
 
 ## Tests
 
-`bash kcl/fv.video/tests/tests.sh` — 421 tests. `initVideo` runs only under
+`bash kcl/fv.video/tests/tests.sh` — 422 tests. `initVideo` runs only under
 `script(1)`'s pty (the harness is `tests/fvv_pty.sh`, shared with
 fv.drivers), never on the terminal the tests were started from; without a
 util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as

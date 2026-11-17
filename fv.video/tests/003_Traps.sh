@@ -187,7 +187,7 @@ trap 'echo PARENT-INT' INT
 p=\$BASHPID
 x=\$(fv.video._trap; printf '%s|%s|' \"\${__FV_VI_PREV[EXIT]-none}\" \"\${__FV_VI_PREV[INT]-none}\"; fv.video._untrap; printf v)
 echo \"x=\$x\"
-echo \"traps=\$(trap -p EXIT INT | wc -l)\"
+echo \"traps=\$(( \$(trap -p EXIT INT | wc -l) ))\"
 [[ \$p == \$BASHPID ]] && echo parent=\$p"
 want_pid=${OUT#*parent=}; want_pid=${want_pid%%$'\n'*}
 if [[ $RC == 0 && $OUT == $'x=none|none|v\ntraps=2\nparent='"$want_pid"$'\nPARENT-EXIT-'"$want_pid" ]]; then kt_test_pass "ok"; else kt_test_fail "rc=$RC out=[${OUT//$'\n'/|}]"; fi

@@ -231,7 +231,11 @@ xx=xx_YY.UTF-8 i=0
 # LANG, or with LANG empty any exported LC_* naming a missing locale, fails it
 # even when LC_CTYPE works. c.utf-8 differs from the UTF-8 locale name only in
 # case (nocasematch must not make them equal; rejected on some runtimes).
+# "LC_ALL=C.UTF-8" then the missing name assigned: a UTF-8 shell under a
+# rejected LC_ALL (macOS starts a shell with LC_ALL=$xx in that state):
+# the byte scopes of a text-cache miss must not let bash's warning out.
 for cfg in "LANG=$xx//" "LC_ALL=$xx//" "LC_CTYPE=$xx//" "LC_CTYPE=$xx LANG=C.UTF-8//" \
+    "LC_ALL=C.UTF-8/{ LC_ALL=$xx; } 2>\"\$TMPF.w\"/" \
     "LANG=$xx/LC_ALL=C.UTF-8; unset LC_ALL/" "LANG=$xx//LC_ALL=C.UTF-8; unset LC_ALL" \
     "LC_ALL=$xx//shopt -s nocasematch" "LANG=$xx LC_CTYPE=$xx//" "LC_ALL= LANG=$xx//" \
     "LANG=$xx LC_CTYPE=C.UTF-8//" "LANG=$xx LC_CTYPE=C//" "LC_CTYPE=C.UTF-8 LC_MESSAGES=$xx//" "LC_CTYPE=C LC_NUMERIC=$xx//" \

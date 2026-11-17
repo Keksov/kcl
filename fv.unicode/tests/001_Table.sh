@@ -103,16 +103,18 @@ r=''
 for h in 1100 1161 11A8 AC01 A960 D7B0 D7CB; do fv.unicode.charWidth "$(( 16#$h ))"; r+="$RESULT"; done
 if [[ $r == 2002200 ]]; then kt_test_pass "ok"; else kt_test_fail "$r"; fi
 
+# U+0663, an Arabic-Indic digit: [[:digit:]] matches it on macOS and FreeBSD
+# (iswdigit); the unit's explicit [0123456789] does not
 kt_test_start "bad arguments: not digits -> rc 2, above U+10FFFF -> rc 1, RESULT '' each time"
 r=''
-for a in '' x -1 +65 ' 65' 6.5 0x41 12345678 '65 '; do
+for a in '' x -1 +65 ' 65' 6.5 0x41 12345678 '65 ' $'\xd9\xa3'; do
     RESULT=junk; fv.unicode.charClass "$a"; r+="$?[$RESULT] "
 done
 RESULT=junk; fv.unicode.charClass 1114112; r+="$?[$RESULT] "
 RESULT=junk; fv.unicode.charWidth 1114112; r+="$?[$RESULT] "
 RESULT=junk; fv.unicode.charWidth x; r+="$?[$RESULT] "
 RESULT=junk; fv.unicode.charClass; r+="$?[$RESULT]"
-want='2[] 2[] 2[] 2[] 2[] 2[] 2[] 2[] 2[] 1[] 1[] 2[] 2[]'
+want='2[] 2[] 2[] 2[] 2[] 2[] 2[] 2[] 2[] 2[] 1[] 1[] 2[] 2[]'
 if [[ $r == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got  $r"$'\n'"want $want"; fi
 
 kt_test_start "leading zeros are decimal: 0000065 = 'A', 0019968 = U+4E00, 1114111 = U+10FFFF"

@@ -54,9 +54,10 @@ if ! shopt -q nocasematch; then kt_test_pass "ok"; else kt_test_fail "turned on"
 
 # --- locale ---------------------------------------------------------------------
 printf '%s' $'x\e[Aж' > "$FVK_TMP/loc.bin"
+# (the child starts without the runner's own LC_CTYPE: macOS images export one)
 for setup in 'export LC_ALL=C.UTF-8' 'unset LC_ALL; export LC_CTYPE=C.UTF-8'; do
     kt_test_start "the caller's locale is back after every entry point ($setup): \${#ж} stays 1"
-    out=$(bash -c "
+    out=$("$BASH" -c "unset LC_CTYPE
 $setup
 source '$FVK_TESTS_DIR/../fv.keyboard.sh'
 r=''

@@ -100,7 +100,11 @@ macOS and BSD. **On Cygwin-based bash (Git-bash, MSYS2, Cygwin) a character
 past U+FFFF is two bash characters** (`${#c}` is 2, a substring can cut it into
 3 + 1 bytes) **and `printf %d` gives its high surrogate** (55357 for 😀), on bash
 5.2 and 5.3 alike; decode its four bytes in the C locale instead. fv.video does
-this for its writes; this unit takes only the number.
+this for its writes; this unit takes only the number. (In musl's C locale,
+Alpine, `printf %d` of a byte ≥ 0x80 gives 0xDF00 + the byte: take `& 255`,
+or only the low bits a UTF-8 decode uses.) The number is checked against
+`[0123456789]`: `[[:digit:]]` also matches other scripts' digits on macOS and
+FreeBSD.
 
 ## The table
 

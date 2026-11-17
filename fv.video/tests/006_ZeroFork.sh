@@ -83,9 +83,12 @@ if [[ $out == '0000400000030256740+=+?' && $size -gt 500 ]]; then kt_test_pass "
 done
 
 kt_test_start "PATH='': the reader (D13) forwards bytes and ends at end of file; _rstart (reader + watchdog), a key through the pipe, _rstop"
-printf 'ab\001\377c' > "$FVV_TMP/rd.in"
-rm -f "$FVV_TMP/rd.fifo"; mkfifo "$FVV_TMP/rd.fifo"
-out=$("$KT_TIMEOUT" -k 2 20 "$BASH" -c "
+if ! kt_need_timeout; then
+    kt_test_pass "SKIP: ENV: $KT_TIMEOUT_WHY"
+else
+    printf 'ab\001\377c' > "$FVV_TMP/rd.in"
+    rm -f "$FVV_TMP/rd.fifo"; mkfifo "$FVV_TMP/rd.fifo"
+    out=$("$KT_TIMEOUT" -k 2 20 "$BASH" -c "
 source '$FVV_TESTS_DIR/../../../kbool.sh'
 kk.uses fv.drivers || exit 90
 exec {a}<>'$FVV_TMP/rd.fifo'
@@ -100,7 +103,8 @@ fv.keyboard.getKeyEvent 2; k=\$FV_KEY_CHAR
 fv.video._rstop
 kill -0 \"\$p\" 2>/dev/null && k+=alive
 printf '%s %s' \"\$x\" \"\$k\"" 2>&1)
-if [[ $out == '5 k' ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [5 k]"; fi
+    if [[ $out == '5 k' ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [5 k]"; fi
+fi
 
 kt_test_start "the scan flags each construct in a sample line and passes the safe ones"
 bad=''

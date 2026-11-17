@@ -140,13 +140,14 @@ vt_feed() {
 }
 
 # vt_text TEXT — TEXT written at the cursor, one character (one UTF-8
-# sequence, found on bytes) at a time
+# sequence, found on bytes) at a time; a byte's value is printf %d & 255
+# (musl's C locale gives a byte >= 0x80 as 0xDF00 + the byte)
 vt_text() {
     local LC_ALL=C t=$1 i=0 n b l c
     n=${#t}
     while (( i < n )); do
         printf -v b '%d' "'${t:i:1}"
-        if (( b < 128 )); then l=1; elif (( b >= 240 )); then l=4; elif (( b >= 224 )); then l=3; elif (( b >= 192 )); then l=2; else l=1; fi
+        if (( (b &= 255) < 128 )); then l=1; elif (( b >= 240 )); then l=4; elif (( b >= 224 )); then l=3; elif (( b >= 192 )); then l=2; else l=1; fi
         c=${t:i:l} i=$(( i + l ))
         vt_put "$c"
     done

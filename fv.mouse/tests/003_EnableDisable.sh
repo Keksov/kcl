@@ -51,7 +51,8 @@ RESULT=old
 fv.mouse.disable 77 > "$TMP/o2" 2> "$TMP/e2"; r+=" $?:${RESULT:-e}"
 RESULT=old
 fv.mouse.enable 76 any > "$TMP/o3" 2> "$TMP/e3"; r+=" $?:${RESULT:-e}"
-n=$(cat "$TMP/o1" "$TMP/e1" "$TMP/o2" "$TMP/e2" "$TMP/o3" "$TMP/e3" "$TMP/ro" | wc -c)
+# (BSD / macOS wc pads the count with blanks)
+n=$(cat "$TMP/o1" "$TMP/e1" "$TMP/o2" "$TMP/e2" "$TMP/o3" "$TMP/e3" "$TMP/ro" | wc -c); n=${n//[!0-9]/}
 if [[ $r == '2:e 2:e 2:e' && $n == 0 ]]; then kt_test_pass "ok"; else kt_test_fail "$r bytes=$n: $(cat "$TMP/e1" "$TMP/e2" "$TMP/e3")"; fi
 
 kt_test_start "a bad fd or mode: rc 2, nothing printed, RESULT=''"

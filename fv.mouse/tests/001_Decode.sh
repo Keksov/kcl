@@ -125,7 +125,8 @@ if [[ $FV_KEY == kbMouse && "$FV_MOUSE_WHAT $FV_MOUSE_X $FV_MOUSE_Y" == 'down 22
 kt_test_start "decode inside \$( ) prints FV_MOUSE_WHAT once; a direct call prints nothing"
 v=$(fv.mouse.decode $'\e[<65;1;1M')
 fv.mouse.decode $'\e[<0;1;1M' > "$(cd "$(kt_fixture_tmpdir)" && pwd)/direct.out"
-n=$(wc -c < "$(cd "$(kt_fixture_tmpdir)" && pwd)/direct.out")
+# (BSD / macOS wc pads the count with blanks)
+n=$(wc -c < "$(cd "$(kt_fixture_tmpdir)" && pwd)/direct.out"); n=${n//[!0-9]/}
 if [[ $v == wheel && $n == 0 ]]; then kt_test_pass "ok"; else kt_test_fail "'$v' direct=$n bytes"; fi
 
 # a caller IFS holding digits must not split the numbers passed inside decode
