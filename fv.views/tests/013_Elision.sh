@@ -12,6 +12,10 @@
 #     override's `inherited ... || return` and the failing aliases keep it;
 #     a bare failing `inherited` as an override's last command loses it
 #     (kklass K-2, pinned);
+#   * stage 2d: TFrame.HandleEvent and TWindow's SizeLimits, CalcBounds and
+#     Zoom overridden with `inherited`: 0 / 2 dispatches (CalcBounds: 6, it
+#     asks SizeLimits twice), the RESULT rule, through the framework (locate,
+#     cmZoom, an owner resize, a click on the close icon);
 #   * stage 2c-3: HandleEvent, SetState, EndModal (procs), Valid, Execute
 #     (funcs) of TView / TGroup and TWindow's HandleEvent, SetState,
 #     GetPalette, GetTitle, InitFrame, Close overridden with `inherited`:
@@ -625,4 +629,71 @@ TVb.new vb 0 0 10 10; TRf.new rf2 0 0 1 1; fv.views.insert vb rf2
 fv.views._virt vb Valid cmOK; r=$?
 vb.delete
 if [[ $r == 0 ]]; then kt_test_pass "rc 0, as kklass behaves today (pinned)"; else kt_test_fail "rc $r: kklass changed, update the README's note"; fi
+
+# ---- stage 2d: TFrame.HandleEvent; TWindow's SizeLimits, CalcBounds, Zoom --------
+class TUf : TFrame
+    public
+        var i
+        var log
+        override proc HandleEvent
+end
+TUf.HandleEvent() { log+="FHE($FV_EV_WHAT)"; i=5; RESULT=clobbered; inherited HandleEvent "$@"; }
+build TUf
+class TUz : TWindow
+    public
+        var i
+        var log
+        override proc SizeLimits
+        override proc CalcBounds
+        override proc Zoom
+        override proc InitFrame
+end
+TUz.SizeLimits() { log+="SL"; i=6; RESULT=clobbered; inherited SizeLimits "$@"; FV_MIN_X=20; }
+TUz.CalcBounds() { log+="CB($1 $2)"; RESULT=clobbered; inherited CalcBounds "$@"; }
+TUz.Zoom() { log+="ZM"; RESULT=clobbered; inherited Zoom "$@"; }
+TUz.InitFrame() { fv.views._newReserved "$this" frame TUf 0 0 "$SizeX" "$SizeY" && Frame=$RESULT; }
+build TUz
+fvw_screen 60 20
+TGroup.new zr 0 0 60 20; fvw_root zr
+TWindow.new zw 0 0 30 10 'Plain' 1; TKidW.new zk 0 0 30 10 'Kid' 2; TUz.new zu 10 2 50 16 'User' 3
+fv.views.insert zr zu
+
+kt_test_start "2d: 0 dispatches for the built-ins (TWindow, a subclass that inherits), 2 for each override + inherited: SizeLimits, CalcBounds, Zoom, TFrame.HandleEvent"
+out=''
+for vw in zw zk zu; do count fv.views._virt "$vw" SizeLimits; out+=$REPLY; done
+for vw in zw zk zu; do count fv.views._virt "$vw" CalcBounds 0 0; out+=$REPLY; done
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown
+FV_EV_MOUSE_X=0 FV_EV_MOUSE_Y=5; count fv.views._virt zw__fvframe HandleEvent; out+=$REPLY
+FV_EV_MOUSE_X=10 FV_EV_MOUSE_Y=6; count fv.views._virt zu__fvframe HandleEvent; out+=$REPLY
+# (CalcBounds' override: 2, and the built-in asks SizeLimits twice (the
+# ZoomRect, the bounds): 2 each)
+if [[ $out == '00200602' ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [00200602]"; fi
+
+kt_test_start "2d: the RESULT rule (procs leave the caller's RESULT on both paths) and the answers: SizeLimits' minimum from the override, CalcBounds' FV_RECT_*"
+r=''
+for vw in zw zu; do RESULT=keep; fv.views._virt "$vw" SizeLimits; r+="$RESULT:$FV_MIN_X:$FV_MIN_Y,"; done
+for vw in zw zu; do RESULT=keep; fv.views._virt "$vw" CalcBounds 0 0; r+="$RESULT:$FV_RECT_AX $FV_RECT_AY $FV_RECT_BX $FV_RECT_BY,"; done
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=10 FV_EV_MOUSE_Y=6; RESULT=keep
+fv.views._virt zu__fvframe HandleEvent; r+="$RESULT:${zu__fvframe_data[i]}"
+if [[ $r == 'keep:16:6,keep:20:6,keep:0 0 30 10,keep:10 2 50 16,keep:5' ]]; then kt_test_pass "ok"; else kt_test_fail "[$r]"; fi
+
+kt_test_start "2d: through the framework: locate clamps by the override's SizeLimits, cmZoom runs the Zoom override (+ its SizeLimits), an owner resize the CalcBounds override, a click on the close icon the frame's HandleEvent; user fields intact"
+zu_data[log]='' zu__fvframe_data[log]=''
+fv.views.growTo zu 5 5; fv.views.getBounds zu; r="$RESULT"
+fv.views.growTo zu 40 14
+fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmZoom; fv.views._virt zr HandleEvent
+fv.views.getBounds zu; r+="|$RESULT|${zu_data[ZoomRect]}"
+fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmZoom; fv.views._virt zr HandleEvent
+r+="|${zu_data[log]}"
+zu_data[log]=''
+fv.views.changeBounds zr 0 0 60 22; r+="|${zu_data[log]}"
+fv.views.changeBounds zr 0 0 60 20
+fvw_events 'up 13 2'
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=13 FV_EV_MOUSE_Y=2 FV_EV_MOUSE_BUTTONS=1
+fv.views._virt zr HandleEvent
+r+="|${zu__fvframe_data[log]}|${__FV_DR_PEND[3]-}|${zu_data[i]}${zu__fvframe_data[i]}"
+fvw_noevents
+want="10 2 30 8|0 0 60 20|10 2 50 16|SLSLSLSLZMSLSLSLZMSLSLSL|CB(0 2)SLSLSL|FHE(evMouseDown)|cmClose|65"
+if [[ $r == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$r] want [$want]"; fi
+zr.delete; zw.delete; zk.delete
 kt_test_log "013_Elision.sh completed"

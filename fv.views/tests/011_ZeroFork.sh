@@ -9,7 +9,10 @@
 #     with every writer, getColor), and stage 2c-3's (a TWindow, the focus
 #     chain, select / focusNext / selectNext, message, a key through the
 #     dispatch, commands, the cursor, a modal view with a scripted event
-#     source ending at the end of input, mouseEvent, endModal, cmClose) —
+#     source ending at the end of input, mouseEvent, endModal, cmClose)
+#     and stage 2d's (cmZoom twice, a keyboard drag by cmResize, a mouse
+#     drag by the frame's top row with the drain, the close icon, dragView)
+#     —
 #     works and prints no "command not found";
 #   * the static scan (fv.video's 006 scanner): no $( ), backtick, process
 #     substitution, pipe, ( ) subshell, & or coproc on any code line of
@@ -51,6 +54,22 @@ fv.views.endModal tw cmQuit; e+=",${desk_data[EndState]}"
 FV_EV_WHAT=evCommand FV_EV_COMMAND=cmClose FV_EV_INFO=''; fv.views._virt desk HandleEvent
 fv.views.isView tw || e+=",closed"
 dl.delete
+r+=$e
+# stage 2d: cmZoom twice, a keyboard drag by cmResize, a mouse drag by the
+# frame's top row (with the drain), the close icon, dragView called directly
+TWindow.new zw 10 3 40 13 Z 3; fv.views.insert desk zw
+__FV_VW_EOF=0
+FV_EV_WHAT=evCommand FV_EV_COMMAND=cmZoom FV_EV_INFO=''; fv.views._virt desk HandleEvent; e="|${zw_data[SizeX]}"
+FV_EV_WHAT=evCommand FV_EV_COMMAND=cmZoom FV_EV_INFO=''; fv.views._virt desk HandleEvent; e+=",${zw_data[SizeX]}"
+q=(evKeyDown:kbRight evKeyDown:kbShiftDown evKeyDown:kbEnter)
+FV_EV_WHAT=evCommand FV_EV_COMMAND=cmResize FV_EV_INFO=''; fv.views._virt desk HandleEvent; fv.views.getBounds zw; e+=",$RESULT"
+q=(evMouseMove:26:6 evMouseUp:26:6)
+FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=25 FV_EV_MOUSE_Y=4 FV_EV_MOUSE_DOUBLE=0; fv.views._virt desk HandleEvent; fv.views.getBounds zw; e+=",$RESULT"
+q=(evMouseUp:15:6)
+FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=15 FV_EV_MOUSE_Y=6; fv.views._virt desk HandleEvent; e+=",${__FV_DR_PEND[3]-}"
+__FV_DR_PEND=()
+q=(evKeyDown:kbEnter); fv.views.dragView zw 1 0 0 80 23 16 6 80 23; e+=",$?"
+zw.delete
 r+=$e
 EOF
 
@@ -94,7 +113,7 @@ TView.new x__fvy 0 0 1 1 2>/dev/null || r+=\"|res\$?\"
 fv.views._newReserved w1 frame TView 0 0 1 1; r+=\"|\$RESULT\"
 u.delete; v.delete; x__fvy.delete; desk.delete
 printf '%s' \"\$r\"" 2>&1)
-want='00u|0 0 4 1|25 11 55 26|3|ybrt]════|121122222|tw,evNothing,cmZoom,43:7:2,cmCancel,0:46,1,cmQuit,closed|guard1|res2|w1__fvframe'
+want='00u|0 0 4 1|25 11 55 26|3|ybrt]════|121122222|tw,evNothing,cmZoom,43:7:2,cmCancel,0:46,1,cmQuit,closed|100,30,11 3 41 14,12 5 42 16,cmClose,0|guard1|res2|w1__fvframe'
 if [[ $out == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [$want]"; fi
 
 kt_test_start "the scanner flags a fork construct in a sample line and passes the safe ones"

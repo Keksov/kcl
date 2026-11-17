@@ -28,7 +28,7 @@ kt_test_section "001: the kcl contract"
 kt_test_start "the unit source parses"
 if err="$(bash -n "$UNIT" 2>&1)"; then kt_test_pass "bash -n clean"; else kt_test_fail "bash -n: $err"; fi
 
-kt_test_start "the public API of stages 2c-1, 2c-2 and 2c-3 is defined"
+kt_test_start "the public API of stages 2c-1, 2c-2, 2c-3 and 2d is defined"
 miss=''
 for f in insert insertBefore delete makeFirst putInFrontOf first last next prev nextView prevView \
     getBounds getExtent locate moveTo growTo changeBounds makeLocal makeGlobal mouseInView isView \
@@ -37,7 +37,7 @@ for f in insert insertBefore delete makeFirst putInFrontOf first last next prev 
     message clearEvent setState select focus focusNext selectNext \
     enableCommands disableCommands commandEnabled getCommands setCommands \
     resetCursor setCursor showCursor hideCursor blockCursor normalCursor \
-    execView endModal mouseEvent \
+    execView endModal topView mouseEvent dragView \
     _virt _changed _setCurrent _newReserved; do
     declare -F "fv.views.$f" >/dev/null || miss+=" fv.views.$f"
 done
@@ -179,7 +179,7 @@ $MAIN
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
-newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_(SF|OF|GF|DM|HC|EM|WF|WP|WN|FM)_[A-Z]+|FV_DRAW_(VIEW|X|Y|PAL)|FV_CLIP_[XY][12]|FV_COMMANDSETCHANGED|FV_(RECT_[AB][XY]|POINT_[XY]|MIN_[XY]|MAX_[XY])|__FV_VW_[A-Z0-9]+|RESULT|(TView|TGroup|TFrame|TWindow)_[A-Za-z_]+|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft)$' | tr '\n' ' ')"
+newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_(SF|OF|GF|DM|HC|EM|WF|WP|WN|FM)_[A-Z]+|FV_DRAW_(VIEW|X|Y|PAL)|FV_CLIP_[XY][12]|FV_COMMANDSETCHANGED|FV_MINWINSIZE_[XY]|FV_(RECT_[AB][XY]|POINT_[XY]|MIN_[XY]|MAX_[XY])|__FV_VW_[A-Z0-9]+|RESULT|(TView|TGroup|TFrame|TWindow)_[A-Za-z_]+|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft)$' | tr '\n' ' ')"
 newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^((fv\.views|TView|TGroup|TFrame|TWindow)\.|__kk[cm]\.(TView|TGroup|TFrame|TWindow)(\.|$))' | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass "ok"; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi
 

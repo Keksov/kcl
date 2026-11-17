@@ -11,13 +11,13 @@ your class overrides it. FV's non-virtual methods are plain functions
 The unit loads `kklass_pascal`, [`fv.video`](../fv.video/README.md) and
 [`fv.drivers`](../fv.drivers/README.md).
 
-**Status: P2 stage 2c-3** — the tree and the geometry (2c-1); palettes,
+**Status: P2 stage 2d** — the tree and the geometry (2c-1); palettes,
 the drawing context and writers, the painter with shadows, both lock
 counters and the minimal `TFrame` (2c-2); the event dispatch, the focus
-chain, command sets, the cursor, modal views and the basic `TWindow` (2c-3).
-Window zoom, dragging and the frame's mouse come with stage 2d; the
+chain, command sets, the cursor, modal views and the basic `TWindow` (2c-3);
+window zoom, `dragView` (keyboard and mouse) and the frame's mouse (2d). The
 application (`TProgram` / `TApplication`, `Run`, the real event source)
-with stage 2f.
+comes with stage 2f.
 
 ## Quick start
 
@@ -112,7 +112,7 @@ TMyDlg.Create() { inherited; fv.views.isView "$this" || return 1; Title=$5; }
   `EventMask` += `evBroadcast`, `FrameMode` 0. It reads its owner's
   `Flags`, `Number` and `Title` (or the owner's `GetTitle`, a func, when its
   class has one): TWindow's fields; any group works (without them: a bare
-  frame).
+  frame). Its `HandleEvent` takes the mouse on the frame ("TWindow" below).
 * `TWindow.new NAME AX AY BX BY [TITLE [NUMBER]]` (FV `TWindow.Init`):
   TGroup's, then `sfShadow`, `ofSelectable + ofTopSelect`, `GrowMode` =
   `gfGrowAll + gfGrowRel`, `Flags` = `wfMove + wfGrow + wfClose + wfZoom`,
@@ -153,6 +153,7 @@ FV values, readonly, named by upper-casing FV's identifier behind a prefix:
 | `HelpCtx` | `FV_HC_NOCONTEXT` (0), `FV_HC_DRAGGING` (1) |
 | TWindow `Flags` / `Palette` / `Number` | `FV_WF_MOVE GROW CLOSE ZOOM` ($1 … $8), `FV_WP_BLUEWINDOW CYANWINDOW GRAYWINDOW` (0 … 2), `FV_WN_NONUMBER` (0) |
 | TFrame `FrameMode` | `FV_FM_CLOSECLICKED` ($1), `FV_FM_ZOOMCLICKED` ($2) |
+| FV's `MinWinSize` | `FV_MINWINSIZE_X` (16), `FV_MINWINSIZE_Y` (6): TWindow's `SizeLimits` minimum. Not readonly (FV's typed constant, which programs change); a value that is not 1–9 plain digits counts as 16 / 6 |
 | `EventMask` | `FV_EM_MOUSEDOWN MOUSEUP MOUSEMOVE MOUSEAUTO KEYDOWN MOUSEWHEEL COMMAND BROADCAST MOUSE KEYBOARD MESSAGE` (FPC drivers.inc values; `FV_EM_`, not `FV_EV_`: those are [fv.drivers' event](../fv.drivers/README.md#the-event)) |
 
 Phases and commands are names (`phFocused`, `cmClose`), not numbers.
@@ -180,6 +181,10 @@ Phases and commands are names (`phFocused`, `cmClose`), not numbers.
 | `TView` / `TGroup` | `Execute` | func | `cmCancel` / FV's modal loop ("Modal views") |
 | `TView` / `TGroup` | `EndModal CMD` | proc | the top view's / a modal group's `EndState` |
 | `TWindow` | `HandleEvent SetState GetPalette GetTitle InitFrame Close` | | "TWindow" below |
+| `TWindow` | `SizeLimits` | proc | TView's, then `FV_MIN_X/_Y` = MinWinSize (`FV_MINWINSIZE_X/_Y`, 16 × 6) |
+| `TWindow` | `CalcBounds DX DY` | proc | FV (FPC 2026): TView's on the `ZoomRect` (kept as the new `ZoomRect`), then TView's on the bounds (the answer) |
+| `TWindow` | `Zoom` | proc | FV: below its `SizeLimits` maximum → `ZoomRect` = the bounds, then `locate` to `0 0 MAX_X MAX_Y`; at the maximum → `locate` to `ZoomRect` |
+| `TFrame` | `HandleEvent` | proc | the mouse on the frame: the close / zoom icons, dragging the owner ("TWindow" below) |
 
 FV's procedures with `var` parameters answer in globals, because a proc
 leaves `RESULT` alone (below): `FV_RECT_AX FV_RECT_AY FV_RECT_BX FV_RECT_BY`
@@ -265,7 +270,7 @@ Every built-in body follows the supported forms; the plain path answers for
 a `func` with rc 0 and leaves the caller's `RESULT` for a failing `func` and
 for every `proc`.
 
-Tested in `013_Elision`, with every built-in of stages 2c-1, 2c-2 and 2c-3 overridden with
+Tested in `013_Elision`, with every built-in of stages 2c-1, 2c-2, 2c-3 and 2d overridden with
 `inherited`, fields named like common locals, `kk.class --forget` +
 redefinition, and the caller setups.
 
@@ -540,7 +545,10 @@ subtree: TView's handler reacts to `evMouseDown` only, TGroup's forwards,
 TWindow's reacts to `cmSelectWindowNum`; a subview the dispatch would skip
 (its EventMask lacks `evBroadcast`, removed meanwhile) is skipped by the
 walk too, and any user `HandleEvent` on the way (or a built-in handler that
-reacts) makes the delivery happen as before. A skipped delivery leaves what
+reacts) makes the delivery happen as before. `TFrame`'s handler (stage 2d)
+reacts to `evMouseDown` only: it is quiet for every broadcast, so the focus
+broadcasts into windows stay a walk, and the dispatch skips it without a
+call for anything but a mouse-down, as it skips TView's. A skipped delivery leaves what
 a delivery leaves: no handler ran, the event is unhandled (`message`: rc 1,
 `RESULT=''`), and each group whose dispatch would have called a subview has
 `Phase` = `phFocused` (set only when the walk ends quiet: a walk that finds a
@@ -628,6 +636,7 @@ the set back after its modal view.
 | `fv.views.setCursor V X Y` | `SetCursor` | `CursorX` / `CursorY`, then resetCursor when V is focused |
 | `fv.views.showCursor V` / `hideCursor` / `blockCursor` / `normalCursor` | `ShowCursor` … | `SetState(sfCursorVis / sfCursorIns, …)` |
 | `fv.views.execView G P` / `endModal V CMD` / `mouseEvent V MASK` | | "Modal views" below |
+| `fv.views.dragView V MODE AX AY BX BY MINX MINY MAXX MAXY` | `DragView` | "Dragging" below |
 
 rc 2 (one debug line, `RESULT=''`) for a malformed call: not a view or
 group, a wrong argument count, a bad number, a name with other characters.
@@ -660,6 +669,9 @@ group, a wrong argument count, a bad number, a name with other characters.
   (the view `execView` runs, else the first of V and its owners with
   `sfModal`: the application); TGroup's sets its `EndState`. rc 1 when no
   view is modal.
+* **`fv.views.topView V`** (FV `TopView`): `RESULT` = that top view (the
+  view `execView` runs while it is live, else the first of V and its owners
+  with `sfModal`), `''` when none; rc 2 for a malformed call.
 * **`Valid CMD`** (a func) answers by its **rc**: 0 = valid (RESULT 1), non-zero
   = not. `TView.Valid` agrees; `TGroup.Valid` asks every subview (front to
   back), or for `cmReleasedFocus` only a `Current` with `ofValidate`. **An
@@ -692,18 +704,35 @@ group, a wrong argument count, a bad number, a name with other characters.
 * **The hooks fv.app sets** (stage 2f; private, documented for it):
   `__FV_VW_GETEVENT` (the event source, default `fv.drivers.getEvent`: fills
   `FV_EV_*`, rc 0 for every event including `evNothing`, rc 1 at the end of
-  input), `__FV_VW_PUTEVENT` (FV `PutEvent`, default `fv.drivers.putEvent`),
-  `__FV_VW_EOF` (the latch; reset by whoever starts a new input) and
-  `__FV_VW_OWNER` (the screen's owner, `BASHPID` when the unit was loaded).
-* A terminal resize while a modal view or a drag runs is fv.app's
-  `_getEvent` (2f) and dragView's (2d).
+  input; **it takes fv.drivers' optional TIMEOUT argument**: `dragView`
+  drains the waiting mouse moves with `TIMEOUT` 0, "only what is already
+  there", so fv.app's `_getEvent` must pass it on), `__FV_VW_PUTEVENT` (FV
+  `PutEvent`, default `fv.drivers.putEvent`), `__FV_VW_EOF` (the latch;
+  reset by whoever starts a new input) and `__FV_VW_OWNER` (the screen's
+  owner, `BASHPID` when the unit was loaded).
+* A terminal resize while a modal view runs is fv.app's `_getEvent` (2f);
+  one during a drag ends the drag ("Dragging").
 
 ## TWindow
 
-FV's `TWindow` (views.inc) without zoom and dragging (stage 2d):
+FV's `TWindow` (views.inc):
 
 * the constructor above; the frame `NAME__fvframe` (a reserved name, made
   by `InitFrame`);
+* `SizeLimits` (stage 2d): TView's maximum (the owner's size), FV's
+  `MinWinSize` as the minimum (`FV_MINWINSIZE_X/_Y`, 16 × 6): `locate`,
+  `growTo`, an owner resize and a drag keep a window at least that big (the
+  constructor does not, as in FV);
+* `Zoom` (stage 2d, a proc): below its `SizeLimits` maximum the bounds go
+  into `ZoomRect` and the window takes its owner's whole extent; at the
+  maximum it goes back to `ZoomRect`. One `locate`: the old ∪ new area
+  redrawn once. The frame's zoom icon shows `↕` at the maximum. A `ZoomRect`
+  that is not four integers, or a maximum that is not an integer of at most
+  9 digits (no owner: FV's `high(Sw_Integer)`), makes it do nothing;
+* `CalcBounds` (stage 2d; FPC's TWindow.CalcBounds of 2026): an owner
+  resize moves the `ZoomRect` by the same `GrowMode` rules as the bounds, so
+  an unzoom after a terminal resize lands in proportion (fv.app's resize
+  flow, 2f);
 * `GetPalette` (func): FV's `CBlueWindow` / `CCyanWindow` / `CGrayWindow` by
   `Palette` (`FV_WP_BLUEWINDOW` 0, `CYANWINDOW` 1, `GRAYWINDOW` 2: CAppColor
   8–15, 16–23, 24–31). After changing `Palette`: `fv.views.resetPalette W`
@@ -719,11 +748,95 @@ FV's `TWindow` (views.inc) without zoom and dragging (stage 2d):
   select it, handled. `evKeyDown kbTab`, `kbDown`, `kbRight` → the next
   control (FV `FocusNext(False)`), `kbShiftTab`, `kbUp`, `kbLeft` → the
   previous one, handled (FPC's TWindow takes the arrows too; a control that
-  uses them handles them first, in the focused phase). `cmZoom` and
-  `cmResize` come with stage 2d;
+  uses them handles them first, in the focused phase). Stage 2d: `evCommand
+  cmZoom` for this window (`FV_EV_INFO` `''` or the window) with `wfZoom`:
+  `Zoom` (virtual), handled; `evCommand cmResize` with `wfMove` or `wfGrow`
+  and an owner: the keyboard drag (below) with `DragMode` + those bits
+  (`wfMove` / `wfGrow` are `dmDragMove` / `dmDragGrow`), handled;
 * `Close`: when `Valid(cmClose)` agrees, the window is destroyed (FV
   `Free`: `W.delete` — out of its owner, the focus moves on, its area
   repainted).
+
+### The frame's mouse (stage 2d; FPC `TFrame.HandleEvent`)
+
+A mouse-down that the window's dispatch hands to its frame (the frame is
+the back-most subview, so: a click on the border):
+
+| where (frame coordinates) | when | does |
+|---|---|---|
+| top row, X 2–4 | `sfActive`, owner `wfClose` | the close icon's press tracking: `☼` (`FrameMode` `fmCloseClicked`) while the mouse is on it, `■` off it (through `mouseEvent`, moves and auto); released on it → `evCommand cmClose` posted (`PutEvent`, `FV_EV_INFO` = the window), which closes it at the next event |
+| top row, X W−5 – W−3, or a double click anywhere on the top row | `sfActive`, owner `wfZoom` | the zoom icon likewise (`fmZoomClicked`) → `cmZoom` posted; a double click posts it at once, without tracking |
+| top row otherwise | owner `wfMove` | the window dragged by the mouse (move) |
+| X ≥ W−2, Y ≥ H−1 (the grow corner) | `sfActive`, owner `wfGrow` | the window dragged by the mouse (grow) |
+
+Each handles the event (`FV_EV_INFO` = the frame). The first click on an
+inactive window selects it (click to focus) and is consumed there, so the
+icons work from the second click, as in FV. The press tracking redraws the
+frame's top row only when `FrameMode` changes (one write; FV draws the
+whole frame on every mouse event; a frame class with its own `Draw` is
+drawn whole through it). The event record is put back after the tracking.
+The tracking ends at once when the event source destroys the frame or its
+window (nothing drawn or posted), and in a subshell it reads and posts
+nothing (the owner-process rule, as the drags; the event is handled).
+
+## Dragging
+
+**`fv.views.dragView V MODE AX AY BX BY MINX MINY MAXX MAXY`** (FV
+`DragView(Event, Mode, Limits, MinSize, MaxSize)`; the event is the
+current `FV_EV_*`): `MODE` holds `FV_DM_DRAGMOVE` / `FV_DM_DRAGGROW` and the
+`FV_DM_LIMIT*` bits; the limits are in V's owner's coordinates (B
+exclusive); `MAXX` / `MAXY` may be FV's `high(Sw_Integer)` (2147483647).
+Procedure: `RESULT` kept, rc 0; rc 2 for a malformed call or in a subshell
+(the owner-process rule: it reads events).
+
+* **A mouse-down** drags by the mouse until the mouse-up: with
+  `dmDragMove` the origin follows the mouse at the offset of the
+  mouse-down, else (`dmDragGrow`) the size does. One step at the
+  mouse-down's place (FV), one per move, the last at the mouse-up's place
+  (FV: "not all terminals send drag events"). Other events meanwhile are
+  dropped (FV `MouseEvent`).
+* **Anything else** drags by the keyboard until Enter (kept) or Esc (the
+  start bounds back): the arrows move one cell (`dmDragMove`), Shift +
+  arrows grow (`dmDragGrow`; `kbShiftLeft` …: a `Shift` in the key's name is
+  FV's shift state), `kbCtrlLeft` / `kbCtrlRight` by 8 (with Shift: grow by
+  8; Ctrl+Up / Ctrl+Down do nothing, as in FV), `kbHome` / `kbEnd` /
+  `kbPgUp` / `kbPgDn` to the limits' left / right / top / bottom edge
+  (move; with Shift the same); `kbShiftEnter` / `kbShiftEsc` end it as
+  Enter / Esc (FV compares the KeyCode). Non-key events are dropped (FV
+  `KeyEvent`).
+* **Each step is FV's `MoveGrow`**: the size clamped to MIN..MAX, the
+  origin kept so that a column and a row stay inside the limits, then the
+  `dmLimitLoX/LoY/HiX/HiY` bits (`dmLimitAll`: wholly inside); then
+  `locate` (its own `SizeLimits` clamp, the old ∪ new area redrawn once;
+  FV locks the owner, whose unlock redraws all of it: D17). Each step is
+  shown at once, also inside a modal handler (the loop's per-event hold is
+  released before the next event is read, as `mouseEvent` does).
+* **`sfDragging`** is set on V for the drag (through the virtual-aware
+  `setState`): a window's frame is redrawn border-only in its dragging look
+  (single line, colour 5) and back after; `GetHelpCtx` answers
+  `hcDragging` meanwhile.
+* **Motion coalescing** (design R10): after each mouse move the events
+  already waiting are read with `"$__FV_VW_GETEVENT" 0` (fv.drivers' "only
+  what is there"); each further move replaces the position, so one step
+  draws the last of them; a mouse-up, a resize or the end of input met there
+  is kept for the end; anything else is dropped.
+* **The end of input** (the latch, as the modal loops): a keyboard drag
+  ends as Esc (the start bounds back; the modal loops end with `cmCancel`
+  too), a mouse drag where it is (FV's mouse drag has no undo).
+* **A resize mid-drag** (design §2.3): an `evCommand cmResizeApp` from the
+  event source ends the drag at once, with V's bounds clamped into its
+  owner's new extent by `MoveGrow` (limits = the owner's extent, the size
+  limits asked again) and no undo; the drag does not post it again. The
+  event source handles the resize before it hands the event on (fv.app's
+  `_getEvent`, 2f); events after it stay unread.
+* The event record is put back afterwards (FV passes `Event` by value).
+
+The framework's own drags (FV's `DragWindow`): `cmResize` in
+`TWindow.HandleEvent` (keyboard) and the frame's top row and grow corner
+(mouse) drag the window inside its owner's extent, within its
+`SizeLimits`, with `DragMode` + the move / grow bit. TView's default
+`DragMode` is `dmLimitLoY`: a window cannot be dragged above its owner's
+top edge.
 
 ## Cost
 
@@ -770,12 +883,41 @@ two sides in one `fillColumns`; one-test skips of views in front that miss
 the repainted pieces; TWindow's `GetTitle` and TView's `SizeLimits` run
 inline when the class has not overridden them.
 
+**Stage 2d** (Git-bash 5.3.15, 80 × 24, frames to `/dev/null`, the events
+scene of the tests: two TWindows with a list stand-in each that writes its
+rows, median of 5 runs, 2026-11-17; a quiet machine):
+
+| action | ms | dispatches / writes |
+|---|---|---|
+| move the front window by one cell (`moveTo`; same scene, for comparison; HEAD and stage 2d alike) | 15.2 | — |
+| one keyboard drag step (an arrow under `cmResize`; 20 steps, minus a drag of none) | 17.4 | 2 / 40 (the two stand-ins' Draws, their rows) |
+| one mouse drag step (a move, the drain, the step) | 19.0 | 2 / 40 |
+| entering and leaving a drag (`sfDragging`: two border-only frame redraws) | 14.4 | 3 + 3 writes |
+| `cmZoom` and back (whole desktop each way) | 43.3 (≈ 21.7 each) | 4 + 5 / 27 + 43 |
+
+A drag step costs ~2–4 ms more than a bare `moveTo`: it runs deep in the
+handler's call stack (the application's and the window's dispatch frames),
+where every global lookup walks more bash frames, plus the event read and
+`MoveGrow`. The reads here are scripted (a real
+`fv.drivers.getEvent` adds ~0.9 ms per mouse report and ~0.2 ms per drain
+poll).
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
 
 * **instance classes with FV field names**, and fields of other instances
   read and written directly under the kklass friend contract;
+* **friend entries for the fv.\* units above this one** (fv.menus, later
+  fv.app — the same framework, versioned together; not for scripts): the
+  elision tables `__FV_VW_IMPL` / `__FV_VW_FUNC` (a unit adds its classes'
+  built-in bodies; a reload of this unit merges, so they survive), calls of
+  `fv.views._virt` (the elision entry), `fv.views._topView V` (topView into
+  the caller's `__fvw_t`, no checks), `fv.views._viewEvent` (TView's
+  HandleEvent body), reads of `__FV_VW_LIVE` (a live view), `__FV_VW_CRC` (a
+  refused TView part's rc), `__FV_VW_ERRSYM`, the disabled-command set
+  `__FV_VW_CMDOFF` and the event hooks `__FV_VW_PUTEVENT` / `__FV_VW_EOF`.
+  fv.menus' README lists what it uses;
 * **loud refusals**: re-creating a live view, a reserved name and a
   constructor that skipped `inherited` print one `Error:` line on stderr (not
   only under `VERBOSE_KKLASS=debug`; `quiet` silences them) — a silent rc
@@ -813,6 +955,21 @@ inline when the class has not overridden them.
   `FV_EV_*` (FV's var parameter; the design's "inner loops save and restore
   the event record" holds for `execView` and `message`, whose callers keep
   their own event).
+* from Free Vision, stage 2d: a drag step does not lock the owner (FV's
+  `MoveGrow` does, and its unlock redraws the whole owner per step): one
+  `locate`, the old ∪ new area redrawn (D17); the frame's press tracking
+  redraws only the top row and only when `FrameMode` changes, and the
+  **release's own place** decides whether the icon's command is posted (FV
+  decides by the last place before the mouse-up, so a terminal that reports
+  no motion while a button is held would close a window on a release
+  outside the icon); the end of input ends a keyboard drag as Esc and a
+  mouse drag where it is, and an icon's tracking without its command; a
+  `cmResizeApp` ends a drag (design §2.3); queued mouse moves are coalesced;
+  `Zoom` does nothing without a usable maximum or `ZoomRect` (FV would
+  locate to `high(Sw_Integer)` without an owner); `MinWinSize` is the pair
+  `FV_MINWINSIZE_X/_Y`; after a drag that grew a window, interior cells no
+  view covers keep the dragging colour of the frame's body (border-only
+  frames, above: the same background, nothing visible).
 
 Known kklass limits met by the tests (not this unit's): building a class or
 calling `.new` under an `IFS` holding digits or letters fails (with letters
@@ -836,7 +993,7 @@ anything on it fails one test.
 
 | file | what |
 |---|---|
-| 001_Contract | `bash -n`; the public API of the three stages exists; loads, re-loads and the main path (drawing and the events included: a window, focus, message, commands, the cursor, a modal view at the end of input) under `set -eu`; `kk.unit --forget` + re-source keeps the live tree; failing calls return under `set -e`; nothing on stdout; no stray globals or functions; the test lib itself (both counters keep rc and RESULT and unwrap, the buffer reader, `fvw_budget`) |
+| 001_Contract | `bash -n`; the public API of stages 2c-1 to 2d exists; loads, re-loads and the main path (drawing and the events included: a window, focus, message, commands, the cursor, a modal view at the end of input) under `set -eu`; `kk.unit --forget` + re-source keeps the live tree; failing calls return under `set -e`; nothing on stdout; no stray globals or functions; the test lib itself (both counters keep rc and RESULT and unwrap, the buffer reader, `fvw_budget`) |
 | 002_Tree | insert / insertBefore / delete / makeFirst / putInFrontOf, the navigation (rings and nil), Owner, Current per FV `ResetCurrent`, the sfSelected bits, refusals (rc, RESULT, unchanged tree), a cycle, `V.delete` of a group, names differing in case under nocasematch, the hook's calls |
 | 003_Geometry | the constructors' corners and defaults, MaxViewWidth, getBounds / getExtent, the cache and the clip, centring, locate / moveTo / growTo with SizeLimits, an owner resize by every GrowMode flag (gfGrowRel, the S = D guard), CalcBounds / SizeLimits answers, makeLocal / makeGlobal / mouseInView, GetHelpCtx, bad numbers; a group moved and resized at once (each subview's old rect in its redraw hook), a CalcBounds override that sets nothing, a subview destroyed during the resize |
 | 004_Draw | the writers in local coordinates (palette index → symbol, ErrorAttr outside, `writeLine`'s repeat count), their answers and refusals (outside a Draw, bad arguments); the context and `FV_CLIP_*` inside a Draw; the owner's clip; the caller's clip and RESULT kept; a `drawView` nested inside a Draw (the outer context and clip intact); TView.Draw; a group override that decorates after `inherited Draw`; nothing drawn when hidden / in a hidden group / without an exposed root; `V.Draw` outside the painter; `getColor`; `drawPart` (clipped rows, the front view over them, no dispatch, rc, refusals); `redraw`'s forced frame, also deferred while held; re-entrancy (a Draw redrawing a view behind it with drawView + drawPart: once, no recursion, == a full repaint, also after a move; a list redrawing scroll bars beside and behind it); a Draw ending non-zero under `set -e` (insert, drawView, moveTo, unlock); drawPart on a group refused |
@@ -845,11 +1002,12 @@ anything on it fails one test.
 | 007_Events | the phases (pre / focused / post, the Phase each handler sees), positional events (the front-most visible view, hidden skipped, a disabled one swallows), broadcasts, the EventMask skip without a call (dispatch counts; built-in views 0), disabled views, the stop at evNothing, views removed / destroyed meanwhile, unknown names, click to focus and ofFirstClick, a nested group's Current, message (the handler, rc, the caller's record restored), RESULT kept, a handler's rc under `set -e`, refusals |
 | 008_Focus | the chain's bits, select of a covered window (== a full repaint, its list drawn once), the focus broadcasts in FV's order, sfActive propagation (a frame border = 3 writes, no leaf redraw), side by side (borders + shadow only), Tab in a window (arrows too; unselectable / disabled skipped), focusNext / selectNext, focus with an ofValidate Current, click to focus through the chain, resetCursor (position, shape, outside, covered, unfocused), a SetState override, hide / show / sfShadow, delete of the focused window, insert into an active group, select of a front window that is not Current, refusals; quiet broadcasts (stage 2c-p: no dispatch, the Phase a delivery sets, a listening leaf breaks the quiet and hears what it heard, the dispatch's skips in the walk; a walk that ends not quiet leaves no Phase behind) |
 | 009_Commands | FV's default set at load (and across a re-source), enable / disable / commandEnabled, the changed flag, getCommands / setCommands, the window commands by Flags, execView restoring the set, refusals |
-| 011_ZeroFork | the three stages (drawing included: frames, shadows, locks, drawPart with every writer; stage 2c-3: a TWindow, the focus chain, message, a key through the dispatch, commands, the cursor, a modal view with a scripted event source, mouseEvent, endModal, cmClose) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
-| 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes); a second scene (stage 2c-3: windows whose names differ only in case, the focus chain, select, message, Tab, a click, commands, the cursor, two modal views, cmClose) under the same setups (`inherited` replaced by the built-in body under the IFS of letters, a kklass limit) |
-| 013_Elision | every built-in virtual of the three stages (incl. `Draw`, `GetPalette` of TView / TGroup / TFrame) overridden with `inherited`: dispatch counts (0 / 2), results, user fields named like locals; the RESULT / rc rule both ways (also failing bodies, under `set -e`); overrides inside the painter; `kk.class --forget` + redefinition; a scene under `set -eu`, nocasematch and odd IFS; the unsupported func shapes (`return 0`, a failing last command) pinned as kklass behaves today; stage 2c-3: HandleEvent / SetState / Valid / Execute / EndModal of TView / TGroup and TWindow's HandleEvent / SetState / GetPalette / GetTitle / InitFrame / Close overridden with `inherited` (0 / 2 dispatches, the RESULT rule, through the dispatch, a select and execView) |
-| 014_Modal | execView (RESULT, inserted / removed, == a full repaint, sfModal and the top view while it runs; the event record, Phase, Options, Current put back; EnterSelect), Valid refusals, endModal from a leaf, modal in modal, no HandleEvent for evNothing, the end of input (no Valid asked), the latch, the "save?" box at the end of input, a failing event source, a root's Execute (cmQuit), the owner-process rule in `$( )`, a dialog destroying itself, a modal cmClose (cmCancel posted), endModal without a modal view, mouseEvent (tracking, the mouse-up, the end of input), refusals; a resize mid-modal / mid-drag is 2f / 2d |
-| 015_Frame | TFrame's constructor; FV's look inactive / active / dragging, `☼` / `↕`, a bare frame in a plain group; a wide and a long title; small sizes; 3 writes full, 3 border-only (both sides one `fillColumns`), no dispatch; the string cache; through fv.video's VT model: the terminal shows the buffer, border-only == a full repaint (a window overlapping the ring in front); the covered parts of the ring left out (4 pieces, no repaint of the window in front); the cache across ASCII mode (initScreen with FV_ASCII); a frame class overriding Draw |
-| 016_Window | the constructor (FV's defaults, the frame from InitFrame, a bad number, the guard), an InitFrame override without a frame, GetTitle, the frame's title and number, the three palettes, cmClose (Valid no / yes, another window, without wfClose), cmSelectWindowNum through message, an unselectable window, Tab, unknown keys / commands |
+| 011_ZeroFork | the three stages (drawing included: frames, shadows, locks, drawPart with every writer; stage 2c-3: a TWindow, the focus chain, message, a key through the dispatch, commands, the cursor, a modal view with a scripted event source, mouseEvent, endModal, cmClose; stage 2d: cmZoom, a keyboard drag, a mouse drag with the drain, the close icon, dragView) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
+| 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes); a second scene (stage 2c-3: windows whose names differ only in case, the focus chain, select, message, Tab, a click, commands, the cursor, two modal views, cmZoom and back, a keyboard and a mouse drag, the close icon, cmClose) under the same setups (`inherited` replaced by the built-in body under the IFS of letters, a kklass limit) |
+| 013_Elision | every built-in virtual of the three stages (incl. `Draw`, `GetPalette` of TView / TGroup / TFrame) overridden with `inherited`: dispatch counts (0 / 2), results, user fields named like locals; the RESULT / rc rule both ways (also failing bodies, under `set -e`); overrides inside the painter; `kk.class --forget` + redefinition; a scene under `set -eu`, nocasematch and odd IFS; the unsupported func shapes (`return 0`, a failing last command) pinned as kklass behaves today; stage 2c-3: HandleEvent / SetState / Valid / Execute / EndModal of TView / TGroup and TWindow's HandleEvent / SetState / GetPalette / GetTitle / InitFrame / Close overridden with `inherited` (0 / 2 dispatches, the RESULT rule, through the dispatch, a select and execView); stage 2d: TFrame's HandleEvent and TWindow's SizeLimits / CalcBounds / Zoom (0 / 2, CalcBounds 6; through locate, cmZoom, an owner resize, a click on the close icon) |
+| 014_Modal | execView (RESULT, inserted / removed, == a full repaint, sfModal and the top view while it runs; topView; the event record, Phase, Options, Current put back; EnterSelect), Valid refusals, endModal from a leaf, modal in modal, no HandleEvent for evNothing, the end of input (no Valid asked), the latch, the "save?" box at the end of input, a failing event source, a root's Execute (cmQuit), the owner-process rule in `$( )`, a dialog destroying itself, a modal cmClose (cmCancel posted), endModal without a modal view, mouseEvent (tracking, the mouse-up, the end of input), refusals; stage 2d: drags inside a modal view (cmResize's keyboard drag, a mouse drag by the frame), each step shown at once; a resize mid-modal is 2f (mid-drag: 017) |
+| 015_Frame | TFrame's constructor; FV's look inactive / active / dragging, `☼` / `↕`, a bare frame in a plain group; a wide and a long title; small sizes; 3 writes full, 3 border-only (both sides one `fillColumns`), no dispatch; the string cache; through fv.video's VT model: the terminal shows the buffer, border-only == a full repaint (a window overlapping the ring in front); the covered parts of the ring left out (4 pieces, no repaint of the window in front); the cache across ASCII mode (initScreen with FV_ASCII); a frame class overriding Draw; stage 2d, the frame's mouse: the close icon's press tracking (one top-row write per change, cmClose posted on a release on it, nothing off it or at the end of input, the posted event closing the window), the zoom icon, a double click, an inactive frame (no icons: drags), the grow corner, a frame class with its own Draw, quiet for broadcasts |
+| 016_Window | the constructor (FV's defaults, the frame from InitFrame, a bad number, the guard), an InitFrame override without a frame, GetTitle, the frame's title and number, the three palettes, cmClose (Valid no / yes, another window, without wfClose), cmSelectWindowNum through message, an unselectable window, Tab, unknown keys / commands; stage 2d: SizeLimits (MinWinSize, FV_MINWINSIZE_X/_Y), Zoom and back (ZoomRect, the zoom icon), a bad ZoomRect, cmZoom, CalcBounds (the ZoomRect follows an owner resize), cmResize |
+| 017_Drag | stage 2d (+ critic round: Shift+Enter / Shift+Esc end a drag, icon tracking in a subshell and with the window destroyed by the source): the keyboard drag through `cmResize` (arrows, Shift + arrows, Ctrl ± 8, Home / End / PgUp / PgDn, Enter, Esc, a grow-only window), the limits (a column / row inside, `dmLimitLoY`, `dmLimitAll`, MinWinSize and the owner's size), `sfDragging` (border-only frame redraws: 3 writes in, 3 out), the mouse drag by the frame's top row and grow corner, motion coalescing (the drain's timeout 0, the last move wins, a key dropped, the mouse-up kept), the end of input (keyboard as Esc, mouse where it is), a `cmResizeApp` ending a drag (clamped into the new extent, no undo), the event record put back, the owner-process rule in `$( )`, `dragView`'s refusals; the counts of one keyboard step, one mouse step and a zoom (logged) |
 | 018_Names | reserved names (also under nocasematch), `_newReserved`, the constructor guard (a leaf, a group with subviews, through subclass constructors), the dialog loop and the anti-pattern, a constructor that skipped `inherited`, `VERBOSE_KKLASS=quiet`; every rc-2 refusal: one debug line under the switch, none without |
 | 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals |

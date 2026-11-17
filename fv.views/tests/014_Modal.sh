@@ -25,8 +25,10 @@
 #   * mouseEvent: tracking returns the move events (rc 0) and ends at the
 #     mouse-up (rc 1), other events dropped; at the end of input rc 1, no
 #     spin.
-# A terminal resize during a modal view or a drag is P2 stage 2f (fv.app's
-# _getEvent handles cmResizeApp) and 2d (dragView): not tested here.
+#   * stage 2d: drags inside a modal view (cmResize's keyboard drag in the
+#     dialog's handler, a mouse drag by its frame), each step shown at once.
+# A terminal resize during a modal view is P2 stage 2f (fv.app's _getEvent
+# handles cmResizeApp); a resize ending a drag is in 017_Drag.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -311,6 +313,28 @@ u=$(<"$FVW_TMP/u.txt")
 fvw_noevents
 ud.delete
 if [[ $r == 'cmOK|0|0' && $u == *'unlockScreenUpdate: no lockScreenUpdate of yours'* ]] && fvw_full app; then kt_test_pass "ok"; else kt_test_fail "[$r] debug [$u] diff [$FVW_DIFF]"; fi
+
+kt_test_start "2d: drags inside a modal view: cmResize runs the keyboard drag in the dialog's handler, its frame drags it by the mouse; each step shown at once despite the loop's per-event hold; the loop goes on with its own events; == a full repaint"
+OS=''
+osz() { fvw_outsize; OS+="$REPLY "; }
+fvw_events 'cmd cmResize' 'run osz' 'key kbRight' 'run osz' 'key kbEnter' 'down 30 5' 'run osz' 'move 31 6' 'nothing' 'run osz' 'up 31 6' 'cmd cmOK'
+SEEN=''
+fv.views.execView desk dlg; r=$RESULT
+fv.views.getBounds dlg; r+="|$RESULT|$SEEN"
+read -r o1 o2 o3 o4 <<< "$OS"
+fvw_noevents
+if [[ $r == 'cmOK|12 6 62 19|dlg:cmOK:modal=1:top=dlg;' ]] && (( o2 > o1 && o4 > o3 )) && fvw_full app; then kt_test_pass "ok (bytes $OS)"
+else kt_test_fail "[$r] bytes [$OS] diff [$FVW_DIFF]"; fi
+fv.views.moveTo dlg 10 5
+
+kt_test_start "topView (FV TopView): RESULT = the view execView runs, asked from it and from a view outside it; after it the root (sfModal in the scene, as an application); rc 2 for a malformed call"
+TV=''
+tvprobe() { fv.views.topView w1l; TV+="[$RESULT]"; fv.views.topView dlg; TV+="[$RESULT]"; }
+fvw_events 'run tvprobe' 'cmd cmOK'
+fv.views.execView desk dlg || :
+fv.views.topView w1l; TV+="[$RESULT]"
+r=''; fv.views.topView || r+=$?; fv.views.topView nosuch || r+=$?; fv.views.topView w1l x || r+=$?
+if [[ $TV == '[dlg][dlg][app]' && $r == 222 ]]; then kt_test_pass "ok"; else kt_test_fail "[$TV] rc [$r]"; fi
 
 kt_test_start "refusals (rc 2, RESULT ''): execView / endModal / mouseEvent arguments, a non-group, a non-view; execView '' = cmCancel"
 r=''

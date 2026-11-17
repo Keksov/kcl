@@ -24,7 +24,11 @@ kk.unit fv.views || return $__kk_unit_rc
 # effects), command sets, resetCursor, the modal loop (Execute, execView,
 # endModal, Valid; the EOF latch and the owner-process rule), mouseEvent and
 # the basic TWindow (frame, title, number, palettes, window commands, Tab,
-# cmClose, cmSelectWindowNum). Zoom, dragging and the frame's mouse are 2d.
+# cmClose, cmSelectWindowNum). Stage 2d: TWindow's Zoom / SizeLimits
+# (MinWinSize) / CalcBounds (ZoomRect), cmZoom / cmResize, dragView (FV
+# DragView: keyboard and mouse, motion coalescing, a resize ending a drag)
+# and the frame's mouse (the close / zoom icons, dragging by the top row and
+# the grow corner).
 #
 # Conventions of every plain function here:
 #   * the view name first; locals `__fvw_*`; fields read and written through
@@ -90,6 +94,9 @@ if [[ -z ${FV_WF_MOVE+x} || ${FV_WF_MOVE@a} != *r* ]]; then
     readonly FV_WF_MOVE FV_WF_GROW FV_WF_CLOSE FV_WF_ZOOM FV_WP_BLUEWINDOW FV_WP_CYANWINDOW \
         FV_WP_GRAYWINDOW FV_WN_NONUMBER FV_FM_CLOSECLICKED FV_FM_ZOOMCLICKED
 fi
+# (stage 2d) FV's MinWinSize, TWindow.SizeLimits' minimum: a typed constant
+# FV programs may change, so a plain global (not 0-9 digits: FV's 16 x 6)
+declare -g FV_MINWINSIZE_X=${FV_MINWINSIZE_X:-16} FV_MINWINSIZE_Y=${FV_MINWINSIZE_Y:-6}
 
 # ---- state ------------------------------------------------------------------
 # Derived state keyed by the view name (design §1.2), kept across a reload:
@@ -192,7 +199,11 @@ fi
 # The elision tables (design §1.4): IMPL = the plain body of each built-in
 # virtual, keyed DEFININGCLASS.METHOD; FUNC = the virtuals FV declares as
 # functions (they answer in RESULT on both paths; the others leave it).
-declare -gA __FV_VW_IMPL=(
+# MERGED on a reload (+=), not reassigned: the framework units above this one
+# (fv.menus, fv.app) add their classes' entries, which a re-source of this
+# unit must keep.
+declare -gA __FV_VW_IMPL __FV_VW_FUNC
+__FV_VW_IMPL+=(
     [TView.ChangeBounds]=fv.views._viewChangeBounds [TView.CalcBounds]=fv.views._viewCalcBounds
     [TView.SizeLimits]=fv.views._viewSizeLimits [TView.GetHelpCtx]=fv.views._viewGetHelpCtx
     [TGroup.ChangeBounds]=fv.views._groupChangeBounds [TGroup.GetHelpCtx]=fv.views._groupGetHelpCtx
@@ -206,8 +217,10 @@ declare -gA __FV_VW_IMPL=(
     [TWindow.HandleEvent]=fv.views._windowEvent [TWindow.SetState]=fv.views._windowSetState
     [TWindow.GetPalette]=fv.views._windowGetPalette [TWindow.GetTitle]=fv.views._windowGetTitle
     [TWindow.InitFrame]=fv.views._windowInitFrame [TWindow.Close]=fv.views._windowClose
+    [TFrame.HandleEvent]=fv.views._frameEvent [TWindow.SizeLimits]=fv.views._windowSizeLimits
+    [TWindow.CalcBounds]=fv.views._windowCalcBounds [TWindow.Zoom]=fv.views._windowZoom
 )
-declare -gA __FV_VW_FUNC=(
+__FV_VW_FUNC+=(
     [GetPalette]=1 [GetHelpCtx]=1 [Valid]=1 [Execute]=1 [GetTitle]=1 [Hint]=1 [GetEvent]=1
 )
 # The event-name -> EventMask bit lookup (used by the dispatch, stage 2c-3).
@@ -349,13 +362,16 @@ build TGroup
 # and `[↑]` / `↕` (wfZoom) while active, the window number (1..9), the grow
 # corner (wfGrow, active), in CFrame's colours through the owner's palette.
 # The owner fields read: Flags, Number, Title (or its GetTitle, a func, when
-# its class has one).
+# its class has one). Stage 2d: HandleEvent, the mouse on the frame (the
+# close and zoom icons, a double click on the top row, dragging the owner by
+# the top row or the grow corner).
 class TFrame : TView
     public
         var FrameMode
         constructor Create
         override proc Draw
         override func GetPalette
+        override proc HandleEvent
 end
 TFrame.Create() {
     inherited
@@ -364,6 +380,7 @@ TFrame.Create() {
 }
 TFrame.Draw() { fv.views._frameDraw "$this" || return; }
 TFrame.GetPalette() { fv.views._frameGetPalette "$this" || return; }
+TFrame.HandleEvent() { fv.views._frameEvent "$this" "$@" || return; }
 build TFrame
 
 # TWindow.new NAME AX AY BX BY [TITLE [NUMBER]] — FV TWindow.Init(Bounds,
@@ -372,8 +389,8 @@ build TFrame
 # Palette wpBlueWindow, Frame by InitFrame (virtual; the built-in makes the
 # TFrame NAME__fvframe over the whole window) inserted, ZoomRect = the
 # bounds ("AX AY BX BY"). NUMBER: 1..9 is shown on the frame (FV wnNoNumber
-# 0; not an integer: 0). Stage 2d adds Zoom, SizeLimits (MinWinSize) and
-# CalcBounds (ZoomRect), cmZoom / cmResize and the frame's mouse.
+# 0; not an integer: 0). Stage 2d: Zoom, SizeLimits (MinWinSize) and
+# CalcBounds (the ZoomRect follows an owner resize), cmZoom / cmResize.
 class TWindow : TGroup
     public
         var Flags
@@ -386,9 +403,12 @@ class TWindow : TGroup
         override proc HandleEvent
         override proc SetState
         override func GetPalette
+        override proc SizeLimits
+        override proc CalcBounds
         func GetTitle
         proc InitFrame
         proc Close
+        proc Zoom
 end
 TWindow.Create() {
     inherited
@@ -401,6 +421,9 @@ TWindow.GetPalette() { fv.views._windowGetPalette "$this" || return; }
 TWindow.GetTitle() { fv.views._windowGetTitle "$this" "$@" || return; }
 TWindow.InitFrame() { fv.views._windowInitFrame "$this" || return; }
 TWindow.Close() { fv.views._windowClose "$this" || return; }
+TWindow.SizeLimits() { fv.views._windowSizeLimits "$this" "$@" || return; }
+TWindow.CalcBounds() { fv.views._windowCalcBounds "$this" "$@" || return; }
+TWindow.Zoom() { fv.views._windowZoom "$this" || return; }
 build TWindow
 
 # ---- the hooks ------------------------------------------------------------------
@@ -2295,8 +2318,10 @@ fv.views._frameRows() {
 fv.views._frameZoom() {
     local __fvw_k="${__fvw_o}_class"
     __fvw_k="${!__fvw_k-}_class_method_owner[SizeLimits]"
-    if [ "${__FV_VW_IMPL[${!__fvw_k-}.SizeLimits]-}" = fv.views._viewSizeLimits ]; then
-        # (TView's SizeLimits, inline: its maximum is the owner's owner's size)
+    __fvw_k=${__FV_VW_IMPL[${!__fvw_k-}.SizeLimits]-}
+    if [ "$__fvw_k" = fv.views._viewSizeLimits ] || [ "$__fvw_k" = fv.views._windowSizeLimits ]; then
+        # (TView's / TWindow's SizeLimits, inline: the maximum is the owner's
+        # owner's size)
         __fvw_k=${__fvw_od[Owner]-}
         if [[ -n $__fvw_k ]]; then
             local -n __fvw_oo=${__fvw_k}_data
@@ -2706,7 +2731,8 @@ fv.views._dispatch() {
         __fvw_xf=${__fvw_xk}_class
         __fvw_xf="${!__fvw_xf-}_class_method_owner[HandleEvent]"
         __fvw_xf=${__FV_VW_IMPL[${!__fvw_xf-}.HandleEvent]-}
-        if [ "$__fvw_xf" = fv.views._viewEvent ] && ! [ "$FV_EV_WHAT" = evMouseDown ]; then continue; fi
+        # (TView's and TFrame's handlers react to a mouse-down only)
+        if { [ "$__fvw_xf" = fv.views._viewEvent ] || [ "$__fvw_xf" = fv.views._frameEvent ]; } && ! [ "$FV_EV_WHAT" = evMouseDown ]; then continue; fi
         # (a broadcast into a built-in group whose subtree has no listener:
         # the delivery is skipped, its Phase effects kept: fv.views._quiet)
         if (( __fvw_xb == FV_EM_BROADCAST )) && [[ -n ${__FV_VW_GRP[$__fvw_xk]-} ]] && fv.views._quiet "$__fvw_xk" "$FV_EV_COMMAND"; then
@@ -2730,7 +2756,8 @@ fv.views._dispatch() {
 # fv.views._quiet V COMMAND — rc 0 when the broadcast COMMAND delivered to V
 # would reach no handler that reacts to it (stage 2c-p: the focus broadcasts
 # of a window switch cost a dispatch tree each). V's HandleEvent is TView's
-# (it reacts to evMouseDown only), or TGroup's / TWindow's (TWindow reacts to
+# or TFrame's (they react to evMouseDown only: TFrame's handler, stage 2d, is
+# quiet for every broadcast), or TGroup's / TWindow's (TWindow reacts to
 # cmSelectWindowNum: not quiet) and every subview the dispatch would reach
 # (EventMask with evBroadcast, live, still V's subview) is quiet itself. A
 # user override anywhere in the way is never quiet. The dispatch sets a
@@ -2745,7 +2772,7 @@ fv.views._quiet() {
     if [[ -z ${3-} ]]; then local -a __fvw_qp=(); fi
     __fvw_f="${!__fvw_f-}_class_method_owner[HandleEvent]"
     __fvw_f=${__FV_VW_IMPL[${!__fvw_f-}.HandleEvent]-}
-    if [ "$__fvw_f" = fv.views._viewEvent ]; then return 0; fi
+    if [ "$__fvw_f" = fv.views._viewEvent ] || [ "$__fvw_f" = fv.views._frameEvent ]; then return 0; fi
     if [ "$__fvw_f" = fv.views._windowEvent ]; then
         if [ "$2" = cmSelectWindowNum ]; then return 1; fi
     elif ! [ "$__fvw_f" = fv.views._groupEvent ]; then
@@ -2762,7 +2789,7 @@ fv.views._quiet() {
         __fvw_t=${__fvw_k}_class
         __fvw_t="${!__fvw_t-}_class_method_owner[HandleEvent]"
         __fvw_t=${__FV_VW_IMPL[${!__fvw_t-}.HandleEvent]-}
-        if [ "$__fvw_t" = fv.views._viewEvent ]; then continue; fi
+        if [ "$__fvw_t" = fv.views._viewEvent ] || [ "$__fvw_t" = fv.views._frameEvent ]; then continue; fi
         if [[ -z ${__FV_VW_GRP[$__fvw_k]-} ]]; then return 1; fi
         fv.views._quiet "$__fvw_k" "$2" NESTED || return 1
         __fvw_p=1
@@ -3345,9 +3372,18 @@ fv.views.execView() {
     RESULT=$__fvw_r
 }
 
-# fv.views._topView V — the caller's __fvw_t = FV TopView: the view execView
-# runs (__FV_VW_TOPVIEW) while it is live, else the first of V and its
-# owners with sfModal; '' when none
+# fv.views.topView V — FV TopView: RESULT = the view execView runs while it
+# is live, else the first of V and its owners with sfModal; '' when none.
+# rc 2 for a malformed call
+fv.views.topView() {
+    if (( $# != 1 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" topView || return
+    local __fvw_t
+    fv.views._topView "$1"
+    RESULT=$__fvw_t
+}
+# fv.views._topView V — topView's work into the caller's __fvw_t (a friend
+# entry: fv.menus' Update calls it on every idle tick without the checks)
 fv.views._topView() {
     __fvw_t=''
     if [[ -n $__FV_VW_TOPVIEW && -n ${__FV_VW_LIVE[$__FV_VW_TOPVIEW]-} ]]; then __fvw_t=$__FV_VW_TOPVIEW; return 0; fi
@@ -3537,7 +3573,11 @@ fv.views._windowCmds() {
 #     the next control); kbShiftTab, kbUp, kbLeft -> focusNext W 1; handled.
 #     (FPC's TWindow takes the arrows too: a control that uses them handles
 #     them first, in the focused phase.)
-# cmZoom and cmResize (Zoom, DragView) come with stage 2d.
+#   * evCommand cmZoom for this window (FV_EV_INFO '' or W) with wfZoom: Zoom
+#     (virtual), handled;
+#   * evCommand cmResize with wfMove or wfGrow and an owner: the keyboard
+#     drag (fv.views._dragWindow with Flags' move / grow bits, FV DragView),
+#     handled.
 fv.views._windowEvent() {
     fv.views._groupEvent "$1"
     if [ "$FV_EV_WHAT" = evNothing ] || [[ -z ${__FV_VW_LIVE[$1]-} ]]; then return 0; fi
@@ -3549,14 +3589,15 @@ fv.views._windowEvent() {
             fv.views._findFocus "$1" 1
             FV_EV_WHAT=evNothing FV_EV_INFO=$1
         fi
-    elif { [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmClose ]; } \
+    elif { [ "$FV_EV_WHAT" = evCommand ] && { [ "$FV_EV_COMMAND" = cmClose ] || [ "$FV_EV_COMMAND" = cmZoom ] || [ "$FV_EV_COMMAND" = cmResize ]; }; } \
          || { [ "$FV_EV_WHAT" = evBroadcast ] && [ "$FV_EV_COMMAND" = cmSelectWindowNum ]; }; then
         fv.views._windowEventX "$1"
     fi
     return 0
 }
-# fv.views._windowEventX W — TWindow.HandleEvent's cmClose and
-# cmSelectWindowNum (apart: bash copies a function's body on every call)
+# fv.views._windowEventX W — TWindow.HandleEvent's commands (cmClose, cmZoom,
+# cmResize) and cmSelectWindowNum (apart: bash copies a function's body on
+# every call)
 fv.views._windowEventX() {
     local -n __fvw_wd=${1}_data
     if [ "$FV_EV_WHAT" = evCommand ]; then
@@ -3571,8 +3612,18 @@ fv.views._windowEventX() {
                     FV_EV_WHAT=evNothing FV_EV_INFO=$1
                 fi
             fi
+        elif [ "$FV_EV_COMMAND" = cmZoom ]; then
+            if (( ${__fvw_wd[Flags]:-0} & FV_WF_ZOOM )) && { [[ -z $FV_EV_INFO ]] || [ "$FV_EV_INFO" = "$1" ]; }; then
+                fv.views._virt "$1" Zoom || :
+                FV_EV_WHAT=evNothing FV_EV_INFO=$1
+            fi
+        elif [ "$FV_EV_COMMAND" = cmResize ]; then
+            if (( ${__fvw_wd[Flags]:-0} & (FV_WF_MOVE | FV_WF_GROW) )) && [[ -n ${__fvw_wd[Owner]-} ]]; then
+                # (wfMove / wfGrow are dmDragMove / dmDragGrow: FV passes Flags' bits as the mode)
+                fv.views._dragWindow "$1" "$(( ${__fvw_wd[Flags]:-0} & (FV_WF_MOVE | FV_WF_GROW) ))" || :
+                FV_EV_WHAT=evNothing FV_EV_INFO=$1
+            fi
         fi
-        # (cmZoom, cmResize: stage 2d)
     elif [ "$FV_EV_WHAT" = evBroadcast ]; then
         if [ "$FV_EV_COMMAND" = cmSelectWindowNum ] && [[ -n $FV_EV_INFO ]] && [ "$FV_EV_INFO" = "${__fvw_wd[Number]-}" ] \
            && (( (${__fvw_wd[Options]:-0} & FV_OF_SELECTABLE) && (${__fvw_wd[State]:-0} & FV_SF_VISIBLE) )); then
@@ -3598,4 +3649,422 @@ fv.views._windowClose() {
         if declare -F "$1.delete" >/dev/null; then "$1.delete"; fi
     fi
     return 0
+}
+
+# ==== zoom, dragging, the frame's mouse (P2 stage 2d; design §1.2, §1.3, §2.2) ====
+
+# TWindow.SizeLimits — FV: TView's (the maximum: the owner's size), then the
+# minimum = FV's MinWinSize (FV_MINWINSIZE_X / _Y; a value that is not 1-9
+# plain digits counts as FV's 16 x 6)
+fv.views._windowSizeLimits() {
+    fv.views._viewSizeLimits "$1"
+    FV_MIN_X=${FV_MINWINSIZE_X-} FV_MIN_Y=${FV_MINWINSIZE_Y-}
+    if [[ -z $FV_MIN_X || $FV_MIN_X == *[!0123456789]* || ${#FV_MIN_X} -gt 9 ]]; then FV_MIN_X=16; else FV_MIN_X=$(( 10#$FV_MIN_X )); fi
+    if [[ -z $FV_MIN_Y || $FV_MIN_Y == *[!0123456789]* || ${#FV_MIN_Y} -gt 9 ]]; then FV_MIN_Y=6; else FV_MIN_Y=$(( 10#$FV_MIN_Y )); fi
+}
+
+# fv.views._zoomRect W — the caller's __fvw_v = W's ZoomRect as four
+# integers; rc 1 when the field is not "AX AY BX BY"
+fv.views._zoomRect() {
+    local -n __fvw_zd=${1}_data
+    local __fvw_z="${__fvw_zd[ZoomRect]-} " __fvw_n=0
+    local -a __fvw_p=()
+    while [[ -n $__fvw_z ]] && (( __fvw_n++ < 5 )); do
+        __fvw_p+=("${__fvw_z%% *}") __fvw_z=${__fvw_z#* }
+    done
+    if (( ${#__fvw_p[@]} != 4 )) || [[ -n $__fvw_z ]]; then return 1; fi
+    fv.views._ints "${__fvw_p[@]}"
+}
+
+# TWindow.Zoom — FV: SizeLimits (virtual); smaller than its maximum: the
+# bounds kept in ZoomRect, then Locate(0, 0, Max) (the owner's whole
+# extent); at the maximum: Locate(ZoomRect). The frame's zoom icon follows
+# (`↕` at the maximum: the frame's string cache key holds it). Nothing for a
+# maximum that is not an integer of at most 9 digits (no owner: FV's
+# high(Sw_Integer)) or a ZoomRect that is not four integers
+fv.views._windowZoom() {
+    local -n __fvw_wd=${1}_data
+    local -a __fvw_v
+    local __fvw_x=${__fvw_wd[OriginX]:-0} __fvw_y=${__fvw_wd[OriginY]:-0} __fvw_w=${__fvw_wd[SizeX]:-0} __fvw_h=${__fvw_wd[SizeY]:-0}
+    fv.views._virt "$1" SizeLimits || :
+    fv.views._ints "$FV_MAX_X" "$FV_MAX_Y" || return 0
+    if (( __fvw_w != __fvw_v[0] || __fvw_h != __fvw_v[1] )); then
+        __fvw_wd[ZoomRect]="$__fvw_x $__fvw_y $(( __fvw_x + __fvw_w )) $(( __fvw_y + __fvw_h ))"
+        fv.views._locate "$1" 0 0 "${__fvw_v[0]}" "${__fvw_v[1]}" || :
+    elif fv.views._zoomRect "$1"; then
+        fv.views._locate "$1" "${__fvw_v[@]}" || :
+    fi
+    return 0
+}
+
+# TWindow.CalcBounds DX DY — FV (FPC 2026): the ZoomRect follows the owner's
+# resize as the bounds do (TView's CalcBounds on the ZoomRect, the fields
+# set to it meanwhile, then on the bounds); a ZoomRect that is not four
+# integers is left alone. Answer: FV_RECT_* (the bounds)
+fv.views._windowCalcBounds() {
+    local -n __fvw_wd=${1}_data
+    local -a __fvw_v
+    if fv.views._zoomRect "$1"; then
+        local __fvw_x=${__fvw_wd[OriginX]-} __fvw_y=${__fvw_wd[OriginY]-} __fvw_w=${__fvw_wd[SizeX]-} __fvw_h=${__fvw_wd[SizeY]-}
+        __fvw_wd[OriginX]=${__fvw_v[0]} __fvw_wd[OriginY]=${__fvw_v[1]}
+        __fvw_wd[SizeX]=$(( __fvw_v[2] - __fvw_v[0] )) __fvw_wd[SizeY]=$(( __fvw_v[3] - __fvw_v[1] ))
+        fv.views._viewCalcBounds "$1" "$2" "$3"
+        __fvw_wd[ZoomRect]="$FV_RECT_AX $FV_RECT_AY $FV_RECT_BX $FV_RECT_BY"
+        __fvw_wd[OriginX]=$__fvw_x __fvw_wd[OriginY]=$__fvw_y __fvw_wd[SizeX]=$__fvw_w __fvw_wd[SizeY]=$__fvw_h
+    fi
+    fv.views._viewCalcBounds "$1" "$2" "$3"
+}
+
+# ---- dragging (FV TView.DragView) ---------------------------------------------------
+
+# fv.views.dragView V MODE AX AY BX BY MINX MINY MAXX MAXY — FV DragView(Event,
+# Mode, Limits, MinSize, MaxSize) with the event in FV_EV_*: a mouse-down
+# drags by the mouse (dmDragMove in MODE: moves, else dmDragGrow: grows)
+# until the mouse-up; anything else drags by the keyboard (the arrows move,
+# Shift + arrows grow (dmDragMove / dmDragGrow), Ctrl+Left / Ctrl+Right by 8,
+# Home / End / PgUp / PgDn to the limits' edges) until Enter (kept) or Esc
+# (the start bounds back). The size stays within MIN..MAX, the origin keeps
+# a column / row inside the limits (owner coordinates, B exclusive) and
+# obeys MODE's dmLimit* bits; every step is a locate (old ∪ new redrawn
+# once) shown at once. V has sfDragging meanwhile (a window's frame is
+# redrawn border-only, D17). The end of input ends a keyboard drag as Esc,
+# a mouse drag where it is; an evCommand cmResizeApp from the event source
+# (which has handled the resize: fv.app) ends either at V's bounds clamped
+# into its owner's new extent (no undo). Queued mouse moves are coalesced:
+# before each step the waiting events are read with "$__FV_VW_GETEVENT" 0
+# and the last move wins. The event record is put back afterwards; RESULT
+# is kept. rc 2: a malformed call, or in a subshell (fv.views._ownerOk)
+fv.views.dragView() {
+    if (( $# != 10 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" dragView || return
+    local -a __fvw_v
+    local __fvw_a=${9} __fvw_b=${10}
+    # (FV's high(Sw_Integer), TView.SizeLimits without an owner, as a maximum)
+    if [ "$__fvw_a" = "$__FV_VW_HIGH" ]; then __fvw_a=999999999; fi
+    if [ "$__fvw_b" = "$__FV_VW_HIGH" ]; then __fvw_b=999999999; fi
+    if ! fv.views._ints "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$__fvw_a" "$__fvw_b"; then
+        fv.views._bad dragView 'MODE, the limits and the sizes must be integers'; return
+    fi
+    fv.views._ownerOk dragView || return
+    fv.views._drag "$1" "${__fvw_v[@]}"
+}
+
+# fv.views._dragWindow W MODE — FV's DragWindow (TWindow.HandleEvent's
+# cmResize, TFrame.HandleEvent): W dragged with DragMode | MODE inside its
+# owner's extent within its SizeLimits (virtual); the event in FV_EV_*.
+# Nothing without an owner; rc 2 in a subshell
+fv.views._dragWindow() {
+    local -n __fvw_ww=${1}_data
+    local __fvw_o=${__fvw_ww[Owner]-}
+    if [[ -z $__fvw_o || -z ${__FV_VW_LIVE[$__fvw_o]-} ]]; then return 0; fi
+    fv.views._ownerOk dragView || return
+    local -n __fvw_wo=${__fvw_o}_data
+    local __fvw_r=${RESULT-}
+    fv.views._virt "$1" SizeLimits || :
+    fv.views._drag "$1" "$(( ${__fvw_ww[DragMode]:-0} | $2 ))" 0 0 "${__fvw_wo[SizeX]:-0}" "${__fvw_wo[SizeY]:-0}" \
+        "$FV_MIN_X" "$FV_MIN_Y" "$FV_MAX_X" "$FV_MAX_Y"
+    RESULT=$__fvw_r
+}
+
+# fv.views._drag V MODE L1 L2 L3 L4 MINX MINY MAXX MAXY (integers) — DragView's
+# frame: the event record saved, sfDragging on, the mouse or the keyboard
+# loop, sfDragging off, the record put back
+fv.views._drag() {
+    local __fvw_m=$2 __fvw_l1=$3 __fvw_l2=$4 __fvw_l3=$5 __fvw_l4=$6 __fvw_n1=$7 __fvw_n2=$8 __fvw_x1=$9 __fvw_x2=${10}
+    local __fvw_rr=${RESULT-}
+    local -a __fvw_es
+    fv.views._evSave
+    fv.views._virt "$1" SetState "$FV_SF_DRAGGING" 1 || :
+    if [ "$FV_EV_WHAT" = evMouseDown ]; then fv.views._dragMouse "$1"; else fv.views._dragKeys "$1"; fi
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views._virt "$1" SetState "$FV_SF_DRAGGING" 0 || :; fi
+    fv.views._evRestore
+    RESULT=$__fvw_rr
+    return 0
+}
+
+# fv.views._moveGrow V PX PY SX SY — FV MoveGrow (the caller's __fvw_m mode,
+# __fvw_l1..4 limits, __fvw_n1/2 minimum, __fvw_x1/2 maximum): S clamped to
+# MIN..MAX, P to a column / row inside the limits, then the mode's dmLimit*
+# bits; then locate (FV: Owner^.Lock around it, which redraws the owner; D17:
+# locate redraws old ∪ new once)
+fv.views._moveGrow() {
+    local __fvw_px=$2 __fvw_py=$3 __fvw_sx=$4 __fvw_sy=$5
+    if (( __fvw_sx < __fvw_n1 )); then __fvw_sx=$__fvw_n1; fi
+    if (( __fvw_sx > __fvw_x1 )); then __fvw_sx=$__fvw_x1; fi
+    if (( __fvw_sy < __fvw_n2 )); then __fvw_sy=$__fvw_n2; fi
+    if (( __fvw_sy > __fvw_x2 )); then __fvw_sy=$__fvw_x2; fi
+    if (( __fvw_px < __fvw_l1 - __fvw_sx + 1 )); then __fvw_px=$(( __fvw_l1 - __fvw_sx + 1 )); fi
+    if (( __fvw_px > __fvw_l3 - 1 )); then __fvw_px=$(( __fvw_l3 - 1 )); fi
+    if (( __fvw_py < __fvw_l2 - __fvw_sy + 1 )); then __fvw_py=$(( __fvw_l2 - __fvw_sy + 1 )); fi
+    if (( __fvw_py > __fvw_l4 - 1 )); then __fvw_py=$(( __fvw_l4 - 1 )); fi
+    if (( (__fvw_m & FV_DM_LIMITLOX) && __fvw_px < __fvw_l1 )); then __fvw_px=$__fvw_l1; fi
+    if (( (__fvw_m & FV_DM_LIMITLOY) && __fvw_py < __fvw_l2 )); then __fvw_py=$__fvw_l2; fi
+    if (( (__fvw_m & FV_DM_LIMITHIX) && __fvw_px > __fvw_l3 - __fvw_sx )); then __fvw_px=$(( __fvw_l3 - __fvw_sx )); fi
+    if (( (__fvw_m & FV_DM_LIMITHIY) && __fvw_py > __fvw_l4 - __fvw_sy )); then __fvw_py=$(( __fvw_l4 - __fvw_sy )); fi
+    fv.views._locate "$1" "$__fvw_px" "$__fvw_py" "$(( __fvw_px + __fvw_sx ))" "$(( __fvw_py + __fvw_sy ))" || :
+}
+
+# fv.views._dragNext KEYS — the next event a drag takes (FV KeyEvent, KEYS 1 /
+# MouseEvent(evMouseMove), KEYS 0), what was drawn shown first; the others
+# (evNothing included) are dropped. The caller's __fvw_e: k a key, m / u a
+# mouse move / up, z an evCommand cmResizeApp, e the end of input (latched,
+# as the modal loop does; a source failing otherwise counts as it, with a
+# debug line)
+fv.views._dragNext() {
+    local __fvw_s
+    while :; do
+        fv.views._showNow
+        if (( __FV_VW_EOF )); then __fvw_e=e; return 0; fi
+        __fvw_s=0
+        "$__FV_VW_GETEVENT" || __fvw_s=$?
+        if (( __fvw_s )); then
+            if (( __fvw_s != 1 )); then kk.debug "Error: fv.views.dragView: the event source '$__FV_VW_GETEVENT' failed (rc $__fvw_s): taken for the end of input"; fi
+            __FV_VW_EOF=1 __fvw_e=e
+            return 0
+        fi
+        if [ "$FV_EV_WHAT" = evKeyDown ]; then
+            if (( $1 )); then __fvw_e=k; return 0; fi
+        elif [ "$FV_EV_WHAT" = evMouseMove ]; then
+            if (( ! $1 )); then __fvw_e=m; return 0; fi
+        elif [ "$FV_EV_WHAT" = evMouseUp ]; then
+            if (( ! $1 )); then __fvw_e=u __fvw_ux=$FV_EV_MOUSE_X __fvw_uy=$FV_EV_MOUSE_Y; return 0; fi
+        elif [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmResizeApp ]; then
+            __fvw_e=z
+            return 0
+        fi
+    done
+}
+
+# fv.views._dragDrain — motion coalescing (design §2.2, R10): the events
+# already waiting are read ("$__FV_VW_GETEVENT" 0: fv.drivers' "only what is
+# there"); each mouse move replaces the caller's __fvw_mx / __fvw_my; the
+# first evNothing stops; a mouse-up (its place in __fvw_ux / __fvw_uy), a
+# cmResizeApp or the end of input stops and is kept for the loop
+# (__fvw_pe = u / z / e); anything else is dropped (FV's MouseEvent drops it)
+fv.views._dragDrain() {
+    local __fvw_s
+    while :; do
+        __fvw_s=0
+        "$__FV_VW_GETEVENT" 0 || __fvw_s=$?
+        if (( __fvw_s )); then
+            if (( __fvw_s != 1 )); then kk.debug "Error: fv.views.dragView: the event source '$__FV_VW_GETEVENT' failed (rc $__fvw_s): taken for the end of input"; fi
+            __FV_VW_EOF=1 __fvw_pe=e
+            return 0
+        fi
+        if [ "$FV_EV_WHAT" = evMouseMove ]; then __fvw_mx=$FV_EV_MOUSE_X __fvw_my=$FV_EV_MOUSE_Y
+        elif [ "$FV_EV_WHAT" = evMouseUp ]; then __fvw_pe=u __fvw_ux=$FV_EV_MOUSE_X __fvw_uy=$FV_EV_MOUSE_Y; return 0
+        elif [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmResizeApp ]; then __fvw_pe=z; return 0
+        elif [[ -z $FV_EV_WHAT ]] || [ "$FV_EV_WHAT" = evNothing ]; then return 0; fi
+    done
+}
+
+# fv.views._dragMouse V — DragView's mouse part (the caller's _drag locals):
+# dmDragMove: the origin follows the mouse by the offset of the mouse-down;
+# else the size does. The first step at the mouse-down's place (FV), one per
+# (coalesced) move, the last at the mouse-up's place (FV: "not all terminals
+# send drag events"); the end of input ends it where it is; a cmResizeApp:
+# fv.views._dragResized
+fv.views._dragMouse() {
+    local -n __fvw_dm=${1}_data
+    local __fvw_mx=$FV_EV_MOUSE_X __fvw_my=$FV_EV_MOUSE_Y __fvw_ox __fvw_oy __fvw_e='' __fvw_pe='' __fvw_ux=0 __fvw_uy=0 __fvw_mv=0
+    if (( __fvw_m & FV_DM_DRAGMOVE )); then
+        __fvw_mv=1 __fvw_ox=$(( ${__fvw_dm[OriginX]:-0} - __fvw_mx )) __fvw_oy=$(( ${__fvw_dm[OriginY]:-0} - __fvw_my ))
+    else
+        __fvw_ox=$(( ${__fvw_dm[SizeX]:-0} - __fvw_mx )) __fvw_oy=$(( ${__fvw_dm[SizeY]:-0} - __fvw_my ))
+    fi
+    while :; do
+        [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+        if (( __fvw_mv )); then
+            fv.views._moveGrow "$1" "$(( __fvw_mx + __fvw_ox ))" "$(( __fvw_my + __fvw_oy ))" "${__fvw_dm[SizeX]:-0}" "${__fvw_dm[SizeY]:-0}"
+        else
+            fv.views._moveGrow "$1" "${__fvw_dm[OriginX]:-0}" "${__fvw_dm[OriginY]:-0}" "$(( __fvw_mx + __fvw_ox ))" "$(( __fvw_my + __fvw_oy ))"
+        fi
+        if [ "$__fvw_e" = u ]; then return 0; fi
+        if [[ -n $__fvw_pe ]]; then __fvw_e=$__fvw_pe __fvw_pe=''; else fv.views._dragNext 0; fi
+        if [ "$__fvw_e" = m ]; then
+            __fvw_mx=$FV_EV_MOUSE_X __fvw_my=$FV_EV_MOUSE_Y
+            fv.views._dragDrain
+        elif [ "$__fvw_e" = u ]; then
+            __fvw_mx=$__fvw_ux __fvw_my=$__fvw_uy
+        elif [ "$__fvw_e" = z ]; then
+            if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views._dragResized "$1"; fi
+            return 0
+        else
+            return 0
+        fi
+    done
+}
+
+# fv.views._dragKeys V — DragView's keyboard part (the caller's _drag
+# locals): FV's keys (a Shift in the name is FV's shift state: kbShiftLeft
+# grows, kbCtrlShiftLeft grows by 8, kbShiftHome is Home), a step per key,
+# until Enter (kept) or Esc (the start bounds back, FV Locate(SaveBounds)).
+# The end of input counts as Esc (the modal loops end with cmCancel too); a
+# cmResizeApp: fv.views._dragResized, no undo
+fv.views._dragKeys() {
+    local -n __fvw_dk=${1}_data
+    local __fvw_e __fvw_k __fvw_sh __fvw_px __fvw_py __fvw_sx __fvw_sy __fvw_ux __fvw_uy
+    local __fvw_b1=${__fvw_dk[OriginX]:-0} __fvw_b2=${__fvw_dk[OriginY]:-0} __fvw_b3 __fvw_b4
+    __fvw_b3=$(( __fvw_b1 + ${__fvw_dk[SizeX]:-0} )) __fvw_b4=$(( __fvw_b2 + ${__fvw_dk[SizeY]:-0} ))
+    while :; do
+        fv.views._dragNext 1
+        [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+        if [ "$__fvw_e" = z ]; then fv.views._dragResized "$1"; return 0; fi
+        if [ "$__fvw_e" = e ]; then break; fi
+        __fvw_px=${__fvw_dk[OriginX]:-0} __fvw_py=${__fvw_dk[OriginY]:-0} __fvw_sx=${__fvw_dk[SizeX]:-0} __fvw_sy=${__fvw_dk[SizeY]:-0}
+        __fvw_k=$FV_EV_KEY __fvw_sh=0
+        if [[ $__fvw_k == kb*Shift?* ]]; then __fvw_sh=1 __fvw_k=${__fvw_k%%Shift*}${__fvw_k#*Shift}; fi
+        case $__fvw_k in
+            kbLeft) fv.views._dragChange -1 0 ;;
+            kbRight) fv.views._dragChange 1 0 ;;
+            kbUp) fv.views._dragChange 0 -1 ;;
+            kbDown) fv.views._dragChange 0 1 ;;
+            kbCtrlLeft) fv.views._dragChange -8 0 ;;
+            kbCtrlRight) fv.views._dragChange 8 0 ;;
+            kbHome) if (( __fvw_m & FV_DM_DRAGMOVE )); then __fvw_px=$__fvw_l1; fi ;;
+            kbEnd) if (( __fvw_m & FV_DM_DRAGMOVE )); then __fvw_px=$(( __fvw_l3 - __fvw_sx )); fi ;;
+            kbPgUp) if (( __fvw_m & FV_DM_DRAGMOVE )); then __fvw_py=$__fvw_l2; fi ;;
+            kbPgDn) if (( __fvw_m & FV_DM_DRAGMOVE )); then __fvw_py=$(( __fvw_l4 - __fvw_sy )); fi ;;
+        esac
+        fv.views._moveGrow "$1" "$__fvw_px" "$__fvw_py" "$__fvw_sx" "$__fvw_sy"
+        # (FV's KeyCode: Shift+Enter / Shift+Esc end it as Enter / Esc)
+        if [ "$__fvw_k" = kbEnter ]; then return 0; fi
+        if [ "$__fvw_k" = kbEsc ]; then break; fi
+    done
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views._locate "$1" "$__fvw_b1" "$__fvw_b2" "$__fvw_b3" "$__fvw_b4" || :; fi
+}
+# FV Change(DX, DY): move without the shift state (dmDragMove), grow with it
+# (dmDragGrow) — on _dragKeys' locals
+fv.views._dragChange() {
+    if (( (__fvw_m & FV_DM_DRAGMOVE) && ! __fvw_sh )); then __fvw_px=$(( __fvw_px + $1 )) __fvw_py=$(( __fvw_py + $2 ))
+    elif (( (__fvw_m & FV_DM_DRAGGROW) && __fvw_sh )); then __fvw_sx=$(( __fvw_sx + $1 )) __fvw_sy=$(( __fvw_sy + $2 )); fi
+}
+
+# fv.views._dragResized V — a resize mid-drag (design §2.3): the event
+# source has handled it; the drag ends with V's bounds clamped (FV
+# MoveGrow) into its owner's new extent, within its SizeLimits asked again
+fv.views._dragResized() {
+    local -n __fvw_rz=${1}_data
+    local __fvw_o=${__fvw_rz[Owner]-}
+    if [[ -n $__fvw_o && -n ${__FV_VW_LIVE[$__fvw_o]-} ]]; then
+        local -n __fvw_ro=${__fvw_o}_data
+        __fvw_l1=0 __fvw_l2=0 __fvw_l3=${__fvw_ro[SizeX]:-0} __fvw_l4=${__fvw_ro[SizeY]:-0}
+        fv.views._virt "$1" SizeLimits || :
+        __fvw_n1=$FV_MIN_X __fvw_n2=$FV_MIN_Y __fvw_x1=$FV_MAX_X __fvw_x2=$FV_MAX_Y
+    fi
+    fv.views._moveGrow "$1" "${__fvw_rz[OriginX]:-0}" "${__fvw_rz[OriginY]:-0}" "${__fvw_rz[SizeX]:-0}" "${__fvw_rz[SizeY]:-0}"
+}
+
+# ---- the frame's mouse (FPC TFrame.HandleEvent) ---------------------------------------
+
+# TFrame.HandleEvent — FV: TView's, then a mouse-down on the frame (only a
+# mouse-down reaches it: the dispatch skips it for the rest, and it is quiet
+# for broadcasts): see fv.views._frameMouse
+fv.views._frameEvent() {
+    if ! [ "$FV_EV_WHAT" = evMouseDown ]; then return 0; fi
+    fv.views._viewEvent "$1"
+    if [ "$FV_EV_WHAT" = evMouseDown ]; then fv.views._frameMouse "$1"; fi
+    return 0
+}
+# fv.views._frameMouse F — FV's cases, in the frame's coordinates:
+#   * top row, sfActive, wfClose, X 2..4: the close icon tracked
+#     (fv.views._frameIcon), cmClose posted for the owner;
+#   * top row, sfActive, wfZoom, a double click anywhere on it or X W-5..W-3:
+#     the zoom icon (tracked unless a double click), cmZoom posted;
+#   * top row otherwise, wfMove: the owner dragged by the mouse (move);
+#   * sfActive, X >= W-2 and Y >= H-1 (the grow corner), wfGrow: the owner
+#     dragged by the mouse (grow).
+# Each handles the event (FV_EV_INFO = the frame). The owner's Flags as the
+# frame's draw reads them (not 1-9 digits: 0)
+fv.views._frameMouse() {
+    local -n __fvw_fd=${1}_data
+    local __fvw_o=${__fvw_fd[Owner]-} __fvw_fl __fvw_x __fvw_y __fvw_w=${__fvw_fd[SizeX]:-0} __fvw_h=${__fvw_fd[SizeY]:-0} __fvw_a
+    if [[ -z $__fvw_o || -z ${__FV_VW_LIVE[$__fvw_o]-} ]]; then return 0; fi
+    local -n __fvw_fo=${__fvw_o}_data
+    __fvw_fl=${__fvw_fo[Flags]:-0}
+    if [[ $__fvw_fl == *[!0123456789]* || ${#__fvw_fl} -gt 9 ]]; then __fvw_fl=0; else __fvw_fl=$(( 10#$__fvw_fl )); fi
+    __fvw_x=$(( FV_EV_MOUSE_X - __FV_VW_AX[$1] )) __fvw_y=$(( FV_EV_MOUSE_Y - __FV_VW_AY[$1] ))
+    __fvw_a=$(( ${__fvw_fd[State]:-0} & FV_SF_ACTIVE ))
+    if (( __fvw_y == 0 )); then
+        if (( (__fvw_fl & FV_WF_CLOSE) && __fvw_a && __fvw_x >= 2 && __fvw_x <= 4 )); then
+            fv.views._frameIcon "$1" 2 4 "$FV_FM_CLOSECLICKED" cmClose 0
+        elif (( (__fvw_fl & FV_WF_ZOOM) && __fvw_a && (${FV_EV_MOUSE_DOUBLE:-0} == 1 || (__fvw_x >= __fvw_w - 5 && __fvw_x <= __fvw_w - 3)) )); then
+            fv.views._frameIcon "$1" "$(( __fvw_w - 5 ))" "$(( __fvw_w - 3 ))" "$FV_FM_ZOOMCLICKED" cmZoom "$(( ${FV_EV_MOUSE_DOUBLE:-0} == 1 ))"
+        elif (( __fvw_fl & FV_WF_MOVE )); then
+            fv.views._dragWindow "$__fvw_o" "$FV_DM_DRAGMOVE" || :
+            FV_EV_WHAT=evNothing FV_EV_INFO=$1
+        fi
+    elif (( __fvw_a && __fvw_x >= __fvw_w - 2 && __fvw_y >= __fvw_h - 1 && (__fvw_fl & FV_WF_GROW) )); then
+        fv.views._dragWindow "$__fvw_o" "$FV_DM_DRAGGROW" || :
+        FV_EV_WHAT=evNothing FV_EV_INFO=$1
+    fi
+    return 0
+}
+
+# fv.views._frameIcon F X1 X2 FM CMD DOUBLE — FV's press tracking of an icon on
+# the top row (X1..X2): FrameMode = FM while the mouse is on it, 0 off it,
+# through fv.views.mouseEvent (evMouseMove + evMouseAuto) until the mouse-up;
+# the top row redrawn only when FrameMode changes (FV: DrawView on each
+# event). On a mouse-up on the icon (or at once for DOUBLE: the zoom icon's
+# double click) CMD is posted (__FV_VW_PUTEVENT, FV_EV_INFO = the owner). The
+# release's own place decides (FV: the last place before it); the end of
+# input posts nothing. The event record is put back, then handled
+fv.views._frameIcon() {
+    local -a __fvw_es
+    local __fvw_in=1 __fvw_s __fvw_o
+    local -n __fvw_id=${1}_data
+    __fvw_o=${__fvw_id[Owner]-}
+    # (the owner-process rule, as the drags: in a subshell nothing is read
+    # or posted; the event is handled)
+    if ! fv.views._ownerOk frameIcon; then FV_EV_WHAT=evNothing FV_EV_INFO=$1; return 0; fi
+    fv.views._evSave
+    if (( ! $6 )); then
+        while :; do
+            # (the frame or its window destroyed by the event source: out,
+            # nothing drawn or posted)
+            if [[ -z ${__FV_VW_LIVE[$1]-} || -z $__fvw_o || -z ${__FV_VW_LIVE[$__fvw_o]-} ]]; then __fvw_s=9; break; fi
+            fv.views._frameOn "$1" "$2" "$3"
+            fv.views._frameMode "$1" "$(( __fvw_in ? $4 : 0 ))"
+            __fvw_s=0
+            fv.views.mouseEvent "$1" "$(( FV_EM_MOUSEMOVE | FV_EM_MOUSEAUTO ))" || __fvw_s=$?
+            if (( __fvw_s )); then break; fi
+        done
+        __fvw_in=0
+        if (( __fvw_s == 1 )) && [ "$FV_EV_WHAT" = evMouseUp ] && [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views._frameOn "$1" "$2" "$3"; fi
+    fi
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views._frameMode "$1" 0; fi
+    if (( __fvw_in )); then
+        fv.drivers.clearEvent
+        FV_EV_WHAT=evCommand FV_EV_COMMAND=$5 FV_EV_INFO=$__fvw_o
+        "$__FV_VW_PUTEVENT" || :
+    fi
+    fv.views._evRestore
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+# the caller's __fvw_in = 1 when the mouse (FV_EV_MOUSE_*) is on F's top row
+# at X1..X2
+fv.views._frameOn() {
+    local __fvw_x=$(( FV_EV_MOUSE_X - __FV_VW_AX[$1] ))
+    if (( FV_EV_MOUSE_Y == __FV_VW_AY[$1] && __fvw_x >= $2 && __fvw_x <= $3 )); then __fvw_in=1; else __fvw_in=0; fi
+}
+# fv.views._frameMode F MODE — FrameMode := MODE; when it changed, the top row
+# redrawn (a built-in Draw: drawPart of row 0 with fv.views._frameTopRow,
+# one write; a Draw of yours: drawView)
+fv.views._frameMode() {
+    local -n __fvw_md=${1}_data
+    if [ "${__fvw_md[FrameMode]:-0}" = "$2" ]; then return 0; fi
+    __fvw_md[FrameMode]=$2
+    local __fvw_o=${1}_class
+    __fvw_o="${!__fvw_o-}_class_method_owner[Draw]"
+    if [ "${__FV_VW_IMPL[${!__fvw_o-}.Draw]-}" = fv.views._frameDraw ]; then
+        fv.views.drawPart "$1" fv.views._frameTopRow 0 1 || :
+    else
+        fv.views.drawView "$1" || :
+    fi
+}
+# the drawPart painter: the frame's top row (the string cache)
+fv.views._frameTopRow() {
+    local __fvw_fc
+    fv.views._frameRows "$1"
+    fv.video._wbf "$FV_DRAW_X" "$FV_DRAW_Y" "${__FV_VW_FT[$__fvw_fc]}" "${__FV_VW_FTA[$__fvw_fc]}" || :
 }

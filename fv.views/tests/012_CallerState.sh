@@ -157,6 +157,8 @@ done
 # with a leaf each, a dialog class (TQDlg): the focus chain and its bits,
 # select, a broadcast through message, Tab, a click, the commands, the
 # cursor, a modal view ended by a command and one ended by the end of input,
+# (stage 2d) cmZoom and back with the zoom icon, a keyboard drag by
+# cmResize, a mouse drag by the frame, the close icon's posted cmClose,
 # cmClose, screen cells read back. Made before the setup (kklass's .new),
 # run after it; under the IFS of letters the dialog's handler calls the
 # built-in body instead of kklass's `inherited` (a kklass limit, see 2c-2).
@@ -202,6 +204,20 @@ fv.views.execView desk2 qd; r+="x=$RESULT;"
 fvw_events "key kbA"
 fv.views.execView desk2 qd; r+="e=$RESULT:$__FV_VW_EOF;"
 __FV_VW_EOF=0 __FV_VW_GETEVENT=fv.drivers.getEvent
+fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmZoom; fv.views._virt root2 HandleEvent
+fv.views.getBounds Wa; r+="z=$RESULT:${Wa_data[ZoomRect]};"
+cut2 0 55 5 ";"
+fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmZoom; fv.views._virt root2 HandleEvent
+fvw_events "key kbRight" "key kbShiftDown" "key kbEnter"
+fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmResize; fv.views._virt root2 HandleEvent
+fv.views.getBounds Wa; r+="d=$RESULT;"
+fvw_events "move 12 3" "nothing" "up 12 3"
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=10 FV_EV_MOUSE_Y=1 FV_EV_MOUSE_BUTTONS=1; fv.views._virt root2 HandleEvent
+fv.views.getBounds Wa; r+="g=$RESULT:$FV_EV_WHAT;"
+fvw_events "up 7 3"
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=7 FV_EV_MOUSE_Y=3 FV_EV_MOUSE_BUTTONS=1; fv.views._virt root2 HandleEvent
+r+="p=${__FV_DR_PEND[3]-}:${__FV_DR_PEND[5]-};"
+__FV_DR_PEND=() __FV_VW_EOF=0 __FV_VW_GETEVENT=fv.drivers.getEvent
 fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmClose; fv.views._virt root2 HandleEvent
 fv.views.isView Wa || r+="closed;"
 fvw_tree root2; r+="$REPLY;"
@@ -229,7 +245,8 @@ ref2=${OUT#*#} ref2=${ref2%#*}
 kt_test_start "events scene, reference run: as expected"
 want='root2[{desk2[bg2 {Wa[Wa__fvframe Wal]*Wal} {wa[wa__fvframe wal]*wal}]*wa}]*desk2;'
 want+='desk2[bg2 {wa[wa__fvframe wal]*wal} {Wa[Wa__fvframe Wal]*Wal}]*Wa;s=121,9,113;'
-want+='m=0:wa:wa;t=evNothing;c=evNothing:Wa;k=cmAbc;u=5:4:2;x=cmYes;e=cmCancel:1;closed;'
+want+='m=0:wa:wa;t=evNothing;c=evNothing:Wa;k=cmAbc;u=5:4:2;x=cmYes;e=cmCancel:1;'
+want+='z=0 0 60 20:1 1 30 12;[↕]═╗|9A999;d=2 1 31 13;g=4 3 33 15:evNothing;p=cmClose:Wa;closed;'
 want+='root2[{desk2[bg2 {wa[wa__fvframe wal]*wal}]*wa}]*desk2;'
 want+='          |1111111111, ╔═[■]══════════ lower |1999A999999999999999999'
 if [[ $ref2 == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$ref2] want [$want]"; fi

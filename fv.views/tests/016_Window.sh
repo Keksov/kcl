@@ -16,7 +16,12 @@
 #   * cmSelectWindowNum (a broadcast, FV_EV_INFO = the number): that window
 #     selected and the event handled (message answers it); an unknown
 #     number: nobody;
-#   * Tab handled by the window (the event cleared).
+#   * Tab handled by the window (the event cleared);
+#   * stage 2d: SizeLimits (MinWinSize 16 x 6, FV_MINWINSIZE_X / _Y), Zoom
+#     and back (ZoomRect, the zoom icon), a ZoomRect that is not four
+#     integers, cmZoom (INFO, wfZoom), CalcBounds (the ZoomRect follows an
+#     owner resize), cmResize (the keyboard drag; without wfMove / wfGrow:
+#     not handled).
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -146,8 +151,73 @@ if [[ $FV_EV_WHAT == evNothing && $FV_EV_INFO == w && ${root_data[Current]} == w
 
 kt_test_start "an unknown key and an unknown command pass a window unhandled"
 fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=kbF7; fv.views._virt root HandleEvent; r1=$FV_EV_WHAT
-send evCommand cmZoom; r2=$FV_EV_WHAT
-if [[ $r1 == evKeyDown && $r2 == evCommand ]]; then kt_test_pass "ok (cmZoom: stage 2d)"; else kt_test_fail "[$r1] [$r2]"; fi
+send evCommand cmFoo; r2=$FV_EV_WHAT
+if [[ $r1 == evKeyDown && $r2 == evCommand ]]; then kt_test_pass "ok"; else kt_test_fail "[$r1] [$r2]"; fi
+
+# ---- stage 2d: SizeLimits, Zoom, CalcBounds, cmZoom, cmResize ----------------------
+kt_test_start "2d: SizeLimits = TView's maximum (the owner's size) with FV's MinWinSize 16 x 6; locate clamps to it; FV_MINWINSIZE_X/_Y change it (not digits: 16 x 6)"
+fv.views._virt w SizeLimits; r1="$FV_MIN_X $FV_MIN_Y $FV_MAX_X $FV_MAX_Y"
+fv.views.growTo w 3 2; fv.views.getBounds w; r2=$RESULT
+FV_MINWINSIZE_X=20 FV_MINWINSIZE_Y=08; fv.views._virt w SizeLimits; r3="$FV_MIN_X $FV_MIN_Y"
+FV_MINWINSIZE_X=x FV_MINWINSIZE_Y=''; fv.views._virt w SizeLimits; r4="$FV_MIN_X $FV_MIN_Y"
+FV_MINWINSIZE_X=16 FV_MINWINSIZE_Y=6
+fv.views.growTo w 40 15
+fv.views.getBounds w; r5=$RESULT
+if [[ $r1 == '16 6 60 24' && $r2 == '10 5 26 11' && $r3 == '20 8' && $r4 == '16 6' && $r5 == '10 5 50 20' ]] && fvw_full root; then kt_test_pass "ok"
+else kt_test_fail "[$r1] [$r2] [$r3] [$r4] [$r5] diff [$FVW_DIFF]"; fi
+
+kt_test_start "2d: Zoom: to the owner's extent, ZoomRect = the old bounds, the zoom icon ↕; again: back to ZoomRect, icon ↑; == a full repaint each time"
+fv.views._virt w Zoom; fv.views.getBounds w; r1="$RESULT|${w_data[ZoomRect]}"
+row 0 0 60; t1=${REPLY%%|*}
+fvw_full root; f1=$?
+fv.views._virt w Zoom; fv.views.getBounds w; r2="$RESULT|${w_data[ZoomRect]}"
+row 10 5 40; t2=${REPLY%%|*}
+fvw_full root; f2=$?
+if [[ $r1 == '0 0 60 24|10 5 50 20' && $t1 == *'═[↕]═╗' && $r2 == '10 5 50 20|10 5 50 20' && $t2 == *'═[↑]═╗' && $f1$f2 == 00 ]]; then kt_test_pass "ok"
+else kt_test_fail "[$r1] [$t1] [$r2] [$t2] full $f1$f2"; fi
+
+kt_test_start "2d: at the maximum with a ZoomRect that is not four integers: Zoom does nothing"
+fv.views._virt w Zoom
+w_data[ZoomRect]='1 2 x 4'; fv.views._virt w Zoom; fv.views.getBounds w; r1=$RESULT
+w_data[ZoomRect]='1 2 3'; fv.views._virt w Zoom; fv.views.getBounds w; r2=$RESULT
+w_data[ZoomRect]='10 5 50 20'; fv.views._virt w Zoom; fv.views.getBounds w; r3=$RESULT
+if [[ $r1 == '0 0 60 24' && $r2 == '0 0 60 24' && $r3 == '10 5 50 20' ]]; then kt_test_pass "ok"; else kt_test_fail "[$r1] [$r2] [$r3]"; fi
+
+kt_test_start "2d: cmZoom (INFO '' or the window) with wfZoom: handled, zoomed; for another window or without wfZoom: not handled"
+send evCommand cmZoom wn; r1="$FV_EV_WHAT|${w_data[SizeX]}"
+w_data[Flags]=$(( FV_WF_MOVE | FV_WF_GROW | FV_WF_CLOSE ))
+send evCommand cmZoom; r2="$FV_EV_WHAT|${w_data[SizeX]}"
+w_data[Flags]=15
+send evCommand cmZoom w; r3="$FV_EV_WHAT|$FV_EV_INFO|${w_data[SizeX]}"
+send evCommand cmZoom; r4="$FV_EV_WHAT|${w_data[SizeX]}"
+if [[ $r1 == 'evCommand|40' && $r2 == 'evCommand|40' && $r3 == 'evNothing|w|60' && $r4 == 'evNothing|40' ]] && fvw_full root; then kt_test_pass "ok"
+else kt_test_fail "[$r1] [$r2] [$r3] [$r4] diff [$FVW_DIFF]"; fi
+
+kt_test_start "2d: CalcBounds: an owner resize moves the ZoomRect as it moves the bounds (gfGrowAll + gfGrowRel), and back"
+w_data[ZoomRect]='4 2 30 12'
+fv.views.changeBounds root 0 0 120 48
+fv.views.getBounds w; r1="$RESULT|${w_data[ZoomRect]}"
+fv.views.changeBounds root 0 0 60 24
+fv.views.getBounds w; r2="$RESULT|${w_data[ZoomRect]}"
+w_data[ZoomRect]='a b'
+fv.views.changeBounds root 0 0 120 48; fv.views.getBounds w; r3="$RESULT|${w_data[ZoomRect]}"
+fv.views.changeBounds root 0 0 60 24
+w_data[ZoomRect]='10 5 50 20'
+if [[ $r1 == '20 10 100 40|8 4 60 24' && $r2 == '10 5 50 20|4 2 30 12' && $r3 == '20 10 100 40|a b' ]] && fvw_full root; then kt_test_pass "ok"
+else kt_test_fail "[$r1] [$r2] [$r3] diff [$FVW_DIFF]"; fi
+
+kt_test_start "2d: cmResize with wfMove / wfGrow: the keyboard drag (one step right, Enter), handled; without both flags: not handled, nothing read"
+fvw_events 'key kbRight' 'key kbEnter'
+send evCommand cmResize; r1="$FV_EV_WHAT|$FV_EV_INFO|$FVW_EVN"
+fv.views.getBounds w; r1+="|$RESULT"
+w_data[Flags]=$(( FV_WF_CLOSE | FV_WF_ZOOM ))
+fvw_events 'key kbRight' 'key kbEnter'
+send evCommand cmResize; r2="$FV_EV_WHAT|$FVW_EVN"
+w_data[Flags]=15
+fvw_noevents
+fv.views.moveTo w 10 5
+if [[ $r1 == 'evNothing|w|2|11 5 51 20' && $r2 == 'evCommand|0' ]] && fvw_full root; then kt_test_pass "ok"
+else kt_test_fail "[$r1] [$r2] diff [$FVW_DIFF]"; fi
 
 root.delete
 kt_test_log "016_Window.sh completed"

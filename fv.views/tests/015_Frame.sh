@@ -20,7 +20,14 @@
 #     parts of the ring are left out (no write, no repaint of the window);
 #   * the string cache follows the screen's ASCII mode;
 #   * a frame class overriding Draw: the border-only entry draws it whole
-#     through its Draw.
+#     through its Draw;
+#   * stage 2d, the frame's mouse (FPC TFrame.HandleEvent): the close icon's
+#     press tracking (☼ while on it, one top-row write per change, cmClose
+#     posted on a release on it, nothing off it or at the end of input; the
+#     posted event closes the window), the zoom icon (tracked; a double click
+#     on the top row posts cmZoom at once), an inactive frame has no icons
+#     (the top row drags), the grow corner, a frame class with its own Draw
+#     (redrawn through it), quiet for broadcasts.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -279,4 +286,141 @@ fvw_cells 0 0 10; t=$RESULT
 if [[ $MYF == 1 && $n == 2 && $t == '┌────────┐' ]]; then kt_test_pass "ok"; else kt_test_fail "Draws=$MYF calls=$n top [$t]"; fi
 
 desk.delete
+
+# ---- stage 2d: the frame's mouse (FPC TFrame.HandleEvent) ----------------------------
+fvw_screen 50 22
+TGroup.new d2 0 0 50 22; TView.new bg2 0 0 50 22; fv.views.insert d2 bg2
+TWindow.new mw 4 2 34 14 'Mouse' 1
+TView.new mwl 1 1 29 11; fv.views.insert mw mwl
+fv.views.insert d2 mw
+fvw_root d2
+fv.views.drawView d2
+MF=mw__fvframe
+down() {   # X Y [DOUBLE] -> a mouse-down through d2's dispatch
+    fv.drivers.clearEvent
+    FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=$1 FV_EV_MOUSE_Y=$2 FV_EV_MOUSE_BUTTONS=1 FV_EV_MOUSE_DOUBLE=${3:-0}
+    fv.views._virt d2 HandleEvent
+}
+cap() { fvw_cells 4 2 30; CAP+="${mw__fvframe_data[FrameMode]}:${RESULT:2:3};"; }
+pend() { REPLY="${__FV_DR_PEND[0]-}:${__FV_DR_PEND[3]-}:${__FV_DR_PEND[5]-}"; }
+
+kt_test_start "2d: the close icon: pressed (☼, FrameMode fmCloseClicked) while on it, released on it: cmClose posted for the window (FV PutEvent); handled; the record put back; one top-row write per change; == a full repaint"
+CAP=''
+fvw_events 'run cap' 'move 8 2' 'run cap' 'up 7 2'
+fvw_writes_on; FVW_WRITES=0
+down 6 2
+w=$FVW_WRITES
+fvw_writes_off
+r="$FV_EV_WHAT|$FV_EV_INFO|$FV_EV_MOUSE_X|${mw__fvframe_data[FrameMode]}"
+pend; p=$REPLY
+fvw_cells 4 2 30; t=${RESULT:2:3}
+if [[ $CAP == '1:[☼];1:[☼];' && $r == "evNothing|$MF|6|0" && $p == 'evCommand:cmClose:mw' && $w == 2 && $t == '[■]' ]] && fvw_full d2; then kt_test_pass "ok"
+else kt_test_fail "cap [$CAP] [$r] pend [$p] writes $w top [$t] diff [$FVW_DIFF]"; fi
+
+kt_test_start "2d: the posted cmClose, read and dispatched, closes the window"
+fvw_getev; fv.views._virt d2 HandleEvent
+if ! fv.views.isView mw && fvw_full d2; then kt_test_pass "ok"; else kt_test_fail "window still there / diff [$FVW_DIFF]"; fi
+fvw_noevents
+TWindow.new mw 4 2 34 14 'Mouse' 1
+TView.new mwl 1 1 29 11; fv.views.insert mw mwl
+fv.views.insert d2 mw
+
+kt_test_start "2d: the close icon, moved off it and released off it: the icon back to ■ while off, nothing posted"
+CAP=''
+fvw_events 'run cap' 'move 12 3' 'run cap' 'move 7 2' 'run cap' 'up 20 2'
+down 7 2
+pend; p=$REPLY
+if [[ $CAP == '1:[☼];0:[■];1:[☼];' && $p == '::' && ${mw__fvframe_data[FrameMode]} == 0 ]] && fv.views.isView mw && fvw_full d2; then kt_test_pass "ok"
+else kt_test_fail "cap [$CAP] pend [$p] diff [$FVW_DIFF]"; fi
+fvw_noevents
+
+kt_test_start "2d: the zoom icon: pressed (☼, fmZoomClicked) and released on it: cmZoom posted for the window"
+CAP=''
+zc() { fvw_cells 29 2 3; CAP+="${mw__fvframe_data[FrameMode]}:$RESULT;"; }
+fvw_events 'run zc' 'up 30 2'
+down 30 2
+pend; p=$REPLY
+fvw_cells 29 2 3; t=$RESULT
+if [[ $CAP == '2:[☼];' && $p == 'evCommand:cmZoom:mw' && $t == '[↑]' && $FV_EV_WHAT == evNothing ]]; then kt_test_pass "ok"; else kt_test_fail "cap [$CAP] pend [$p] top [$t]"; fi
+fvw_noevents
+
+kt_test_start "2d: a double click on the top row (the title): cmZoom posted at once, no event read, no redraw"
+fvw_events 'up 16 2'
+fvw_writes_on; FVW_WRITES=0
+down 16 2 1
+w=$FVW_WRITES
+fvw_writes_off
+pend; p=$REPLY
+if [[ $p == 'evCommand:cmZoom:mw' && $FVW_EVN == 0 && $w == 0 && $FV_EV_WHAT == evNothing ]]; then kt_test_pass "ok"; else kt_test_fail "pend [$p] reads $FVW_EVN writes $w"; fi
+fvw_noevents
+
+kt_test_start "2d: the end of input while an icon is pressed: nothing posted, FrameMode 0, the icon drawn back"
+fvw_events 'move 7 2'
+down 7 2
+pend; p=$REPLY
+fvw_cells 4 2 30; t=${RESULT:2:3}
+if [[ $p == '::' && ${mw__fvframe_data[FrameMode]} == 0 && $t == '[■]' && $__FV_VW_EOF == 1 ]] && fvw_full d2; then kt_test_pass "ok"; else kt_test_fail "pend [$p] top [$t] eof $__FV_VW_EOF"; fi
+fvw_noevents
+
+kt_test_start "2d: an inactive frame has no icons: a click at X 2..4 of the top row drags the window (wfMove); without wfMove: not handled"
+mw__fvframe_data[State]=$(( mw__fvframe_data[State] & ~FV_SF_ACTIVE ))
+fvw_events 'up 9 4'
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=7 FV_EV_MOUSE_Y=2 FV_EV_MOUSE_BUTTONS=1
+fv.views._virt "$MF" HandleEvent
+fv.views.getBounds mw; r1="$RESULT|$FV_EV_WHAT"
+pend; p=$REPLY
+mw_data[Flags]=$(( FV_WF_CLOSE | FV_WF_ZOOM | FV_WF_GROW ))
+fvw_events 'up 9 4'
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=12 FV_EV_MOUSE_Y=4 FV_EV_MOUSE_BUTTONS=1
+fv.views._virt "$MF" HandleEvent; r2="$FV_EV_WHAT|$FVW_EVN"
+mw_data[Flags]=15
+mw__fvframe_data[State]=$(( mw__fvframe_data[State] | FV_SF_ACTIVE ))
+fvw_noevents
+fv.views.moveTo mw 4 2
+if [[ $r1 == '6 4 36 16|evNothing' && $p == '::' && $r2 == 'evMouseDown|0' ]] && fvw_full d2; then kt_test_pass "ok"; else kt_test_fail "[$r1] pend [$p] [$r2] diff [$FVW_DIFF]"; fi
+
+kt_test_start "2d: the grow corner (active, X >= W-2, bottom row) grows the window by the mouse; elsewhere on the bottom row and the sides: not handled"
+fvw_events 'move 36 15' 'up 36 15'
+down 33 13
+fv.views.getBounds mw; r1="$RESULT|$FV_EV_WHAT"
+fvw_events 'up 20 13'
+down 20 13; r2="$FV_EV_WHAT|$FVW_EVN"
+fvw_events 'up 4 6'
+down 4 6; r3="$FV_EV_WHAT|$FVW_EVN"
+fvw_noevents
+fv.views.growTo mw 30 12
+if [[ $r1 == '4 2 37 16|evNothing' && $r2 == 'evMouseDown|0' && $r3 == 'evMouseDown|0' ]] && fvw_full d2; then kt_test_pass "ok"; else kt_test_fail "[$r1] [$r2] [$r3] diff [$FVW_DIFF]"; fi
+
+kt_test_start "2d: a frame class overriding Draw: the icon tracking redraws it through its Draw (one per FrameMode change)"
+class TMyFrame2 : TFrame
+    public
+        override proc Draw
+end
+TMyFrame2.Draw() { MYF=$(( ${MYF:-0} + 1 )); inherited Draw; }
+build TMyFrame2
+class TMyWin2 : TWindow
+    public
+        override proc InitFrame
+end
+TMyWin2.InitFrame() { fv.views._newReserved "$this" frame TMyFrame2 0 0 "$SizeX" "$SizeY" && Frame=$RESULT; }
+build TMyWin2
+TMyWin2.new mw2 10 4 40 16 'Mine' 2
+fv.views.insert d2 mw2
+MYF=0
+fvw_events 'up 13 4'
+down 13 4
+pend; p=$REPLY
+fvw_noevents
+if [[ $MYF == 2 && $p == 'evCommand:cmClose:mw2' ]] && fvw_full d2; then kt_test_pass "ok"; else kt_test_fail "Draws=$MYF pend [$p] diff [$FVW_DIFF]"; fi
+mw2.delete
+
+kt_test_start "2d: TFrame's HandleEvent is quiet for broadcasts (no dispatch: the focus broadcasts stay a walk) and the dispatch skips it for keys and commands"
+fvw_count_on; FVW_CALLS=0
+fv.views.message d2 evBroadcast cmReceivedFocus mw; r="$?"
+fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=kbF9; fv.views._virt d2 HandleEvent
+n=$FVW_CALLS
+fvw_count_off
+if [[ $r == 1 && $n == 0 && $FV_EV_WHAT == evKeyDown ]]; then kt_test_pass "ok"; else kt_test_fail "message rc $r, $n dispatches, [$FV_EV_WHAT]"; fi
+
+d2.delete
 kt_test_log "015_Frame.sh completed"
