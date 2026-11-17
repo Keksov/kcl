@@ -148,11 +148,14 @@ declare -g __TT_SEQ=0
 #    `tutil._gnu tail` (`cmd` = the tail ktool resolved, or '' with the reason
 #    in `_toolErr`).
 #  * EVERY declared var is assigned in `Create`.
-#  * An overridden `func` may NOT simply end on `inherited NAME "$@"`: `build`
-#    compiles a `kk._return "$RESULT"` trailer onto a `func`, and that trailer
-#    replaces the rc — the override would answer 0 where the base answered 1.
-#    The three sink overrides therefore capture the rc, save RESULT, and re-raise
-#    both: `inherited X "$@" || rc=$?; n="$RESULT"; kk._return "$n"; return "$rc"`.
+#  * An overridden `func` does not simply end on `inherited NAME "$@"`: the
+#    three sink overrides capture the rc, save RESULT, and re-raise both:
+#    `inherited X "$@" || rc=$?; n="$RESULT"; kk._return "$n"; return "$rc"`.
+#    (Before kklass round 7, K-2, a compiled `kk._return "$RESULT"` trailer
+#    replaced the rc of a bare last `inherited` — the override answered 0 where
+#    the base answered 1. Since round 7 the bare form passes the rc, but under
+#    kklass's rule S2 a failure without kk._return leaves the CALLER's RESULT,
+#    so the base's count would not come back with its rc; the spelling stays.)
 #  * No `var` here may be named like a TUtil member (`cmd crlf nul _lastRc
 #    subshellOk _textMode _toolErr buildArgv addArg clearArgs argv run each toArray toList
 #    first count lastRc mapRc`) or a kklass one (`property call parent delete`).
@@ -393,12 +396,14 @@ TTail.mapRc() {
 # measured `tutil._prep`'s `__tu_m` unset on the `argv`/`run` paths), and
 # `t.argv V` must still be able to show the `-f`.
 #
-# The spelling is not negotiable. `build` compiles a `kk._return "$RESULT"`
-# trailer onto every `func`, and an explicit `return` is the only way past it —
-# a body that merely ENDS on `inherited toArray "$@"` answers rc 0 where the
-# base answered 1, and the caller's own RESULT comes back. So each override
-# captures the rc, saves RESULT immediately (`inherited` leaves it, but anything
-# after would overwrite it), and re-raises both.
+# The spelling is not negotiable: a failing base must hand back its rc AND its
+# RESULT (the count). Under kklass's func rule (round 7, K-2, rule S2) a body
+# that merely ENDS on `inherited toArray "$@"` passes the rc but, failing
+# without kk._return, gives the caller's own RESULT back (before round 7 it was
+# worse: the compiled `kk._return "$RESULT"` trailer answered rc 0 where the
+# base answered 1). So each override captures the rc, saves RESULT immediately
+# (`inherited` leaves it, but anything after would overwrite it), and
+# re-raises both with `kk._return V; return N`.
 # ---------------------------------------------------------------------------
 
 TTail.toArray() {

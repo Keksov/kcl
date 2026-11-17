@@ -8,7 +8,8 @@
 #   G1-04  `sorted = true` on a populated list did not sort it, so Find/Add then
 #          searched unsorted data (FPC SetSorted(True) sorts).
 #   G1-05  a dupIgnore Add returned the CALLER's stale RESULT instead of the
-#          existing index (the explicit-`return` trailer trap).
+#          existing index (the explicit-`return` trailer trap of kklass
+#          before round 7).
 #   G1-10  Assign copied items only: a sorted destination silently received
 #          unsorted data and kept claiming to be sorted.
 #   G1-11  Assign/AddStrings forked once per call (`$($source.count)`) and

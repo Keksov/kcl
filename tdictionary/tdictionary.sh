@@ -178,8 +178,9 @@ TDictionary.GetItem() {
     if [[ -z ${items_ref["k$key"]+x} ]]; then
         kk.debug "Error: TDictionary.GetItem: key does not exist"
         # kk._return (not a bare RESULT=) so the '' reaches the caller on this
-        # early-return path — the auto-appended func trailer only runs at the
-        # end of the body, and _invoke restores the caller's RESULT otherwise.
+        # failing path — a func that fails WITHOUT kk._return leaves the
+        # caller's RESULT (kklass rule S2, round 7; before it, the func
+        # trailer was also skipped by any explicit return).
         kk._return ""
         return 1
     fi
@@ -453,7 +454,7 @@ TDictionary.KeysToArray() {
     for __td_k in "${!__td_items[@]}"; do
         __td_oref+=("${__td_k#k}")
     done
-    RESULT="${#__td_oref[@]}"     # the func trailer emits it once (kk._return here would print twice under $( ))
+    RESULT="${#__td_oref[@]}"     # the func answers it (printed once under $( ), kklass round 7)
 }
 
 TDictionary.ValuesToArray() {
@@ -470,7 +471,7 @@ TDictionary.ValuesToArray() {
     for __td_v in "${__td_items[@]}"; do
         __td_oref+=("$__td_v")
     done
-    RESULT="${#__td_oref[@]}"     # the func trailer emits it once (kk._return here would print twice under $( ))
+    RESULT="${#__td_oref[@]}"     # the func answers it (printed once under $( ), kklass round 7)
 }
 
 TDictionary.ToArrays() {

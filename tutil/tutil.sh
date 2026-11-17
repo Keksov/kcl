@@ -122,9 +122,10 @@ kk.uses ktool || return
 #    tool's own output). `kk.call_silent` sets and restores the flag, keeps
 #    RESULT, and still dispatches VIRTUALLY (kklass test 112).
 #  * A `func` that must answer both RESULT and a non-zero rc ends with
-#    `kk._return V; return N`: an explicit `return` skips the compiled
-#    `kk._return "$RESULT"` trailer and the kklass dispatcher then restores the CALLER's
-#    RESULT (kklass.sh:399), so a bare `RESULT=V; return N` loses V.
+#    `kk._return V; return N`: a func that fails WITHOUT kk._return leaves the
+#    CALLER's RESULT (kklass rule S2, round 7 — before it, any explicit
+#    `return` skipped the compiled func trailer), so a bare `RESULT=V; return N`
+#    loses V.
 #  * The constructor assigns EVERY declared var. kklass binds a property as a
 #    nameref onto `${inst}_data[NAME]`; an unassigned one is an UNBOUND variable
 #    under `set -u` (kklass.sh:363), and `.new` over a still-live instance does
@@ -670,10 +671,10 @@ TUtil.mapRc() {
 # extra arrays; `toArray` adds that check, see its body).
 #
 # ---- The ordered tail, and why the order is not negotiable ----------------
-# An explicit `return` SKIPS the `kk._return "$RESULT"` trailer `build` compiles
-# onto a `func`, and the kklass dispatcher then restores the CALLER's RESULT
-# (kklass.sh:399). A `func` that must answer both a value and a non-zero rc has
-# exactly one spelling: `kk._return V; return N`, with V captured BEFORE
+# A `func` that fails without kk._return gets the CALLER's RESULT back from the
+# kklass dispatcher (rule S2, kklass round 7; before it, any explicit `return`
+# skipped the compiled func trailer and did the same, also for rc 0). A `func`
+# that must answer both a value and a non-zero rc has exactly one spelling: `kk._return V; return N`, with V captured BEFORE
 # anything else can overwrite RESULT. Hence:
 #
 #     TPipe.<sink> …          || __tu_prc=$?   # never bare: a non-zero rc here

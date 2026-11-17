@@ -581,15 +581,12 @@ fv.views._setCurrent() {
 # the plain body directly when the method's defining class (the kklass owner
 # table, read on every call: no cache) is a built-in one, a kklass dispatch
 # (user code) otherwise. The RESULT / rc rule, the same on both paths for
-# the supported body forms:
+# every body form (kklass round 7, K-2 — before it, an explicit `return 0`
+# lost a func's RESULT and a failing last command lost its rc):
 #   * a proc leaves the caller's RESULT; its rc is the body's;
-#   * a FUNC answers by setting RESULT and ending WITHOUT an explicit
-#     `return` (rc 0); it fails with an explicit `return N` (N != 0), which
-#     leaves the caller's RESULT;
-#   * not supported in a func override (kklass, its kk._return trailer): an
-#     explicit `return 0` (the RESULT is lost: the caller's stays) and a
-#     failing last command without `return` (the rc is lost: rc 0, the
-#     RESULT kept). Every built-in body here has the supported form.
+#   * a FUNC answers with what RESULT holds when its body ends with rc 0,
+#     however it ends (falls off the end, `return 0`, a last `inherited`);
+#     it fails with the body's rc (N != 0), which leaves the caller's RESULT.
 # The plain path: a FUNC with rc 0 answers, a FUNC with rc != 0 and every
 # proc leave the caller's RESULT.
 fv.views._virt() {
@@ -3436,8 +3433,8 @@ fv.views._groupEndModal() {
 
 # TView.Valid CMD (func) — FV: true. The answer of Valid is its rc: 0 =
 # valid (RESULT 1), non-zero = not valid. An override says no with an
-# explicit `return 1` (kklass caveat K-2: a func body whose last command
-# fails without `return` answers rc 0)
+# explicit `return 1` or a failing last command (kklass round 7, K-2: a func
+# fails with its body's rc; before it, a failing last command answered rc 0)
 fv.views._viewValid() { RESULT=1; }
 # TGroup.Valid CMD (func) — FV: for cmReleasedFocus only Current's Valid,
 # and only when Current has ofValidate; for any other command every

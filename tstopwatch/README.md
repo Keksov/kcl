@@ -92,12 +92,10 @@ sw.isRunning;        [[ "$RESULT" == true ]]       # word
 `if sw.GetIsRunning; then …`, or `[[ "$RESULT" == true ]]` if you prefer the
 word.
 
-The **property form cannot carry the status**: kklass builds a shim method for a
-method-backed property and appends `kk._return "$RESULT"` to every function
-body, which flattens the status to 0 before `kk._prop_computed` (kklass.sh:319)
-can propagate it. Use `GetIsRunning` when you want `if`/`&&`/`||`; both forms
-agree on the word. This is recorded as `found_in_P6` in `kcl/kcl_ledger.json`
-and is a kklass-level gap, not a tstopwatch one.
+Both forms carry the status and agree on the word: a property read passes
+its getter's rc (kklass, "What a func answers"; the old `found_in_P6` gap in
+`kcl/kcl_ledger.json` is closed), so `if sw.isRunning` and `if sw.GetIsRunning`
+both work.
 
 Under `set -e`, a bare `sw.GetIsRunning` on a stopped watch aborts the caller —
 bash's rule for every command — so call it from an `if`, a `&&`/`||`, or a `!`.

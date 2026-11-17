@@ -813,11 +813,12 @@ kt_test_section "H. T2/T3 — \`follow\`: three sinks refuse, two stream (§2.1)
 # ===========================================================================
 
 # --- T3: the overridden sinks with `follow = 0` still answer like the base ---
-# The naive spelling (`inherited toArray "$@"` as the LAST statement) would have
-# answered rc 0 with RESULT 0 here: the compiled `kk._return "$RESULT"` trailer
-# replaces the rc, and the caller's own RESULT comes back. The three overrides
-# therefore end `inherited X "$@" || rc=$?; n="$RESULT"; kk._return "$n";
-# return "$rc"` (thead §6).
+# The naive spelling (`inherited toArray "$@"` as the LAST statement) loses the
+# real count here: before kklass round 7 it answered rc 0 (the compiled
+# `kk._return "$RESULT"` trailer replaced the rc); since round 7 it answers
+# rc 1, but a func failing without kk._return gives the caller's own RESULT
+# back (rule S2). The three overrides therefore end `inherited X "$@" ||
+# rc=$?; n="$RESULT"; kk._return "$n"; return "$rc"` (thead §6).
 
 if tcase "T3: \`toArray\` with \`follow = 0\` and a missing operand — rc 1, RESULT = the real count"; then
     TTail.new tO 1 "$FX/a3.txt" "$FX/no_such_file.txt"

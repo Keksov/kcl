@@ -818,11 +818,14 @@ TAwk.mapRc() {
 
 # ---------------------------------------------------------------------------
 # The five sinks (PLAN §2.5). Each runs `tawk._sinkRefused` FIRST, then the base
-# sink through the rc-PRESERVING spelling: `build` compiles a
-# `kk._return "$RESULT"` trailer onto a `func`, so a body that merely ENDS on
-# `inherited X "$@"` would answer rc 0 where the base answered 1. The funcs
-# capture the rc, save RESULT at once and re-raise both; the proc `each` has no
-# return channel and re-raises the rc alone.
+# sink through the rc-PRESERVING spelling: the funcs capture the rc, save
+# RESULT at once and re-raise both (`kk._return V; return N`: the value also
+# with a failure); the proc `each` has no return channel and re-raises the rc
+# alone. (Before kklass round 7, K-2, this spelling was also the only way to
+# keep the rc: a func's compiled `kk._return "$RESULT"` trailer made a body
+# that merely ENDED on `inherited X "$@"` answer rc 0 where the base answered
+# 1. Since round 7 such a body passes the rc, but under kklass's rule S2 not
+# the base's RESULT with it — the explicit spelling still does.)
 # ---------------------------------------------------------------------------
 
 TAwk.each() {

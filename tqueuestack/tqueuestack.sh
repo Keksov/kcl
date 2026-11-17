@@ -41,8 +41,9 @@ kk.unit tqueuestack || return $__kk_unit_rc
 # var — it is internal layout, not API.
 #
 # ---- Return contract ---------------------------------------------------------
-# funcs return via RESULT (kk._return on EVERY explicit-return path — the
-# trailer trap); procs are rc-only. Dequeue/Pop/Extract/Peek on empty -> FPC
+# funcs return via RESULT (kk._return on EVERY explicit-return path — the house
+# idiom from the trailer trap; since kklass round 7 required only for value +
+# failure); procs are rc-only. Dequeue/Pop/Extract/Peek on empty -> FPC
 # raises EArgumentOutOfRange -> here rc 1 + RESULT='' + debug-only msg.
 # TryDequeue/TryPop (bash extras) -> rc 1 SILENTLY (an answer, not an error).
 # ToArray fills a caller-named nameref (queue: front->back; stack: bottom->top,
@@ -436,11 +437,11 @@ TQueue.Clear() {
 # CALL DIRECTLY ($() discards the fill). ${!items[@]} ascends over the live
 # region = front->back.
 TQueue.ToArray() {
-    # The rc must survive the func trailer: `kk._return "$RESULT"` is appended
-    # to every func body and would turn the validation failure (G2-02) back
-    # into rc 0 — and it must survive VERBATIM, because a bad output-array name
-    # answers rc 2 (kcl README 1.2/1.7), not just "nonzero". `_toArray` has
-    # already called kk._return on every path.
+    # The rc must survive VERBATIM: a bad output-array name answers rc 2 (kcl
+    # README 1.2/1.7, G2-02), not just "nonzero". `_toArray` has already
+    # called kk._return on every path. (Before kklass round 7 the func trailer
+    # `kk._return "$RESULT"` would also have turned a fall-through failure
+    # into rc 0; since round 7 a func passes its rc, the explicit return stays.)
     local __tqs_rc=0
     TQueueStack._toArray "$1" || __tqs_rc=$?
     return $__tqs_rc
@@ -537,11 +538,11 @@ TStack.Clear() {
 
 # outArr -> bottom->top (S9; seed TestToArray: A[i-1]==IntToStr(i)); RESULT=count.
 TStack.ToArray() {
-    # The rc must survive the func trailer: `kk._return "$RESULT"` is appended
-    # to every func body and would turn the validation failure (G2-02) back
-    # into rc 0 — and it must survive VERBATIM, because a bad output-array name
-    # answers rc 2 (kcl README 1.2/1.7), not just "nonzero". `_toArray` has
-    # already called kk._return on every path.
+    # The rc must survive VERBATIM: a bad output-array name answers rc 2 (kcl
+    # README 1.2/1.7, G2-02), not just "nonzero". `_toArray` has already
+    # called kk._return on every path. (Before kklass round 7 the func trailer
+    # `kk._return "$RESULT"` would also have turned a fall-through failure
+    # into rc 0; since round 7 a func passes its rc, the explicit return stays.)
     local __tqs_rc=0
     TQueueStack._toArray "$1" || __tqs_rc=$?
     return $__tqs_rc

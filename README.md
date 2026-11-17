@@ -77,6 +77,9 @@ unit._ret() {                       # $1 = value, $2 = exit status (default 0)
 ```
 
 An instance `func` needs none of this — `kk._return` is already correct there.
+(Since kklass round 7 a `static func` answers by the same rule as an instance
+func — `RESULT` as its body leaves it on rc 0, the caller's `RESULT` on a
+failure — but it still prints on every call, so the advice stands.)
 
 ### 1.2 Errors
 

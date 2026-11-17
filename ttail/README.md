@@ -257,10 +257,12 @@ header of `tests/005_Run.sh`.
 ### The spelling the three overrides must use
 
 With `follow = 0` the overrides do nothing but chain — and chaining has a trap
-that was measured before it was a rule (critic finding C1): a `func` body that
-merely **ends on** `inherited` returns **0** where the base returned 1, because
-the compiled `kk._return` trailer replaces the rc. That would have silently
-thrown away the partial-failure rc of §3 (a). So each override captures both
+that was measured before it was a rule (critic finding C1): with kklass before
+round 7 a `func` body that merely **ends on** `inherited` returned **0** where
+the base returned 1, because the compiled `kk._return` trailer replaced the rc.
+Since kklass round 7 (K-2) such a body passes the rc, but a func that fails
+without `kk._return` gives the **caller's** `RESULT` back (rule S2), so the
+real count of §3 (a) would still be lost. So each override captures both
 halves and re-raises them:
 
 ```bash
@@ -281,7 +283,8 @@ TTail.toArray() {
 `tests/006_Contract.sh` §0 greps the three bodies for that shape, and
 `tests/005_Run.sh` §H pins the behaviour it protects: with `follow = 0` and one
 missing operand among good ones, all three answer **rc 1 with `RESULT` = the
-real count** — which the naive spelling would have reported as rc 0.
+real count** — which the naive spelling reported as rc 0 before kklass round 7,
+and reports as rc 1 with the caller's `RESULT` since.
 
 ---
 

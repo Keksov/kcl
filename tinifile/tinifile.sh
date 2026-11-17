@@ -61,7 +61,9 @@ kk.unit tinifile || return $__kk_unit_rc
 #
 # ---- Return contract ---------------------------------------------------------
 # Instance funcs return via RESULT (kk._return on every explicit-return path —
-# the tdictionary trailer trap); instance procs are rc-only (a proc body's
+# the house idiom from the tdictionary "trailer trap"; since kklass round 7 it
+# is required only for value + failure, `kk._return V; return N`, and stays
+# valid everywhere); instance procs are rc-only (a proc body's
 # RESULT does NOT survive dispatch — kklass _invoke rollback, pinned at
 # tobjectlist P1). Array-filling members are FUNCs (RESULT=count) that fill
 # caller-named namerefs — CALL THEM DIRECTLY ($() discards the fills).

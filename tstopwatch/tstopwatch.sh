@@ -88,9 +88,10 @@ end
 # status carries the answer AND true|false lands in RESULT, so both
 # `if sw.isRunning; then` and `$(sw.isRunning)` read correctly.
 #
-# $1 = 0 for true, anything else for false. The CALLER must end on an explicit
-# `return`: kklass appends `kk._return "$RESULT"` to every `func` body, which
-# would otherwise flatten the status to 0 and print a second time under `$( )`.
+# $1 = 0 for true, anything else for false. The caller ends with
+# `TStopwatch._retBool N; return $?` so the status is the answer (kklass's
+# rule, "What a func answers": a func that called kk._return answers that
+# value, its rc is the body's).
 TStopwatch._retBool() {
     if [[ "$1" == "0" ]]; then
         kk._return "true"

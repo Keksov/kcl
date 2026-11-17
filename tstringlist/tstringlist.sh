@@ -278,8 +278,9 @@ TStringList.Add() {
     #         the same Adds on a TList. Unsorted Add is now O(1) and the sorted
     #         one is one binary search of plain function calls.
     #   G1-05 the dupIgnore branch did `RESULT=…; return`, and an explicit
-    #         return skips the func trailer, so the kklass dispatcher put the CALLER's
-    #         RESULT back: the existing index never reached the caller.
+    #         return skipped the func trailer (kklass before round 7), so the
+    #         dispatcher put the CALLER's RESULT back: the existing index never
+    #         reached the caller. (Since round 7 that spelling answers too.)
     #   G1-04 the binary search only makes sense because `sorted = true` now
     #         really sorts.
     local j                     # X-LOCALS (G1-08)
@@ -293,7 +294,7 @@ TStringList.Add() {
         local __tsl_pos __tsl_hit
         if TStringList._findPos "$item" "$case_sensitive" "$items_var" "$current_count"; then
             if [[ "$duplicates" == "dupIgnore" ]]; then
-                # kk._return, not a bare RESULT= (the trailer trap, G1-05).
+                # kk._return (the house idiom since the trailer trap, G1-05).
                 kk._return "$__tsl_hit"
                 return 0
             elif [[ "$duplicates" == "dupError" ]]; then

@@ -248,9 +248,9 @@ TObjectList.Extract() {
     $this.IndexOf "$__tol_item"
     local __tol_idx="$RESULT"
     if [[ "$__tol_idx" == "-1" ]]; then
-        # kk._return, not bare RESULT=: an explicit return skips the auto-
-        # appended func trailer, and _invoke would restore the caller's RESULT
-        # (the tdictionary "trailer trap").
+        # kk._return, not bare RESULT=: a func that fails without kk._return
+        # leaves the caller's RESULT (kklass rule S2, round 7; before it, the
+        # tdictionary "trailer trap": any explicit return lost the RESULT).
         kk._return ""
         return 1
     fi
@@ -265,8 +265,8 @@ TObjectList.FindInstanceOf() {
     # Bash: FindInstanceOf ClassName [exact=true|false] [startAt=0]. A live
     # kklass instance knows its class (${handle}_class); the ancestor walk uses
     # kklass's ${class}_parent_class chain. Non-instance elements never match.
-    # Every exit is an explicit return -> every exit needs kk._return (the
-    # func trailer only fires on fall-through; see Extract).
+    # Every exit is an explicit return and calls kk._return (the house idiom;
+    # required for the rc != 0 exits since kklass round 7, see Extract).
     local __tol_cls="$1" __tol_exact="${2:-true}" __tol_start="${3:-0}"
     if [[ -z "$__tol_cls" ]]; then kk._return "-1"; return 2; fi
     # G1-16: only `true`/`false` are boolean tokens. `FindInstanceOf TList no`

@@ -252,25 +252,22 @@ right after `kk.class --forget` and a redefinition too (for instances made
 after the redefinition; what an older instance's methods do then is
 kklass's, not promised).
 
-**One RESULT / rc rule for both paths**, for the body forms that are
-supported in an override:
+**One RESULT / rc rule for both paths**, for every body form (kklass's
+rule, "What a func answers" in the kklass book):
 
 * a `proc` leaves the caller's `RESULT`; its rc is the body's;
 * a `func` (FV's functions: `GetHelpCtx GetPalette Valid Execute GetTitle`;
-  later `Hint GetEvent`) **answers by setting `RESULT` and ending without
-  an explicit `return`** (`Valid` answers by its rc: "Modal views");
-* a `func` **fails with an explicit `return N` (N ≠ 0)**, which leaves the
-  caller's `RESULT`;
-* **not supported in a `func` override**: an explicit `return 0` (kklass
-  drops the `RESULT`: the caller's stays — so `TGroup.GetHelpCtx` through such
-  a Current answers the group's own) and a failing last command without
-  `return` (kklass drops the rc: rc 0, the `RESULT` kept). Both come from
-  kklass's `kk._return` trailer, which runs only when the body ends without
-  `return`; `013_Elision` pins them as they behave today.
+  later `Hint GetEvent`) **answers with what `RESULT` holds when its body
+  ends with rc 0**, however it ends: falling off the end, `return 0`, a last
+  `inherited …` (`Valid` answers by its rc: "Modal views");
+* a `func` **fails with its body's rc (N ≠ 0)** — an explicit `return N` or a
+  failing last command — which leaves the caller's `RESULT`.
 
-Every built-in body follows the supported forms; the plain path answers for
-a `func` with rc 0 and leaves the caller's `RESULT` for a failing `func` and
-for every `proc`.
+Before kklass round 7 (fv ledger K-2) an explicit `return 0` lost a func's
+`RESULT` (so `TGroup.GetHelpCtx` through such a Current answered the group's
+own) and a failing last command lost its rc; `013_Elision` pins the fixed
+behaviour. The plain path answers for a `func` with rc 0 and leaves the
+caller's `RESULT` for a failing `func` and for every `proc`.
 
 Tested in `013_Elision`, with every built-in of stages 2c-1, 2c-2, 2c-3 and 2d overridden with
 `inherited`, fields named like common locals, `kk.class --forget` +
@@ -681,11 +678,12 @@ group, a wrong argument count, a bad number, a name with other characters.
   = not. `TView.Valid` agrees; `TGroup.Valid` asks every subview (front to
   back), or for `cmReleasedFocus` only a `Current` with `ofValidate`. **An
   override says no with an explicit `return 1`, and passes a built-in's no
-  on with `inherited Valid "$@" || return`** (kklass caveat K-2: a body
-  whose LAST command fails without `return` answers rc 0, so a bare
-  `inherited Valid "$@"` as the last line agrees whatever the subviews say;
-  013 pins it). The same holds for any failing `inherited` you want to
-  pass on; every built-in body here passes its rc on that way.
+  on with `inherited Valid "$@" || return`** — or with a bare
+  `inherited Valid "$@"` as its last line: since kklass round 7 (K-2) a func
+  fails with its body's rc, so the refusal passes either way (013 pins it;
+  before, the bare form answered rc 0). `|| return` is no longer required
+  but stays good style when more lines follow; every built-in body here
+  passes its rc on that way.
 * **The end of input latches** (`__FV_VW_EOF`): when the event source says
   "end of input" (rc 1; any other non-zero rc is taken for it too, with a
   debug line, so a broken source cannot spin), the running loop and every

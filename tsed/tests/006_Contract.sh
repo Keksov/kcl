@@ -109,7 +109,9 @@ else
 fi
 
 # thead §6 / ttail §2.1: a `func` body that merely ENDS on `inherited X "$@"`
-# answers rc 0 where the base answered 1 (the compiled trailer replaces the rc).
+# does not hand the base's RESULT back with a failing rc (kklass rule S2; before
+# kklass round 7 it also answered rc 0 where the base answered 1: the compiled
+# trailer replaced the rc). Kept as a style check.
 kt_test_start "the four overridden func sinks use the rc-PRESERVING spelling"
 bad=""
 for m in toArray toList first count; do

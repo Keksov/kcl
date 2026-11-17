@@ -361,10 +361,13 @@ documented default, and that a reused instance name starts clean.
 
 ### 3.4 C5 — `RESULT=V; return N` loses V
 
-`build` compiles a `kk._return "$RESULT"` trailer onto every `func` body. An
-explicit `return` **skips** it, and the kklass dispatcher then restores the **caller's**
-`RESULT`. A sink has to answer both a count and a mapped rc, so this is the one
-spelling that works.
+kklass's func rule (round 7, rule S2): a `func` answers with what `RESULT`
+holds when its body ends **with rc 0**; a `func` that **fails** without calling
+`kk._return` gets the **caller's** `RESULT` back from the dispatcher. (Before
+round 7 the reason was different — an explicit `return` skipped the compiled
+`kk._return "$RESULT"` trailer — but the visible result for `return N`, N ≠ 0,
+is the same.) A sink has to answer both a count and a mapped rc, so this is the
+one spelling that works.
 
 ```bash
 #!/usr/bin/env bash

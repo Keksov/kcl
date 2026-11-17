@@ -119,10 +119,12 @@ else
     kt_test_fail "source: ${srcs//$'\n'/ | }; kk.uses: ${uses//$'\n'/ | }"
 fi
 
-# The blocker the critic measured: a `func` body that merely ENDS on
-# `inherited toArray "$@"` returns 0 where the base returned 1, because the
-# compiled `kk._return "$RESULT"` trailer replaces the rc. Each of the three
-# overrides must capture the rc and re-raise it.
+# The blocker the critic measured (kklass before round 7): a `func` body that
+# merely ENDS on `inherited toArray "$@"` returned 0 where the base returned 1,
+# because the compiled `kk._return "$RESULT"` trailer replaced the rc. Since
+# kklass round 7 (K-2) it passes the rc but, failing without kk._return, not
+# the base's RESULT (rule S2). Each of the three overrides captures the rc and
+# the RESULT and re-raises both; the checks below stay as style checks.
 kt_test_start "the three overridden sinks use the rc-PRESERVING spelling (thead §6)"
 bad=""
 for m in toArray toList count; do
@@ -131,7 +133,8 @@ for m in toArray toList count; do
     [[ "$body" == *'kk._return "$__tt_n"'* ]]     || bad+=" $m:no-saved-RESULT"
     [[ "$body" == *'return "$__tt_rc"'* ]]        || bad+=" $m:no-rc-reraise"
     # the LAST statement must not be `inherited` — a body that ends on it
-    # returns 0 where the base returned 1 (the compiled trailer replaces the rc)
+    # would not hand the base's RESULT back with a failing rc (rule S2;
+    # before kklass round 7 it also returned 0 where the base returned 1)
     last="$(printf '%s\n' "$body" | grep -vE '^\}$' | tail -1)"
     case "$last" in
         *inherited*) bad+=" $m:ends-on-inherited" ;;

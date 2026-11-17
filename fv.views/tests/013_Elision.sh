@@ -10,8 +10,8 @@
 #   * stage 2c-3: every built-in kklass body passes its plain body's rc
 #     on (`... || return`): a failing Valid / Execute reached through an
 #     override's `inherited ... || return` and the failing aliases keep it;
-#     a bare failing `inherited` as an override's last command loses it
-#     (kklass K-2, pinned);
+#     so does a bare failing `inherited` as an override's last command
+#     (kklass round 7, K-2: a func passes its body's rc);
 #   * stage 2d: TFrame.HandleEvent and TWindow's SizeLimits, CalcBounds and
 #     Zoom overridden with `inherited`: 0 / 2 dispatches (CalcBounds: 6, it
 #     asks SizeLimits twice), the RESULT rule, through the framework (locate,
@@ -31,17 +31,16 @@
 #     locals (i k n x y s d r c f v o w h): the dispatch counts (0 without an
 #     override, also for a subclass that inherits the built-in; 2 = the
 #     override + its inherited), the results, the user's fields intact;
-#   * the RESULT rule both ways, for the supported body forms: a proc leaves
-#     the caller's RESULT (also when its body sets RESULT); a func answers by
-#     setting RESULT and ending WITHOUT an explicit `return`; it fails with an
-#     explicit `return N` (N != 0), which leaves the caller's RESULT; the rc
-#     is the body's (a test class registered in __FV_VW_IMPL, and its user
-#     subclass);
-#   * the two func shapes that are NOT supported, pinned as kklass behaves
-#     today (a kklass change shows up here): an explicit `return 0` loses the
-#     RESULT (the caller's stays; also after `inherited`), a failing last
-#     command without `return` loses the rc (rc 0, RESULT kept) - so
-#     TGroup.GetHelpCtx through such a Current answers the group's own;
+#   * the RESULT rule both ways: a proc leaves the caller's RESULT (also when
+#     its body sets RESULT); a func answers with what RESULT holds when its
+#     body ends with rc 0, however it ends; it fails with the body's rc
+#     (N != 0), which leaves the caller's RESULT; the rc is the body's (a
+#     test class registered in __FV_VW_IMPL, and its user subclass);
+#   * the func shapes kklass before round 7 got wrong (K-2), on both paths:
+#     an explicit `return 0` answers (also after `inherited`), a failing last
+#     command without `return` fails (its rc, the caller's RESULT) - so
+#     TGroup.GetHelpCtx through a Current ending with `return 0` answers the
+#     Current's;
 #   * kk.class --forget + a redefinition with / without the override: the
 #     next instance takes the new decision at once;
 #   * one scene (a group resize by GrowMode through user overrides, locate
@@ -206,7 +205,7 @@ __FV_VW_IMPL[TTst.ChangeBounds]=tst_proc __FV_VW_IMPL[TTst.GetHelpCtx]=tst_func
 TTst.new tp 0 0 1 1
 TTstU.new tu 0 0 1 1
 
-kt_test_start "rc and RESULT both ways with bodies that fail: the rc passes (proc 5 / 7, func 6 / 8) and the caller's RESULT stays (a func answers in RESULT only with rc 0: kklass drops a func's RESULT after an explicit return)"
+kt_test_start "rc and RESULT both ways with bodies that fail: the rc passes (proc 5 / 7, func 6 / 8) and the caller's RESULT stays (a func answers in RESULT only with rc 0: kklass keeps the caller's RESULT for a func that fails without kk._return)"
 out=''
 RESULT=caller; fv.views._virt tp ChangeBounds 1 2; out+="$?:$RESULT "
 RESULT=caller; fv.views._virt tu ChangeBounds 1 2; out+="$?:$RESULT "
@@ -228,9 +227,9 @@ if [[ $out == 'f5f7f6:keepf8:keep' ]]; then kt_test_pass "ok"; else kt_test_fail
 unset '__FV_VW_IMPL[TTst.ChangeBounds]' '__FV_VW_IMPL[TTst.GetHelpCtx]'
 tp.delete; tu.delete
 
-# the unsupported func shapes, pinned as kklass behaves today (review 2c-1 #1;
-# a kklass finding: a func body's RESULT trailer, kk._return, runs only when
-# the body ends without `return`)
+# the func shapes kklass before round 7 got wrong (review 2c-1 #1, kklass
+# K-2: a func body's RESULT trailer, kk._return, ran only when the body ended
+# without `return`, and replaced the rc); now they answer / fail by the rule
 class TRet0 : TView
     public
         override func GetHelpCtx
@@ -256,22 +255,22 @@ end
 TSupp.GetHelpCtx() { RESULT=44; }
 build TSupp
 
-kt_test_start "kklass today: a func override ending with 'return 0' loses its RESULT (also after inherited); one ending with a failing command loses its rc; the supported form answers"
+kt_test_start "kklass round 7 (K-2): a func override ending with 'return 0' answers (also after inherited: the parent's 5); one ending with a failing command fails with its rc and the caller's RESULT; the fall-through form answers"
 TRet0.new r0 0 0 1 1; TInhRet0.new ri 0 0 1 1; TFalse.new rf 0 0 1 1; TSupp.new rs 0 0 1 1
 ri_data[HelpCtx]=5
 out=''
 for v in r0 ri rf rs; do RESULT=caller; fv.views._virt "$v" GetHelpCtx; out+="$v:$?:$RESULT "; done
-if [[ $out == 'r0:0:caller ri:0:caller rf:0:43 rs:0:44 ' ]]; then kt_test_pass "ok (as documented: return 0 and a failing last command are not supported)"
+if [[ $out == 'r0:0:42 ri:0:5 rf:1:caller rs:0:44 ' ]]; then kt_test_pass "ok (one rule for every body form)"
 else kt_test_fail "[$out] - kklass's func RESULT / rc behaviour changed: update the documented rule (fv.views.sh _virt, README, this test)"; fi
 
-kt_test_start "... so TGroup.GetHelpCtx through a Current whose override ends with 'return 0' answers the group's own HelpCtx (the supported form: the Current's)"
+kt_test_start "... so TGroup.GetHelpCtx through a Current whose override ends with 'return 0' answers the Current's HelpCtx (42), as through the fall-through form (44)"
 TGroup.new hg 0 0 9 9; hg_data[HelpCtx]=3
 r0_data[Options]=$FV_OF_SELECTABLE rs_data[Options]=$FV_OF_SELECTABLE
 fv.views.insert hg r0
 RESULT=x; fv.views._virt hg GetHelpCtx; a=$RESULT
 fv.views.delete hg r0; fv.views.insert hg rs
 RESULT=x; fv.views._virt hg GetHelpCtx; b=$RESULT
-if [[ $a == 3 && $b == 44 ]]; then kt_test_pass "ok"; else kt_test_fail "[$a] [$b]"; fi
+if [[ $a == 42 && $b == 44 ]]; then kt_test_pass "ok"; else kt_test_fail "[$a] [$b]"; fi
 hg.delete; r0.delete; ri.delete; rf.delete
 
 # --- stage 2c-2: Draw (proc) and GetPalette (func), on TView, TGroup, TFrame -----
@@ -618,7 +617,7 @@ og.delete; ov.delete; vo.delete
 want='1:keep,1:keep,2,2,2,1,1,2,2,2,1,0,0,0'
 if [[ $r == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$r] want [$want]"; fi
 
-kt_test_start "kklass today (K-2): an override whose LAST command is a bare 'inherited Valid \"\$@\"' that fails answers rc 0 (write '|| return': README)"
+kt_test_start "kklass round 7 (K-2): an override whose LAST command is a bare 'inherited Valid \"\$@\"' that fails passes the refusal (rc 1; '|| return' stays fine: README)"
 class TVb : TGroup
     public
         override func Valid
@@ -628,7 +627,7 @@ build TVb
 TVb.new vb 0 0 10 10; TRf.new rf2 0 0 1 1; fv.views.insert vb rf2
 fv.views._virt vb Valid cmOK; r=$?
 vb.delete
-if [[ $r == 0 ]]; then kt_test_pass "rc 0, as kklass behaves today (pinned)"; else kt_test_fail "rc $r: kklass changed, update the README's note"; fi
+if [[ $r == 1 ]]; then kt_test_pass "rc 1"; else kt_test_fail "rc $r: kklass changed, update the README's note"; fi
 
 # ---- stage 2d: TFrame.HandleEvent; TWindow's SizeLimits, CalcBounds, Zoom --------
 class TUf : TFrame

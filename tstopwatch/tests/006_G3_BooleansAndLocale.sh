@@ -55,12 +55,9 @@ bool_member() {   # EXPECTED-WORD INSTANCE MEMBER
     fi
 }
 
-# The PROPERTY form cannot carry the exit status: kklass generates a shim method
-# for a method-backed property and appends `kk._return "$RESULT"` to every
-# function body, which flattens the status to 0 before kk._prop_computed can
-# propagate it (kklass.sh:319 does try). So the property answers with the WORD
-# and the func form answers with the word AND the status. Recorded as
-# found_in_P6 in kcl_ledger.json; pinned here so the split is deliberate.
+# The PROPERTY form answers with the word; its status follows the getter's rc
+# (kklass, "What a func answers"; the old found_in_P6 gap is closed). These
+# checks pin the word, the rc (= the answer) and that the read is silent.
 prop_word() {   # EXPECTED-WORD INSTANCE PROPERTY
     local want="$1" inst="$2" prop="$3"
     kt_test_start "$inst.$prop (property) -> RESULT='$want', silent, rc = answer [G3-12]"
