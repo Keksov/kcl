@@ -96,6 +96,9 @@ KCL_UNITS=(
     # (fv.views: the first dotted unit with classes, TView / TGroup; readonly:
     # its FV_* constants are assigned once per process)
     "fv.views||readonly|"
+    # (fv.menus: TStatusLine on fv.views' TView; it adds its built-in
+    # bodies to fv.views' elision table at load and from its constructor)
+    "fv.menus|||"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),
