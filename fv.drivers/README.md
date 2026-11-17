@@ -135,6 +135,14 @@ So the event layer adds ~55–65 µs to a key and ~270–300 µs to a mouse repo
 (fv.mouse's decode, the held buttons, the clock for double clicks). Inlining
 `clearEvent` was tried and measured no difference (kept as a call).
 
+In the application (fv P2 stage 2g, the `fvviews` bench of `tools/bench`:
+every action inside [`fv.app`](../fv.app/README.md)'s `Run`, keys from a
+file): reading a 5-byte key sequence (F12) costs ~1.2 ms of the ~5.8 ms a
+whole key event takes on that machine (~1.9× slower than the one above);
+the rest is the views' routing ([fv.views "Cost"](../fv.views/README.md#cost)).
+The application layer is complete for P2: [`fv.views`](../fv.views/README.md),
+[`fv.menus`](../fv.menus/README.md), `fv.app`.
+
 ## Tests
 
 `bash kcl/fv.drivers/tests/tests.sh` — 141 tests; all but `005` run without a

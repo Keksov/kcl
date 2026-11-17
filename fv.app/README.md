@@ -13,7 +13,7 @@ and the app palette.
 The unit loads `kklass_pascal`, `fv.views`, `fv.menus` and
 [`fv.drivers`](../fv.drivers/README.md).
 
-**Status: P2 stage 2f.** No menu bar yet (`TMenuBar` is P3): the desktop
+**Status: P2 complete (stage 2g).** No menu bar yet (`TMenuBar` is P3): the desktop
 takes row 0 too.
 
 ## Quick start
@@ -52,6 +52,26 @@ app.delete                               # the views gone, the terminal restored
 Headless (tests, the bench): `FV_APP_HEADLESS=1 FV_SCREEN_W=80 FV_SCREEN_H=24
 FV_VIDEO_OUT_FD=$fd FV_KEY_FD=$keys TApplication.new app` — no terminal: the
 frames go to `FV_VIDEO_OUT_FD`, the keys come from `FV_KEY_FD`.
+
+## The demo
+
+[`examples/demo.sh`](examples/demo.sh) is a small application: two windows
+with some text, the status line, and FV's window keys (F6 / Shift+F6, Alt+1
+/ Alt+2, F5 zoom, Ctrl+F5 move and grow, F2 tile, F3 cascade, Alt+F3 close,
+the mouse: focus, drag by the top row, grow by the corner, the icons).
+
+```bash
+bash kcl/fv.app/examples/demo.sh                     # live, in this terminal; Alt+X quits
+bash kcl/fv.app/examples/demo.sh --headless          # no terminal: a built-in key script,
+                                                     # the final screen printed as text
+bash kcl/fv.app/examples/demo.sh --headless --keys keys.bin --out frames.bin --size 100x30
+```
+
+`--headless` (or `FV_APP_HEADLESS=1`) reads the keys from a file (`--keys`:
+the bytes a terminal sends; without it a built-in script that goes through
+every key above and a mouse drag), writes the frames to `--out` (default
+`/dev/null`), ends by itself (Alt+X in the keys, or the end of the file) and
+prints the final screen on stdout. `tests/015_Demo.sh` runs it so.
 
 ## Classes and fields
 
@@ -249,7 +269,7 @@ fv.video owns the traps and restores the terminal on every exit path;
 
 ## Performance
 
-Dispatches and fv.video writes (the test lib's shims; 80 × 24, the test
+Stage 2f: dispatches and fv.video writes (the test lib's shims; 80 × 24, the test
 scene: two `TWindow`s with a list stand-in each, the default status line):
 
 | action | dispatches | writes |
@@ -261,14 +281,35 @@ scene: two `TWindow`s with a list stand-in each, the default status line):
 | one resize 120 × 40 → 80 × 24 (TMyApp + inherited + the leaves' Draws) | 5 | 44 |
 | the first paint of the small app (status line, desktop, 2 windows) | 2 | 44 |
 
-Times: stage 2f, Git-bash 5.3.15, headless, scripted terminal, frames to
-`/dev/null`, median of 5 × 20, **on a machine running ~3–4× slower than the
-fv.views "Cost" table** (a plain function call 17–22 µs against 4.9 µs
-there; the CPU at 2.5 of 3.8 GHz); compare ratios, not the absolute values,
-until 2g's bench: idle tick 3.7 ms (scripted source ~1 ms of it), `kbDown`
-through TMyApp 13.8 ms, F6 → `cmNext` 50 ms, resize 82 ms, `cmTile` /
-`cmCascade` 52 ms, the first paint 49 ms. The 2g bench (`fvviews`) measures
-them on a quiet machine against the design §3 / §4 targets.
+**Stage 2g, the design's scene through the application**
+(`tests/014_CallBudget.sh`: `TMyApp`, the desktop, two 40 × 23 windows with
+a list stand-in each, the status line; every action through `app.Run` and
+the real `GetEvent`, a Run without events taken off; the same counts for a
+21-row and a 42-row stand-in; limits: the design's §3.2):
+
+| action | dispatches | limit | writes (21 rows) |
+|---|---|---|---|
+| idle tick | 0 | 1 | 0 |
+| the first idle tick after a window switch (`cmCommandSetChanged` to TMyApp: override + `inherited`) | 2 | (logged) | 0 |
+| kbDown | 3 | 6 | 2 |
+| kbPgDn | 4 | 8 | 21 |
+| F6 → the status line → `cmNext`, side by side / back | 5 / 6 | 8 | 11 / 28 |
+| F6, overlapping, each way | 6 | 10 | 29–30 |
+| click on the inactive window / the covered one | 2 / 3 | 8 | 11 / 30 |
+| repaint (`fv.views.redraw app`) | 2 | 6 | 51 |
+| resize 80 × 24 → 200 × 50 / back | 5 / 5 | 8 | 103 / 51 |
+| the first paint from `Run` | 2 | (6) | 51 |
+
+Times: the `fvviews` bench of `tools/bench` (every action inside `app.Run`,
+keys from a file; the table, the targets and where the time goes:
+[fv.views "Cost"](../fv.views/README.md#cost)). In short, on a machine
+~1.9× slower than the quiet one of the earlier stages (Git-bash 5.3.15,
+80 × 24): one key event that nobody takes costs ~5.8 ms (≈ 3 ms quiet:
+the key read 1.2, the application's `HandleEvent` routing 4.1), kbDown
+12.9 ms, F6 → `cmNext` 61.7 ms, a resize 80 × 24 → 200 × 50 143 ms, the
+first paint of the P2 scene from `Run` 40.4 ms (≈ 21 ms quiet against
+D18's 15 ms: missed, F-1 stays open). The stage 2f times (a slower machine
+still, scripted terminal) are superseded by these.
 
 ## Contract (kcl README §1) and deviations
 
@@ -337,5 +378,7 @@ on it fails one test.
 | 011_Subshell | Run in `$( )` and in a pipeline refused (rc 2, nothing read or drawn), execView in `$( )` refused, the parent's application untouched, an application made inside a subshell owns its loop there |
 | 012_Palette | the default string and ErrorAttr's symbol; setAppPalette in place, by reuse, by allocation (the application redrawn, == a full repaint); all symbols in use (rc 1, one Error line, nothing changed, 0 / V / W never handed out); refusals |
 | 013_Edges | the critic round's edges: a dialog executed before Run drawn by the first GetEvent; doneEvents at Done whoever turned the terminal on; tile / cascade of a plain TGroup without TileError; setAppPalette's colours back at Done; the name re-created as a TWindow (the next application releases it); the end-of-input latch put back at Done; Alt+digit does not leak the window into RESULT |
+| 014_CallBudget | stage 2g, the design's §3.1 scene through the application: `TMyApp`, the desktop, two 40 × 23 windows with a `TTestList` stand-in each, the status line; every action through `app.Run` and the real `GetEvent` (the scripted terminal), a Run without events taken off: §3.2's limits (Down 6, PgDn 8, Tab = F6 → the status line → cmNext side by side 8 and overlapping 10, click 8, repaint 6, resize 80 × 24 → 200 × 50 8, idle tick 1), the first paint, the idle tick after a window switch (logged); 21-row and 42-row stand-ins give equal dispatch counts; the status line draws with 1 write
+| 015_Demo | `examples/demo.sh --headless`: the built-in script (rc 0, no stderr, frames in `--out`, the final screen), `--keys` (tile), a key file without Alt+X, `--size`, `FV_APP_HEADLESS=1`, the refusals (rc 2). The live mode is never run here
 
 Run on Git-bash 5.3.15 (008 SKIP), MSYS2 5.3.9, Cygwin 5.2.21 (2026-11-17).

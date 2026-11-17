@@ -30,6 +30,9 @@
 #                         one test: run CMD with the dispatch counter on;
 #                         pass when it made at most LIMIT dispatches; the
 #                         count is logged ("# calls LABEL N")
+#   fvw_budgetw LABEL LIMIT CMD...
+#                         the same with the write counter on in the same run;
+#                         logs "# writes LABEL N" too; FVW_LASTC / FVW_LASTW
 #   fvw_tree G            REPLY = "G[a b c]*cur" — G's subviews back to
 #                         front and its Current, nested groups in braces
 #   fvw_forks LINE        rc 0 when a code line holds a construct that forks
@@ -93,6 +96,23 @@
 #                         (TView), w1 (2 1 40 20) and w2 in front (30 5 70
 #                         22); `side`: w1 0 0 40 23 and w2 40 0 80 23. Not
 #                         drawn yet
+# Stage 2g (the call budget, design §3.1):
+#   fvw_classes3          TTestList (design §3.1's list stand-in: a TView
+#                         with TView's default EventMask and fields Top /
+#                         Focused; Draw, an override, writes one row per
+#                         visible row with fv.views.writeLine (one fv.video
+#                         writeBuf each: " item N" in palette entry 6, the
+#                         focused row in entry 7; rows FV_CLIP_Y1..Y2-1);
+#                         HandleEvent, an override: kbDown -> two drawParts
+#                         (the old and the new focused row, painter
+#                         fvw_tlpaint), kbPgDn -> the next page (Top +=
+#                         SizeY: every row a new text) and drawView, both
+#                         handled; a mouse-down goes to inherited (TView's:
+#                         select); anything else is ignored, as TTLeaf does.
+#                         Counts its Draws in FVW_DRAWS[NAME])
+#   fvw_mklwin NAME AX AY BX BY TITLE NUM
+#                         a TWindow with a selectable TTestList NAMEl over
+#                         its interior
 #
 # Timing runs never use the shims.
 
@@ -184,6 +204,24 @@ fvw_budget() {
     fvw_count_off
     kt_test_log "# calls $label $n"
     if (( n <= limit )); then kt_test_pass "$n dispatches"; else kt_test_fail "$n dispatches > $limit"; fi
+}
+# fvw_budgetw LABEL LIMIT CMD... — fvw_budget with the write counter on in
+# the same run (one run: an action that changes the scene is counted once);
+# logs "# calls LABEL N" and "# writes LABEL N"; FVW_LASTC / FVW_LASTW = the
+# counts
+fvw_budgetw() {
+    local label=$1 limit=$2
+    shift 2
+    kt_test_start "budget $label: at most $limit dispatches"
+    if ! fvw_count_on || ! fvw_writes_on; then kt_test_fail "the shims could not be installed"; return; fi
+    FVW_CALLS=0 FVW_WRITES=0
+    "$@"
+    FVW_LASTC=$FVW_CALLS FVW_LASTW=$FVW_WRITES
+    fvw_count_off
+    fvw_writes_off
+    kt_test_log "# calls $label $FVW_LASTC"
+    kt_test_log "# writes $label $FVW_LASTW"
+    if (( FVW_LASTC <= limit )); then kt_test_pass "$FVW_LASTC dispatches, $FVW_LASTW writes"; else kt_test_fail "$FVW_LASTC dispatches > $limit ($FVW_LASTW writes)"; fi
 }
 
 fvw_tree() {
@@ -388,6 +426,68 @@ fvw_tscene() {
     FVW_DRAWS=() FVW_GOT='' FVW_ROW=()
 }
 fvw_untscene() { app.delete; }
+
+# ---- stage 2g --------------------------------------------------------------------
+fvw_classes3() {
+    declare -F TTestList.new >/dev/null && return 0
+    fvw_classes2
+    declare -gA FVW_TLA=()
+    class TTestList : TView
+        public
+            var Top
+            var Focused
+            override proc Draw
+            override proc HandleEvent
+    end
+    TTestList.Draw() {
+        FVW_DRAWS[$this]=$(( ${FVW_DRAWS[$this]:-0} + 1 ))
+        fvw_tlpaint "$this" "${Top:-0}" "${Focused:-0}"
+    }
+    TTestList.HandleEvent() {
+        if [ "$FV_EV_WHAT" = evKeyDown ]; then
+            if [ "$FV_EV_KEY" = kbDown ]; then
+                local o=${Focused:-0} n
+                n=$(( (o + 1) % SizeY ))
+                Focused=$n
+                fv.views.drawPart "$this" fvw_tlpaint "$o" "$(( o + 1 ))" "${Top:-0}" "$n"
+                fv.views.drawPart "$this" fvw_tlpaint "$n" "$(( n + 1 ))" "${Top:-0}" "$n"
+                fv.views.clearEvent "$this"
+            elif [ "$FV_EV_KEY" = kbPgDn ]; then
+                Top=$(( ${Top:-0} + SizeY ))
+                fv.views.drawView "$this"
+                fv.views.clearEvent "$this"
+            fi
+        elif [ "$FV_EV_WHAT" = evMouseDown ]; then
+            inherited HandleEvent "$@"
+        fi
+    }
+    build TTestList
+}
+# fvw_tlpaint V TOP FOCUSED — the stand-in's rows FV_CLIP_Y1 .. FV_CLIP_Y2-1:
+# one writeLine (fv.video writeBuf) per row, attributes resolved from
+# FV_DRAW_PAL (entry 6 normal, 7 focused; FV's TDrawBuffer holds resolved
+# attributes), the strings of attributes kept per symbol and width
+fvw_tlpaint() {
+    local -n __t_d=${1}_data
+    local y s a n=${FV_DRAW_PAL:5:1} f=${FV_DRAW_PAL:6:1} w=${__t_d[SizeX]:-0}
+    [[ -n $n ]] || n=${FV_DRAW_PAL:0:1}
+    [[ -n $f ]] || f=$n
+    if [[ -z ${FVW_TLA[$n$w]-} ]]; then printf -v a '%*s' "$w" ''; FVW_TLA[$n$w]=${a// /$n}; fi
+    if [[ -z ${FVW_TLA[$f$w]-} ]]; then printf -v a '%*s' "$w" ''; FVW_TLA[$f$w]=${a// /$f}; fi
+    for (( y = FV_CLIP_Y1; y < FV_CLIP_Y2; y++ )); do
+        printf -v s '%-*s' "$w" " item $(( $2 + y ))"
+        if (( y == $3 )); then a=${FVW_TLA[$f$w]}; else a=${FVW_TLA[$n$w]}; fi
+        fv.views.writeLine 0 "$y" 1 "${s:0:w}" "$a"
+    done
+}
+fvw_mklwin() {
+    fvw_classes3
+    TWindow.new "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+    TTestList.new "${1}l" 1 1 $(( $4 - $2 - 1 )) $(( $5 - $3 - 1 ))
+    local -n __t_d=${1}l_data
+    __t_d[Options]=$(( __t_d[Options] | FV_OF_SELECTABLE ))
+    fv.views.insert "$1" "${1}l"
+}
 
 # fvw_snap -> REPLY = every row's text and symbols
 fvw_snap() {

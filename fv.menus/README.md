@@ -10,7 +10,7 @@ class on [`fv.views`](../fv.views/README.md)' `TView`. `TMenuBar` and
 
 The unit loads `kklass_pascal` and `fv.views`.
 
-**Status: P2 stage 2e.** The application ([`fv.app`](../fv.app/README.md),
+**Status: P2 complete (stage 2g; `TStatusLine` since 2e).** The application ([`fv.app`](../fv.app/README.md),
 stage 2f) makes the status line in its `InitStatusLine`, holds it in
 `FV_STATUSLINE` and calls its `Update` from `Idle`; without an application
 a script inserts it itself.
@@ -225,7 +225,15 @@ in one process, quiet machine, 2026-11-17 (stage 2e):
 | a press + release on an item (the tracking loop, two drawParts) | 2 | 2 (pressed, plain) | 4.71 |
 
 The counts are pinned by the tests (`fvw_budget`, the write counter); the
-times are early-warning numbers (no target before stage 2g).
+times are early-warning numbers.
+
+**Stage 2g** (the design's scene through the application, fv.app's
+`014_CallBudget.sh`): the line draws with 1 write and no dispatch; Tab as F6
+→ the line (pre-process) → `cmNext` costs 5 dispatches side by side, of
+which the key's own pass is 2 (TMyApp + `inherited`; the line is elided).
+Inside `app.Run` (the `fvviews` bench, [fv.views "Cost"](../fv.views/README.md#cost))
+the line's pre-process look-up of a key nobody takes is ~0.2 ms of the
+~5.8 ms a key event costs on that (~1.9× slow) machine.
 
 ## Contract (kcl README §1) and deviations
 

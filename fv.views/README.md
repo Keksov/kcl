@@ -11,13 +11,15 @@ your class overrides it. FV's non-virtual methods are plain functions
 The unit loads `kklass_pascal`, [`fv.video`](../fv.video/README.md) and
 [`fv.drivers`](../fv.drivers/README.md).
 
-**Status: P2 stage 2d** — the tree and the geometry (2c-1); palettes,
+**Status: P2 complete (stage 2g)** — the tree and the geometry (2c-1); palettes,
 the drawing context and writers, the painter with shadows, both lock
 counters and the minimal `TFrame` (2c-2); the event dispatch, the focus
 chain, command sets, the cursor, modal views and the basic `TWindow` (2c-3);
-window zoom, `dragView` (keyboard and mouse) and the frame's mouse (2d). The
+window zoom, `dragView` (keyboard and mouse) and the frame's mouse (2d); the
+final call budget and the `fvviews` bench (2g, "Cost" below). The
 application (`TProgram` / `TApplication`, `Run`, the real event source) is
-[`fv.app`](../fv.app/README.md) (stage 2f), which uses the hooks below.
+[`fv.app`](../fv.app/README.md) (stage 2f), which uses the hooks below; the
+status line is [`fv.menus`](../fv.menus/README.md).
 
 ## Quick start
 
@@ -910,6 +912,96 @@ where every global lookup walks more bash frames, plus the event read and
 `fv.drivers.getEvent` adds ~0.9 ms per mouse report and ~0.2 ms per drain
 poll).
 
+**Stage 2g: the call budget and the `fvviews` bench.** The design's scene
+(§3.1): `TMyApp` (a `TApplication` whose `HandleEvent` override calls
+`inherited`), the desktop, two windows side by side (half the screen wide,
+the desktop's height) with a list stand-in `TTestList` each (TView's default
+`EventMask`; `Draw` = one `writeBuf` per visible row; kbDown = two
+`drawPart`s; kbPgDn = a new page + `drawView`), the status line.
+
+The dispatch budget (`tests/010_CallBudget.sh` here, `fv.app`'s
+`014_CallBudget.sh` through the application; the limits are the design's
+§3.2 test limits; the counts are the same for a 21-row and a 42-row stand-in):
+
+| action | dispatches | limit | fv.video writes (21 / 42 rows) |
+|---|---|---|---|
+| kbDown (TMyApp, `inherited`, the stand-in) | 3 | 6 | 2 / 2 |
+| kbPgDn (+ the stand-in's `Draw`) | 4 | 8 | 21 / 42 |
+| Tab side by side: `cmNext` / F6 → the status line → `cmNext` | 3 / 5 | 8 | 10 / 11 |
+| the same back (the window in front repainted under the other's shadow) | 4 / 6 | 8 | 28 / 49 |
+| Tab overlapping, each way: `cmNext` / F6 | 4 / 6 | 10 | 29–30 / 50–51 |
+| click on the inactive window / on the covered one | 2 / 3 | 8 | 10–11 / 30 (51) |
+| repaint (`redraw`, forced update) | 2 | 6 | 51–52 / 93–94 |
+| resize 80 × 24 → 200 × 50 / back | 5 / 5 | 8 | 103 / 51 |
+| idle tick | 0 | 1 | 0 |
+| the first idle tick after a window switch (FV's `Idle` broadcasts `cmCommandSetChanged`: TMyApp + `inherited`) | 2 | (logged) | 0 |
+| first paint (`Run`) | 2 | (6) | 51 / 93 |
+
+The drawing shape: a full frame draw 3 writes, a window's shadow 2 shade
+calls, a border-only frame redraw 3 writes, the status line 1 write.
+
+Times: `tools/bench` suite `fvviews` (every action inside `app.Run`, keys
+from a file through `fv.drivers.getEvent`; tools/bench/README.md), median of
+5 rounds × 10 actions, 2026-11-17, **on a machine running ~1.9× slower than
+the stage 2c-p table above**: the 2c-p reference (the test lib's events
+scene, `cmNext` side by side) took 41.9 ms here against 21.9 ms then, a
+plain call 8.8 µs against 4.9 µs, the CPU held at 2.5 of 3.8 GHz. The last
+column divides the Git-bash median by 1.91; compare it with the targets
+(PLAN §5.4, design §3.3 / §4):
+
+| ms | Git-bash 5.3.15 | MSYS2 5.3.9 | Cygwin 5.2.21 | Git-bash ÷ 1.91 | target |
+|---|---|---|---|---|---|
+| 80×24 kbDown | 12.9 | 12.7 | 12.8 | 6.7 | ≤ 4: missed |
+| 80×24 kbPgDn | 23.5 | 23.0 | 22.9 | 12.3 | 8 (R8 → P3): missed |
+| 80×24 Tab (F6), side by side, both ways | 61.7 | 59.7 | 60.2 | 32.3 | ≤ 20: missed |
+| 80×24 Tab (F6), overlapping | 62.9 | 62.8 | 63.6 | 32.9 | ≤ 20: missed |
+| 80×24 kbTab inside a window (two controls) | 9.2 | 9.4 | 8.8 | 4.8 | — |
+| 80×24 click on the other window (press + release) | 66.2 | 62.8 | 64.8 | 34.6 | — |
+| 80×24 one keyboard drag step: move / grow | 37.1 / 41.1 | 36.2 / 39.8 | 38.1 / 41.3 | 19.4 / 21.5 | R10 |
+| 80×24 overlapping: click / drag step | 69.7 / 51.7 | 68.2 / 50.7 | 68.8 / 51.9 | 36.5 / 27.1 | R10 |
+| 80×24 Ctrl+L redraw (forced) | 57.1 | 55.2 | 56.8 | 29.9 | — |
+| 80×24 first paint from `Run`, P2 scene (D18 gate) / `+init` | 40.4 / 53.4 | 40.5 / 51.4 | 41.8 / 52.4 | 21.1 / 28.0 | ≤ 15 (F-1): missed |
+| 80×24 first paint from `Run`, list scene / `+init` | 60.9 / 69.5 | 57.4 / 70.3 | 57.6 / 68.8 | 31.9 / 36.4 | F-1 open |
+| 200×50 redraw / first paint | 106.2 / 104.9 | 103.7 / 107.1 | 106.0 / 106.7 | 55.6 / 54.9 | 30 (R9): missed |
+| 200×50 Tab (F6) | 96.5 | 86.4 | 90.7 | 50.5 | R2 |
+| 200×50 kbDown / kbPgDn | 12.8 / 43.1 | 13.4 / 43.0 | 12.0 / 42.7 | 6.7 / 22.6 | — |
+| 200×50 click / drag step move / grow | 93.8 / 68.1 / 69.4 | 91.3 / 64.1 / 68.9 | 94.6 / 67.0 / 69.2 | 49.1 / 35.7 / 36.3 | R10 |
+| resize 80×24 → 200×50 / back | 143.4 / 93.5 | 139.7 / 88.3 | 138.5 / 89.2 | 75.1 / 49.0 | — |
+
+The `Run` frame itself costs little: the same keys read and dispatched at
+top level take 0.5–2 ms less (kbDown 11.4 against 12.0, Tab 55.6 against
+57.8, Git-bash). Where the time goes (Git-bash, this machine; ÷ 1.91 for the
+quiet machine; each part with the ones above it stubbed out):
+
+* **One key event, whatever it does, ~5.8 ms (≈ 3.0)**: F12, taken by
+  nobody: the key read (`fv.drivers.getEvent`, a 5-byte sequence) 1.2,
+  `TProgram.GetEvent` through the elision 0.2, the application's
+  `HandleEvent` 4.1 (the status line's pre-process look-up 0.2; the desktop
+  → window → stand-in routing 2.0, of which the stand-in's own dispatch
+  0.7; TMyApp's dispatch + `inherited` + the built-in TApplication /
+  TProgram / TGroup bodies ~1.8), the cursor and the (empty) terminal update
+  0.3. Every action below pays it once per event (Tab through F6: twice).
+* **kbDown 12.1**: the key event 6.2, the two `drawPart`s' machinery 4.1,
+  the stand-in's two rows 1.0, the terminal update 0.8.
+* **kbPgDn 23.3**: the key event 6.2, the stand-in's 21 rows (`printf` +
+  `writeLine`, test code) 10.9, the terminal update 3.6, `drawView` 2.6.
+* **Tab (F6) 60.1**: two events ~12 (the key, then `cmNext` from the put
+  slot), the terminal update 11.1, the stand-in's rows 5.6 (every other Tab
+  repaints the window that comes back to the front under the other's
+  shadow), the window switch itself ~31 (setState chain, two border-only
+  frames, shadows, putInFrontOf, the window commands disabled / enabled).
+* **The drag step 36.5**: the key event ~6, the terminal update 8.0, the
+  two stand-ins' rows 10.5, `locate` and the redraw of old ∪ new ~12.
+* **The redraw 54.8**: the terminal update 8.8, the rows 18.3, the
+  rest (frames, shadows, background, status line, the key event) 27.8.
+
+Levers (no optimisation in 2g; the supervisor's plan decides): the fixed
+per-event cost (an application that does not override `HandleEvent` saves
+two dispatches, ~0.8 ms here; the kklass K-2 stage's call cost; a cheaper
+routing walk); the terminal update of whole rows (R2: one damaged range per
+row; a split at a long unchanged middle); P3's one write per visible row
+for the lists; fv.video's per-write cost for the 200 × 50 repaints (R9).
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -991,13 +1083,15 @@ The tests set such an `IFS` after the classes and instances exist.
 `tests/fvw_testlib.sh` holds the headless screen, the buffer reader
 (`fv.video.getRow`), the dispatch counter (shims around `kk._exec`,
 `kk._call`, `kk._parent`, `kk._constructor_exec`), the fv.video write counter,
-`fvw_budget`, and the desktop-like scene of the drawing tests (a background,
+`fvw_budget` / `fvw_budgetw` (the dispatches, and the writes of the same run), and the desktop-like scene of the drawing tests
 two framed windows with shadows and a list stand-in each: `TTWin`, `TTList`,
 `fvw_scene`) and `fvw_full` (the screen against a full repaint from
 garbage); for stage 2c-3 the scripted event source (`fvw_events`: no
 terminal), `fvw_root` and the events scene (`fvw_tscene`: an application-like
 root with a TMyApp-like override, a desktop, two `TWindow`s with a list
-stand-in each that handles keys). Each test file's stderr is captured:
+stand-in each that handles keys); for stage 2g the design's list stand-in
+`TTestList` (TView's default EventMask, one `writeBuf` per row, `drawPart`
+on kbDown, a new page on kbPgDn; `fvw_classes3`, `fvw_mklwin`). Each test file's stderr is captured:
 anything on it fails one test.
 
 | file | what |
@@ -1011,6 +1105,7 @@ anything on it fails one test.
 | 007_Events | the phases (pre / focused / post, the Phase each handler sees), positional events (the front-most visible view, hidden skipped, a disabled one swallows), broadcasts, the EventMask skip without a call (dispatch counts; built-in views 0), disabled views, the stop at evNothing, views removed / destroyed meanwhile, unknown names, click to focus and ofFirstClick, a nested group's Current, message (the handler, rc, the caller's record restored), RESULT kept, a handler's rc under `set -e`, refusals |
 | 008_Focus | the chain's bits, select of a covered window (== a full repaint, its list drawn once), the focus broadcasts in FV's order, sfActive propagation (a frame border = 3 writes, no leaf redraw), side by side (borders + shadow only), Tab in a window (arrows too; unselectable / disabled skipped), focusNext / selectNext, focus with an ofValidate Current, click to focus through the chain, resetCursor (position, shape, outside, covered, unfocused), a SetState override, hide / show / sfShadow, delete of the focused window, insert into an active group, select of a front window that is not Current, refusals; quiet broadcasts (stage 2c-p: no dispatch, the Phase a delivery sets, a listening leaf breaks the quiet and hears what it heard, the dispatch's skips in the walk; a walk that ends not quiet leaves no Phase behind); stage 2f: a built-in group handler of another unit is quiet only when listed in `__FV_VW_QGRP` |
 | 009_Commands | FV's default set at load (and across a re-source), enable / disable / commandEnabled, the changed flag, getCommands / setCommands, the window commands by Flags, execView restoring the set, refusals |
+| 010_CallBudget | stage 2g, the design's §3.1 scene built from fv.views' classes (a TMyApp-like root with `inherited`, a desktop, two 40 × 23 `TWindow`s side by side with a `TTestList` stand-in each, and the overlap scene) through TGroup's Execute with the scripted event source: the dispatch budgets with §3.2's limits (Down 6, PgDn 8, Tab side by side 8, Tab overlapping 10, click 8, repaint 6) and the writes, logged; a 42-row stand-in costs the dispatches of a 21-row one, action by action, and one write per painted row more; the drawing shape (a full frame 3 writes, a window's shadow 2 shade calls, a border-only redraw 3 writes)
 | 011_ZeroFork | the three stages (drawing included: frames, shadows, locks, drawPart with every writer; stage 2c-3: a TWindow, the focus chain, message, a key through the dispatch, commands, the cursor, a modal view with a scripted event source, mouseEvent, endModal, cmClose; stage 2d: cmZoom, a keyboard drag, a mouse drag with the drain, the close icon, dragView) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
 | 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes); a second scene (stage 2c-3: windows whose names differ only in case, the focus chain, select, message, Tab, a click, commands, the cursor, two modal views, cmZoom and back, a keyboard and a mouse drag, the close icon, cmClose) under the same setups (`inherited` replaced by the built-in body under the IFS of letters, a kklass limit) |
 | 013_Elision | every built-in virtual of the three stages (incl. `Draw`, `GetPalette` of TView / TGroup / TFrame) overridden with `inherited`: dispatch counts (0 / 2), results, user fields named like locals; the RESULT / rc rule both ways (also failing bodies, under `set -e`); overrides inside the painter; `kk.class --forget` + redefinition; a scene under `set -eu`, nocasematch and odd IFS; the unsupported func shapes (`return 0`, a failing last command) pinned as kklass behaves today; stage 2c-3: HandleEvent / SetState / Valid / Execute / EndModal of TView / TGroup and TWindow's HandleEvent / SetState / GetPalette / GetTitle / InitFrame / Close overridden with `inherited` (0 / 2 dispatches, the RESULT rule, through the dispatch, a select and execView); stage 2d: TFrame's HandleEvent and TWindow's SizeLimits / CalcBounds / Zoom (0 / 2, CalcBounds 6; through locate, cmZoom, an owner resize, a click on the close icon) |

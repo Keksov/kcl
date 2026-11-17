@@ -15,6 +15,9 @@ The unit loads [`fv.unicode`](../fv.unicode/README.md) (the width and
 cluster class of every code point) and no other `fv.*` unit.
 [`fv.drivers`](../fv.drivers/README.md) builds the event loop on it;
 [`fv.keyboard`](../fv.keyboard/README.md) reads the keys from the fd it opens.
+The views and the application above it ([`fv.views`](../fv.views/README.md),
+[`fv.menus`](../fv.menus/README.md), [`fv.app`](../fv.app/README.md)) are complete
+for P2 (stage 2g); they write through this buffer only.
 
 ## Quick start
 
@@ -788,6 +791,14 @@ shell start) on top of the drain. **Latency**, a key written to the terminal →
 it ~17 ms (the timed read of the pty wakes late on Windows). A **fifo** standing
 in for the terminal is not a fair stand-in: a blocking read of a fifo on the
 Cygwin runtimes wakes in timer steps (~15.5 ms per byte).
+
+**In the application** (fv P2 stage 2g, the `fvviews` bench of
+`tools/bench`, every action inside `fv.app`'s `Run`; Git-bash 5.3.15 on a
+machine ~1.9× slower than the tables above): the terminal update is 0.8 ms
+of a kbDown (12.1 ms), 3.6 of a kbPgDn (23.3), 11.1 of a Tab between two
+side-by-side windows (60.1: one damaged range per row sends each changed row
+whole, design R2) and 8.8 of a forced 80 × 24 redraw (54.8). The rest is
+the views' work ([fv.views "Cost"](../fv.views/README.md#cost)).
 
 ## Contract (kcl README §1) and deviations
 
