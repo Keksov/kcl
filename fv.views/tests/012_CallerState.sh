@@ -151,4 +151,98 @@ for setup in 'shopt -s nocasematch' 'shopt -s failglob' 'shopt -s nullglob' 'set
     else kt_test_fail "output [$got] vs [$want]; state before [$before] after [$after]"; fi
 done
 
+
+# ---- stage 2c-3: the events scene ------------------------------------------
+# root2 > desk2 > bg2, two TWindows whose names differ only in case (Wa, wa)
+# with a leaf each, a dialog class (TQDlg): the focus chain and its bits,
+# select, a broadcast through message, Tab, a click, the commands, the
+# cursor, a modal view ended by a command and one ended by the end of input,
+# cmClose, screen cells read back. Made before the setup (kklass's .new),
+# run after it; under the IFS of letters the dialog's handler calls the
+# built-in body instead of kklass's `inherited` (a kklass limit, see 2c-2).
+MAKE2='
+exec {FVO}>/dev/null; FV_VIDEO_OUT_FD=$FVO FV_SCREEN_W=60 FV_SCREEN_H=20; fv.video.initScreen
+class TQDlg : TWindow
+    public
+        override proc HandleEvent
+end
+TQDlg.HandleEvent() {
+    # (kklass: `inherited` fails under an IFS holding letters: that setup
+    # (NOINH) calls the built-in body directly)
+    if [[ -n ${NOINH-} ]]; then fv.views._windowEvent "$this"; else inherited HandleEvent "$@"; fi
+    if [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmYes ]; then fv.views.endModal "$this" cmYes; fv.views.clearEvent "$this"; fi
+}
+build TQDlg
+TGroup.new root2 0 0 60 20; TGroup.new desk2 0 0 60 20; TView.new bg2 0 0 60 20
+TWindow.new Wa 1 1 30 12 "Upper" 1; TView.new Wal 1 1 28 10
+TWindow.new wa 20 4 58 18 "lower" 2; TView.new wal 1 1 37 13
+TQDlg.new qd 10 3 40 12 "Ask" 0
+cut2() { local LC_ALL=C.UTF-8; fv.video.getRow "$1"; r+="${RESULT:$2:$3}|${REPLY:$2:$3}$4"; }
+'
+SCENE2='
+r=""
+Wal_data[Options]=$FV_OF_SELECTABLE wal_data[Options]=$FV_OF_SELECTABLE
+fv.views.insert Wa Wal; fv.views.insert wa wal
+fv.views.insert desk2 bg2; fv.views.insert desk2 Wa; fv.views.insert desk2 wa
+fv.views.insert root2 desk2
+root2_data[State]=$(( root2_data[State] | FV_SF_EXPOSED | FV_SF_SELECTED | FV_SF_MODAL ))
+fv.views.setState root2 "$FV_SF_FOCUSED" 1
+fv.views.drawView root2
+fvw_tree root2; r+="$REPLY;"
+fv.views.select Wa; fvw_tree desk2; r+="$REPLY;s=${Wa_data[State]},${wa_data[State]},${Wal_data[State]};"
+fv.views.message root2 evBroadcast cmSelectWindowNum 2; r+="m=$?:$RESULT:${desk2_data[Current]};"
+fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=kbTab; fv.views._virt root2 HandleEvent; r+="t=$FV_EV_WHAT;"
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=3 FV_EV_MOUSE_Y=2 FV_EV_MOUSE_BUTTONS=1; fv.views._virt root2 HandleEvent
+r+="c=$FV_EV_WHAT:${desk2_data[Current]};"
+fv.views.disableCommands cmAbc; fv.views.getCommands; r+="k=$RESULT;"; fv.views.enableCommands cmAbc
+fv.views.setCursor Wal 3 2; fv.views.blockCursor Wal; fv.views.showCursor Wal; r+="u=${__FV_VS_CURX}:${__FV_VS_CURY}:${__FV_VS_CURT};"
+fv.views.hideCursor Wal
+fvw_events "key kbA" "cmd cmYes"
+fv.views.execView desk2 qd; r+="x=$RESULT;"
+fvw_events "key kbA"
+fv.views.execView desk2 qd; r+="e=$RESULT:$__FV_VW_EOF;"
+__FV_VW_EOF=0 __FV_VW_GETEVENT=fv.drivers.getEvent
+fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmClose; fv.views._virt root2 HandleEvent
+fv.views.isView Wa || r+="closed;"
+fvw_tree root2; r+="$REPLY;"
+cut2 0 20 10 ,
+cut2 4 19 23 ""
+printf "%s" "$r"
+'
+EVFN=$(declare -f fvw_getev fvw_events)
+run2() {   # SETUP -> OUT
+    OUT=$("$BASH" -c "unset LC_ALL LC_CTYPE LANG; export LC_ALL=C.UTF-8
+$TREEFN
+$EVFN
+source '$UNIT'
+$MAKE2
+$1
+$STATE
+printf '#'
+$SCENE2
+printf '#'
+$STATE" 2>&1)
+}
+
+run2 ''
+ref2=${OUT#*#} ref2=${ref2%#*}
+kt_test_start "events scene, reference run: as expected"
+want='root2[{desk2[bg2 {Wa[Wa__fvframe Wal]*Wal} {wa[wa__fvframe wal]*wal}]*wa}]*desk2;'
+want+='desk2[bg2 {wa[wa__fvframe wal]*wal} {Wa[Wa__fvframe Wal]*Wal}]*Wa;s=121,9,113;'
+want+='m=0:wa:wa;t=evNothing;c=evNothing:Wa;k=cmAbc;u=5:4:2;x=cmYes;e=cmCancel:1;closed;'
+want+='root2[{desk2[bg2 {wa[wa__fvframe wal]*wal}]*wa}]*desk2;'
+want+='          |1111111111, ╔═[■]══════════ lower |1999A999999999999999999'
+if [[ $ref2 == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$ref2] want [$want]"; fi
+
+for setup in 'shopt -s nocasematch' 'shopt -s failglob' 'shopt -s nullglob' 'set -f' 'shopt -s extglob' \
+    'shopt -u globasciiranges' "IFS='0123456789 '" "IFS='-'" "NOINH=1; IFS='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_.'" 'IFS=' \
+    'set -eu -o pipefail' 'export LC_ALL=C' \
+    "shopt -s nocasematch failglob nullglob extglob; shopt -u globasciiranges; set -f -eu; IFS='-0123456789Ww'; export LC_ALL=C"; do
+    kt_test_start "events scene: same output and the state kept: $setup"
+    run2 "$setup"
+    got=${OUT#*#} got=${got%#*}
+    before=${OUT%%#*} after=${OUT##*#}
+    if [[ $got == "$ref2" && $before == "$after" ]]; then kt_test_pass "ok"
+    else kt_test_fail "output [$got] vs [$ref2]; state before [$before] after [$after]"; fi
+done
 kt_test_log "012_CallerState.sh completed"

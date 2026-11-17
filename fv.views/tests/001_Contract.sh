@@ -6,11 +6,13 @@
 # readonly constants) and rebuilds the classes; a failing call returns to the
 # caller from `if` / `||`; nothing is ever printed on stdout, also inside
 # $( ); using the unit leaves only its constants and FV_RECT_* / FV_POINT_* /
-# FV_MIN_* / FV_MAX_* (and FV_DRAW_* / FV_CLIP_*), __FV_VW_*, RESULT, the
-# classes' kklass tables and fv.views.* / TView.* / TGroup.* / TFrame.*
-# behind (instances deleted; kklass's own build globals and its __kkc. /
-# __kkm. functions of the three classes allowed); the main path draws too (a
-# frame, locks, show / hide, drawPart); the public API of both stages exists;
+# FV_MIN_* / FV_MAX_* (and FV_DRAW_* / FV_CLIP_*, FV_COMMANDSETCHANGED),
+# __FV_VW_*, RESULT, the classes' kklass tables and fv.views.* / TView.* /
+# TGroup.* / TFrame.* / TWindow.* behind (instances deleted; kklass's own
+# build globals and its __kkc. / __kkm. functions of the four classes
+# allowed); the main path draws too (a frame, locks, show / hide, drawPart)
+# and runs the events (a window, focus, a message, commands, a modal view
+# at the end of input); the public API of the three stages exists;
 # the test lib's shims (dispatch and write counters), buffer reader and
 # fvw_budget work.
 
@@ -26,16 +28,20 @@ kt_test_section "001: the kcl contract"
 kt_test_start "the unit source parses"
 if err="$(bash -n "$UNIT" 2>&1)"; then kt_test_pass "bash -n clean"; else kt_test_fail "bash -n: $err"; fi
 
-kt_test_start "the public API of stages 2c-1 and 2c-2 is defined"
+kt_test_start "the public API of stages 2c-1, 2c-2 and 2c-3 is defined"
 miss=''
 for f in insert insertBefore delete makeFirst putInFrontOf first last next prev nextView prevView \
     getBounds getExtent locate moveTo growTo changeBounds makeLocal makeGlobal mouseInView isView \
     drawView redraw drawPart show hide lock unlock lockScreenUpdate unlockScreenUpdate getColor resetPalette \
     writeStr writeChar writeCStr writeLine fill _frameBorder \
+    message clearEvent setState select focus focusNext selectNext \
+    enableCommands disableCommands commandEnabled getCommands setCommands \
+    resetCursor setCursor showCursor hideCursor blockCursor normalCursor \
+    execView endModal mouseEvent \
     _virt _changed _setCurrent _newReserved; do
     declare -F "fv.views.$f" >/dev/null || miss+=" fv.views.$f"
 done
-for c in TView TGroup TFrame; do declare -F "$c.new" >/dev/null || miss+=" $c.new"; done
+for c in TView TGroup TFrame TWindow; do declare -F "$c.new" >/dev/null || miss+=" $c.new"; done
 if [[ -z $miss ]]; then kt_test_pass "ok"; else kt_test_fail "missing:$miss"; fi
 
 expect_clean() {
@@ -99,6 +105,17 @@ fv.views.resetPalette w2; fv.views.resetPalette
 fv.views.drawPart lab fv.views.isView 0 1; fv.views.drawPart w2 fv.views.isView 0 1 || :
 fv.views.writeStr 0 0 x 1 || :
 w2.DrawView; w2.Hide; w2.Show; desk.Lock; desk.Unlock
+TWindow.new tw 30 2 60 12 Win 1; fv.views.insert desk tw
+desk_data[State]=\$(( desk_data[State] | FV_SF_SELECTED | FV_SF_MODAL )); fv.views.setState desk \$FV_SF_FOCUSED 1
+fv.views.select w1; fv.views.select tw; fv.views.focusNext desk 0; fv.views.selectNext desk 1; tw.Select; desk.SelectNext 0
+fv.views.message desk evBroadcast cmSelectWindowNum 1 || :
+FV_EV_WHAT=evKeyDown FV_EV_KEY=kbTab; fv.views._virt desk HandleEvent
+fv.views.disableCommands cmX; fv.views.enableCommands cmX; fv.views.commandEnabled cmQuit; fv.views.getCommands; fv.views.setCommands cmZoom
+fv.views.setCursor tw 1 1; fv.views.showCursor tw; fv.views.blockCursor tw; fv.views.normalCursor tw; fv.views.hideCursor tw; fv.views.resetCursor tw
+eofev() { FV_EV_WHAT=evNothing; return 1; }; __FV_VW_GETEVENT=eofev
+TWindow.new dl 5 5 20 10 Dlg 0; fv.views.execView desk dl; [[ \$RESULT == cmCancel ]]; desk.ExecView dl >/dev/null
+fv.views.mouseEvent tw 4 || :; fv.views.endModal tw cmQuit; [[ \${desk_data[EndState]} == cmQuit ]]
+dl.delete; tw.delete; __FV_VW_EOF=0 __FV_VW_GETEVENT=fv.drivers.getEvent; unset -f eofev
 fv.views.insert nosuch lab || :
 fv.views.locate w1 x 0 0 0 || :
 TView.new lab 0 0 1 1 2>/dev/null || :
@@ -150,7 +167,7 @@ printf '[%s][%s]' \"\$x\" \"\$y\"" 2>/dev/null)"
 # value, 0 each; the plain functions print nothing)
 if [[ $out == '[00][]' ]]; then kt_test_pass "ok"; else kt_test_fail "out='$out'"; fi
 
-kt_test_start "loading and using the unit leaves only its names behind (FV_* constants and var parameters, __FV_VW_*, RESULT, FV_DRAW_* / FV_CLIP_*, TView* / TGroup* / TFrame* class tables, fv.views.* / TView.* / TGroup.* / TFrame.* functions)"
+kt_test_start "loading and using the unit leaves only its names behind (FV_* constants and var parameters, __FV_VW_*, RESULT, FV_DRAW_* / FV_CLIP_*, FV_COMMANDSETCHANGED, TView* / TGroup* / TFrame* / TWindow* class tables, fv.views.* / TView.* / TGroup.* / TFrame.* / TWindow.* functions)"
 out="$(bash -c "
 export LC_ALL=C.UTF-8
 source '$KBOOL'
@@ -162,8 +179,8 @@ $MAIN
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
-newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_(SF|OF|GF|DM|HC|EM|WF|WP|WN|FM)_[A-Z]+|FV_DRAW_(VIEW|X|Y|PAL)|FV_CLIP_[XY][12]|FV_(RECT_[AB][XY]|POINT_[XY]|MIN_[XY]|MAX_[XY])|__FV_VW_[A-Z0-9]+|RESULT|(TView|TGroup|TFrame)_[A-Za-z_]+|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft)$' | tr '\n' ' ')"
-newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^((fv\.views|TView|TGroup|TFrame)\.|__kk[cm]\.(TView|TGroup|TFrame)(\.|$))' | tr '\n' ' ')"
+newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_(SF|OF|GF|DM|HC|EM|WF|WP|WN|FM)_[A-Z]+|FV_DRAW_(VIEW|X|Y|PAL)|FV_CLIP_[XY][12]|FV_COMMANDSETCHANGED|FV_(RECT_[AB][XY]|POINT_[XY]|MIN_[XY]|MAX_[XY])|__FV_VW_[A-Z0-9]+|RESULT|(TView|TGroup|TFrame|TWindow)_[A-Za-z_]+|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft)$' | tr '\n' ' ')"
+newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^((fv\.views|TView|TGroup|TFrame|TWindow)\.|__kk[cm]\.(TView|TGroup|TFrame|TWindow)(\.|$))' | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass "ok"; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi
 
 

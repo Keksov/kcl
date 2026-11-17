@@ -6,7 +6,10 @@
 #     elision through a user override, the guard and its repair, .delete,
 #     and the drawing (a frame with a shadowed owner, drawView, redraw, a
 #     move, lock / unlock, the border-only redraw, hide / show, drawPart
-#     with every writer, getColor) —
+#     with every writer, getColor), and stage 2c-3's (a TWindow, the focus
+#     chain, select / focusNext / selectNext, message, a key through the
+#     dispatch, commands, the cursor, a modal view with a scripted event
+#     source ending at the end of input, mouseEvent, endModal, cmClose) —
 #     works and prints no "command not found";
 #   * the static scan (fv.video's 006 scanner): no $( ), backtick, process
 #     substitution, pipe, ( ) subshell, & or coproc on any code line of
@@ -16,6 +19,40 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
 
 kt_test_section "011: no forks"
+
+# (stage 2c-3's part, sourced by the child after PATH='')
+cat > "$FVW_TMP/ev011.sh" <<'EOF'
+desk_data[State]=$(( desk_data[State] | FV_SF_SELECTED | FV_SF_MODAL )); fv.views.setState desk "$FV_SF_FOCUSED" 1
+TWindow.new tw 40 2 70 12 Ev 2; TView.new tl 1 1 29 9; tl_data[Options]=$FV_OF_SELECTABLE
+fv.views.insert tw tl; fv.views.insert desk tw
+q=()
+ge() {
+    if (( ! ${#q[@]} )); then FV_EV_WHAT=evNothing; return 1; fi
+    local s=${q[0]}
+    q=("${q[@]:1}")
+    FV_EV_WHAT=${s%%:*} s=${s#*:}
+    FV_EV_KEY=$s FV_EV_COMMAND=${s%%:*} FV_EV_INFO=${s#*:} FV_EV_MOUSE_X=${s%%:*} FV_EV_MOUSE_Y=${s#*:}
+}
+__FV_VW_GETEVENT=ge
+fv.views.select w1; fv.views.select tw; fv.views.focusNext desk 0; fv.views.selectNext desk 1
+fv.views.message desk evBroadcast cmSelectWindowNum 2; e="|$RESULT"
+FV_EV_WHAT=evKeyDown FV_EV_KEY=kbTab; fv.views._virt desk HandleEvent; e+=",$FV_EV_WHAT"
+fv.views.disableCommands cmX; fv.views.enableCommands cmX; fv.views.commandEnabled cmQuit; fv.views.setCommands cmZoom; fv.views.getCommands; e+=",$RESULT"
+fv.views.setCursor tl 2 3; fv.views.showCursor tl; fv.views.blockCursor tl; e+=",$__FV_VS_CURX:$__FV_VS_CURY:$__FV_VS_CURT"
+fv.views.hideCursor tl; fv.views.normalCursor tl
+TWindow.new dl 5 5 30 15 Dlg 0
+q=(evKeyDown:kbTab evCommand:cmClose: evMouseDown:45:5)
+fv.views.execView desk dl; e+=",$RESULT"
+__FV_VW_EOF=0
+q=(evMouseMove:46:6 evKeyDown:kbA evMouseUp:46:6)
+fv.views.mouseEvent tw "$FV_EM_MOUSEMOVE"; e+=",$?:$FV_EV_MOUSE_X"
+fv.views.mouseEvent tw "$FV_EM_MOUSEMOVE" || e+=",$?"
+fv.views.endModal tw cmQuit; e+=",${desk_data[EndState]}"
+FV_EV_WHAT=evCommand FV_EV_COMMAND=cmClose FV_EV_INFO=''; fv.views._virt desk HandleEvent
+fv.views.isView tw || e+=",closed"
+dl.delete
+r+=$e
+EOF
 
 kt_test_start "PATH='': the stage's whole path works, no external command is looked for"
 out=$("$BASH" -c "
@@ -51,12 +88,13 @@ fv.views.lockScreenUpdate; fv.views._frameBorder fr; fv.views.unlockScreenUpdate
 fv.views.hide w1; fv.views.show w1; fv.views.makeFirst u; fv.views.drawPart u pf 0 1
 fv.views.getColor fr 5; r+=\"|\$RESULT\"
 fv.video.getRow 7; r+=\"|\${RESULT:6:9}|\${REPLY:6:9}\"
+source '$FVW_TMP/ev011.sh'
 TView.new u 0 0 1 1 2>/dev/null || r+=\"|guard\$?\"
 TView.new x__fvy 0 0 1 1 2>/dev/null || r+=\"|res\$?\"
 fv.views._newReserved w1 frame TView 0 0 1 1; r+=\"|\$RESULT\"
 u.delete; v.delete; x__fvy.delete; desk.delete
 printf '%s' \"\$r\"" 2>&1)
-want='00u|0 0 4 1|25 11 55 26|3|ybrt]════|121122222|guard1|res2|w1__fvframe'
+want='00u|0 0 4 1|25 11 55 26|3|ybrt]════|121122222|tw,evNothing,cmZoom,43:7:2,cmCancel,0:46,1,cmQuit,closed|guard1|res2|w1__fvframe'
 if [[ $out == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [$want]"; fi
 
 kt_test_start "the scanner flags a fork construct in a sample line and passes the safe ones"

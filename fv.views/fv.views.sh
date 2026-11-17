@@ -17,9 +17,14 @@ kk.unit fv.views || return $__kk_unit_rc
 # guard. Stage 2c-2: palettes and getColor, the drawing context and the
 # writers, the painter (paint / drawView / over / drawUnder, the covering
 # skip, shadows), show / hide, drawPart, redraw, both lock counters and the
-# minimal TFrame; the redraw hook fv.views._changed draws. Events, focus and
-# modal views (2c-3) build on the focus hook fv.views._setCurrent and the
-# frame's border-only entry fv.views._frameBorder.
+# minimal TFrame; the redraw hook fv.views._changed draws. Stage 2c-3: the
+# event dispatch (TGroup.HandleEvent's phases, positional events, broadcasts,
+# FV's EventMask filter), message, the focus chain (select, setCurrent,
+# focus, focusNext / selectNext, the virtual-aware setState with FV's side
+# effects), command sets, resetCursor, the modal loop (Execute, execView,
+# endModal, Valid; the EOF latch and the owner-process rule), mouseEvent and
+# the basic TWindow (frame, title, number, palettes, window commands, Tab,
+# cmClose, cmSelectWindowNum). Zoom, dragging and the frame's mouse are 2d.
 #
 # Conventions of every plain function here:
 #   * the view name first; locals `__fvw_*`; fields read and written through
@@ -146,6 +151,43 @@ declare -g __FV_VW_FORCE=${__FV_VW_FORCE:-0}
 # this paint may write in the view's own coordinates ([X1,X2) x [Y1,Y2)).
 declare -g FV_DRAW_VIEW=${FV_DRAW_VIEW-} FV_DRAW_X=${FV_DRAW_X:-0} FV_DRAW_Y=${FV_DRAW_Y:-0} FV_DRAW_PAL=${FV_DRAW_PAL-}
 declare -g FV_CLIP_X1=${FV_CLIP_X1:-0} FV_CLIP_Y1=${FV_CLIP_Y1:-0} FV_CLIP_X2=${FV_CLIP_X2:-0} FV_CLIP_Y2=${FV_CLIP_Y2:-0}
+# Events, focus, modal views (stage 2c-3):
+#   PEND      1 when a terminal update was held back (lockScreenUpdate, a
+#             user lock): the framework's own sequences flush at their end
+#             only then (fv.views._release)
+#   SKIP      a view the current framework sequence draws whole right after:
+#             no redraw of it or inside it meanwhile (fv.views._drawable)
+#   CPEND     a view whose tree waits for resetCursor at the end of the held
+#             sequence (fv.views._cursorLater)
+#   EH        the holds of the terminal update the modal loops keep while a
+#             handler runs (one update per event: fv.views._showNow)
+#   CMDOFF    the disabled commands (names; FV's CurCommandSet is the
+#             complement), CMDINIT set once FV's default set was applied
+#   TOPVIEW   FV's TheTopView: the view execView runs
+#   GETEVENT  the event source of the modal loop and mouseEvent: a function
+#             filling fv.drivers' FV_EV_* (rc 0, evNothing included; rc 1
+#             at the end of input). fv.app (stage 2f) sets its _getEvent
+#   PUTEVENT  FV's PutEvent (TWindow's modal cmClose posts cmCancel)
+#   EOF       the end-of-input LATCH: once the event source said "end of
+#             input", every running loop ends after the current event without
+#             asking Valid and a new execView returns cmCancel at once.
+#             Whoever starts a new input (fv.app's Init) resets it to 0
+#   OWNER     the process that owns the screen (BASHPID when the unit was
+#             loaded; fv.app's Init records its own): the modal loop refuses
+#             to run anywhere else (inside $( ), a pipeline)
+# FV_COMMANDSETCHANGED: FV's CommandSetChanged, 1 after a command set
+# change; fv.app's Idle broadcasts cmCommandSetChanged and clears it.
+declare -g __FV_VW_PEND=${__FV_VW_PEND:-0} __FV_VW_SKIP=${__FV_VW_SKIP-} __FV_VW_TOPVIEW=${__FV_VW_TOPVIEW-}
+declare -g __FV_VW_CPEND=${__FV_VW_CPEND-} __FV_VW_EH=${__FV_VW_EH:-0}
+declare -g __FV_VW_GETEVENT=${__FV_VW_GETEVENT:-fv.drivers.getEvent} __FV_VW_PUTEVENT=${__FV_VW_PUTEVENT:-fv.drivers.putEvent}
+declare -g __FV_VW_EOF=${__FV_VW_EOF:-0} __FV_VW_OWNER=${__FV_VW_OWNER:-$BASHPID} __FV_VW_CMDINIT=${__FV_VW_CMDINIT-}
+declare -g FV_COMMANDSETCHANGED=${FV_COMMANDSETCHANGED:-0}
+declare -gA __FV_VW_CMDOFF
+if [[ -z $__FV_VW_CMDINIT ]]; then
+    # FV: CurCommandSet = [0..255] - [cmZoom, cmClose, cmResize, cmNext, cmPrev]
+    __FV_VW_CMDOFF=([cmZoom]=1 [cmClose]=1 [cmResize]=1 [cmNext]=1 [cmPrev]=1)
+    __FV_VW_CMDINIT=1
+fi
 # The elision tables (design §1.4): IMPL = the plain body of each built-in
 # virtual, keyed DEFININGCLASS.METHOD; FUNC = the virtuals FV declares as
 # functions (they answer in RESULT on both paths; the others leave it).
@@ -155,6 +197,14 @@ declare -gA __FV_VW_IMPL=(
     [TGroup.ChangeBounds]=fv.views._groupChangeBounds [TGroup.GetHelpCtx]=fv.views._groupGetHelpCtx
     [TView.Draw]=fv.views._viewDraw [TGroup.Draw]=fv.views._groupDraw [TFrame.Draw]=fv.views._frameDraw
     [TView.GetPalette]=fv.views._viewGetPalette [TFrame.GetPalette]=fv.views._frameGetPalette
+    [TView.HandleEvent]=fv.views._viewEvent [TGroup.HandleEvent]=fv.views._groupEvent
+    [TView.SetState]=fv.views._viewSetState [TGroup.SetState]=fv.views._groupSetState
+    [TView.Valid]=fv.views._viewValid [TGroup.Valid]=fv.views._groupValid
+    [TView.Execute]=fv.views._viewExecute [TGroup.Execute]=fv.views._groupExecute
+    [TView.EndModal]=fv.views._viewEndModal [TGroup.EndModal]=fv.views._groupEndModal
+    [TWindow.HandleEvent]=fv.views._windowEvent [TWindow.SetState]=fv.views._windowSetState
+    [TWindow.GetPalette]=fv.views._windowGetPalette [TWindow.GetTitle]=fv.views._windowGetTitle
+    [TWindow.InitFrame]=fv.views._windowInitFrame [TWindow.Close]=fv.views._windowClose
 )
 declare -gA __FV_VW_FUNC=(
     [GetPalette]=1 [GetHelpCtx]=1 [Valid]=1 [Execute]=1 [GetTitle]=1 [Hint]=1 [GetEvent]=1
@@ -210,27 +260,39 @@ class TView
         proc DrawView
         proc Show
         proc Hide
+        proc HandleEvent
+        proc SetState
+        func Valid
+        func Execute
+        proc EndModal
+        proc Select
 end
 # TView.new NAME AX AY BX BY — FV `Init(R)` with `R.Assign(AX, AY, BX, BY)`
 # (corners, B exclusive). rc 1: NAME is a live view (the tree is repaired,
 # one Error line); rc 2: a reserved name (`__fv` inside) or a bound that is
 # not an integer (one Error line).
-TView.Create() { fv.views._create "$this" "$@"; }
-TView.Done() { fv.views._done "$this"; }
-TView.ChangeBounds() { fv.views._viewChangeBounds "$this" "$@"; }
-TView.CalcBounds() { fv.views._viewCalcBounds "$this" "$@"; }
-TView.SizeLimits() { fv.views._viewSizeLimits "$this" "$@"; }
-TView.GetHelpCtx() { fv.views._viewGetHelpCtx "$this" "$@"; }
-TView.MakeFirst() { fv.views.makeFirst "$this"; }
-TView.PutInFrontOf() { fv.views.putInFrontOf "$this" "$@"; }
-TView.Locate() { fv.views.locate "$this" "$@"; }
-TView.MoveTo() { fv.views.moveTo "$this" "$@"; }
-TView.GrowTo() { fv.views.growTo "$this" "$@"; }
-TView.Draw() { fv.views._viewDraw "$this"; }
-TView.GetPalette() { fv.views._viewGetPalette "$this"; }
-TView.DrawView() { fv.views.drawView "$this"; }
-TView.Show() { fv.views.show "$this"; }
-TView.Hide() { fv.views.hide "$this"; }
+TView.Create() { fv.views._create "$this" "$@" || return; }
+TView.Done() { fv.views._done "$this" || return; }
+TView.ChangeBounds() { fv.views._viewChangeBounds "$this" "$@" || return; }
+TView.CalcBounds() { fv.views._viewCalcBounds "$this" "$@" || return; }
+TView.SizeLimits() { fv.views._viewSizeLimits "$this" "$@" || return; }
+TView.GetHelpCtx() { fv.views._viewGetHelpCtx "$this" "$@" || return; }
+TView.MakeFirst() { fv.views.makeFirst "$this" || return; }
+TView.PutInFrontOf() { fv.views.putInFrontOf "$this" "$@" || return; }
+TView.Locate() { fv.views.locate "$this" "$@" || return; }
+TView.MoveTo() { fv.views.moveTo "$this" "$@" || return; }
+TView.GrowTo() { fv.views.growTo "$this" "$@" || return; }
+TView.Draw() { fv.views._viewDraw "$this" || return; }
+TView.GetPalette() { fv.views._viewGetPalette "$this" || return; }
+TView.DrawView() { fv.views.drawView "$this" || return; }
+TView.Show() { fv.views.show "$this" || return; }
+TView.Hide() { fv.views.hide "$this" || return; }
+TView.HandleEvent() { fv.views._viewEvent "$this" "$@" || return; }
+TView.SetState() { fv.views._viewSetState "$this" "$@" || return; }
+TView.Valid() { fv.views._viewValid "$this" "$@" || return; }
+TView.Execute() { fv.views._viewExecute "$this" "$@" || return; }
+TView.EndModal() { fv.views._viewEndModal "$this" "$@" || return; }
+TView.Select() { fv.views.select "$this" || return; }
 build TView
 
 class TGroup : TView
@@ -243,10 +305,17 @@ class TGroup : TView
         override proc ChangeBounds
         override func GetHelpCtx
         override proc Draw
+        override proc HandleEvent
+        override proc SetState
+        override func Valid
+        override func Execute
+        override proc EndModal
         proc Insert
         proc InsertBefore
         proc Lock
         proc Unlock
+        proc SelectNext
+        func ExecView
 end
 # TGroup.new NAME AX AY BX BY — FV TGroup.Init: TView's, then ofSelectable +
 # ofBuffered, EventMask $FFFF, an empty subview list. A refused TView part
@@ -256,13 +325,20 @@ TGroup.Create() {
     [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
     fv.views._groupCreate "$this"
 }
-TGroup.ChangeBounds() { fv.views._groupChangeBounds "$this" "$@"; }
-TGroup.GetHelpCtx() { fv.views._groupGetHelpCtx "$this" "$@"; }
-TGroup.Insert() { fv.views.insert "$this" "$@"; }
-TGroup.InsertBefore() { fv.views.insertBefore "$this" "$@"; }
-TGroup.Draw() { fv.views._groupDraw "$this"; }
-TGroup.Lock() { fv.views.lock "$this"; }
-TGroup.Unlock() { fv.views.unlock "$this"; }
+TGroup.ChangeBounds() { fv.views._groupChangeBounds "$this" "$@" || return; }
+TGroup.GetHelpCtx() { fv.views._groupGetHelpCtx "$this" "$@" || return; }
+TGroup.Insert() { fv.views.insert "$this" "$@" || return; }
+TGroup.InsertBefore() { fv.views.insertBefore "$this" "$@" || return; }
+TGroup.Draw() { fv.views._groupDraw "$this" || return; }
+TGroup.Lock() { fv.views.lock "$this" || return; }
+TGroup.Unlock() { fv.views.unlock "$this" || return; }
+TGroup.HandleEvent() { fv.views._groupEvent "$this" "$@" || return; }
+TGroup.SetState() { fv.views._groupSetState "$this" "$@" || return; }
+TGroup.Valid() { fv.views._groupValid "$this" "$@" || return; }
+TGroup.Execute() { fv.views._groupExecute "$this" "$@" || return; }
+TGroup.EndModal() { fv.views._groupEndModal "$this" "$@" || return; }
+TGroup.SelectNext() { fv.views.selectNext "$this" "$@" || return; }
+TGroup.ExecView() { fv.views.execView "$this" "$@" || return; }
 build TGroup
 
 # TFrame.new NAME AX AY BX BY — FV TFrame.Init: TView's, then GrowMode
@@ -285,9 +361,46 @@ TFrame.Create() {
     [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
     fv.views._frameCreate "$this"
 }
-TFrame.Draw() { fv.views._frameDraw "$this"; }
-TFrame.GetPalette() { fv.views._frameGetPalette "$this"; }
+TFrame.Draw() { fv.views._frameDraw "$this" || return; }
+TFrame.GetPalette() { fv.views._frameGetPalette "$this" || return; }
 build TFrame
+
+# TWindow.new NAME AX AY BX BY [TITLE [NUMBER]] — FV TWindow.Init(Bounds,
+# ATitle, ANumber): TGroup's, then sfShadow, ofSelectable + ofTopSelect,
+# GrowMode gfGrowAll + gfGrowRel, Flags wfMove + wfGrow + wfClose + wfZoom,
+# Palette wpBlueWindow, Frame by InitFrame (virtual; the built-in makes the
+# TFrame NAME__fvframe over the whole window) inserted, ZoomRect = the
+# bounds ("AX AY BX BY"). NUMBER: 1..9 is shown on the frame (FV wnNoNumber
+# 0; not an integer: 0). Stage 2d adds Zoom, SizeLimits (MinWinSize) and
+# CalcBounds (ZoomRect), cmZoom / cmResize and the frame's mouse.
+class TWindow : TGroup
+    public
+        var Flags
+        var Title
+        var Number
+        var Palette
+        var Frame
+        var ZoomRect
+        constructor Create
+        override proc HandleEvent
+        override proc SetState
+        override func GetPalette
+        func GetTitle
+        proc InitFrame
+        proc Close
+end
+TWindow.Create() {
+    inherited
+    [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
+    fv.views._windowCreate "$this" "${5-}" "${6-}"
+}
+TWindow.HandleEvent() { fv.views._windowEvent "$this" "$@" || return; }
+TWindow.SetState() { fv.views._windowSetState "$this" "$@" || return; }
+TWindow.GetPalette() { fv.views._windowGetPalette "$this" || return; }
+TWindow.GetTitle() { fv.views._windowGetTitle "$this" "$@" || return; }
+TWindow.InitFrame() { fv.views._windowInitFrame "$this" || return; }
+TWindow.Close() { fv.views._windowClose "$this" || return; }
+build TWindow
 
 # ---- the hooks ------------------------------------------------------------------
 # fv.views._changed WHY V G AX1 AY1 AX2 AY2 — the REDRAW HOOK. Called after
@@ -329,46 +442,103 @@ fv.views._changed() {
 }
 
 # fv.views._order V G — the `order` redraw after putInFrontOf (V's old index
-# in __FV_VW_OIDX): V moved in front of a view whose S() met S(V) -> drawView
-# V; moved behind one -> the views in front of V over S(V); else nothing
+# in __FV_VW_OIDX; fv.views._orderHit): V moved in front of views that
+# covered part of it (their S() met V's rect) -> drawView V (whole: a
+# partial repaint would need V's own focus redraws too, and a list writes
+# its rows anyway); moved in front of views that only its shadow meets ->
+# only the shadow; moved behind views whose S() meets S(V) -> those views
+# over S(V); else nothing
 fv.views._order() {
-    local -n __fvw_l=${2}_views
-    local __fvw_i=-1 __fvw_j=$__FV_VW_OIDX __fvw_a __fvw_b __fvw_k __fvw_m=0
-    local __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4 __fvw_q1 __fvw_q2 __fvw_q3 __fvw_q4
+    local __fvw_m=0 __fvw_q1 __fvw_q2 __fvw_q3 __fvw_q4
+    fv.views._orderHit "$1" "$2"
+    if (( __fvw_m == 1 )); then fv.views._drawView "$1"
+    elif (( __fvw_m == 3 )); then
+        local -n __fvw_od=${1}_data
+        local __fvw_x=${__FV_VW_AX[$1]} __fvw_y=${__FV_VW_AY[$1]} __fvw_w=${__fvw_od[SizeX]:-0} __fvw_h=${__fvw_od[SizeY]:-0}
+        # (the two shadow strips: right of V from its second row, below V from its third column)
+        local -a __fvw_rs=(
+            "$(( __fvw_x + __fvw_w ))" "$(( __fvw_y + 1 ))" "$(( __fvw_x + __fvw_w + 2 ))" "$(( __fvw_y + __fvw_h + 1 ))"
+            "$(( __fvw_x + 2 ))" "$(( __fvw_y + __fvw_h ))" "$(( __fvw_x + __fvw_w ))" "$(( __fvw_y + __fvw_h + 1 ))")
+        fv.views._drawRects "$1"
+    elif (( __fvw_m == 2 )); then fv.views._overOnly "$1" "$__fvw_q1" "$__fvw_q2" "$__fvw_q3" "$__fvw_q4"; fi
+}
+# fv.views._orderHit V G — after V moved from the old index __FV_VW_OIDX,
+# the caller's __fvw_m: moved in front of visible views — 1 when the S() of
+# one of them meets V's rect (V was covered there), else 3 when only V's
+# shadow meets one; moved behind them — 2 when S(V) meets the S() of one;
+# else 0. __fvw_q1..4 = S(V)
+fv.views._orderHit() {
+    local -n __fvw_l=${2}_views __fvw_hd=${1}_data
+    local __fvw_i=-1 __fvw_j=$__FV_VW_OIDX __fvw_a __fvw_b __fvw_k __fvw_x2 __fvw_y2
+    local __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4
+    __fvw_m=0
     fv.views._idx "$2" "$1"
     if (( __fvw_i < 0 || __fvw_j < 0 || __fvw_i == __fvw_j )); then return 0; fi
     fv.views._srect "$1"
     __fvw_q1=$__fvw_r1 __fvw_q2=$__fvw_r2 __fvw_q3=$__fvw_r3 __fvw_q4=$__fvw_r4
+    # (V's own rect, without the shadow)
+    __fvw_x2=$(( __fvw_q1 + ${__fvw_hd[SizeX]:-0} )) __fvw_y2=$(( __fvw_q2 + ${__fvw_hd[SizeY]:-0} ))
     if (( __fvw_i > __fvw_j )); then __fvw_a=$__fvw_j __fvw_b=$(( __fvw_i - 1 )); else __fvw_a=$(( __fvw_i + 1 )) __fvw_b=$__fvw_j; fi
     for (( ; __fvw_a <= __fvw_b; __fvw_a++ )); do
         __fvw_k=${__fvw_l[__fvw_a]}
         local -n __fvw_kd=${__fvw_k}_data
         if (( ! (${__fvw_kd[State]:-0} & FV_SF_VISIBLE) )); then continue; fi
         fv.views._srect "$__fvw_k"
-        if (( __fvw_r1 < __fvw_q3 && __fvw_q1 < __fvw_r3 && __fvw_r2 < __fvw_q4 && __fvw_q2 < __fvw_r4 )); then __fvw_m=1; break; fi
+        if (( __fvw_r1 >= __fvw_q3 || __fvw_q1 >= __fvw_r3 || __fvw_r2 >= __fvw_q4 || __fvw_q2 >= __fvw_r4 )); then continue; fi
+        if (( __fvw_i < __fvw_j )); then __fvw_m=2; return 0; fi
+        if (( __fvw_r1 < __fvw_x2 && __fvw_q1 < __fvw_r3 && __fvw_r2 < __fvw_y2 && __fvw_q2 < __fvw_r4 )); then __fvw_m=1; return 0; fi
+        __fvw_m=3
     done
-    if (( ! __fvw_m )); then return 0; fi
-    if (( __fvw_i > __fvw_j )); then fv.views._drawView "$1"
-    else fv.views._overOnly "$1" "$__fvw_q1" "$__fvw_q2" "$__fvw_q3" "$__fvw_q4"; fi
 }
 
-# fv.views._setCurrent G V — the FOCUS HOOK: G's Current becomes V ('' =
-# none), the sfSelected bits move (FV SetCurrent with NormalSelect). P2 stage
-# 2c-3 adds the focus chain (sfFocused, the focus broadcasts), the bit
-# changes through the virtual-aware setState and the redraw.
+# fv.views._drawRects V — V painted within each rectangle of the caller's
+# __fvw_rs (absolute X1 Y1 X2 Y2, ...) with its shadow there, then the views
+# in front of V over them, flush (the `order` redraw's shadow-only form)
+fv.views._drawRects() {
+    fv.views._drawable "$1" || return 0
+    local __fvw_bg __fvw_b1 __fvw_b2 __fvw_b3 __fvw_b4 __fvw_j
+    fv.views._nestCut "$1"
+    fv.views._bands
+    fv.views._begin
+    for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
+        fv.views._paint "$1" "${__fvw_rs[@]:__fvw_j:4}"
+        fv.views._shade "$1" "${__fvw_rs[@]:__fvw_j:4}" || :
+    done
+    fv.views._over "$1"
+    fv.views._wideMark
+    fv.views._end
+    fv.views._flush
+}
+
+# fv.views._setCurrent G V [MODE] — the FOCUS HOOK, FV SetCurrent(V, Mode):
+# G's Current becomes V ('' = none). When G is focused the old Current loses
+# sfFocused, then (MODE not `enter`) the old Current loses sfSelected, (MODE
+# not `leave`) V gains sfSelected, and V gains sfFocused when G is focused;
+# then Current := V. MODE: '' (FV NormalSelect), enter / leave (EnterSelect
+# / LeaveSelect: execView). Every bit goes through the virtual-aware
+# setState (FV's side effects: the focus broadcasts, TWindow's sfActive and
+# its frame's border, the window commands). D17: no Lock of G (FV redraws
+# all of G at its Unlock); the terminal update is held to the end. RESULT
+# is kept.
 fv.views._setCurrent() {
     local -n __fvw_g=${1}_data
-    local __fvw_o=${__fvw_g[Current]-}
+    local __fvw_o=${__fvw_g[Current]-} __fvw_m=${3-} __fvw_f __fvw_rr=${RESULT-}
     if [ "$__fvw_o" = "$2" ]; then return 0; fi
-    if [[ -n $__fvw_o && -n ${__FV_VW_LIVE[$__fvw_o]-} ]]; then
-        local -n __fvw_od=${__fvw_o}_data
-        __fvw_od[State]=$(( ${__fvw_od[State]:-0} & ~FV_SF_SELECTED ))
+    if [[ -n $__fvw_o && -z ${__FV_VW_LIVE[$__fvw_o]-} ]]; then __fvw_o=''; fi
+    __fvw_f=$(( ${__fvw_g[State]:-0} & FV_SF_FOCUSED ))
+    __FV_VW_LSU=$(( __FV_VW_LSU + 1 ))
+    if [[ -n $__fvw_o ]]; then
+        if (( __fvw_f )); then fv.views._virt "$__fvw_o" SetState "$FV_SF_FOCUSED" 0 || :; fi
+        if ! [ "$__fvw_m" = enter ]; then fv.views._virt "$__fvw_o" SetState "$FV_SF_SELECTED" 0 || :; fi
     fi
-    if [[ -n $2 ]]; then
-        local -n __fvw_nd=${2}_data
-        __fvw_nd[State]=$(( ${__fvw_nd[State]:-0} | FV_SF_SELECTED ))
+    if [[ -n $2 && -n ${__FV_VW_LIVE[$2]-} ]]; then
+        if ! [ "$__fvw_m" = leave ]; then fv.views._virt "$2" SetState "$FV_SF_SELECTED" 1 || :; fi
+        if (( __fvw_f )); then fv.views._virt "$2" SetState "$FV_SF_FOCUSED" 1 || :; fi
     fi
-    __fvw_g[Current]=$2
+    # (G itself may have been destroyed by a handler of the broadcasts)
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then __fvw_g[Current]=$2; fi
+    fv.views._release
+    RESULT=$__fvw_rr
 }
 
 # ---- the elision (design §1.4) ----------------------------------------------
@@ -540,12 +710,25 @@ fv.views._resetCurrent() {
 # root-relative
 fv.views._detach() {
     local -n __fvw_l=${1}_views __fvw_d=${2}_data __fvw_g=${1}_data
-    __fvw_l=("${__fvw_l[@]:0:$3}" "${__fvw_l[@]:$3+1}")
-    __fvw_d[Owner]=''
-    if (( (${__fvw_d[State]:-0} & FV_SF_VISIBLE) && (${__fvw_d[Options]:-0} & FV_OF_SELECTABLE) )) \
+    local __fvw_st=${__fvw_d[State]:-0} __fvw_ix=$3
+    # (as FV's Delete: V hidden first, then ResetCurrent while V is still in
+    # G, so a focused V loses its focus with its owner set (cmReleasedFocus
+    # reaches G) and nothing of V is redrawn meanwhile; its bit back after)
+    if (( (__fvw_st & FV_SF_VISIBLE) && (${__fvw_d[Options]:-0} & FV_OF_SELECTABLE) )) \
        || [ "${__fvw_g[Current]-}" = "$2" ]; then
+        __fvw_d[State]=$(( __fvw_st & ~FV_SF_VISIBLE ))
         fv.views._resetCurrent "$1"
+        if [[ -n ${__FV_VW_LIVE[$2]-} ]]; then
+            __fvw_d[State]=$(( (${__fvw_d[State]:-0} & ~FV_SF_VISIBLE) | (__fvw_st & FV_SF_VISIBLE) ))
+        fi
+        # (a handler of the focus broadcasts may have reordered G)
+        local __fvw_i=-1
+        fv.views._idx "$1" "$2"
+        __fvw_ix=$__fvw_i
     fi
+    if (( __fvw_ix >= 0 )); then __fvw_l=("${__fvw_l[@]:0:$__fvw_ix}" "${__fvw_l[@]:$__fvw_ix+1}"); fi
+    if [[ -z ${__FV_VW_LIVE[$2]-} ]]; then return 0; fi
+    __fvw_d[Owner]=''
     fv.views._calc "$2"
     fv.views._palReset "$2"
 }
@@ -556,6 +739,15 @@ fv.views._detach() {
 fv.views._free() {
     local __fvw_k
     if [[ -n ${__FV_VW_GRP[$1]-} ]]; then
+        # (FV TGroup.Done hides each subview first: its Current loses the
+        # focus and the selection, so a window's commands are disabled
+        # again; nothing is drawn, the group is going away)
+        local -n __fvw_fg=${1}_data
+        if [[ -n ${__fvw_fg[Current]-} ]]; then
+            __FV_VW_NODRAW=$(( __FV_VW_NODRAW + 1 ))
+            fv.views._setCurrent "$1" ''
+            __FV_VW_NODRAW=$(( __FV_VW_NODRAW - 1 ))
+        fi
         local -n __fvw_l=${1}_views
         local -a __fvw_kids=("${__fvw_l[@]}")
         __fvw_l=()
@@ -739,13 +931,28 @@ fv.views._insert() {   # G V TARGET CALLER
     __fvw_d[Owner]=$1
     fv.views._calc "$2"
     fv.views._palReset "$2"
-    # FV: Show -> SetState(sfVisible) -> Owner^.ResetCurrent for a selectable
-    # V. (2c-3: a group with sfActive passes sfActive to V, FV InsertBefore.)
-    if (( (${__fvw_d[State]:-0} & FV_SF_VISIBLE) && (${__fvw_d[Options]:-0} & FV_OF_SELECTABLE) )); then
-        fv.views._resetCurrent "$1"
+    local __fvw_rr=${RESULT-} __fvw_sk=$__FV_VW_SKIP
+    __FV_VW_LSU=$(( __FV_VW_LSU + 1 ))
+    # FV InsertBefore: a group with sfActive passes it to V (V is drawn whole
+    # below, so nothing is drawn for that state change); FV: Show ->
+    # SetState(sfVisible) -> Owner^.ResetCurrent for a selectable V (V's own
+    # redraws held the same way: the old Current's are not)
+    if (( ${__fvw_gd[State]:-0} & FV_SF_ACTIVE )); then
+        __FV_VW_NODRAW=$(( __FV_VW_NODRAW + 1 ))
+        fv.views._virt "$2" SetState "$FV_SF_ACTIVE" 1 || :
+        __FV_VW_NODRAW=$(( __FV_VW_NODRAW - 1 ))
     fi
-    fv.views._abs "$2"
-    fv.views._changed insert "$2" "$1" "$__fvw_r1" "$__fvw_r2" "$__fvw_r3" "$__fvw_r4"
+    if (( (${__fvw_d[State]:-0} & FV_SF_VISIBLE) && (${__fvw_d[Options]:-0} & FV_OF_SELECTABLE) )); then
+        __FV_VW_SKIP=$2
+        fv.views._resetCurrent "$1"
+        __FV_VW_SKIP=$__fvw_sk
+    fi
+    if [[ -n ${__FV_VW_LIVE[$2]-} ]]; then
+        fv.views._abs "$2"
+        fv.views._changed insert "$2" "$1" "$__fvw_r1" "$__fvw_r2" "$__fvw_r3" "$__fvw_r4"
+    fi
+    fv.views._release
+    RESULT=$__fvw_rr
 }
 
 # fv.views.delete G V — FV Delete: V out of G (its Owner '', Current reset
@@ -790,11 +997,25 @@ fv.views.putInFrontOf() {
     if [[ -n $2 ]]; then fv.views._idx "$__fvw_g" "$2"; fi
     __fvw_l=("${__fvw_l[@]:0:$__fvw_i+1}" "$1" "${__fvw_l[@]:$__fvw_i+1}")
     if (( ${__fvw_d[State]:-0} & FV_SF_VISIBLE )); then
-        if (( ${__fvw_d[Options]:-0} & FV_OF_SELECTABLE )); then fv.views._resetCurrent "$__fvw_g"; fi
-        fv.views._abs "$1"
-        __FV_VW_OIDX=$__fvw_j
-        fv.views._changed order "$1" "$__fvw_g" "$__fvw_r1" "$__fvw_r2" "$__fvw_r3" "$__fvw_r4"
+        local __fvw_rr=${RESULT-} __fvw_sk=$__FV_VW_SKIP __fvw_m=0 __fvw_q1 __fvw_q2 __fvw_q3 __fvw_q4
+        __FV_VW_LSU=$(( __FV_VW_LSU + 1 ))
+        if (( ${__fvw_d[Options]:-0} & FV_OF_SELECTABLE )); then
+            # (V moved in front of views that covered part of it is drawn
+            # whole by the `order` redraw below: its focus redraws are left out)
+            __FV_VW_OIDX=$__fvw_j
+            fv.views._orderHit "$1" "$__fvw_g"
+            if (( __fvw_m == 1 )); then __FV_VW_SKIP=$1; fi
+            fv.views._resetCurrent "$__fvw_g"
+            __FV_VW_SKIP=$__fvw_sk
+        fi
+        if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then
+            fv.views._abs "$1"
+            __FV_VW_OIDX=$__fvw_j
+            fv.views._changed order "$1" "$__fvw_g" "$__fvw_r1" "$__fvw_r2" "$__fvw_r3" "$__fvw_r4"
+        fi
         __FV_VW_OIDX=-1
+        fv.views._release
+        RESULT=$__fvw_rr
     fi
 }
 
@@ -1168,11 +1389,58 @@ fv.views._end() {
 # user lock) or inside another drawing entry (the outermost one flushes)
 fv.views._flush() {
     if (( __FV_VW_LSU == 0 && __FV_VW_LOCKN == 0 && __FV_VW_DEPTH == 0 )); then
+        __FV_VW_PEND=0
         # (a redraw's forced update waits here while the update is held)
         if (( __FV_VW_FORCE )); then __FV_VW_FORCE=0; fv.video.updateScreen force || :
         else fv.video.updateScreen || :; fi
+    elif (( __FV_VW_DEPTH == 0 )); then
+        __FV_VW_PEND=1
     fi
     return 0
+}
+
+# fv.views._release — the end of a framework sequence that held the update
+# itself (__FV_VW_LSU += 1 at its start; D17: no Lock): the count back, and
+# the terminal updated when something was held back meanwhile and nothing
+# holds it any more. RESULT is kept
+fv.views._release() {
+    __FV_VW_LSU=$(( __FV_VW_LSU - 1 ))
+    if (( __FV_VW_LSU < 0 )); then __FV_VW_LSU=0; fi
+    if (( __FV_VW_LSU == 0 )) && [[ -n $__FV_VW_CPEND ]]; then fv.views._cursorNow; fi
+    if (( __FV_VW_PEND && __FV_VW_LSU == 0 && __FV_VW_LOCKN == 0 )); then
+        local __fvw_rr=${RESULT-}
+        fv.views._flush
+        RESULT=$__fvw_rr
+    fi
+    return 0
+}
+
+# fv.views._cursorLater V — resetCursor for V's tree, now, or (while the
+# update is held: lockScreenUpdate, a framework sequence) once at the release
+# (fv.views._release, unlockScreenUpdate): a focus change sets and clears
+# sfFocused on several views. _cursorNow runs the one that waits
+fv.views._cursorLater() {
+    if (( __FV_VW_LSU > 0 )); then __FV_VW_CPEND=$1; else fv.views._resetCursor "$1"; fi
+}
+# fv.views._showNow — the terminal update that only the modal loops' own
+# per-event holds (__FV_VW_EH) keep back: sent now (with the cursor waiting
+# for resetCursor), so a nested modal view or a mouse tracking loop inside a
+# handler shows its frames. A hold of the caller's (lockScreenUpdate, a user
+# lock, a drawing entry) keeps it back still. RESULT is kept
+fv.views._showNow() {
+    if (( __FV_VW_LSU != __FV_VW_EH || __FV_VW_LOCKN || __FV_VW_DEPTH )); then return 0; fi
+    if (( ! __FV_VW_PEND )) && [[ -z $__FV_VW_CPEND ]]; then return 0; fi
+    local __fvw_hs=$__FV_VW_LSU __fvw_rr=${RESULT-}
+    __FV_VW_LSU=0
+    if [[ -n $__FV_VW_CPEND ]]; then fv.views._cursorNow; fi
+    if (( __FV_VW_PEND )); then fv.views._flush; fi
+    __FV_VW_LSU=$__fvw_hs
+    RESULT=$__fvw_rr
+}
+fv.views._cursorNow() {
+    local __fvw_cv=$__FV_VW_CPEND
+    __FV_VW_CPEND=''
+    if [[ -n $__fvw_cv && -n ${__FV_VW_LIVE[$__fvw_cv]-} ]]; then fv.views._resetCursor "$__fvw_cv"; fi
 }
 
 # fv.views._drawable V — rc 0 when V may be drawn now: drawing not held
@@ -1186,6 +1454,8 @@ fv.views._drawable() {
     while :; do
         local -n __fvw_dd=${__fvw_v}_data
         if (( ! (${__fvw_dd[State]:-0} & FV_SF_VISIBLE) )) || [[ -n ${__FV_VW_LK[$__fvw_v]-} ]]; then return 1; fi
+        # (a view the running framework sequence draws whole right after)
+        if [[ -n $__FV_VW_SKIP ]] && [ "$__fvw_v" = "$__FV_VW_SKIP" ]; then return 1; fi
         if [[ -z ${__fvw_dd[Owner]-} ]]; then break; fi
         __fvw_v=${__fvw_dd[Owner]}
     done
@@ -1588,33 +1858,24 @@ fv.views.drawPart() {
     return "$__fvw_s"
 }
 
-# fv.views.show V / hide V — FV Show / Hide (SetState sfVisible; the
-# virtual-aware setState is stage 2c-3): the bit, then (V in a group) FV's
-# DrawShow (drawView V with its shadow) / DrawHide (drawUnder the owner over
-# S(V)), then the owner's ResetCurrent for a selectable V. A no-op when the
-# bit already is so
+# fv.views.show V / hide V — FV Show / Hide: V's SetState(sfVisible, …)
+# through the elision when the bit is not so yet (a no-op otherwise); TView's
+# body sets the bit, then (V in a group) FV's DrawShow (drawView V with its
+# shadow) / DrawHide (drawUnder the owner over S(V)), then the owner's
+# ResetCurrent for a selectable V. RESULT is kept
 fv.views.show() { fv.views._showHide "${1-}" 1 show "$#"; }
 fv.views.hide() { fv.views._showHide "${1-}" 0 hide "$#"; }
 fv.views._showHide() {   # V ON CALLER ARGC
     if (( $4 != 1 )); then fv.views._bad "$3" 'wrong argument count'; return; fi
     fv.views._view "$1" "$3" || return
     local -n __fvw_d=${1}_data
-    local __fvw_st=${__fvw_d[State]:-0} __fvw_o=${__fvw_d[Owner]-} __fvw_r=${RESULT-}
-    local __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4
     if (( $2 )); then
-        if (( __fvw_st & FV_SF_VISIBLE )); then return 0; fi
-        __fvw_d[State]=$(( __fvw_st | FV_SF_VISIBLE ))
-        if [[ -n $__fvw_o ]]; then fv.views._drawView "$1"; fi
+        if (( ${__fvw_d[State]:-0} & FV_SF_VISIBLE )); then return 0; fi
     else
-        if (( ! (__fvw_st & FV_SF_VISIBLE) )); then return 0; fi
-        __fvw_d[State]=$(( __fvw_st & ~FV_SF_VISIBLE ))
-        if [[ -n $__fvw_o ]]; then
-            fv.views._srect "$1"
-            fv.views._drawUnder "$__fvw_o" "$__fvw_r1" "$__fvw_r2" "$__fvw_r3" "$__fvw_r4"
-        fi
+        if (( ! (${__fvw_d[State]:-0} & FV_SF_VISIBLE) )); then return 0; fi
     fi
-    if [[ -n $__fvw_o ]] && (( ${__fvw_d[Options]:-0} & FV_OF_SELECTABLE )); then fv.views._resetCurrent "$__fvw_o"; fi
-    RESULT=$__fvw_r
+    # FV Show / Hide: SetState(sfVisible, ...), a virtual (its body draws)
+    fv.views._virt "$1" SetState "$FV_SF_VISIBLE" "$2" || :
 }
 
 # fv.views.lock G / unlock G — FV TGroup.Lock / Unlock (the LockFlag count):
@@ -1661,8 +1922,12 @@ fv.views.lockScreenUpdate() {
 fv.views.unlockScreenUpdate() {
     if (( $# )); then fv.views._bad "${FUNCNAME#fv.views.}" 'no arguments'; return; fi
     if (( __FV_VW_LSU == 0 )); then return 0; fi
+    # (an unlock without its lock inside a modal handler: the loop's own
+    # holds (__FV_VW_EH) are not the caller's to release)
+    if (( __FV_VW_LSU <= __FV_VW_EH )); then kk.debug "Error: fv.views.unlockScreenUpdate: no lockScreenUpdate of yours to release (ignored)"; return 0; fi
     local __fvw_r=${RESULT-}
     __FV_VW_LSU=$(( __FV_VW_LSU - 1 ))
+    if (( __FV_VW_LSU == 0 )) && [[ -n $__FV_VW_CPEND ]]; then fv.views._cursorNow; fi
     fv.views._flush
     RESULT=$__fvw_r
 }
@@ -2188,5 +2453,939 @@ fv.views._uncover() {
         done
         __fvw_v=$__fvw_o
     done
+    return 0
+}
+
+# ==== events, focus, commands, modal views (P2 stage 2c-3; design §1.8, §2.2) ====
+#
+# The event is fv.drivers' record, the FV_EV_* globals: FV_EV_WHAT names it
+# (evKeyDown, evMouseDown, evCommand, evBroadcast, …), FV_EV_COMMAND is a
+# command name, FV_EV_INFO is FV's InfoPtr / InfoInt (a view name or a
+# number; '' = nil). A handler marks an event handled with
+# fv.views.clearEvent V (FV ClearEvent). The loops that start an event of
+# their own (message, execView) save the record and put it back: FV keeps a
+# local Event per loop. Phases and commands are names.
+
+# fv.views._evSave / _evRestore — the record into / from the caller's array
+# __fvw_es
+fv.views._evSave() {
+    __fvw_es=("$FV_EV_WHAT" "$FV_EV_KEY" "$FV_EV_CHAR" "$FV_EV_COMMAND" "$FV_EV_ID" "$FV_EV_INFO"
+        "$FV_EV_MOUSE_X" "$FV_EV_MOUSE_Y" "$FV_EV_MOUSE_BUTTONS" "$FV_EV_MOUSE_MODS"
+        "$FV_EV_MOUSE_DOUBLE" "$FV_EV_MOUSE_TRIPLE" "$FV_EV_WHEEL" "$FV_EV_EOF")
+}
+fv.views._evRestore() {
+    FV_EV_WHAT=${__fvw_es[0]} FV_EV_KEY=${__fvw_es[1]} FV_EV_CHAR=${__fvw_es[2]} FV_EV_COMMAND=${__fvw_es[3]}
+    FV_EV_ID=${__fvw_es[4]} FV_EV_INFO=${__fvw_es[5]} FV_EV_MOUSE_X=${__fvw_es[6]} FV_EV_MOUSE_Y=${__fvw_es[7]}
+    FV_EV_MOUSE_BUTTONS=${__fvw_es[8]} FV_EV_MOUSE_MODS=${__fvw_es[9]} FV_EV_MOUSE_DOUBLE=${__fvw_es[10]}
+    FV_EV_MOUSE_TRIPLE=${__fvw_es[11]} FV_EV_WHEEL=${__fvw_es[12]} FV_EV_EOF=${__fvw_es[13]}
+}
+
+# fv.views.clearEvent V — FV ClearEvent: the event is handled (FV_EV_WHAT =
+# evNothing) by V (FV_EV_INFO = V: what fv.views.message answers)
+fv.views.clearEvent() {
+    if (( $# != 1 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+
+# TView.HandleEvent — FV: a mouse-down on a selectable view that is neither
+# selected nor disabled focuses it (fv.views.focus; D8 click to focus) and
+# is consumed, unless the view took the focus and has ofFirstClick
+fv.views._viewEvent() {
+    if ! [ "$FV_EV_WHAT" = evMouseDown ]; then return 0; fi
+    local -n __fvw_ed=${1}_data
+    if (( (${__fvw_ed[State]:-0} & (FV_SF_SELECTED | FV_SF_DISABLED)) == 0 && (${__fvw_ed[Options]:-0} & FV_OF_SELECTABLE) )); then
+        if ! fv.views._focus "$1" || [[ -z ${__FV_VW_LIVE[$1]-} ]] || (( ! (${__fvw_ed[Options]:-0} & FV_OF_FIRSTCLICK) )); then
+            FV_EV_WHAT=evNothing FV_EV_INFO=$1
+        fi
+    fi
+    return 0
+}
+
+# TGroup.HandleEvent — FV: TView's first (click to focus), then, unless that
+# handled the event:
+#   * focused events (evKeyDown, evCommand): Phase phPreProcess -> each
+#     subview with ofPreProcess; phFocused -> Current; phPostProcess -> each
+#     subview with ofPostProcess;
+#   * positional events (evMouseDown / Up / Move / Auto / Wheel): the
+#     front-most visible subview whose rect holds the point (D8);
+#   * the rest (evBroadcast and any other name): every subview.
+# "Each subview" runs front to back over the list as it was when the event
+# came (a view removed or destroyed meanwhile is skipped). Each view is
+# reached through the elision; it is skipped WITHOUT A CALL when its
+# EventMask lacks the event's bit (FV's masks: a plain TView sees no
+# broadcast) or, for a positional or focused event, when it is disabled. The
+# loop stops as soon as the event is handled (evNothing). G's Phase is set
+# before each call. A handler's rc is ignored (FV procedure).
+fv.views._groupEvent() {
+    if [ "$FV_EV_WHAT" = evMouseDown ]; then fv.views._viewEvent "$1"; fi
+    if [ "${FV_EV_WHAT:-evNothing}" = evNothing ]; then return 0; fi
+    local -n __fvw_gl=${1}_views __fvw_gd=${1}_data
+    local __fvw_b=${__FV_VW_EVBIT[${FV_EV_WHAT:-evNothing}]-0} __fvw_i __fvw_k __fvw_t
+    local -a __fvw_ks
+    if (( __fvw_b & (FV_EM_KEYBOARD | FV_EM_COMMAND) )); then
+        # one pass over the list as it is now (back to front): the views
+        # with ofPreProcess / ofPostProcess (most groups have none)
+        local -a __fvw_k1=() __fvw_k2=()
+        for __fvw_k in "${__fvw_gl[@]}"; do
+            __fvw_t="${__fvw_k}_data[Options]"
+            __fvw_t=${!__fvw_t:-0}
+            if (( __fvw_t & FV_OF_PREPROCESS )); then __fvw_k1+=("$__fvw_k"); fi
+            if (( __fvw_t & FV_OF_POSTPROCESS )); then __fvw_k2+=("$__fvw_k"); fi
+        done
+        if (( ${#__fvw_k1[@]} )); then
+            __fvw_ks=("${__fvw_k1[@]}")
+            fv.views._dispatch "$1" phPreProcess "$FV_OF_PREPROCESS" || return 0
+        fi
+        [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+        __fvw_k=${__fvw_gd[Current]-}
+        if [[ -n $__fvw_k ]]; then
+            __fvw_ks=("$__fvw_k")
+            fv.views._dispatch "$1" phFocused 0 || return 0
+        fi
+        if (( ${#__fvw_k2[@]} )); then
+            __fvw_ks=("${__fvw_k2[@]}")
+            fv.views._dispatch "$1" phPostProcess "$FV_OF_POSTPROCESS" || return 0
+        fi
+    elif (( __fvw_b & FV_EM_MOUSE )); then
+        __fvw_ks=("${__fvw_gl[@]}")
+        for (( __fvw_i = ${#__fvw_ks[@]} - 1; __fvw_i >= 0; __fvw_i-- )); do
+            __fvw_k=${__fvw_ks[__fvw_i]}
+            local -n __fvw_kd=${__fvw_k}_data
+            if (( (${__fvw_kd[State]:-0} & FV_SF_VISIBLE) && FV_EV_MOUSE_X >= __FV_VW_AX[$__fvw_k] && FV_EV_MOUSE_Y >= __FV_VW_AY[$__fvw_k] )) \
+               && (( FV_EV_MOUSE_X < __FV_VW_AX[$__fvw_k] + ${__fvw_kd[SizeX]:-0} && FV_EV_MOUSE_Y < __FV_VW_AY[$__fvw_k] + ${__fvw_kd[SizeY]:-0} )); then
+                __fvw_ks=("$__fvw_k")
+                fv.views._dispatch "$1" phFocused 0 || :
+                return 0
+            fi
+        done
+    else
+        __fvw_ks=("${__fvw_gl[@]}")
+        fv.views._dispatch "$1" phFocused 0 || :
+    fi
+    return 0
+}
+
+# fv.views._dispatch G PHASE OPTION — FV's DoHandleEvent for each view of
+# the caller's __fvw_ks, front to back (its last element first): rc 1 as soon
+# as the event is handled or G is gone (stop). A view is skipped without a
+# call when its EventMask lacks the event's bit (read first: the cheapest
+# test, and a destroyed view has no mask), it is no longer a live subview of
+# G, it lacks OPTION (the pre / post phase) or it is disabled for a
+# positional / focused event; else G's Phase = PHASE and the view's
+# HandleEvent through the elision, inline: TView's body does nothing but a
+# mouse-down's click to focus, so it is not even called for anything else
+fv.views._dispatch() {
+    local __fvw_xi __fvw_xk __fvw_xb __fvw_xf __fvw_xr __fvw_xt
+    local -n __fvw_xg=${1}_data
+    __fvw_xb=${__FV_VW_EVBIT[${FV_EV_WHAT:-evNothing}]-0}
+    for (( __fvw_xi = ${#__fvw_ks[@]} - 1; __fvw_xi >= 0; __fvw_xi-- )); do
+        if [ "$FV_EV_WHAT" = evNothing ] || [[ -z ${__FV_VW_LIVE[$1]-} ]]; then return 1; fi
+        __fvw_xk=${__fvw_ks[__fvw_xi]}
+        __fvw_xt="${__fvw_xk}_data[EventMask]"
+        if (( ! (__fvw_xb & ${!__fvw_xt:-0}) )); then continue; fi
+        if [[ -z ${__FV_VW_LIVE[$__fvw_xk]-} ]]; then continue; fi
+        local -n __fvw_xd=${__fvw_xk}_data
+        if ! [ "${__fvw_xd[Owner]-}" = "$1" ]; then continue; fi
+        if (( $3 && ! (${__fvw_xd[Options]:-0} & $3) )); then continue; fi
+        if (( (${__fvw_xd[State]:-0} & FV_SF_DISABLED) && (__fvw_xb & (FV_EM_MOUSE | FV_EM_KEYBOARD | FV_EM_COMMAND)) )); then continue; fi
+        __fvw_xf=${__fvw_xk}_class
+        __fvw_xf="${!__fvw_xf-}_class_method_owner[HandleEvent]"
+        __fvw_xf=${__FV_VW_IMPL[${!__fvw_xf-}.HandleEvent]-}
+        if [ "$__fvw_xf" = fv.views._viewEvent ] && ! [ "$FV_EV_WHAT" = evMouseDown ]; then continue; fi
+        __fvw_xg[Phase]=$2
+        if [[ -z $__fvw_xf ]]; then "$__fvw_xk.HandleEvent" || :
+        else
+            __fvw_xr=${RESULT-}
+            "$__fvw_xf" "$__fvw_xk" || :
+            RESULT=$__fvw_xr
+        fi
+        # (a handler may change the event's kind: FV reads Event.What anew)
+        __fvw_xb=${__FV_VW_EVBIT[${FV_EV_WHAT:-evNothing}]-0}
+    done
+    if [ "$FV_EV_WHAT" = evNothing ]; then return 1; fi
+    return 0
+}
+
+# fv.views.message V WHAT COMMAND [INFO] — FV Message(Receiver, What,
+# Command, InfoPtr): a new event (FV_EV_WHAT=WHAT, FV_EV_COMMAND=COMMAND,
+# FV_EV_INFO=INFO, the other fields empty) to V's HandleEvent through the
+# elision; the caller's event is put back afterwards. rc 0 and RESULT = the
+# handler (FV_EV_INFO after the call: clearEvent puts the handler there)
+# when the event was handled; rc 1 and RESULT='' when nobody handled it, and
+# for V '' (FV's nil receiver). WHAT: an event name
+fv.views.message() {
+    if (( $# != 3 && $# != 4 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    if [[ -z $1 ]]; then RESULT=''; return 1; fi
+    fv.views._view "$1" message || return
+    if [[ -z $2 || $2 == *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_]* ]]; then
+        fv.views._bad message 'WHAT must be an event name (evBroadcast, evCommand, ...)'; return
+    fi
+    fv.views._message "$1" "$2" "$3" "${4-}"
+}
+fv.views._message() {   # V WHAT COMMAND INFO
+    local -a __fvw_es
+    local __fvw_a='' __fvw_s=1
+    fv.views._evSave
+    FV_EV_WHAT=$2 FV_EV_KEY='' FV_EV_CHAR='' FV_EV_COMMAND=$3 FV_EV_ID='' FV_EV_INFO=$4
+    FV_EV_MOUSE_X=0 FV_EV_MOUSE_Y=0 FV_EV_MOUSE_BUTTONS=0 FV_EV_MOUSE_MODS=0
+    FV_EV_MOUSE_DOUBLE=0 FV_EV_MOUSE_TRIPLE=0 FV_EV_WHEEL=0 FV_EV_EOF=0
+    fv.views._virt "$1" HandleEvent || :
+    if [ "$FV_EV_WHAT" = evNothing ]; then __fvw_a=$FV_EV_INFO __fvw_s=0; fi
+    fv.views._evRestore
+    RESULT=$__fvw_a
+    return "$__fvw_s"
+}
+
+# ---- state (FV SetState) --------------------------------------------------------
+
+# fv.views.setState V BIT ENABLE — FV SetState(AState, Enable) through the
+# elision (an override of yours runs; `inherited SetState "$@"` reaches the
+# built-in): BIT one FV_SF_* value, ENABLE 1 or 0. RESULT is kept; rc 0
+# (the body's rc is ignored: FV procedure)
+fv.views.setState() {
+    if (( $# != 3 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" setState || return
+    if [[ -z $2 || $2 == *[!0123456789]* || ${#2} -gt 9 ]] || ! [[ $3 == [01] ]]; then
+        fv.views._bad setState 'BIT must be a number (FV_SF_*), ENABLE 1 or 0'; return
+    fi
+    fv.views._virt "$1" SetState "$(( 10#$2 ))" "$3" || :
+    return 0
+}
+
+# TView.SetState BIT ENABLE — FV: the bit set or cleared; then, when V has an
+# owner: sfVisible -> DrawShow (V drawn with its shadow) / DrawHide (its
+# area, shadow included, repainted from below) and the owner's ResetCurrent
+# for a selectable V; sfCursorVis / sfCursorIns -> the cursor (resetCursor)
+# when V is focused; sfShadow -> V's area with the shadow repainted from
+# below; sfFocused -> resetCursor and the broadcast cmReceivedFocus /
+# cmReleasedFocus to the owner (FV_EV_INFO = V). Any other bit: only the bit
+# (sfExposed is read on the root only: 2c-2)
+fv.views._viewSetState() {
+    local -n __fvw_sd=${1}_data
+    local __fvw_o=${__fvw_sd[Owner]-} __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4
+    if (( $3 )); then __fvw_sd[State]=$(( ${__fvw_sd[State]:-0} | $2 )); else __fvw_sd[State]=$(( ${__fvw_sd[State]:-0} & ~$2 )); fi
+    [[ -n $__fvw_o ]] || return 0
+    if (( $2 == FV_SF_VISIBLE )); then
+        if (( $3 )); then fv.views._drawView "$1"
+        else
+            fv.views._srect "$1"
+            fv.views._drawUnder "$__fvw_o" "$__fvw_r1" "$__fvw_r2" "$__fvw_r3" "$__fvw_r4"
+        fi
+        if (( ${__fvw_sd[Options]:-0} & FV_OF_SELECTABLE )); then fv.views._resetCurrent "$__fvw_o"; fi
+    elif (( $2 == FV_SF_CURSORVIS || $2 == FV_SF_CURSORINS )); then
+        if (( ${__fvw_sd[State]:-0} & FV_SF_FOCUSED )); then fv.views._cursorLater "$1"; fi
+    elif (( $2 == FV_SF_SHADOW )); then
+        fv.views._abs "$1"
+        fv.views._drawUnder "$__fvw_o" "$__fvw_r1" "$__fvw_r2" "$(( __fvw_r3 + 2 ))" "$(( __fvw_r4 + 1 ))"
+    elif (( $2 == FV_SF_FOCUSED )); then
+        fv.views._cursorLater "$1"
+        if (( $3 )); then fv.views._message "$__fvw_o" evBroadcast cmReceivedFocus "$1" || :
+        else fv.views._message "$__fvw_o" evBroadcast cmReleasedFocus "$1" || :; fi
+    fi
+    return 0
+}
+
+# TGroup.SetState BIT ENABLE — FV: TView's; then sfActive / sfDragging ->
+# each subview's SetState (front to back) and, instead of FV's Lock /
+# Unlock that redraws the whole group (D17), the border-only redraw of each
+# subview TFrame whose bit changed (fv.views._frameBorder: 4 writes);
+# sfFocused -> Current's SetState (the focus chain)
+fv.views._groupSetState() {
+    fv.views._viewSetState "$@"
+    if (( $2 == FV_SF_ACTIVE || $2 == FV_SF_DRAGGING )); then
+        [[ -n ${__FV_VW_GRP[$1]-} ]] || return 0
+        local -n __fvw_sl=${1}_views
+        local -a __fvw_ks=("${__fvw_sl[@]}") __fvw_fs=()
+        local __fvw_i __fvw_k __fvw_b
+        __FV_VW_LSU=$(( __FV_VW_LSU + 1 ))
+        for (( __fvw_i = ${#__fvw_ks[@]} - 1; __fvw_i >= 0; __fvw_i-- )); do
+            __fvw_k=${__fvw_ks[__fvw_i]}
+            fv.views._kid "$1" "$__fvw_k" || continue
+            local -n __fvw_gk=${__fvw_k}_data
+            __fvw_b=$(( ${__fvw_gk[State]:-0} & $2 ))
+            fv.views._virt "$__fvw_k" SetState "$2" "$3" || :
+            if [[ -n ${__FV_VW_FRM[$__fvw_k]-} && -n ${__FV_VW_LIVE[$__fvw_k]-} ]] && (( (${__fvw_gk[State]:-0} & $2) != __fvw_b )); then
+                __fvw_fs+=("$__fvw_k")
+            fi
+        done
+        for __fvw_k in "${__fvw_fs[@]}"; do
+            if fv.views._kid "$1" "$__fvw_k"; then fv.views._frameBorder "$__fvw_k"; fi
+        done
+        fv.views._release
+    elif (( $2 == FV_SF_FOCUSED )); then
+        local -n __fvw_sg=${1}_data
+        local __fvw_c=${__fvw_sg[Current]-}
+        if [[ -n $__fvw_c && -n ${__FV_VW_LIVE[$__fvw_c]-} ]]; then fv.views._virt "$__fvw_c" SetState "$FV_SF_FOCUSED" "$3" || :; fi
+    fi
+    return 0
+}
+
+# ---- focus (FV Select, Focus, FocusNext, SelectNext) ------------------------------
+
+# fv.views.select V — FV Select: a selectable V becomes its owner's Current;
+# with ofTopSelect it is brought to the front (makeFirst), whose
+# ResetCurrent makes it Current. Not selectable or without an owner:
+# nothing. The changed parts are redrawn (a window that was covered: whole;
+# else the two frame borders). RESULT is kept
+fv.views.select() {
+    if (( $# != 1 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" select || return
+    fv.views._select "$1"
+}
+fv.views._select() {
+    local -n __fvw_cd=${1}_data
+    local __fvw_op=${__fvw_cd[Options]:-0} __fvw_o=${__fvw_cd[Owner]-}
+    if (( ! (__fvw_op & FV_OF_SELECTABLE) )) || [[ -z $__fvw_o ]]; then return 0; fi
+    if (( __fvw_op & FV_OF_TOPSELECT )); then
+        local -n __fvw_cl=${__fvw_o}_views
+        fv.views.putInFrontOf "$1" "${__fvw_cl[-1]}" || :
+        # (deviation: FV's MakeFirst is a no-op for a view already in front,
+        # which then stays unselected when another view is Current; only a
+        # visible, enabled view is made Current here, as FV's PutInFrontOf
+        # resets Current for a visible view only)
+        if [[ -z ${__FV_VW_LIVE[$1]-} || -z ${__FV_VW_LIVE[$__fvw_o]-} ]]; then return 0; fi
+        local -n __fvw_co=${__fvw_o}_data
+        if ! [ "${__fvw_co[Current]-}" = "$1" ] \
+           && (( (${__fvw_cd[State]:-0} & (FV_SF_VISIBLE | FV_SF_DISABLED)) == FV_SF_VISIBLE )); then
+            fv.views._setCurrent "$__fvw_o" "$1"
+        fi
+    else
+        fv.views._setCurrent "$__fvw_o" "$1"
+    fi
+    return 0
+}
+
+# fv.views.focus V — FV Focus: rc 0 when V is (or now is) on the focus
+# chain: a view already selected or modal answers at once; else its owner is
+# focused first (recursively), then V is selected unless the owner's
+# Current has ofValidate and its Valid(cmReleasedFocus) says no (rc 1).
+# RESULT is kept
+fv.views.focus() {
+    if (( $# != 1 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" focus || return
+    local __fvw_rr=${RESULT-} __fvw_s=0
+    fv.views._focus "$1" || __fvw_s=$?
+    RESULT=$__fvw_rr
+    return "$__fvw_s"
+}
+fv.views._focus() {
+    local -n __fvw_fd=${1}_data
+    if (( ${__fvw_fd[State]:-0} & (FV_SF_SELECTED | FV_SF_MODAL) )); then return 0; fi
+    local __fvw_o=${__fvw_fd[Owner]-} __fvw_c
+    if [[ -z $__fvw_o ]]; then return 0; fi
+    fv.views._focus "$__fvw_o" || return 1
+    local -n __fvw_fo=${__fvw_o}_data
+    __fvw_c=${__fvw_fo[Current]-}
+    if [[ -n $__fvw_c && -n ${__FV_VW_LIVE[$__fvw_c]-} ]]; then
+        local -n __fvw_fc=${__fvw_c}_data
+        if (( ${__fvw_fc[Options]:-0} & FV_OF_VALIDATE )); then
+            fv.views._virt "$__fvw_c" Valid cmReleasedFocus || return 1
+        fi
+    fi
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 1
+    fv.views._select "$1"
+}
+
+# fv.views._findNext G FORWARDS — FV FindNext: the caller's __fvw_n = from
+# Current, the next subview (FORWARDS 1: FV's Next, the view behind; 0: FV's
+# Prev, the view in front; a ring) that is visible, not disabled and
+# selectable; '' when there is none other than Current, or no Current
+fv.views._findNext() {
+    local -n __fvw_nd=${1}_data __fvw_nl=${1}_views
+    local __fvw_c=${__fvw_nd[Current]-} __fvw_i=-1 __fvw_j __fvw_m=${#__fvw_nl[@]} __fvw_k
+    __fvw_n=''
+    if [[ -z $__fvw_c ]]; then return 0; fi
+    fv.views._idx "$1" "$__fvw_c"
+    if (( __fvw_i < 0 )); then return 0; fi
+    __fvw_j=$__fvw_i
+    while :; do
+        if (( $2 )); then __fvw_j=$(( (__fvw_j - 1 + __fvw_m) % __fvw_m )); else __fvw_j=$(( (__fvw_j + 1) % __fvw_m )); fi
+        if (( __fvw_j == __fvw_i )); then return 0; fi
+        __fvw_k=${__fvw_nl[__fvw_j]}
+        local -n __fvw_nk=${__fvw_k}_data
+        if (( (${__fvw_nk[State]:-0} & (FV_SF_VISIBLE | FV_SF_DISABLED)) == FV_SF_VISIBLE && (${__fvw_nk[Options]:-0} & FV_OF_SELECTABLE) )); then
+            __fvw_n=$__fvw_k
+            return 0
+        fi
+    done
+}
+
+# fv.views.focusNext G FORWARDS — FV FocusNext(Forwards): rc of the focus on
+# the next selectable subview (FORWARDS 1 / 0 as fv.views._findNext); rc 0
+# when there is none. selectNext G FORWARDS — FV SelectNext: that view
+# selected. TWindow's kbTab is focusNext W 0, kbShiftTab focusNext W 1.
+# RESULT is kept
+fv.views.focusNext() { fv.views._next "$@" focusNext; }
+fv.views.selectNext() { fv.views._next "$@" selectNext; }
+fv.views._next() {   # G FORWARDS CALLER
+    if (( $# != 3 )); then fv.views._bad "${!#}" 'wrong argument count'; return; fi
+    fv.views._group "$1" "$3" || return
+    if ! [[ $2 == [01] ]]; then fv.views._bad "$3" 'FORWARDS must be 1 or 0'; return; fi
+    local __fvw_n __fvw_rr=${RESULT-} __fvw_s=0
+    fv.views._findNext "$1" "$2"
+    if [[ -n $__fvw_n ]]; then
+        if [ "$3" = focusNext ]; then fv.views._focus "$__fvw_n" || __fvw_s=$?; else fv.views._select "$__fvw_n"; fi
+    fi
+    RESULT=$__fvw_rr
+    return "$__fvw_s"
+}
+
+# ---- commands (FV command sets; design §1.8) -------------------------------------
+# Commands are names (cmClose, cmMyThing: letters, digits, _). The set kept
+# is the DISABLED one (__FV_VW_CMDOFF): FV's CurCommandSet — [0..255] minus
+# cmZoom cmClose cmResize cmNext cmPrev at the start — is its complement, so
+# a name never disabled is enabled (as FV's commands above 255 always are).
+# A change sets FV_COMMANDSETCHANGED=1 (FV CommandSetChanged; fv.app's Idle
+# broadcasts cmCommandSetChanged and clears it).
+
+# fv.views._cmdNames CALLER NAME... — rc 0 when every NAME is a command name;
+# else fv.views._bad's rc 2
+fv.views._cmdNames() {
+    local __fvw_c=$1 __fvw_n
+    shift
+    for __fvw_n; do
+        if [[ -z $__fvw_n || $__fvw_n == *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_]* ]]; then
+            fv.views._bad "$__fvw_c" "'$__fvw_n' is not a command name (letters, digits, _)"; return
+        fi
+    done
+}
+# fv.views._cmds OFF NAME... — disable (OFF 1) / enable (0) the names
+fv.views._cmds() {
+    local __fvw_o=$1 __fvw_n
+    shift
+    for __fvw_n; do
+        if (( __fvw_o )); then
+            if [[ -z ${__FV_VW_CMDOFF[$__fvw_n]-} ]]; then __FV_VW_CMDOFF[$__fvw_n]=1 FV_COMMANDSETCHANGED=1; fi
+        elif [[ -n ${__FV_VW_CMDOFF[$__fvw_n]-} ]]; then
+            unset '__FV_VW_CMDOFF[$__fvw_n]'
+            FV_COMMANDSETCHANGED=1
+        fi
+    done
+}
+
+# fv.views.enableCommands CMD... / disableCommands CMD... — FV
+# EnableCommands / DisableCommands
+fv.views.enableCommands() {
+    fv.views._cmdNames enableCommands "$@" || return
+    fv.views._cmds 0 "$@"
+}
+fv.views.disableCommands() {
+    fv.views._cmdNames disableCommands "$@" || return
+    fv.views._cmds 1 "$@"
+}
+# fv.views.commandEnabled CMD — FV CommandEnabled: rc 0 when CMD is enabled
+fv.views.commandEnabled() {
+    if (( $# != 1 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._cmdNames commandEnabled "$1" || return
+    [[ -z ${__FV_VW_CMDOFF[$1]-} ]]
+}
+# fv.views.getCommands — RESULT = the DISABLED commands, sorted (C order),
+# space-separated (FV GetCommands answers the enabled set; with names that
+# set has no end). setCommands [CMD...] — exactly these disabled (FV
+# SetCommands with the complement): the pair saves and restores a set
+fv.views.getCommands() {
+    if (( $# )); then fv.views._bad "${FUNCNAME#fv.views.}" 'no arguments'; return; fi
+    local LC_ALL=C
+    local -a __fvw_a=()
+    local __fvw_n __fvw_i
+    for __fvw_n in "${!__FV_VW_CMDOFF[@]}"; do
+        for (( __fvw_i = 0; __fvw_i < ${#__fvw_a[@]}; __fvw_i++ )); do
+            if [[ $__fvw_n < ${__fvw_a[__fvw_i]} ]]; then break; fi
+        done
+        __fvw_a=("${__fvw_a[@]:0:__fvw_i}" "$__fvw_n" "${__fvw_a[@]:__fvw_i}")
+    done
+    local IFS=' '
+    RESULT="${__fvw_a[*]}"
+}
+fv.views.setCommands() {
+    fv.views._cmdNames setCommands "$@" || return
+    local -A __fvw_w=()
+    local __fvw_n
+    for __fvw_n; do __fvw_w[$__fvw_n]=1; done
+    for __fvw_n in "${!__FV_VW_CMDOFF[@]}"; do
+        if [[ -z ${__fvw_w[$__fvw_n]-} ]]; then fv.views._cmds 0 "$__fvw_n"; fi
+    done
+    fv.views._cmds 1 "$@"
+}
+
+# ---- the cursor (FV ResetCursor, SetCursor, Show / Hide / Block / NormalCursor) --
+
+# fv.views.resetCursor V — FV ResetCursor for V's tree: the focused leaf
+# (from the root, while the root has sfFocused: Current after Current as
+# long as it has sfFocused) shows the hardware cursor at its CursorX /
+# CursorY when it has sfVisible + sfCursorVis + sfFocused, the cell lies
+# inside it and inside every owner (its clip), no visible view in front of
+# it or of an owner holds the cell, and every owner is visible: underline,
+# block with sfCursorIns (FV crUnderline / crBlock, fv.video.setCursorType 1
+# / 2). Otherwise the cursor is hidden (type 0). When the cursor changed the
+# terminal is updated (unless held). The modal loop calls it after each
+# event; setState calls it on sfFocused / sfCursorVis / sfCursorIns.
+# RESULT is kept
+fv.views.resetCursor() {
+    if (( $# != 1 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" resetCursor || return
+    fv.views._resetCursor "$1"
+}
+fv.views._resetCursor() {
+    local __fvw_v=$1 __fvw_x=0 __fvw_y=0 __fvw_t=0 __fvw_o __fvw_i __fvw_k __fvw_j __fvw_n __fvw_c=0 __fvw_rr=${RESULT-}
+    local __fvw_m=$(( FV_SF_VISIBLE | FV_SF_CURSORVIS | FV_SF_FOCUSED )) __fvw_g=0
+    # (each walk bounded: a cycle in the Owner / Current chain - a tree made
+    # wrong by hand - must not hang the event loop)
+    while (( __fvw_g++ < 4096 )); do
+        local -n __fvw_cd=${__fvw_v}_data
+        __fvw_o=${__fvw_cd[Owner]-}
+        if [[ -z $__fvw_o ]]; then break; fi
+        __fvw_v=$__fvw_o
+    done
+    __fvw_g=0
+    if (( ${__fvw_cd[State]:-0} & FV_SF_FOCUSED )); then
+        while [[ -n ${__FV_VW_GRP[$__fvw_v]-} ]] && (( __fvw_g++ < 4096 )); do
+            __fvw_k=${__fvw_cd[Current]-}
+            if [[ -z $__fvw_k || -z ${__FV_VW_LIVE[$__fvw_k]-} ]]; then break; fi
+            local -n __fvw_ck=${__fvw_k}_data
+            if (( ! (${__fvw_ck[State]:-0} & FV_SF_FOCUSED) )); then break; fi
+            __fvw_v=$__fvw_k
+            local -n __fvw_cd=${__fvw_v}_data
+        done
+        if (( (${__fvw_cd[State]:-0} & __fvw_m) == __fvw_m )); then
+            __fvw_x=$(( __FV_VW_AX[$__fvw_v] + ${__fvw_cd[CursorX]:-0} )) __fvw_y=$(( __FV_VW_AY[$__fvw_v] + ${__fvw_cd[CursorY]:-0} ))
+            if (( __fvw_x >= 0 && __fvw_y >= 0 && __fvw_x >= __FV_VW_C1[$__fvw_v] && __fvw_x < __FV_VW_C3[$__fvw_v] )) \
+               && (( __fvw_y >= __FV_VW_C2[$__fvw_v] && __fvw_y < __FV_VW_C4[$__fvw_v] )); then
+                __fvw_t=1
+                if (( ${__fvw_cd[State]:-0} & FV_SF_CURSORINS )); then __fvw_t=2; fi
+                # covered by a visible view in front of it or of an owner, or an owner hidden
+                __fvw_k=$__fvw_v __fvw_g=0
+                while (( __fvw_t && __fvw_g++ < 4096 )); do
+                    local -n __fvw_cu=${__fvw_k}_data
+                    __fvw_o=${__fvw_cu[Owner]-}
+                    if [[ -z $__fvw_o ]]; then break; fi
+                    local -n __fvw_co=${__fvw_o}_data __fvw_cl=${__fvw_o}_views
+                    if (( ! (${__fvw_co[State]:-0} & FV_SF_VISIBLE) )); then __fvw_t=0; break; fi
+                    __fvw_i=-1
+                    fv.views._idx "$__fvw_o" "$__fvw_k"
+                    __fvw_n=${#__fvw_cl[@]}
+                    for (( __fvw_i = __fvw_i + 1; __fvw_i < __fvw_n; __fvw_i++ )); do
+                        __fvw_j=${__fvw_cl[__fvw_i]}
+                        local -n __fvw_cj=${__fvw_j}_data
+                        if (( (${__fvw_cj[State]:-0} & FV_SF_VISIBLE) && __fvw_x >= __FV_VW_AX[$__fvw_j] && __fvw_y >= __FV_VW_AY[$__fvw_j] )) \
+                           && (( __fvw_x < __FV_VW_AX[$__fvw_j] + ${__fvw_cj[SizeX]:-0} && __fvw_y < __FV_VW_AY[$__fvw_j] + ${__fvw_cj[SizeY]:-0} )); then
+                            __fvw_t=0
+                            break
+                        fi
+                    done
+                    __fvw_k=$__fvw_o
+                done
+            fi
+        fi
+    fi
+    # (fv.video's cursor state read as a friend: __FV_VS_CURX / _CURY / _CURT)
+    if (( __fvw_t )); then
+        if (( __fvw_x != ${__FV_VS_CURX:-0} || __fvw_y != ${__FV_VS_CURY:-0} || __fvw_t != ${__FV_VS_CURT:-0} )); then
+            fv.video.setCursorPos "$__fvw_x" "$__fvw_y" || :
+            fv.video.setCursorType "$__fvw_t" || :
+            __fvw_c=1
+        fi
+    elif (( ${__FV_VS_CURT:-0} != 0 )); then
+        fv.video.setCursorType 0 || :
+        __fvw_c=1
+    fi
+    if (( __fvw_c )); then fv.views._flush; fi
+    RESULT=$__fvw_rr
+}
+
+# fv.views.setCursor V X Y — FV SetCursor: V's CursorX / CursorY, then the
+# cursor (resetCursor) when V is focused. RESULT is kept
+fv.views.setCursor() {
+    if (( $# != 3 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" setCursor || return
+    local -a __fvw_v
+    if ! fv.views._ints "$2" "$3"; then fv.views._bad setCursor 'X Y must be integers'; return; fi
+    local -n __fvw_d=${1}_data
+    __fvw_d[CursorX]=${__fvw_v[0]} __fvw_d[CursorY]=${__fvw_v[1]}
+    if (( ${__fvw_d[State]:-0} & FV_SF_FOCUSED )); then fv.views._resetCursor "$1"; fi
+    return 0
+}
+# fv.views.showCursor V / hideCursor V / blockCursor V / normalCursor V — FV
+# ShowCursor / HideCursor (SetState sfCursorVis) and BlockCursor /
+# NormalCursor (SetState sfCursorIns), through the elision
+fv.views.showCursor() { fv.views._curState "$#" "${1-}" "$FV_SF_CURSORVIS" 1 showCursor; }
+fv.views.hideCursor() { fv.views._curState "$#" "${1-}" "$FV_SF_CURSORVIS" 0 hideCursor; }
+fv.views.blockCursor() { fv.views._curState "$#" "${1-}" "$FV_SF_CURSORINS" 1 blockCursor; }
+fv.views.normalCursor() { fv.views._curState "$#" "${1-}" "$FV_SF_CURSORINS" 0 normalCursor; }
+fv.views._curState() {   # ARGC V BIT ENABLE CALLER
+    if (( $1 != 1 )); then fv.views._bad "$5" 'wrong argument count'; return; fi
+    fv.views._view "$2" "$5" || return
+    fv.views._virt "$2" SetState "$3" "$4" || :
+    return 0
+}
+
+# ---- modal views (FV Execute, ExecView, EndModal, Valid, MouseEvent; design §2.2) --
+
+# fv.views._ownerOk CALLER — rc 0 in the process that owns the screen
+# (__FV_VW_OWNER); else fv.views._bad's rc 2: a modal loop inside $( ) or
+# a pipeline would draw through the parent's screen while the parent's
+# buffer and shown copy go stale
+fv.views._ownerOk() {
+    if [ "$BASHPID" = "$__FV_VW_OWNER" ]; then return 0; fi
+    fv.views._bad "$1" "refused in a subshell (BASHPID $BASHPID; the screen belongs to $__FV_VW_OWNER): run the modal loop in the shell that owns the screen"
+}
+
+# TView.Execute (func) — FV: cmCancel
+fv.views._viewExecute() { RESULT=cmCancel; }
+
+# TGroup.Execute (func) — FV's modal loop: EndState := ''; read an event
+# from __FV_VW_GETEVENT and hand it to G's HandleEvent (through the
+# elision), then resetCursor, until EndState is set (fv.views.endModal);
+# repeat while G's Valid(EndState) says no. RESULT = EndState, which is
+# cleared. Deviation (design §2.1): no HandleEvent for evNothing (periodic
+# work belongs in fv.app's Idle). The END OF INPUT (the event source's rc 1;
+# any other non-zero rc is taken for it too, with a debug line: a broken
+# source must not spin) latches __FV_VW_EOF: this loop and every running one
+# end after the current event WITHOUT asking Valid, with cmCancel (cmQuit
+# for a G without an owner: the application). rc 2 in a subshell
+# (fv.views._ownerOk). A G destroyed by its own handler: cmCancel
+fv.views._groupExecute() {
+    fv.views._ownerOk Execute || return
+    local -n __fvw_xd=${1}_data
+    local __fvw_q=cmCancel __fvw_rt=$1 __fvw_s __fvw_e='' __fvw_z=0 __fvw_g=0
+    if [[ -z ${__fvw_xd[Owner]-} ]]; then __fvw_q=cmQuit; fi
+    while (( __fvw_g++ < 4096 )); do
+        local -n __fvw_xr=${__fvw_rt}_data
+        if [[ -z ${__fvw_xr[Owner]-} ]]; then break; fi
+        __fvw_rt=${__fvw_xr[Owner]}
+    done
+    while :; do
+        __fvw_xd[EndState]=''
+        while :; do
+            if (( __FV_VW_EOF )); then __fvw_z=1; break 2; fi
+            __fvw_s=0
+            "$__FV_VW_GETEVENT" || __fvw_s=$?
+            if (( __fvw_s )); then
+                if (( __fvw_s != 1 )); then kk.debug "Error: fv.views.Execute: the event source '$__FV_VW_GETEVENT' failed (rc $__fvw_s): taken for the end of input"; fi
+                __FV_VW_EOF=1 __fvw_z=1
+                break 2
+            fi
+            # (a source that leaves FV_EV_WHAT empty: evNothing)
+            if [[ -z $FV_EV_WHAT ]]; then FV_EV_WHAT=evNothing; fi
+            if ! [ "$FV_EV_WHAT" = evNothing ]; then
+                # (one terminal update per event: the drawing entries of the
+                # handler hold theirs; fv.views._showNow sends it at the end)
+                __FV_VW_LSU=$(( __FV_VW_LSU + 1 )) __FV_VW_EH=$(( __FV_VW_EH + 1 ))
+                fv.views._virt "$1" HandleEvent || :
+                __FV_VW_CPEND=''
+                if [[ -n ${__FV_VW_LIVE[$__fvw_rt]-} ]]; then fv.views._resetCursor "$__fvw_rt"; fi
+                __FV_VW_LSU=$(( __FV_VW_LSU - 1 )) __FV_VW_EH=$(( __FV_VW_EH - 1 ))
+                if (( __FV_VW_LSU < 0 )); then __FV_VW_LSU=0; fi
+                if (( __FV_VW_EH < 0 )); then __FV_VW_EH=0; fi
+                fv.views._showNow
+                if [[ -z ${__FV_VW_LIVE[$1]-} ]]; then RESULT=cmCancel; return 0; fi
+            fi
+            if [[ -n ${__fvw_xd[EndState]-} ]]; then break; fi
+        done
+        if (( __FV_VW_EOF )); then __fvw_z=1; break; fi
+        __fvw_e=${__fvw_xd[EndState]}
+        if fv.views._virt "$1" Valid "$__fvw_e"; then break; fi
+        if [[ -z ${__FV_VW_LIVE[$1]-} ]]; then RESULT=cmCancel; return 0; fi
+    done
+    if (( __fvw_z )); then __fvw_e=$__fvw_q; fi
+    __fvw_xd[EndState]=''
+    RESULT=$__fvw_e
+}
+
+# fv.views.execView G P — FV ExecView: P runs modal inside G; RESULT = the
+# command P's Execute answered (cmCancel when it failed). Saves the event
+# record, G's Phase, P's Options and owner, the top view, G's Current and
+# the command set; then P not selectable, sfModal, P G's Current
+# (EnterSelect: the old Current stays selected), P inserted when it has no
+# owner; P's Execute (through the elision); then G's Current back
+# (LeaveSelect), P removed when it was inserted here, and everything put
+# back — the event record too, so the caller's dispatch goes on with its own
+# event. P '' (FV nil): cmCancel. After the end of input (the latch):
+# cmCancel at once, no loop. rc 2: not a group / view, or in a subshell
+# (fv.views._ownerOk, a debug line)
+fv.views.execView() {
+    if (( $# != 2 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._group "$1" execView || return
+    if [[ -z $2 ]]; then RESULT=cmCancel; return 0; fi
+    fv.views._view "$2" execView || return
+    local __fvw_u=$1 __fvw_n=0
+    while [[ -n $__fvw_u ]] && (( __fvw_n++ < 4096 )); do
+        if [ "$__fvw_u" = "$2" ]; then fv.views._bad execView "'$2' is '$1' or one of its owners"; return; fi
+        local -n __fvw_ud=${__fvw_u}_data
+        __fvw_u=${__fvw_ud[Owner]-}
+    done
+    fv.views._ownerOk execView || return
+    if (( __FV_VW_EOF )); then RESULT=cmCancel; return 0; fi
+    local -n __fvw_gd=${1}_data __fvw_pd=${2}_data
+    local __fvw_so=${__fvw_pd[Options]:-0} __fvw_sw=${__fvw_pd[Owner]-} __fvw_st=$__FV_VW_TOPVIEW
+    local __fvw_sc=${__fvw_gd[Current]-} __fvw_ph=${__fvw_gd[Phase]-} __fvw_r=cmCancel __fvw_sk
+    local -a __fvw_es __fvw_cs=("${!__FV_VW_CMDOFF[@]}")
+    fv.views._evSave
+    __FV_VW_TOPVIEW=$2
+    __fvw_pd[Options]=$(( __fvw_so & ~FV_OF_SELECTABLE ))
+    fv.views._virt "$2" SetState "$FV_SF_MODAL" 1 || :
+    fv.views._setCurrent "$1" "$2" enter
+    if [[ -z $__fvw_sw ]]; then fv.views.insert "$1" "$2" || :; fi
+    # (shown now, also inside a handler of an outer modal loop)
+    fv.views._showNow
+    RESULT=''
+    if fv.views._virt "$2" Execute && [[ -n ${RESULT-} ]]; then __fvw_r=$RESULT; fi
+    if [[ -n $__fvw_sc && -z ${__FV_VW_LIVE[$__fvw_sc]-} ]]; then __fvw_sc=''; fi
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then
+        # (a P inserted here leaves: nothing of it is redrawn for its focus
+        # change; a P that stays in G is redrawn as any deselected view)
+        __fvw_sk=$__FV_VW_SKIP
+        if [[ -z $__fvw_sw ]]; then __FV_VW_SKIP=$2; fi
+        fv.views._setCurrent "$1" "$__fvw_sc" leave
+        __FV_VW_SKIP=$__fvw_sk
+    fi
+    if [[ -n ${__FV_VW_LIVE[$2]-} ]]; then
+        if [[ -z $__fvw_sw && -n ${__FV_VW_LIVE[$1]-} ]] && [ "${__fvw_pd[Owner]-}" = "$1" ]; then fv.views.delete "$1" "$2" || :; fi
+        fv.views._virt "$2" SetState "$FV_SF_MODAL" 0 || :
+        __fvw_pd[Options]=$__fvw_so
+    fi
+    __FV_VW_TOPVIEW=$__fvw_st
+    fv.views.setCommands "${__fvw_cs[@]}"
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then __fvw_gd[Phase]=$__fvw_ph; fi
+    fv.views._evRestore
+    RESULT=$__fvw_r
+}
+
+# fv.views._topView V — the caller's __fvw_t = FV TopView: the view execView
+# runs (__FV_VW_TOPVIEW) while it is live, else the first of V and its
+# owners with sfModal; '' when none
+fv.views._topView() {
+    __fvw_t=''
+    if [[ -n $__FV_VW_TOPVIEW && -n ${__FV_VW_LIVE[$__FV_VW_TOPVIEW]-} ]]; then __fvw_t=$__FV_VW_TOPVIEW; return 0; fi
+    local __fvw_u=$1 __fvw_g=0
+    while [[ -n $__fvw_u && -n ${__FV_VW_LIVE[$__fvw_u]-} ]] && (( __fvw_g++ < 4096 )); do
+        local -n __fvw_ud=${__fvw_u}_data
+        if (( ${__fvw_ud[State]:-0} & FV_SF_MODAL )); then __fvw_t=$__fvw_u; return 0; fi
+        __fvw_u=${__fvw_ud[Owner]-}
+    done
+}
+
+# fv.views.endModal V CMD — FV EndModal(Command) of V: the top view's
+# EndModal (virtual; TGroup's sets its EndState when it is modal), so the
+# loop that runs it ends with CMD (after its Valid). rc 1 when no view is
+# modal. RESULT is kept
+fv.views.endModal() {
+    if (( $# != 2 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" endModal || return
+    fv.views._cmdNames endModal "$2" || return
+    local __fvw_t
+    fv.views._topView "$1"
+    if [[ -z $__fvw_t ]]; then RESULT=''; kk.debug "Error: fv.views.endModal: no modal view above '$1'"; return 1; fi
+    fv.views._virt "$__fvw_t" EndModal "$2" || :
+    return 0
+}
+# TView.EndModal CMD — FV: the top view's EndModal (none or V itself: nothing)
+fv.views._viewEndModal() {
+    local __fvw_t
+    fv.views._topView "$1"
+    if [[ -n $__fvw_t ]] && ! [ "$__fvw_t" = "$1" ]; then fv.views._virt "$__fvw_t" EndModal "$2" || :; fi
+    return 0
+}
+# TGroup.EndModal CMD — FV: a modal G takes CMD as its EndState; else TView's
+fv.views._groupEndModal() {
+    local -n __fvw_md=${1}_data
+    if (( ${__fvw_md[State]:-0} & FV_SF_MODAL )); then __fvw_md[EndState]=$2; else fv.views._viewEndModal "$@"; fi
+    return 0
+}
+
+# TView.Valid CMD (func) — FV: true. The answer of Valid is its rc: 0 =
+# valid (RESULT 1), non-zero = not valid. An override says no with an
+# explicit `return 1` (kklass caveat K-2: a func body whose last command
+# fails without `return` answers rc 0)
+fv.views._viewValid() { RESULT=1; }
+# TGroup.Valid CMD (func) — FV: for cmReleasedFocus only Current's Valid,
+# and only when Current has ofValidate; for any other command every
+# subview's Valid (front to back; the first "no" answers rc 1)
+fv.views._groupValid() {
+    local -n __fvw_vl=${1}_views __fvw_vd=${1}_data
+    local __fvw_k __fvw_i
+    if [ "${2-}" = cmReleasedFocus ]; then
+        __fvw_k=${__fvw_vd[Current]-}
+        if [[ -n $__fvw_k && -n ${__FV_VW_LIVE[$__fvw_k]-} ]]; then
+            local -n __fvw_vk=${__fvw_k}_data
+            if (( ${__fvw_vk[Options]:-0} & FV_OF_VALIDATE )); then fv.views._virt "$__fvw_k" Valid "$2" || return 1; fi
+        fi
+    else
+        local -a __fvw_ks=("${__fvw_vl[@]}")
+        for (( __fvw_i = ${#__fvw_ks[@]} - 1; __fvw_i >= 0; __fvw_i-- )); do
+            __fvw_k=${__fvw_ks[__fvw_i]}
+            if [[ -z ${__FV_VW_LIVE[$__fvw_k]-} ]]; then continue; fi
+            fv.views._virt "$__fvw_k" Valid "${2-}" || return 1
+        done
+    fi
+    RESULT=1
+}
+
+# fv.views.mouseEvent V MASK — FV MouseEvent(Event, Mask): read events from
+# __FV_VW_GETEVENT, dropping the others, until one whose bit is in MASK
+# (FV_EM_* bits) or a mouse-up; that event stays in FV_EV_* (FV's var
+# parameter: the caller tracks a drag with it). rc 0 for a MASK event, 1 for
+# the mouse-up, and 1 at the end of input (latched; FV_EV_WHAT=evNothing):
+# the tracking loop ends instead of spinning. RESULT is kept
+fv.views.mouseEvent() {
+    if (( $# != 2 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" mouseEvent || return
+    if [[ -z $2 || $2 == *[!0123456789]* || ${#2} -gt 9 ]]; then fv.views._bad mouseEvent 'MASK must be a number (FV_EM_* bits)'; return; fi
+    local __fvw_m=$(( 10#$2 | FV_EM_MOUSEUP )) __fvw_s __fvw_rr=${RESULT-}
+    while :; do
+        # (what the handler drew so far is shown before the next event)
+        fv.views._showNow
+        if (( __FV_VW_EOF )); then FV_EV_WHAT=evNothing; RESULT=$__fvw_rr; return 1; fi
+        __fvw_s=0
+        "$__FV_VW_GETEVENT" || __fvw_s=$?
+        if (( __fvw_s )); then
+            if (( __fvw_s != 1 )); then kk.debug "Error: fv.views.mouseEvent: the event source '$__FV_VW_GETEVENT' failed (rc $__fvw_s): taken for the end of input"; fi
+            __FV_VW_EOF=1
+            FV_EV_WHAT=evNothing
+            RESULT=$__fvw_rr
+            return 1
+        fi
+        if [[ -z $FV_EV_WHAT ]]; then FV_EV_WHAT=evNothing; fi
+        if (( ${__FV_VW_EVBIT[$FV_EV_WHAT]-0} & __fvw_m )); then break; fi
+    done
+    RESULT=$__fvw_rr
+    if [ "$FV_EV_WHAT" = evMouseUp ]; then return 1; fi
+    return 0
+}
+
+# ---- TWindow (FV views.inc TWindow: Init, InitFrame, GetPalette, GetTitle,
+# SetState, HandleEvent, Close) ------------------------------------------------------
+
+fv.views._windowCreate() {   # W TITLE NUMBER
+    local -n __fvw_wd=${1}_data
+    local __fvw_f
+    local -a __fvw_v
+    __fvw_wd[State]=$(( ${__fvw_wd[State]:-0} | FV_SF_SHADOW ))
+    __fvw_wd[Options]=$(( ${__fvw_wd[Options]:-0} | FV_OF_SELECTABLE | FV_OF_TOPSELECT ))
+    __fvw_wd[GrowMode]=$(( FV_GF_GROWALL | FV_GF_GROWREL ))
+    __fvw_wd[Flags]=$(( FV_WF_MOVE | FV_WF_GROW | FV_WF_CLOSE | FV_WF_ZOOM ))
+    __fvw_wd[Title]=$2
+    if fv.views._ints "${3:-0}"; then __fvw_wd[Number]=${__fvw_v[0]}; else __fvw_wd[Number]=$FV_WN_NONUMBER; fi
+    __fvw_wd[Palette]=$FV_WP_BLUEWINDOW __fvw_wd[Frame]=''
+    fv.views._virt "$1" InitFrame || :
+    __fvw_f=${__fvw_wd[Frame]-}
+    if [[ -n $__fvw_f && -n ${__FV_VW_LIVE[$__fvw_f]-} ]]; then fv.views.insert "$1" "$__fvw_f" || :; fi
+    __fvw_wd[ZoomRect]="${__fvw_wd[OriginX]:-0} ${__fvw_wd[OriginY]:-0} $(( ${__fvw_wd[OriginX]:-0} + ${__fvw_wd[SizeX]:-0} )) $(( ${__fvw_wd[OriginY]:-0} + ${__fvw_wd[SizeY]:-0} ))"
+}
+
+# TWindow.InitFrame — FV: Frame := a TFrame over the window's extent, with
+# the reserved name W__fvframe (TWindow's constructor inserts it). An
+# override that leaves Frame '' makes a frameless window
+fv.views._windowInitFrame() {
+    local -n __fvw_wd=${1}_data
+    if fv.views._newReserved "$1" frame TFrame 0 0 "${__fvw_wd[SizeX]:-0}" "${__fvw_wd[SizeY]:-0}"; then __fvw_wd[Frame]=$RESULT; fi
+    return 0
+}
+
+# TWindow.GetPalette (func) — FV CBlueWindow / CCyanWindow / CGrayWindow by
+# Palette (wpBlueWindow 0, wpCyanWindow 1, wpGrayWindow 2): CAppColor 8-15,
+# 16-23, 24-31. After changing Palette: fv.views.resetPalette W and a redraw
+fv.views._windowGetPalette() {
+    local -n __fvw_wd=${1}_data
+    case ${__fvw_wd[Palette]:-0} in
+        1) RESULT='16 17 18 19 20 21 22 23' ;;
+        2) RESULT='24 25 26 27 28 29 30 31' ;;
+        *) RESULT='8 9 10 11 12 13 14 15' ;;
+    esac
+}
+
+# TWindow.GetTitle MAXSIZE (func) — FV: Title, cut to MAXSIZE characters
+fv.views._windowGetTitle() {
+    local -n __fvw_wd=${1}_data
+    local __fvw_t=${__fvw_wd[Title]-} __fvw_m=${2-}
+    if [[ -n $__fvw_m && $__fvw_m != *[!0123456789]* && ${#__fvw_m} -le 9 ]] && (( ${#__fvw_t} > 10#$__fvw_m )); then
+        __fvw_t=${__fvw_t:0:10#$__fvw_m}
+    fi
+    RESULT=$__fvw_t
+}
+
+# TWindow.SetState BIT ENABLE — FV: TGroup's; sfSelected -> SetState(sfActive)
+# (virtual: the frame's border changes look); sfSelected, or sfExposed while
+# selected -> the window commands enabled / disabled: cmNext cmPrev, cmResize
+# (wfGrow or wfMove), cmClose (wfClose), cmZoom (wfZoom)
+fv.views._windowSetState() {
+    fv.views._groupSetState "$@"
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+    if (( $2 == FV_SF_SELECTED )); then fv.views._virt "$1" SetState "$FV_SF_ACTIVE" "$3" || :; fi
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+    local -n __fvw_wd=${1}_data
+    if (( $2 == FV_SF_SELECTED || ($2 == FV_SF_EXPOSED && (${__fvw_wd[State]:-0} & FV_SF_SELECTED)) )); then
+        local __fvw_f=${__fvw_wd[Flags]:-0}
+        local -a __fvw_c=(cmNext cmPrev)
+        if [[ $__fvw_f == *[!0123456789]* || ${#__fvw_f} -gt 9 ]]; then __fvw_f=0; else __fvw_f=$(( 10#$__fvw_f )); fi
+        if (( __fvw_f & (FV_WF_GROW | FV_WF_MOVE) )); then __fvw_c+=(cmResize); fi
+        if (( __fvw_f & FV_WF_CLOSE )); then __fvw_c+=(cmClose); fi
+        if (( __fvw_f & FV_WF_ZOOM )); then __fvw_c+=(cmZoom); fi
+        if (( $3 )); then fv.views._cmds 0 "${__fvw_c[@]}"; else fv.views._cmds 1 "${__fvw_c[@]}"; fi
+    fi
+    return 0
+}
+
+# TWindow.HandleEvent — FV: TGroup's, then:
+#   * evCommand cmClose for this window (FV_EV_INFO '' or W) with wfClose:
+#     handled; not modal -> Close (virtual: Valid(cmClose), then W.delete);
+#     modal -> cmCancel posted (__FV_VW_PUTEVENT, FV PutEvent);
+#   * evBroadcast cmSelectWindowNum with FV_EV_INFO = Number on a visible,
+#     selectable window: select W, handled (a hidden window does not answer);
+#   * evKeyDown kbTab, kbDown, kbRight -> focusNext W 0 (FV FocusNext(False):
+#     the next control); kbShiftTab, kbUp, kbLeft -> focusNext W 1; handled.
+#     (FPC's TWindow takes the arrows too: a control that uses them handles
+#     them first, in the focused phase.)
+# cmZoom and cmResize (Zoom, DragView) come with stage 2d.
+fv.views._windowEvent() {
+    fv.views._groupEvent "$1"
+    if [ "$FV_EV_WHAT" = evNothing ] || [[ -z ${__FV_VW_LIVE[$1]-} ]]; then return 0; fi
+    local -n __fvw_wd=${1}_data
+    if [ "$FV_EV_WHAT" = evCommand ]; then
+        if [ "$FV_EV_COMMAND" = cmClose ]; then
+            if (( ${__fvw_wd[Flags]:-0} & FV_WF_CLOSE )) && { [[ -z $FV_EV_INFO ]] || [ "$FV_EV_INFO" = "$1" ]; }; then
+                FV_EV_WHAT=evNothing FV_EV_INFO=$1
+                if (( ! (${__fvw_wd[State]:-0} & FV_SF_MODAL) )); then
+                    fv.views._virt "$1" Close || :
+                else
+                    FV_EV_WHAT=evCommand FV_EV_COMMAND=cmCancel
+                    "$__FV_VW_PUTEVENT" || :
+                    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+                fi
+            fi
+        fi
+        # (cmZoom, cmResize: stage 2d)
+    elif [ "$FV_EV_WHAT" = evBroadcast ]; then
+        if [ "$FV_EV_COMMAND" = cmSelectWindowNum ] && [[ -n $FV_EV_INFO ]] && [ "$FV_EV_INFO" = "${__fvw_wd[Number]-}" ] \
+           && (( (${__fvw_wd[Options]:-0} & FV_OF_SELECTABLE) && (${__fvw_wd[State]:-0} & FV_SF_VISIBLE) )); then
+            fv.views._select "$1"
+            FV_EV_WHAT=evNothing FV_EV_INFO=$1
+        fi
+    elif [ "$FV_EV_WHAT" = evKeyDown ]; then
+        if [ "$FV_EV_KEY" = kbTab ] || [ "$FV_EV_KEY" = kbDown ] || [ "$FV_EV_KEY" = kbRight ]; then
+            fv.views._findFocus "$1" 0
+            FV_EV_WHAT=evNothing FV_EV_INFO=$1
+        elif [ "$FV_EV_KEY" = kbShiftTab ] || [ "$FV_EV_KEY" = kbUp ] || [ "$FV_EV_KEY" = kbLeft ]; then
+            fv.views._findFocus "$1" 1
+            FV_EV_WHAT=evNothing FV_EV_INFO=$1
+        fi
+    fi
+    return 0
+}
+# fv.views._findFocus G FORWARDS — FocusNext without the argument checks
+fv.views._findFocus() {
+    local __fvw_n
+    fv.views._findNext "$1" "$2"
+    if [[ -n $__fvw_n ]]; then fv.views._focus "$__fvw_n" || :; fi
+    return 0
+}
+
+# TWindow.Close — FV: when Valid(cmClose) agrees, the window is destroyed
+# (FV Free: W.delete — out of its owner, the focus moves on, its area
+# repainted)
+fv.views._windowClose() {
+    if fv.views._virt "$1" Valid cmClose; then
+        if declare -F "$1.delete" >/dev/null; then "$1.delete"; fi
+    fi
     return 0
 }

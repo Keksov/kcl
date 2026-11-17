@@ -57,6 +57,40 @@
 #   fvw_snap              REPLY = every row's text and symbols
 #   fvw_full ROOT         rc 0 when the screen equals a full repaint of ROOT
 #                         from garbage; FVW_DIFF = the rows that differ
+# Stage 2c-3 (events, focus, modal views):
+#   fvw_events SPEC...    the scripted event source: __FV_VW_GETEVENT =
+#                         fvw_getev, which answers fv.drivers' put event
+#                         first (TWindow's modal cmClose posts one), else
+#                         pops one SPEC per call: 'key K', 'cmd C [INFO]',
+#                         'bc C [INFO]', 'down X Y', 'up X Y', 'move X Y',
+#                         'wheel X Y', 'nothing'; 'run FN' runs FN and goes
+#                         on; 'fail N' is rc N. An empty queue is the end
+#                         of input (rc 1, FV_EV_EOF=1). FVW_EVN counts the
+#                         calls. fvw_noevents: back to fv.drivers.getEvent,
+#                         the EOF latch reset
+#   fvw_root G            G as fv.app makes the application: sfExposed,
+#                         sfSelected and sfModal, then sfFocused through
+#                         setState (the focus chain below it)
+#   fvw_classes2          TTApp (a TGroup whose HandleEvent, an override,
+#                         calls inherited and then takes cmNext as FV's
+#                         TDesktop does: focusNext Current 0 — the design's
+#                         TMyApp + desktop), TTLeaf (a TTList whose
+#                         HandleEvent, an override, records each event in
+#                         FVW_GOT ("NAME:WHAT:KEY/COMMAND;"), moves its
+#                         marked row on kbDown with two drawParts, and calls
+#                         inherited only for a mouse-down; its Draw and the
+#                         drawPart painter fvw_leafrow write "row N of NAME",
+#                         '>' on the marked row FVW_ROW[NAME])
+#   fvw_mktwin NAME AX AY BX BY TITLE NUM [CLASS]
+#                         a TWindow (its frame NAME__fvframe from InitFrame)
+#                         with a selectable leaf NAMEl (TTLeaf or CLASS)
+#                         over its interior
+#   fvw_tscene [W H] [side]
+#                         a headless screen and the events scene: root app
+#                         (TTApp, fvw_root) > desk (TGroup, full size) > bg
+#                         (TView), w1 (2 1 40 20) and w2 in front (30 5 70
+#                         22); `side`: w1 0 0 40 23 and w2 40 0 80 23. Not
+#                         drawn yet
 #
 # Timing runs never use the shims.
 
@@ -234,6 +268,124 @@ fvw_scene() {
     FVW_DRAWS=()
 }
 fvw_unscene() { desk.delete; }
+
+# ---- stage 2c-3 ----------------------------------------------------------------
+FVW_EVQ=() FVW_EVN=0 FVW_GOT=''
+fvw_events() { FVW_EVQ=("$@"); FVW_EVN=0; __FV_VW_GETEVENT=fvw_getev; }
+fvw_noevents() { FVW_EVQ=(); __FV_VW_GETEVENT=fv.drivers.getEvent; __FV_VW_EOF=0; __FV_DR_PEND=(); }
+fvw_getev() {
+    local s a b c IFS=' '
+    FVW_EVN=$(( FVW_EVN + 1 ))
+    if (( ${#__FV_DR_PEND[@]} )); then fv.drivers.getEvent 0; return; fi
+    while :; do
+        if (( ! ${#FVW_EVQ[@]} )); then fv.drivers.clearEvent; FV_EV_EOF=1; return 1; fi
+        s=${FVW_EVQ[0]}
+        FVW_EVQ=("${FVW_EVQ[@]:1}")
+        read -r a b c <<< "$s"
+        if [ "$a" = run ]; then "$b"; continue; fi
+        fv.drivers.clearEvent
+        case $a in
+            fail) return "$b" ;;
+            key) FV_EV_WHAT=evKeyDown FV_EV_KEY=$b ;;
+            cmd) FV_EV_WHAT=evCommand FV_EV_COMMAND=$b FV_EV_INFO=${c-} ;;
+            bc) FV_EV_WHAT=evBroadcast FV_EV_COMMAND=$b FV_EV_INFO=${c-} ;;
+            down) FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_MOUSE_BUTTONS=1 ;;
+            up) FV_EV_WHAT=evMouseUp FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c ;;
+            move) FV_EV_WHAT=evMouseMove FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_MOUSE_BUTTONS=1 ;;
+            wheel) FV_EV_WHAT=evMouseWheel FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_WHEEL=2 ;;
+        esac
+        RESULT=$FV_EV_WHAT
+        return 0
+    done
+}
+
+fvw_root() {
+    local -n __t_d=${1}_data
+    __t_d[State]=$(( __t_d[State] | FV_SF_EXPOSED | FV_SF_SELECTED | FV_SF_MODAL ))
+    fv.views.setState "$1" "$FV_SF_FOCUSED" 1
+}
+
+fvw_classes2() {
+    declare -F TTApp.new >/dev/null && return 0
+    fvw_classes
+    declare -gA FVW_ROW=()
+    class TTApp : TGroup
+        public
+            override proc HandleEvent
+    end
+    TTApp.HandleEvent() {
+        inherited HandleEvent "$@"
+        if [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmNext ]; then
+            fv.views.focusNext "$Current" 0
+            fv.views.clearEvent "$this"
+        fi
+    }
+    build TTApp
+    class TTLeaf : TTList
+        public
+            override proc Draw
+            override proc HandleEvent
+    end
+    TTLeaf.Draw() {
+        FVW_DRAWS[$this]=$(( ${FVW_DRAWS[$this]:-0} + 1 ))
+        fvw_leafrow "$this"
+    }
+    TTLeaf.HandleEvent() {
+        FVW_GOT+="$this:$FV_EV_WHAT:$FV_EV_KEY$FV_EV_COMMAND;"
+        if [ "$FV_EV_WHAT" = evKeyDown ] && [ "$FV_EV_KEY" = kbDown ]; then
+            local o=${FVW_ROW[$this]:-0} n
+            n=$(( (o + 1) % SizeY ))
+            FVW_ROW[$this]=$n
+            fv.views.drawPart "$this" fvw_leafrow "$o" "$(( o + 1 ))"
+            fv.views.drawPart "$this" fvw_leafrow "$n" "$(( n + 1 ))"
+            fv.views.clearEvent "$this"
+        elif [ "$FV_EV_WHAT" = evMouseDown ]; then
+            inherited HandleEvent "$@"
+        fi
+    }
+    build TTLeaf
+}
+fvw_leafrow() {
+    local -n __t_d=${1}_data
+    local y s m w=${__t_d[SizeX]:-0}
+    for (( y = FV_CLIP_Y1; y < FV_CLIP_Y2; y++ )); do
+        m=' '
+        if (( y == ${FVW_ROW[$1]:-0} )); then m='>'; fi
+        printf -v s '%-*s' "$w" "${m}row $y of $1"
+        fv.views.writeStr 0 "$y" "${s:0:w}" 1
+    done
+}
+
+fvw_mktwin() {
+    fvw_classes2
+    TWindow.new "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+    "${8:-TTLeaf}.new" "${1}l" 1 1 $(( $4 - $2 - 1 )) $(( $5 - $3 - 1 ))
+    local -n __t_d=${1}l_data
+    __t_d[Options]=$(( __t_d[Options] | FV_OF_SELECTABLE ))
+    fv.views.insert "$1" "${1}l"
+}
+
+fvw_tscene() {
+    fvw_screen "${1:-80}" "${2:-24}"
+    fvw_classes2
+    TTApp.new app 0 0 "$FV_SCREEN_W" "$FV_SCREEN_H"
+    TGroup.new desk 0 0 "$FV_SCREEN_W" "$FV_SCREEN_H"
+    TView.new bg 0 0 "$FV_SCREEN_W" "$FV_SCREEN_H"
+    fv.views.insert desk bg
+    if [ "${3-}" = side ]; then
+        fvw_mktwin w1 0 0 40 23 'Files' 1
+        fvw_mktwin w2 40 0 80 23 'Panel two' 2
+    else
+        fvw_mktwin w1 2 1 40 20 'Files' 1
+        fvw_mktwin w2 30 5 70 22 'Panel two' 2
+    fi
+    fv.views.insert desk w1
+    fv.views.insert desk w2
+    fv.views.insert app desk
+    fvw_root app
+    FVW_DRAWS=() FVW_GOT='' FVW_ROW=()
+}
+fvw_untscene() { app.delete; }
 
 # fvw_snap -> REPLY = every row's text and symbols
 fvw_snap() {

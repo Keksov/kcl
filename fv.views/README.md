@@ -11,11 +11,13 @@ your class overrides it. FV's non-virtual methods are plain functions
 The unit loads `kklass_pascal`, [`fv.video`](../fv.video/README.md) and
 [`fv.drivers`](../fv.drivers/README.md).
 
-**Status: P2 stage 2c-2** — the tree and the geometry (2c-1); palettes,
+**Status: P2 stage 2c-3** — the tree and the geometry (2c-1); palettes,
 the drawing context and writers, the painter with shadows, both lock
-counters and the minimal `TFrame` (2c-2). Events, focus, commands, modal
-views and the basic `TWindow` come with stage 2c-3; the section that belongs
-to them says so.
+counters and the minimal `TFrame` (2c-2); the event dispatch, the focus
+chain, command sets, the cursor, modal views and the basic `TWindow` (2c-3).
+Window zoom, dragging and the frame's mouse come with stage 2d; the
+application (`TProgram` / `TApplication`, `Run`, the real event source)
+with stage 2f.
 
 ## Quick start
 
@@ -95,6 +97,7 @@ TMyDlg.Create() { inherited; fv.views.isView "$this" || return 1; Title=$5; }
 | `TView` | `Owner OriginX OriginY SizeX SizeY CursorX CursorY State Options EventMask GrowMode DragMode HelpCtx` |
 | `TGroup : TView` | + `Current Phase EndState LockFlag` |
 | `TFrame : TView` | + `FrameMode` |
+| `TWindow : TGroup` | + `Flags Title Number Palette Frame ZoomRect` (`ZoomRect` = `"AX AY BX BY"`) |
 
 * `CLASS.new NAME AX AY BX BY` is FV's `Init(R)` with `R.Assign(AX, AY, BX, BY)`:
   corners, B exclusive (D1). The width is capped at FV's `MaxViewWidth`
@@ -108,8 +111,16 @@ TMyDlg.Create() { inherited; fv.views.isView "$this" || return 1; Title=$5; }
 * `TFrame` (FV `TFrame.Init`): `GrowMode` = `gfGrowHiX + gfGrowHiY`,
   `EventMask` += `evBroadcast`, `FrameMode` 0. It reads its owner's
   `Flags`, `Number` and `Title` (or the owner's `GetTitle`, a func, when its
-  class has one): TWindow's fields from stage 2c-3; any group works (without
-  them: a bare frame).
+  class has one): TWindow's fields; any group works (without them: a bare
+  frame).
+* `TWindow.new NAME AX AY BX BY [TITLE [NUMBER]]` (FV `TWindow.Init`):
+  TGroup's, then `sfShadow`, `ofSelectable + ofTopSelect`, `GrowMode` =
+  `gfGrowAll + gfGrowRel`, `Flags` = `wfMove + wfGrow + wfClose + wfZoom`,
+  `Palette` = `wpBlueWindow`, `Number` (1–9 is shown on the frame; not an
+  integer: `wnNoNumber` 0), `ZoomRect` = the bounds, and `Frame` from the
+  virtual `InitFrame`: the built-in makes the `TFrame` `NAME__fvframe` over
+  the whole window, which the constructor inserts (an override that leaves
+  `Frame` empty makes a frameless window). See "TWindow" below.
 * `Owner` and `Current` hold view names; `''` is FV's `nil`.
 * FV's `Next` / `Last` / `First` are the owner's subview list
   `${group}_views`, **back to front**: its last element is FV's `First` (the
@@ -162,6 +173,13 @@ Phases and commands are names (`phFocused`, `cmClose`), not numbers.
 | `TView` | `GetPalette` | func | `''` (FV `nil`: the view maps as its owner does) |
 | `TFrame` | `GetPalette` | func | `1 1 2 2 3` (FV `CFrame`) |
 | `TView` | destructor `Done` (`V.delete`) | | V out of its owner, a group's subviews destroyed, V's entries freed |
+| `TView` | `HandleEvent` | proc | the click to focus (D8); "Events" below |
+| `TGroup` | `HandleEvent` | proc | FV's dispatch: phases, positional, broadcasts ("Events") |
+| `TView` / `TGroup` | `SetState BIT ENABLE` | proc | the bit and FV's side effects ("The focus chain") |
+| `TView` / `TGroup` | `Valid CMD` | func | rc 0 = valid; TGroup asks its subviews ("Modal views") |
+| `TView` / `TGroup` | `Execute` | func | `cmCancel` / FV's modal loop ("Modal views") |
+| `TView` / `TGroup` | `EndModal CMD` | proc | the top view's / a modal group's `EndState` |
+| `TWindow` | `HandleEvent SetState GetPalette GetTitle InitFrame Close` | | "TWindow" below |
 
 FV's procedures with `var` parameters answer in globals, because a proc
 leaves `RESULT` alone (below): `FV_RECT_AX FV_RECT_AY FV_RECT_BX FV_RECT_BY`
@@ -169,8 +187,8 @@ leaves `RESULT` alone (below): `FV_RECT_AX FV_RECT_AY FV_RECT_BX FV_RECT_BY`
 `FV_POINT_X FV_POINT_Y` (a `TPoint`).
 
 The aliases (D16) — `TView`: `MakeFirst PutInFrontOf Locate MoveTo GrowTo
-DrawView Show Hide`; `TGroup`: `Insert InsertBefore Lock Unlock` — call the
-plain functions with `$this`.
+DrawView Show Hide Select`; `TGroup`: `Insert InsertBefore Lock Unlock
+SelectNext ExecView` (a func) — call the plain functions with `$this`.
 There is **no `Delete` alias**: FV's `Delete` (remove a subview) would differ
 from kklass's `.delete` (destroy) in the case of one letter. Removal is
 `fv.views.delete G V`.
@@ -231,9 +249,9 @@ kklass's, not promised).
 supported in an override:
 
 * a `proc` leaves the caller's `RESULT`; its rc is the body's;
-* a `func` (FV's functions: `GetHelpCtx GetPalette`; later `Valid Execute
-  GetTitle Hint GetEvent`) **answers by setting `RESULT` and ending without
-  an explicit `return`**;
+* a `func` (FV's functions: `GetHelpCtx GetPalette Valid Execute GetTitle`;
+  later `Hint GetEvent`) **answers by setting `RESULT` and ending without
+  an explicit `return`** (`Valid` answers by its rc: "Modal views");
 * a `func` **fails with an explicit `return N` (N ≠ 0)**, which leaves the
   caller's `RESULT`;
 * **not supported in a `func` override**: an explicit `return 0` (kklass
@@ -247,7 +265,7 @@ Every built-in body follows the supported forms; the plain path answers for
 a `func` with rc 0 and leaves the caller's `RESULT` for a failing `func` and
 for every `proc`.
 
-Tested in `013_Elision`, with every built-in of stages 2c-1 and 2c-2 overridden with
+Tested in `013_Elision`, with every built-in of stages 2c-1, 2c-2 and 2c-3 overridden with
 `inherited`, fields named like common locals, `kk.class --forget` +
 redefinition, and the caller setups.
 
@@ -299,7 +317,7 @@ loud exception to kcl §1.2 (below).
 | `fv.views.drawView V` | `DrawView` | V drawn in place (with its shadow), the views in front of it painted again over it, the terminal updated. Nothing (rc 0) for a view that cannot be drawn now (above). `RESULT` kept |
 | `fv.views.redraw V` | `Redraw` | as `drawView`, with a forced terminal update (every cell sent again); while the update is held (`lockScreenUpdate`, a user lock, inside another drawing entry) the force waits for the release |
 | `fv.views.drawPart V FN Y1 Y2 [ARGS]` | — (rule 4) | partial redraw of a **leaf** without a dispatch: your plain painter function runs as `FN V ARGS` with V's drawing context, its writes clipped to V's local rows `Y1 <= y < Y2`; then the views in front of V that overlap those rows are painted again, and the terminal is updated. A group is refused (rc 2, one debug line): a painter of a group would write over its own subviews (redraw a group with `drawView`). Nested inside a Draw, the part under a covering view in that Draw is left out, so FN may run once per remaining piece (below). rc = FN's (the last non-zero; 0 when V cannot be drawn now: FN does not run). For a list's cursor move (P3 `FocusItem`) |
-| `fv.views.show V` / `hide V` | `Show` / `Hide` | the `sfVisible` bit, then (V in a group) FV's DrawShow (V drawn with its shadow) / DrawHide (its area, shadow included, repainted from below), then the owner's `ResetCurrent` for a selectable V. A no-op when the bit already is so. (The virtual-aware `setState` is stage 2c-3) |
+| `fv.views.show V` / `hide V` | `Show` / `Hide` | the `sfVisible` bit, then (V in a group) FV's DrawShow (V drawn with its shadow) / DrawHide (its area, shadow included, repainted from below), then the owner's `ResetCurrent` for a selectable V. A no-op when the bit already is so; otherwise it is V's `SetState(sfVisible, …)` through the elision (an override of yours sees it) |
 | `fv.views.lock G` / `unlock G` | `TGroup.Lock` / `Unlock` | `LockFlag` counts. While G is locked no `drawView` of G or of a view inside it is drawn (the tree changes' redraws included) and the terminal update is held. When the count returns to 0, **G is redrawn once** (FV `Unlock` → `DrawView`; also after `Lock; change fields; Unlock` with no draw at all). An inner group unlocked inside its locked owner draws nothing: the owner's unlock draws both. `unlock` of an unlocked group: a no-op. A group destroyed while locked (or holding a locked group) no longer holds the update, and what was drawn meanwhile (its removal) is sent at once |
 | `fv.views.lockScreenUpdate` / `unlockScreenUpdate` | `LockScreenUpdate` / `UnlockScreenUpdate` | a count that holds the terminal update; the drawing into the buffer goes on. Back at 0, `unlockScreenUpdate` updates the terminal (FV calls `DrawScreenBuf` after it; here it is part of the call) unless a user lock still holds it. At 0 already: a no-op |
 | `fv.views.getColor V I` | `GetColor` | `RESULT` = the fv.video symbol of V's palette entry I (1-based); ErrorAttr's symbol (below) for an index outside it; rc 2 for a non-index |
@@ -361,7 +379,7 @@ writes in ErrorAttr's symbol; a malformed argument is rc 2).
 * **A view's palette** is its `GetPalette` (a func: an override of yours is
   dispatched, `inherited GetPalette` works): FV's index list as
   space-separated numbers into its owner's palette (`TFrame` `1 1 2 2 3`;
-  TWindow's blue / cyan / gray from stage 2c-3: `8 … 15`, `16 … 23`, `24 …
+  TWindow's blue / cyan / gray: `8 … 15`, `16 … 23`, `24 …
   31`); `''` (TView's) means the view maps as its owner does. The root maps
   into the app palette.
 * **Resolved once per view** (FV's owner walk, done at the first draw or
@@ -387,8 +405,8 @@ or zoom, −4 with a number; in cells: wide characters count 2).
 
 * **A full draw is 3 writes**: the top row, the body row (`║` blanks `║`)
   on the H−2 rows between through the repeat count, the bottom row.
-* **The border-only redraw** (`fv.views._frameBorder F`, which stage 2c-3
-  calls when `sfActive` or `sfDragging` changes) writes the top and bottom
+* **The border-only redraw** (`fv.views._frameBorder F`, which a group's
+  `SetState` calls when a subview frame's `sfActive` or `sfDragging` changes) writes the top and bottom
   rows and the two side columns (4 writes) and never touches the interior.
   The parts of the ring that a covering view in front of the frame (or of an
   owner) holds are left out first, so a window in front is neither
@@ -467,15 +485,227 @@ or zoom, −4 with a number; in cells: wide characters count 2).
   `Draw` runs less often than in FV.
 * **Border-only frames**: a state change of a frame redraws its ring only;
   its interior keeps the previous state's colour where no view covers it
-  (FV's three window palettes give both states the same background there).
+  (FV's three window palettes give both states the same background there:
+  only the foreground of blank cells differs, which shows nothing). There
+  is no `TFrame.SetState` (FPC has none either): the group's `SetState`
+  redraws the border of each subview frame whose `sfActive` / `sfDragging`
+  changed (FV redraws the whole window at its `Unlock`).
 * **Not in this stage**: FV's frame junctions with `ofFramed` subviews;
   `sfExposed` on the views below the root (only the root's bit is read).
 
-## Events, focus, commands, modal views — P2 stage 2c-3
+## Events, focus, commands
 
-`HandleEvent` and the phases, the focus chain, `select` / `setState`,
-command sets, `execView` / `endModal`, the basic `TWindow`. Today
-`fv.views._setCurrent` only moves `Current` and the `sfSelected` bits.
+### The event and the dispatch
+
+The event is [fv.drivers'](../fv.drivers/README.md#the-event) record, the
+`FV_EV_*` globals: `FV_EV_WHAT` names it (`evKeyDown`, `evMouseDown`,
+`evCommand`, `evBroadcast`, …), `FV_EV_KEY` the key, `FV_EV_COMMAND` a
+command **name**, `FV_EV_INFO` FV's `InfoPtr` / `InfoInt` (a view name or a
+number; `''` = nil). A handler marks an event handled with
+`fv.views.clearEvent "$this"` (FV `ClearEvent`: `FV_EV_WHAT=evNothing`,
+`FV_EV_INFO` = the handler).
+
+`TGroup.HandleEvent` (FV's, the built-in of every group) runs TView's first
+(click to focus, below) and then, unless the event was handled:
+
+| event | goes to |
+|---|---|
+| focused (`evKeyDown`, `evCommand`) | `Phase=phPreProcess`: each subview with `ofPreProcess`, front to back; `phFocused`: `Current`; `phPostProcess`: each subview with `ofPostProcess` |
+| positional (`evMouseDown` / `Up` / `Move` / `Auto` / `Wheel`) | the front-most visible subview whose rect holds the point (D8). A disabled one there swallows it, as in FV |
+| `evBroadcast` | every subview, front to back |
+| any other name | nobody: it has no `EventMask` bit, so every subview skips it |
+
+* Each subview is reached through the elision; it is **skipped without a
+  call** when its `EventMask` lacks the event's bit, or (positional and
+  focused events) when it has `sfDisabled`. TView's own handler does nothing
+  but the click to focus, so it is not even called for any other event.
+* The loop stops as soon as the event is handled (`evNothing`); it runs over
+  the subview list as it was when the event came, and skips a view that an
+  earlier handler removed or destroyed.
+* The group's `Phase` is set before each call (a handler may read it).
+* A handler's rc is ignored (FV procedure): a handler that ends in a false
+  test does not stop a caller under `set -e`.
+
+**`EventMask` defaults are FV's**: TView `evMouseDown + evKeyDown +
+evCommand` (273: a plain view sees no broadcast), TGroup `$FFFF`, TFrame
+TView's + `evBroadcast`. So a focus broadcast into a desktop costs no
+dispatch while every view in it is built-in or a plain user leaf; only a
+user class that listens (P3: labels, buttons) pays one dispatch.
+
+**Click to focus** (TView's `HandleEvent`, D8): a mouse-down on a selectable
+view that is neither selected nor disabled focuses it (`fv.views.focus`) and
+is consumed, unless the view took the focus and has `ofFirstClick`. A root
+group should have `sfSelected` (fv.app makes the application with
+`sfVisible + sfSelected + sfFocused + sfModal + sfExposed`), or it eats the
+first click as FV does.
+
+### The focus chain
+
+`sfSelected` marks a group's `Current`; `sfFocused` the views on the chain
+from the focused root (`Current` of `Current` …); `sfActive` the selected
+window, its frame and contents; `sfModal` the view `execView` runs. Every
+bit changes through the **virtual-aware `setState`** (an override of
+`SetState` sees each change; `inherited SetState "$@"` keeps the behaviour),
+with FV's side effects inline:
+
+| bit | TView | TGroup adds | TWindow adds |
+|---|---|---|---|
+| `sfVisible` | DrawShow / DrawHide, the owner's ResetCurrent for a selectable view | | |
+| `sfFocused` | resetCursor; the broadcast `cmReceivedFocus` / `cmReleasedFocus` to the owner (`FV_EV_INFO` = the view) | then `Current`'s `SetState` (the chain) | |
+| `sfCursorVis`, `sfCursorIns` | resetCursor when focused | | |
+| `sfShadow` | the area with the shadow repainted from below | | |
+| `sfActive`, `sfDragging` | the bit | each subview's `SetState`, then the **border-only redraw** of each subview frame whose bit changed (4 writes) | |
+| `sfSelected` | the bit | | `SetState(sfActive)`; the window commands |
+
+`select` / `setCurrent` follow FV's `SetCurrent` (the old Current loses
+`sfFocused`, then `sfSelected`; the new one gains `sfSelected`, then
+`sfFocused`), so the broadcasts come in FV's order: each view's to its owner
+before its Current's, released before received; a broadcast to the desktop
+goes on into each window. **Decision D17**: no `Lock` of the group (FV's
+`SetCurrent` locks the desktop, and its `Unlock` redraws all of it); the
+terminal update is held to the end of the sequence, and only what changed
+is redrawn: the two frame borders, the window brought to the front where it
+was covered (with its shadow), the shadow alone when only the shadow meets
+another window. A focus change of a group whose Current is not a window
+redraws nothing (FV's leaves that change look on `sfActive` / `sfFocused`
+redraw themselves in their own `SetState`: P3's lists and buttons).
+
+The cursor: **`fv.views.resetCursor V`** (FV `ResetCursor` for V's tree)
+shows the hardware cursor of the focused leaf (the end of the chain) at its
+`CursorX` / `CursorY` when it has `sfVisible + sfCursorVis + sfFocused`,
+the cell lies inside it and every owner, no visible view in front of it or
+of an owner holds the cell, and every owner is visible: underline, block
+with `sfCursorIns`; otherwise it hides it. The modal loop calls it after each
+event; `setState` calls it for `sfFocused` / `sfCursorVis` / `sfCursorIns`
+(once at the end of a framework sequence). It reads fv.video's cursor state
+(`__FV_VS_CURX` / `_CURY` / `_CURT`) as a friend, and updates the terminal
+only when the cursor changed.
+
+### Commands
+
+Commands are **names** (`cmClose`, `cmMyThing`: letters, digits, `_`). The
+set kept is the **disabled** one: FV's `CurCommandSet` (all of 0..255 but
+`cmZoom cmClose cmResize cmNext cmPrev` at the start) is its complement, so
+a name never disabled is enabled, as FV's commands above 255 always are. A
+change sets `FV_COMMANDSETCHANGED=1` (FV `CommandSetChanged`; fv.app's
+`Idle` broadcasts `cmCommandSetChanged` and clears it). A selected `TWindow`
+enables `cmNext cmPrev`, `cmResize` (wfGrow or wfMove), `cmClose` (wfClose)
+and `cmZoom` (wfZoom), and disables them when deselected. `execView` puts
+the set back after its modal view.
+
+### The plain API
+
+| Function | FV | Answer |
+|---|---|---|
+| `fv.views.message V WHAT COMMAND [INFO]` | `Message` | a new event (`FV_EV_WHAT=WHAT`, `FV_EV_COMMAND=COMMAND`, `FV_EV_INFO=INFO`, the rest empty) to V's `HandleEvent`; the caller's whole event record is put back afterwards. rc 0 and `RESULT` = the handler when it was handled; rc 1, `RESULT=''` when not, or for V `''` |
+| `fv.views.clearEvent V` | `ClearEvent` | `FV_EV_WHAT=evNothing`, `FV_EV_INFO=V` |
+| `fv.views.setState V BIT ENABLE` | `SetState` | V's `SetState` through the elision (BIT one `FV_SF_*` value, ENABLE 1 / 0); `RESULT` kept |
+| `fv.views.select V` | `Select` | a selectable V becomes its owner's `Current`; with `ofTopSelect` it is brought to the front first. Not selectable or no owner: nothing |
+| `fv.views.focus V` | `Focus` | rc 0 when V is (or now is) on the focus chain: its owner is focused first, then V selected, unless the owner's `Current` has `ofValidate` and its `Valid(cmReleasedFocus)` says no (rc 1) |
+| `fv.views.focusNext G FORWARDS` / `selectNext G FORWARDS` | `FocusNext` / `SelectNext` | focus / select the next visible, enabled, selectable subview after `Current` (FORWARDS 1: FV's `Next`, the view behind; 0: FV's `Prev`, the one in front; a ring). focusNext: rc of the focus, 0 when there is none |
+| `fv.views.enableCommands CMD…` / `disableCommands CMD…` | `EnableCommands` / `DisableCommands` | |
+| `fv.views.commandEnabled CMD` | `CommandEnabled` | rc 0 when enabled |
+| `fv.views.getCommands` / `setCommands [CMD…]` | `GetCommands` / `SetCommands` | **the disabled names**: `RESULT` = them sorted, space-separated / exactly these disabled (the pair saves and restores a set) |
+| `fv.views.resetCursor V` | `ResetCursor` | above |
+| `fv.views.setCursor V X Y` | `SetCursor` | `CursorX` / `CursorY`, then resetCursor when V is focused |
+| `fv.views.showCursor V` / `hideCursor` / `blockCursor` / `normalCursor` | `ShowCursor` … | `SetState(sfCursorVis / sfCursorIns, …)` |
+| `fv.views.execView G P` / `endModal V CMD` / `mouseEvent V MASK` | | "Modal views" below |
+
+rc 2 (one debug line, `RESULT=''`) for a malformed call: not a view or
+group, a wrong argument count, a bad number, a name with other characters.
+
+## Modal views
+
+* **`fv.views.execView G P`** (FV `ExecView`; `RESULT` = the command): saves
+  the event record, G's `Phase`, P's `Options` and owner, the top view, G's
+  `Current` and the command set; clears P's `ofSelectable`, sets `sfModal`,
+  makes P G's `Current` (EnterSelect: the old Current stays selected),
+  inserts P when it has no owner; runs P's `Execute` (through the elision);
+  then puts `Current` back (LeaveSelect), removes P when it was inserted
+  there, and restores everything, **the event record included**: the caller's
+  dispatch goes on with its own event (FV has a local `Event` per loop). P
+  `''`: `cmCancel`. The pattern: `TDlg.new dlg …; fv.views.execView
+  "$FV_DESKTOP" dlg; [[ $RESULT == cmOK ]] && …; dlg.delete`.
+* **`TGroup.Execute`** (a func) is FV's loop: `EndState=''`; read an event
+  from the event source and hand it to the group's `HandleEvent`, then
+  resetCursor, until `EndState` is set; repeat while `Valid(EndState)` says
+  no; `RESULT` = `EndState`. **No `HandleEvent` for `evNothing`** (FV calls
+  it every idle tick; an override would pay a dispatch each time): periodic
+  work belongs in fv.app's `Idle`. `TView.Execute` answers `cmCancel`.
+* **One terminal update per event**: while a handler runs, the loop holds
+  the terminal update (the handler's drawing entries go to the buffer) and
+  sends it once afterwards, with the cursor. A nested modal view, and what a
+  handler drew before a mouse tracking loop (`mouseEvent`), are shown at
+  once all the same; a hold of yours (`lockScreenUpdate`, a user lock) keeps
+  everything back as usual.
+* **`fv.views.endModal V CMD`** (FV `EndModal`): the top view's `EndModal`
+  (the view `execView` runs, else the first of V and its owners with
+  `sfModal`: the application); TGroup's sets its `EndState`. rc 1 when no
+  view is modal.
+* **`Valid CMD`** (a func) answers by its **rc**: 0 = valid (RESULT 1), non-zero
+  = not. `TView.Valid` agrees; `TGroup.Valid` asks every subview (front to
+  back), or for `cmReleasedFocus` only a `Current` with `ofValidate`. **An
+  override says no with an explicit `return 1`, and passes a built-in's no
+  on with `inherited Valid "$@" || return`** (kklass caveat K-2: a body
+  whose LAST command fails without `return` answers rc 0, so a bare
+  `inherited Valid "$@"` as the last line agrees whatever the subviews say;
+  013 pins it). The same holds for any failing `inherited` you want to
+  pass on; every built-in body here passes its rc on that way.
+* **The end of input latches** (`__FV_VW_EOF`): when the event source says
+  "end of input" (rc 1; any other non-zero rc is taken for it too, with a
+  debug line, so a broken source cannot spin), the running loop and every
+  loop around it end after the current event **without asking `Valid`**,
+  with `cmCancel` (`cmQuit` for a group without an owner: the application);
+  a new `execView` answers `cmCancel` at once without a loop. So a
+  `Valid(cmQuit)` that opens a "save?" box at the end of input cannot spin:
+  the box answers `cmCancel` at once.
+* **The owner-process rule**: `execView` and `Execute` refuse to run in a
+  subshell (`$( … )`, a pipeline: `BASHPID` is not the screen's owner): rc 2
+  and one debug line. A modal loop there would draw through the parent's
+  screen while the parent's buffer goes stale.
+* **`fv.views.mouseEvent V MASK`** (FV `MouseEvent`): reads events, dropping
+  the others, until one whose bit is in MASK (`FV_EM_*`) or a mouse-up;
+  **that event stays in `FV_EV_*`** (FV's `var Event`: the caller tracks a
+  drag with it, `while fv.views.mouseEvent "$this" "$FV_EM_MOUSEMOVE"; do …;
+  done`). rc 0 for a MASK event, 1 for the mouse-up, and 1 at the end of
+  input (latched, `FV_EV_WHAT=evNothing`): the tracking loop ends.
+* Nesting: each modal level adds a few bash frames; a dialog that destroys
+  itself in its handler ends its loop with `cmCancel`.
+* **The hooks fv.app sets** (stage 2f; private, documented for it):
+  `__FV_VW_GETEVENT` (the event source, default `fv.drivers.getEvent`: fills
+  `FV_EV_*`, rc 0 for every event including `evNothing`, rc 1 at the end of
+  input), `__FV_VW_PUTEVENT` (FV `PutEvent`, default `fv.drivers.putEvent`),
+  `__FV_VW_EOF` (the latch; reset by whoever starts a new input) and
+  `__FV_VW_OWNER` (the screen's owner, `BASHPID` when the unit was loaded).
+* A terminal resize while a modal view or a drag runs is fv.app's
+  `_getEvent` (2f) and dragView's (2d).
+
+## TWindow
+
+FV's `TWindow` (views.inc) without zoom and dragging (stage 2d):
+
+* the constructor above; the frame `NAME__fvframe` (a reserved name, made
+  by `InitFrame`);
+* `GetPalette` (func): FV's `CBlueWindow` / `CCyanWindow` / `CGrayWindow` by
+  `Palette` (`FV_WP_BLUEWINDOW` 0, `CYANWINDOW` 1, `GRAYWINDOW` 2: CAppColor
+  8–15, 16–23, 24–31). After changing `Palette`: `fv.views.resetPalette W`
+  and a redraw;
+* `GetTitle MAXSIZE` (func): `Title` cut to MAXSIZE characters (the frame
+  asks for it);
+* `SetState`: TGroup's; `sfSelected` → `SetState(sfActive)` (the frame's
+  border changes look) and the window commands;
+* `HandleEvent`: TGroup's, then `evCommand cmClose` for this window
+  (`FV_EV_INFO` `''` or the window) with `wfClose`: handled; not modal →
+  `Close`; modal → `cmCancel` posted (`PutEvent`). `evBroadcast
+  cmSelectWindowNum` with `FV_EV_INFO` = `Number` on a selectable window:
+  select it, handled. `evKeyDown kbTab`, `kbDown`, `kbRight` → the next
+  control (FV `FocusNext(False)`), `kbShiftTab`, `kbUp`, `kbLeft` → the
+  previous one, handled (FPC's TWindow takes the arrows too; a control that
+  uses them handles them first, in the focused phase). `cmZoom` and
+  `cmResize` come with stage 2d;
+* `Close`: when `Valid(cmClose)` agrees, the window is destroyed (FV
+  `Free`: `W.delete` — out of its owner, the focus moves on, its area
+  repainted).
 
 ## Contract (kcl README §1) and deviations
 
@@ -492,12 +722,34 @@ command sets, `execView` / `endModal`, the basic `TWindow`. Today
   getters);
 * from Free Vision: `makeLocal` uses the cached absolute origin (FPC's
   `MakeLocal` stops its owner walk at a negative coordinate; this one does
-  not); `insert` does not yet pass `sfActive` to the view (2c-3); only the
-  root's `sfExposed` is read (FV keeps the bit on every view of the
-  application's tree); the writers do not update the terminal (the drawing
-  entry does, once); `V.Draw` outside the painter draws nothing;
+  not); only the root's `sfExposed` is read (FV keeps the bit on every view
+  of the application's tree); the writers do not update the terminal (the
+  drawing entry does, once); `V.Draw` outside the painter draws nothing;
   `unlockScreenUpdate` updates the terminal at 0 (FV leaves that to a
-  separate `DrawScreenBuf`); the redraw model above.
+  separate `DrawScreenBuf`); the redraw model above;
+* from Free Vision, stage 2c-3: no `HandleEvent` for `evNothing` in the
+  modal loop; the focus changes redraw only what changed (D17); `select` of
+  an `ofTopSelect` view already in front makes it `Current` (FV's
+  `MakeFirst` is a no-op there and leaves another view Current); commands
+  are names and the set kept is the disabled one (`getCommands` /
+  `setCommands` work on it); `Valid` answers by its rc; the end-of-input
+  latch and the owner-process rule are additions; `execView` puts G's
+  `Current` back (LeaveSelect) before it removes a P it inserted (FV removes
+  P first), so G gets a `cmReleasedFocus` for P without a matching
+  `cmReceivedFocus` for it; `execView` refuses P = G or an owner of G (rc
+  2); a hidden or disabled view is never made Current by `select`'s
+  in-front case, and a hidden window does not answer `cmSelectWindowNum`;
+  destroying a group deselects its `Current` first (FV `TGroup.Done` hides
+  every subview), without drawing; an empty `FV_EV_WHAT` from the event
+  source is `evNothing`; an `unlockScreenUpdate` without its lock inside a
+  modal handler is ignored (one debug line); `insert` into an active
+  group sets `sfActive` on the view without drawing it twice (FV draws it,
+  then redraws it active); `fv.views.delete` of the Current view resets
+  `Current` while the view is still in the group but hidden (FV's order), so
+  its `cmReleasedFocus` reaches the owner; `mouseEvent` returns its event in
+  `FV_EV_*` (FV's var parameter; the design's "inner loops save and restore
+  the event record" holds for `execView` and `message`, whose callers keep
+  their own event).
 
 Known kklass limits met by the tests (not this unit's): building a class or
 calling `.new` under an `IFS` holding digits or letters fails (with letters
@@ -513,19 +765,28 @@ The tests set such an `IFS` after the classes and instances exist.
 `fvw_budget`, and the desktop-like scene of the drawing tests (a background,
 two framed windows with shadows and a list stand-in each: `TTWin`, `TTList`,
 `fvw_scene`) and `fvw_full` (the screen against a full repaint from
-garbage). Each test file's stderr is captured: anything on it fails one test.
+garbage); for stage 2c-3 the scripted event source (`fvw_events`: no
+terminal), `fvw_root` and the events scene (`fvw_tscene`: an application-like
+root with a TMyApp-like override, a desktop, two `TWindow`s with a list
+stand-in each that handles keys). Each test file's stderr is captured:
+anything on it fails one test.
 
 | file | what |
 |---|---|
-| 001_Contract | `bash -n`; the public API exists; loads, re-loads and the main path (drawing included) under `set -eu`; `kk.unit --forget` + re-source keeps the live tree; failing calls return under `set -e`; nothing on stdout; no stray globals or functions; the test lib itself (both counters keep rc and RESULT and unwrap, the buffer reader, `fvw_budget`) |
+| 001_Contract | `bash -n`; the public API of the three stages exists; loads, re-loads and the main path (drawing and the events included: a window, focus, message, commands, the cursor, a modal view at the end of input) under `set -eu`; `kk.unit --forget` + re-source keeps the live tree; failing calls return under `set -e`; nothing on stdout; no stray globals or functions; the test lib itself (both counters keep rc and RESULT and unwrap, the buffer reader, `fvw_budget`) |
 | 002_Tree | insert / insertBefore / delete / makeFirst / putInFrontOf, the navigation (rings and nil), Owner, Current per FV `ResetCurrent`, the sfSelected bits, refusals (rc, RESULT, unchanged tree), a cycle, `V.delete` of a group, names differing in case under nocasematch, the hook's calls |
 | 003_Geometry | the constructors' corners and defaults, MaxViewWidth, getBounds / getExtent, the cache and the clip, centring, locate / moveTo / growTo with SizeLimits, an owner resize by every GrowMode flag (gfGrowRel, the S = D guard), CalcBounds / SizeLimits answers, makeLocal / makeGlobal / mouseInView, GetHelpCtx, bad numbers; a group moved and resized at once (each subview's old rect in its redraw hook), a CalcBounds override that sets nothing, a subview destroyed during the resize |
 | 004_Draw | the writers in local coordinates (palette index → symbol, ErrorAttr outside, `writeLine`'s repeat count), their answers and refusals (outside a Draw, bad arguments); the context and `FV_CLIP_*` inside a Draw; the owner's clip; the caller's clip and RESULT kept; a `drawView` nested inside a Draw (the outer context and clip intact); TView.Draw; a group override that decorates after `inherited Draw`; nothing drawn when hidden / in a hidden group / without an exposed root; `V.Draw` outside the painter; `getColor`; `drawPart` (clipped rows, the front view over them, no dispatch, rc, refusals); `redraw`'s forced frame, also deferred while held; re-entrancy (a Draw redrawing a view behind it with drawView + drawPart: once, no recursion, == a full repaint, also after a move; a list redrawing scroll bars beside and behind it); a Draw ending non-zero under `set -e` (insert, drawView, moveTo, unlock); drawPart on a group refused |
 | 005_Overlap | the desktop-like scene: painter's order and FV's cells, 4 dispatches for the first paint, shadows (2 × 1, characters kept, over a sibling, clipped by the owner); move, resize, a group resize, makeFirst / putInFrontOf, a reorder without overlap, delete / insert, hide / show: each leaves exactly a full repaint's screen and draws each list at most once; the covering skip (framed group and leaf cover; frameless group, hidden frame, shadow do not); a frameless group's subview hidden / shown / moved / deleted (repainted from below the group); wide characters at a repaint edge; randomized wide-character scenes (seeded, 2 × 30 operations: every redraw == a full repaint) |
 | 006_Lock | lockScreenUpdate (nested, the update held, sent once, RESULT kept); lock / unlock: draws and the hooks' redraws held, redrawn once at 0 (also FV's "Lock; change fields; Unlock"), nested counts, an inner group inside a locked owner, both counters together, refusals, the aliases, a group destroyed while locked; destroying a locked window, or one holding a locked group, sends the removal at once |
-| 011_ZeroFork | both stages (drawing included: frames, shadows, locks, drawPart with every writer) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
-| 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes) |
-| 013_Elision | every built-in virtual of both stages (incl. `Draw`, `GetPalette` of TView / TGroup / TFrame) overridden with `inherited`: dispatch counts (0 / 2), results, user fields named like locals; the RESULT / rc rule both ways (also failing bodies, under `set -e`); overrides inside the painter; `kk.class --forget` + redefinition; a scene under `set -eu`, nocasematch and odd IFS; the unsupported func shapes (`return 0`, a failing last command) pinned as kklass behaves today |
+| 007_Events | the phases (pre / focused / post, the Phase each handler sees), positional events (the front-most visible view, hidden skipped, a disabled one swallows), broadcasts, the EventMask skip without a call (dispatch counts; built-in views 0), disabled views, the stop at evNothing, views removed / destroyed meanwhile, unknown names, click to focus and ofFirstClick, a nested group's Current, message (the handler, rc, the caller's record restored), RESULT kept, a handler's rc under `set -e`, refusals |
+| 008_Focus | the chain's bits, select of a covered window (== a full repaint, its list drawn once), the focus broadcasts in FV's order, sfActive propagation (a frame border = 4 writes, no leaf redraw), side by side (borders + shadow only), Tab in a window (arrows too; unselectable / disabled skipped), focusNext / selectNext, focus with an ofValidate Current, click to focus through the chain, resetCursor (position, shape, outside, covered, unfocused), a SetState override, hide / show / sfShadow, delete of the focused window, insert into an active group, select of a front window that is not Current, refusals |
+| 009_Commands | FV's default set at load (and across a re-source), enable / disable / commandEnabled, the changed flag, getCommands / setCommands, the window commands by Flags, execView restoring the set, refusals |
+| 011_ZeroFork | the three stages (drawing included: frames, shadows, locks, drawPart with every writer; stage 2c-3: a TWindow, the focus chain, message, a key through the dispatch, commands, the cursor, a modal view with a scripted event source, mouseEvent, endModal, cmClose) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
+| 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes); a second scene (stage 2c-3: windows whose names differ only in case, the focus chain, select, message, Tab, a click, commands, the cursor, two modal views, cmClose) under the same setups (`inherited` replaced by the built-in body under the IFS of letters, a kklass limit) |
+| 013_Elision | every built-in virtual of the three stages (incl. `Draw`, `GetPalette` of TView / TGroup / TFrame) overridden with `inherited`: dispatch counts (0 / 2), results, user fields named like locals; the RESULT / rc rule both ways (also failing bodies, under `set -e`); overrides inside the painter; `kk.class --forget` + redefinition; a scene under `set -eu`, nocasematch and odd IFS; the unsupported func shapes (`return 0`, a failing last command) pinned as kklass behaves today; stage 2c-3: HandleEvent / SetState / Valid / Execute / EndModal of TView / TGroup and TWindow's HandleEvent / SetState / GetPalette / GetTitle / InitFrame / Close overridden with `inherited` (0 / 2 dispatches, the RESULT rule, through the dispatch, a select and execView) |
+| 014_Modal | execView (RESULT, inserted / removed, == a full repaint, sfModal and the top view while it runs; the event record, Phase, Options, Current put back; EnterSelect), Valid refusals, endModal from a leaf, modal in modal, no HandleEvent for evNothing, the end of input (no Valid asked), the latch, the "save?" box at the end of input, a failing event source, a root's Execute (cmQuit), the owner-process rule in `$( )`, a dialog destroying itself, a modal cmClose (cmCancel posted), endModal without a modal view, mouseEvent (tracking, the mouse-up, the end of input), refusals; a resize mid-modal / mid-drag is 2f / 2d |
 | 015_Frame | TFrame's constructor; FV's look inactive / active / dragging, `☼` / `↕`, a bare frame in a plain group; a wide and a long title; small sizes; 3 writes full, 4 border-only, no dispatch; the string cache; through fv.video's VT model: the terminal shows the buffer, border-only == a full repaint (a window overlapping the ring in front); the covered parts of the ring left out (4 pieces, no repaint of the window in front); the cache across ASCII mode (initScreen with FV_ASCII); a frame class overriding Draw |
-| 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals |
+| 016_Window | the constructor (FV's defaults, the frame from InitFrame, a bad number, the guard), an InitFrame override without a frame, GetTitle, the frame's title and number, the three palettes, cmClose (Valid no / yes, another window, without wfClose), cmSelectWindowNum through message, an unselectable window, Tab, unknown keys / commands |
 | 018_Names | reserved names (also under nocasematch), `_newReserved`, the constructor guard (a leaf, a group with subviews, through subclass constructors), the dialog loop and the anti-pattern, a constructor that skipped `inherited`, `VERBOSE_KKLASS=quiet`; every rc-2 refusal: one debug line under the switch, none without |
+| 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals |

@@ -7,6 +7,20 @@
 #     TFrame overridden with `inherited`: 0 / 2 dispatches, the RESULT rule
 #     both ways, and in the painter (one dispatch per Draw, the override's
 #     palette resolved into the drawing, fields intact, RESULT kept);
+#   * stage 2c-3: every built-in kklass body passes its plain body's rc
+#     on (`... || return`): a failing Valid / Execute reached through an
+#     override's `inherited ... || return` and the failing aliases keep it;
+#     a bare failing `inherited` as an override's last command loses it
+#     (kklass K-2, pinned);
+#   * stage 2c-3: HandleEvent, SetState, EndModal (procs), Valid, Execute
+#     (funcs) of TView / TGroup and TWindow's HandleEvent, SetState,
+#     GetPalette, GetTitle, InitFrame, Close overridden with `inherited`:
+#     0 / 2 dispatches (also through a TWindow subclass that overrides
+#     nothing), the RESULT rule both ways (Valid's refusal: rc 1, the
+#     caller's RESULT), through the dispatch (a key to a user group's user
+#     Current: 4), a select seen by SetState overrides, execView of a user
+#     group (its Execute, Valid and EndModal overrides), a user TWindow
+#     (InitFrame at construction, GetTitle on the frame, Close by cmClose);
 #   * every built-in virtual of stage 2c-1 (TView ChangeBounds CalcBounds
 #     SizeLimits GetHelpCtx, TGroup ChangeBounds GetHelpCtx) overridden with
 #     `inherited` in user subclasses whose fields are named like common
@@ -420,4 +434,195 @@ for setup in 'set -eu' 'set -eu -o pipefail' 'shopt -s nocasematch' "IFS='012345
     else kt_test_fail "output [$got] vs ref [$ref]; state [$before] -> [$after]"; fi
 done
 
+
+# ---- stage 2c-3: HandleEvent, SetState, Valid, Execute, EndModal; TWindow's
+# HandleEvent, SetState, GetPalette, GetTitle, InitFrame, Close ---------------
+class TUe : TView
+    public
+        var i
+        var k
+        var n
+        var log
+        override proc HandleEvent
+        override proc SetState
+        override func Valid
+        override func Execute
+        override proc EndModal
+end
+TUe.HandleEvent() { log+="HE($FV_EV_WHAT)"; i=1 k=2 n=3; RESULT=clobbered; inherited HandleEvent "$@"; }
+TUe.SetState() { ulog_args "$@"; log+="SS($REPLY)"; RESULT=clobbered; inherited SetState "$@"; }
+TUe.Valid() { log+="VA($1)"; if [[ $1 == cmNo ]]; then return 1; fi; inherited Valid "$@"; }
+TUe.Execute() { log+="EX"; inherited Execute "$@"; RESULT="u$RESULT"; }
+TUe.EndModal() { log+="EM($1)"; RESULT=clobbered; inherited EndModal "$@"; }
+build TUe
+class TUge : TGroup
+    public
+        var i
+        var log
+        override proc HandleEvent
+        override proc SetState
+        override func Valid
+        override func Execute
+        override proc EndModal
+end
+TUge.HandleEvent() { log+="GHE($FV_EV_WHAT)"; i=7; inherited HandleEvent "$@"; }
+TUge.SetState() { ulog_args "$@"; log+="GSS($REPLY)"; inherited SetState "$@"; }
+TUge.Valid() { log+="GVA($1)"; inherited Valid "$@"; }
+TUge.Execute() { log+="GEX"; inherited Execute "$@"; RESULT="g$RESULT"; }
+TUge.EndModal() { log+="GEM($1)"; inherited EndModal "$@"; }
+build TUge
+class TUw : TWindow
+    public
+        var i
+        var log
+        override proc HandleEvent
+        override proc SetState
+        override func GetPalette
+        override func GetTitle
+        override proc InitFrame
+        override proc Close
+end
+TUw.HandleEvent() { log+="WHE"; inherited HandleEvent "$@"; }
+TUw.SetState() { log+="WSS"; inherited SetState "$@"; }
+TUw.GetPalette() { inherited GetPalette "$@"; RESULT="${RESULT% *}"; }
+TUw.GetTitle() { inherited GetTitle "$@"; RESULT="<$RESULT>"; }
+TUw.InitFrame() { log+="WIF"; inherited InitFrame "$@"; }
+TUw.Close() { log+="WCL"; inherited Close "$@"; }
+build TUw
+class TKidW : TWindow
+    public
+        var i
+end
+build TKidW
+
+eofsrc() { FV_EV_WHAT=evNothing; return 1; }
+TGroup.new eg 0 0 40 20
+TView.new ev0 0 0 5 5; TUe.new ue 0 0 5 5; TGroup.new eg0 0 0 9 9; TUge.new uge 0 0 9 9
+TWindow.new ew 0 0 20 10 'Plain' 1; TKidW.new kw 0 0 20 10 'Kid' 2; TUw.new uw2 0 0 20 10 'Mine' 3
+
+kt_test_start "2c-3: 0 dispatches for the built-ins (TView, TGroup, TWindow, a subclass that inherits), 2 for each override + inherited"
+out=''
+FV_EV_WHAT=evBroadcast FV_EV_COMMAND=cmX
+for vw in ev0 ue; do count fv.views._virt "$vw" HandleEvent; out+=$REPLY; done
+for vw in ev0 ue; do count fv.views._virt "$vw" SetState "$FV_SF_CURSORVIS" 1; out+=$REPLY; done
+for vw in ev0 ue; do count fv.views._virt "$vw" Valid cmOK; out+=$REPLY; done
+for vw in ev0 ue; do count fv.views._virt "$vw" Execute; out+=$REPLY; done
+for vw in ev0 ue; do count fv.views._virt "$vw" EndModal cmOK; out+=$REPLY; done
+out+=' '
+__FV_VW_GETEVENT=eofsrc
+for m in 'HandleEvent' "SetState $FV_SF_CURSORVIS 1" 'Valid cmOK' 'EndModal cmOK' 'Execute'; do
+    for vw in eg0 uge; do __FV_VW_EOF=0; count fv.views._virt "$vw" $m; out+=$REPLY; done
+done
+out+=' '
+for m in 'HandleEvent' "SetState $FV_SF_CURSORVIS 1" 'GetPalette' 'GetTitle 9'; do
+    for vw in ew kw uw2; do count fv.views._virt "$vw" $m; out+=$REPLY; done
+done
+__FV_VW_EOF=0 __FV_VW_GETEVENT=fv.drivers.getEvent
+want='0202020202 0202020202 002002002002'
+if [[ $out == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [$want]"; fi
+
+kt_test_start "2c-3: the RESULT rule: HandleEvent, SetState, EndModal (procs) leave the caller's RESULT on both paths; Valid, Execute, GetTitle (funcs) answer"
+r=''
+for vw in ev0 ue; do RESULT=keep; fv.views._virt "$vw" HandleEvent; r+="$RESULT,"; done
+for vw in ev0 ue; do RESULT=keep; fv.views._virt "$vw" SetState "$FV_SF_CURSORINS" 1; r+="$RESULT,"; done
+for vw in ev0 ue; do RESULT=keep; fv.views._virt "$vw" EndModal cmOK; r+="$RESULT,"; done
+for vw in ev0 ue; do RESULT=keep; fv.views._virt "$vw" Valid cmOK; r+="$?:$RESULT,"; done
+for vw in ev0 ue; do RESULT=keep; fv.views._virt "$vw" Execute; r+="$?:$RESULT,"; done
+for vw in ew uw2; do RESULT=keep; fv.views._virt "$vw" GetTitle 3; r+="$RESULT,"; done
+RESULT=keep; fv.views._virt ue Valid cmNo; r+="$?:$RESULT"
+want='keep,keep,keep,keep,keep,keep,0:1,0:1,0:cmCancel,0:ucmCancel,Pla,<Min>,1:keep'
+if [[ $r == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$r] want [$want]"; fi
+
+kt_test_start "2c-3: through the framework: a key to a user group reaches its user Current (2 + 2 dispatches), fields intact; SetState overrides see a select"
+fv.views.insert uge ue; ue_data[Options]=$FV_OF_SELECTABLE
+fv.views.delete uge ue; fv.views.insert uge ue
+fv.views.insert eg uge
+ue_data[log]='' uge_data[log]=''
+fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=kbA
+count fv.views._virt eg HandleEvent; n=$REPLY
+r="$n|${uge_data[log]}|${ue_data[log]}|${ue_data[i]}${ue_data[k]}${ue_data[n]}|${uge_data[i]}"
+eg_data[State]=$(( eg_data[State] | FV_SF_FOCUSED ))
+fv.views.insert eg ev0; ev0_data[Options]=$FV_OF_SELECTABLE; fv.views.delete eg ev0; fv.views.insert eg ev0
+ue_data[log]='' uge_data[log]=''
+fv.views.select uge
+r+="|${uge_data[log]}|${ue_data[log]}"
+# (the select: ev0 loses the focus (its broadcast to eg reaches uge), uge is
+# selected and focused (its broadcast to eg reaches uge too), then ue (its
+# broadcast to uge: uge once more)
+want="4|GHE(evKeyDown)|HE(evKeyDown)|123|7|GHE(evBroadcast)GSS($FV_SF_SELECTED 1)GSS($FV_SF_FOCUSED 1)GHE(evBroadcast)GHE(evBroadcast)|SS($FV_SF_FOCUSED 1)"
+if [[ $r == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$r] want [$want]"; fi
+
+kt_test_start "2c-3: execView of a user group: its Execute (+ inherited loop) and Valid overrides run; endModal through a user EndModal"
+uge_data[log]='' ue_data[log]=''
+q=(endit)
+qsrc() {
+    if (( ${#q[@]} )); then q=(); fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=kbB; fv.views.endModal ue cmOK; return 0; fi
+    FV_EV_WHAT=evNothing; return 1
+}
+__FV_VW_GETEVENT=qsrc
+fv.views.delete eg uge
+fv.views.execView eg uge; r="$RESULT|${uge_data[log]}|${ue_data[log]}"
+__FV_VW_GETEVENT=fv.drivers.getEvent __FV_VW_EOF=0
+if [[ $r == 'gcmOK|'*GEX*'GEM(cmOK)'*'GHE(evKeyDown)'*'GVA(cmOK)'*'|'*'VA(cmOK)'* ]]; then kt_test_pass "ok"; else kt_test_fail "[$r]"; fi
+
+kt_test_start "2c-3: TWindow overrides: InitFrame at construction, GetPalette shapes the frame's colours, GetTitle the frame's title, Close through cmClose"
+TUw.new uw 0 0 30 8 'Title' 4
+r1=${uw_data[log]}
+fvw_screen 40 10
+TGroup.new er 0 0 40 10; fvw_root er; fv.views.insert er uw
+fv.views.drawView er
+fv.video.getRow 0; t=$RESULT
+uw_data[log]=''
+fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmClose
+fv.views._virt er HandleEvent
+r2=$( fv.views.isView uw && echo kept || echo closed )
+if [[ $r1 == WIF && $t == *'<Title>'* && $r2 == closed ]]; then kt_test_pass "ok"; else kt_test_fail "init [$r1] top [$t] close [$r2]"; fi
+er.delete
+eg.delete; ev0.delete 2>/dev/null || :; ue.delete 2>/dev/null || :; eg0.delete; ew.delete; kw.delete; uw2.delete
+
+kt_test_start "2c-3: a failing built-in keeps its rc through kklass: an override's 'inherited NAME \"\$@\" || return' (Valid, Execute), the aliases (ExecView, Insert, InsertBefore, MoveTo, Locate, GrowTo, PutInFrontOf, Select, DrawView, Lock)"
+class TRf : TView
+    public
+        override func Valid
+end
+TRf.Valid() { return 1; }
+build TRf
+class TVo : TGroup
+    public
+        override func Valid
+        override func Execute
+end
+TVo.Valid() { inherited Valid "$@" || return; }
+TVo.Execute() { inherited Execute "$@" || return; }
+build TVo
+TVo.new vo 0 0 10 10; TRf.new rf 0 0 1 1; fv.views.insert vo rf
+TGroup.new og 0 0 9 9; TView.new ov 0 0 1 1; fv.views.insert og ov
+r=''
+RESULT=keep; fv.views._virt vo Valid cmOK; r+="$?:$RESULT,"
+RESULT=keep; vo.Valid cmOK; r+="$?:$RESULT,"
+r+="$( fv.views._virt vo Execute >/dev/null; printf %s "$?" ),"
+r+="$( vo.ExecView ov >/dev/null; printf %s "$?" ),"
+vo.ExecView nosuch >/dev/null; r+="$?,"
+vo.Insert ov; r+="$?,"
+vo.InsertBefore ov nosuch; r+="$?,"
+ov.MoveTo x 1; r+="$?,"; ov.Locate 0 0 x 1; r+="$?,"; ov.GrowTo x 1; r+="$?,"
+ov.PutInFrontOf nosuch; r+="$?,"
+fv.views.delete og ov; ov.Select; r+="$?,"
+ov.DrawView; r+="$?,"
+og.Lock; og.Unlock; r+="$?"
+og.delete; ov.delete; vo.delete
+want='1:keep,1:keep,2,2,2,1,1,2,2,2,1,0,0,0'
+if [[ $r == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$r] want [$want]"; fi
+
+kt_test_start "kklass today (K-2): an override whose LAST command is a bare 'inherited Valid \"\$@\"' that fails answers rc 0 (write '|| return': README)"
+class TVb : TGroup
+    public
+        override func Valid
+end
+TVb.Valid() { inherited Valid "$@"; }
+build TVb
+TVb.new vb 0 0 10 10; TRf.new rf2 0 0 1 1; fv.views.insert vb rf2
+fv.views._virt vb Valid cmOK; r=$?
+vb.delete
+if [[ $r == 0 ]]; then kt_test_pass "rc 0, as kklass behaves today (pinned)"; else kt_test_fail "rc $r: kklass changed, update the README's note"; fi
 kt_test_log "013_Elision.sh completed"
