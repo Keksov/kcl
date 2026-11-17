@@ -67,6 +67,8 @@ fv.video.writeChar 5 2 '#' 3 4; fv.video.fillRect 0 0 3 3 4; fv.video.clearScree
 fv.video.setClip 0 0 5 5; fv.video.resetClip; fv.video.setCursorPos 1 1; fv.video.setCursorType 2
 fv.video.definePalette z 1 2 1; fv.video.setColorDepth 16; fv.video.detectColorDepth
 fv.video.writeBuf 0 0 ab AB 3; fv.video.shadeRect 0 0 4 2; fv.video.getRow 1; fv.video.getClip
+fv.video.fillColumns 0 3 2 x 1 4; fv.video._fcf 0 2 3 y 0 2; fv.video._clipf -1 0 99 9; fv.video._wstr 0 0 ab 1; fv.video._wbf 0 1 ab 12 2; fv.video._shadef 0 0 2 2
+if fv.video.fillColumns 0 1 2 x; then exit 9; fi
 if fv.video.writeStr x 0 a 1; then exit 9; fi
 if fv.video.writeBuf 0 0 a A -1; then exit 9; fi
 if fv.video.getRow 99; then exit 9; fi
@@ -109,7 +111,7 @@ source '$UNIT'
 x=\$(FV_TTY=/nonexistent fv.video.initVideo; fv.video.initVideo bad; fv.video.updateSize; fv.video.querySize; fv.video.doneVideo
      fv.video.querySize() { RESULT='1 2'; }; fv.video.updateSize
      fv.video.initScreen; fv.video.writeStr 0 0 x 1; fv.video.updateScreen; fv.video.writeStr x; fv.video.strWidth abc
-     fv.video.definePalette q 1 1; fv.video.detectColorDepth; fv.video.writeBuf 0 0 a 1 2; fv.video.shadeRect 0 0 1 1
+     fv.video.definePalette q 1 1; fv.video.detectColorDepth; fv.video.writeBuf 0 0 a 1 2; fv.video.shadeRect 0 0 1 1; fv.video.fillColumns 0 1 1 x 0; fv.video._wstr 0 0 a 1
      fv.video.getRow 0; fv.video.getClip; fv.video.getRow x)
 printf '[%s]' \"\$x\"" 2>&1)"
 if [[ $out == '[]' ]]; then kt_test_pass "ok"; else kt_test_fail "out='$out'"; fi

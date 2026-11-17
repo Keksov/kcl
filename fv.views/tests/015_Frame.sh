@@ -9,7 +9,8 @@
 #     palette's colours;
 #   * a wide title (cells, not characters), a title cut so that it never
 #     reaches an icon, small sizes (W 1, 2, 5; H 1, 2) without errors;
-#   * the shape: a full draw = 3 fv.video writes, a border-only redraw = 4;
+#   * the shape: a full draw = 3 fv.video writes, a border-only redraw = 3
+#     (stage 2c-p: both sides in one fillColumns; 4 before);
 #     the strings cached per frame and state (no strWidth on a cache hit, a
 #     new title or size rebuilds);
 #   * through fv.video's VT model: what the terminal shows equals the buffer
@@ -148,7 +149,7 @@ row 44 6 6; h2a=$REPLY; row 44 7 6; h2b=$REPLY
 if [[ $out == 000 && $r == '┘└┘└───┘' && $h2a == '┌────┐|111111' && $h2b == '└────┘|111111' ]]; then kt_test_pass "ok"; else kt_test_fail "rc [$out] row [$r] [$h2a] [$h2b]"; fi
 sg.delete; sg2.delete
 
-kt_test_start "the shape: a full frame draw = 3 writes, a border-only redraw = 4 writes, no dispatch"
+kt_test_start "the shape: a full frame draw = 3 writes, a border-only redraw = 3 writes (both sides one fillColumns), no dispatch"
 TTWin.new w5 0 0 20 6
 w5_data[Flags]=$FV_WF_CLOSE w5_data[Title]=t
 fv.views._newReserved w5 frame TFrame 0 0 20 6
@@ -162,7 +163,7 @@ w5__fvframe_data[State]=$(( w5__fvframe_data[State] | FV_SF_ACTIVE ))
 fv.views._frameBorder w5__fvframe
 b="$FVW_WRITES $FVW_CALLS"
 fvw_writes_off; fvw_count_off
-if [[ $a == '3 0' && $b == '4 0' ]]; then kt_test_pass "ok"; else kt_test_fail "full [$a] border [$b]"; fi
+if [[ $a == '3 0' && $b == '3 0' ]]; then kt_test_pass "ok"; else kt_test_fail "full [$a] border [$b]"; fi
 
 kt_test_start "the strings are cached per frame and state: a redraw makes no strWidth call; a new title or size rebuilds; active and inactive each built once"
 fvw_wrap FVW_SW fv.video.strWidth; FVW_SW=0

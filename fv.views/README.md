@@ -407,11 +407,12 @@ or zoom, −4 with a number; in cells: wide characters count 2).
   on the H−2 rows between through the repeat count, the bottom row.
 * **The border-only redraw** (`fv.views._frameBorder F`, which a group's
   `SetState` calls when a subview frame's `sfActive` or `sfDragging` changes) writes the top and bottom
-  rows and the two side columns (4 writes) and never touches the interior.
+  rows and the two side columns (3 writes: both sides in one
+  `fv.video.fillColumns`, stage 2c-p) and never touches the interior.
   The parts of the ring that a covering view in front of the frame (or of an
   owner) holds are left out first, so a window in front is neither
-  overwritten nor painted again (one more write per extra piece of a ring
-  cut by it); the views in front over what was written (scroll bars on the
+  overwritten nor painted again (a ring cut by it: one write per piece,
+  sides of different heights each their own); the views in front over what was written (scroll bars on the
   ring, shadows) are painted again. A frame class that overrides `Draw` is
   drawn whole instead (its Draw runs).
 * The row strings are cached per frame and state (rebuilt when the state,
@@ -532,6 +533,23 @@ TView's + `evBroadcast`. So a focus broadcast into a desktop costs no
 dispatch while every view in it is built-in or a plain user leaf; only a
 user class that listens (P3: labels, buttons) pays one dispatch.
 
+**Quiet broadcasts** (stage 2c-p): a broadcast that would reach no handler
+that reacts to it is not delivered at all — `message` (the focus broadcasts
+go through it) and the dispatch into a built-in subgroup first walk the
+subtree: TView's handler reacts to `evMouseDown` only, TGroup's forwards,
+TWindow's reacts to `cmSelectWindowNum`; a subview the dispatch would skip
+(its EventMask lacks `evBroadcast`, removed meanwhile) is skipped by the
+walk too, and any user `HandleEvent` on the way (or a built-in handler that
+reacts) makes the delivery happen as before. A skipped delivery leaves what
+a delivery leaves: no handler ran, the event is unhandled (`message`: rc 1,
+`RESULT=''`), and each group whose dispatch would have called a subview has
+`Phase` = `phFocused` (set only when the walk ends quiet: a walk that finds a
+listener leaves no Phase behind). A window switch among built-in windows thus walks the
+tree instead of dispatching it (a desktop with two windows, Git-bash:
+~0.4–0.5 ms instead of ~0.8–1.1 ms per broadcast, four broadcasts per
+switch). A later built-in `HandleEvent` that reacts to a broadcast must be
+added to this rule (`fv.views._quiet`).
+
 **Click to focus** (TView's `HandleEvent`, D8): a mouse-down on a selectable
 view that is neither selected nor disabled focuses it (`fv.views.focus`) and
 is consumed, unless the view took the focus and has `ofFirstClick`. A root
@@ -554,7 +572,7 @@ with FV's side effects inline:
 | `sfFocused` | resetCursor; the broadcast `cmReceivedFocus` / `cmReleasedFocus` to the owner (`FV_EV_INFO` = the view) | then `Current`'s `SetState` (the chain) | |
 | `sfCursorVis`, `sfCursorIns` | resetCursor when focused | | |
 | `sfShadow` | the area with the shadow repainted from below | | |
-| `sfActive`, `sfDragging` | the bit | each subview's `SetState`, then the **border-only redraw** of each subview frame whose bit changed (4 writes) | |
+| `sfActive`, `sfDragging` | the bit | each subview's `SetState`, then the **border-only redraw** of each subview frame whose bit changed (3 writes) | |
 | `sfSelected` | the bit | | `SetState(sfActive)`; the window commands |
 
 `select` / `setCurrent` follow FV's `SetCurrent` (the old Current loses
@@ -707,6 +725,51 @@ FV's `TWindow` (views.inc) without zoom and dragging (stage 2d):
   `Free`: `W.delete` — out of its owner, the focus moves on, its area
   repainted).
 
+## Cost
+
+Measured in the test lib's scenes, 80 × 24, frames to `/dev/null`, median of
+5 × 10 actions per process, processes of the 2c-3 units (`git show HEAD`, A)
+and of these (B) alternated A1 B A2 × 5 (the median over rounds; the spread,
+the largest per-round A2/A1 − 1, stays within 0.16), 2026-11-17, stage 2c-p:
+
+| ms | Git-bash 5.3.15 A → B | MSYS2 5.3.9 | Cygwin 5.2.21 |
+|---|---|---|---|
+| Tab via the event path, overlapping windows (each way) | 26.2 → 21.0 | 26.3 → 21.1 | 26.9 → 21.4 |
+| Tab, side by side | 28.5 → 21.9 | 28.3 → 21.4 | 29.1 → 21.7 |
+| click to focus the back window, overlapping / side by side | 27.4 → 22.0 / 29.1 → 22.0 | 27.3 → 22.1 / 29.2 → 22.3 | 28.1 → 22.3 / 30.0 → 22.7 |
+| kbDown to the focused leaf (2 `drawPart`) | 5.09 → 4.12 | 5.08 → 4.31 | 5.11 → 4.25 |
+| first paint of the P2 scene (plain leaves), from an initialised screen | 17.0 → 14.0 | 17.2 → 14.1 | 17.7 → 14.6 |
+| the same, palette and frame caches cold | 20.4 → 17.8 | 20.5 → 17.4 | 21.1 → 17.8 |
+| the same with the list stand-ins | 22.3 → 18.3 | 22.6 → 18.3 | 23.2 → 18.8 |
+| two border-only frame redraws + flush | 9.9 → 8.1 | 10.0 → 8.0 | 10.3 → 8.4 |
+| move a window by one cell | 14.3 → 11.7 | 14.3 → 11.9 | 14.8 → 12.4 |
+
+Against P2's targets: the first paint (≤ 15 ms) is met; Tab (≤ 20 ms) and kbDown
+(≤ 4 ms) are not (≈ 21–22 ms and 4.1–4.3 ms on all three runtimes).
+
+Where a Tab goes now (overlapping, Git-bash, 21.0 ms; parts stubbed out one
+after another, so each figure is what remains of it given the ones before,
+±0.5 ms): the terminal update 3.9 (one colour run costs ~20 µs whatever its
+length; ~20 rows of ~6 runs); the four quiet focus broadcasts 1.3; the list
+stand-in's own Draw (18 rows of `printf` + `writeStr`, test code) 2.6; the
+frame string cache hits 0.5; the frame writes (the new front window's frame,
+the old one's border sides and rows) 2.2; the covered-ring cut and the views
+in front ~1.0; the rest of the border-only redraw 1.2; the shadows 1.0; the
+cursor 0.8 (noisy); the order redraw's machinery (paint, group draw, the
+leaf's Draw dispatch) 1.9; the routing down the tree with `inherited` 1.5;
+the rest (the application's dispatch, the focus chain's `SetState` calls,
+`putInFrontOf`) 3.2. What made the difference against 2c-3: **bash copies a function's
+whole body on every call** (an 80-line function costs ~50 µs per call before
+its first line runs), so the hot functions keep their rare cases in helpers
+(the frame's string cache hit vs. its build, the border's checks vs. its
+drawing, `SetState`'s drawing bits, TWindow's `cmClose` /
+`cmSelectWindowNum`, the cursor's coverage walk, `_over`'s per-level loop);
+fv.video's unchecked twins of the writes (`_wstr`, `_wbf`, `_fcf`,
+`_shadef`, `_clipf`; fv.video's README); quiet broadcasts (above); a frame's
+two sides in one `fillColumns`; one-test skips of views in front that miss
+the repainted pieces; TWindow's `GetTitle` and TView's `SizeLimits` run
+inline when the class has not overridden them.
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -780,13 +843,13 @@ anything on it fails one test.
 | 005_Overlap | the desktop-like scene: painter's order and FV's cells, 4 dispatches for the first paint, shadows (2 × 1, characters kept, over a sibling, clipped by the owner); move, resize, a group resize, makeFirst / putInFrontOf, a reorder without overlap, delete / insert, hide / show: each leaves exactly a full repaint's screen and draws each list at most once; the covering skip (framed group and leaf cover; frameless group, hidden frame, shadow do not); a frameless group's subview hidden / shown / moved / deleted (repainted from below the group); wide characters at a repaint edge; randomized wide-character scenes (seeded, 2 × 30 operations: every redraw == a full repaint) |
 | 006_Lock | lockScreenUpdate (nested, the update held, sent once, RESULT kept); lock / unlock: draws and the hooks' redraws held, redrawn once at 0 (also FV's "Lock; change fields; Unlock"), nested counts, an inner group inside a locked owner, both counters together, refusals, the aliases, a group destroyed while locked; destroying a locked window, or one holding a locked group, sends the removal at once |
 | 007_Events | the phases (pre / focused / post, the Phase each handler sees), positional events (the front-most visible view, hidden skipped, a disabled one swallows), broadcasts, the EventMask skip without a call (dispatch counts; built-in views 0), disabled views, the stop at evNothing, views removed / destroyed meanwhile, unknown names, click to focus and ofFirstClick, a nested group's Current, message (the handler, rc, the caller's record restored), RESULT kept, a handler's rc under `set -e`, refusals |
-| 008_Focus | the chain's bits, select of a covered window (== a full repaint, its list drawn once), the focus broadcasts in FV's order, sfActive propagation (a frame border = 4 writes, no leaf redraw), side by side (borders + shadow only), Tab in a window (arrows too; unselectable / disabled skipped), focusNext / selectNext, focus with an ofValidate Current, click to focus through the chain, resetCursor (position, shape, outside, covered, unfocused), a SetState override, hide / show / sfShadow, delete of the focused window, insert into an active group, select of a front window that is not Current, refusals |
+| 008_Focus | the chain's bits, select of a covered window (== a full repaint, its list drawn once), the focus broadcasts in FV's order, sfActive propagation (a frame border = 3 writes, no leaf redraw), side by side (borders + shadow only), Tab in a window (arrows too; unselectable / disabled skipped), focusNext / selectNext, focus with an ofValidate Current, click to focus through the chain, resetCursor (position, shape, outside, covered, unfocused), a SetState override, hide / show / sfShadow, delete of the focused window, insert into an active group, select of a front window that is not Current, refusals; quiet broadcasts (stage 2c-p: no dispatch, the Phase a delivery sets, a listening leaf breaks the quiet and hears what it heard, the dispatch's skips in the walk; a walk that ends not quiet leaves no Phase behind) |
 | 009_Commands | FV's default set at load (and across a re-source), enable / disable / commandEnabled, the changed flag, getCommands / setCommands, the window commands by Flags, execView restoring the set, refusals |
 | 011_ZeroFork | the three stages (drawing included: frames, shadows, locks, drawPart with every writer; stage 2c-3: a TWindow, the focus chain, message, a key through the dispatch, commands, the cursor, a modal view with a scripted event source, mouseEvent, endModal, cmClose) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
 | 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes); a second scene (stage 2c-3: windows whose names differ only in case, the focus chain, select, message, Tab, a click, commands, the cursor, two modal views, cmClose) under the same setups (`inherited` replaced by the built-in body under the IFS of letters, a kklass limit) |
 | 013_Elision | every built-in virtual of the three stages (incl. `Draw`, `GetPalette` of TView / TGroup / TFrame) overridden with `inherited`: dispatch counts (0 / 2), results, user fields named like locals; the RESULT / rc rule both ways (also failing bodies, under `set -e`); overrides inside the painter; `kk.class --forget` + redefinition; a scene under `set -eu`, nocasematch and odd IFS; the unsupported func shapes (`return 0`, a failing last command) pinned as kklass behaves today; stage 2c-3: HandleEvent / SetState / Valid / Execute / EndModal of TView / TGroup and TWindow's HandleEvent / SetState / GetPalette / GetTitle / InitFrame / Close overridden with `inherited` (0 / 2 dispatches, the RESULT rule, through the dispatch, a select and execView) |
 | 014_Modal | execView (RESULT, inserted / removed, == a full repaint, sfModal and the top view while it runs; the event record, Phase, Options, Current put back; EnterSelect), Valid refusals, endModal from a leaf, modal in modal, no HandleEvent for evNothing, the end of input (no Valid asked), the latch, the "save?" box at the end of input, a failing event source, a root's Execute (cmQuit), the owner-process rule in `$( )`, a dialog destroying itself, a modal cmClose (cmCancel posted), endModal without a modal view, mouseEvent (tracking, the mouse-up, the end of input), refusals; a resize mid-modal / mid-drag is 2f / 2d |
-| 015_Frame | TFrame's constructor; FV's look inactive / active / dragging, `☼` / `↕`, a bare frame in a plain group; a wide and a long title; small sizes; 3 writes full, 4 border-only, no dispatch; the string cache; through fv.video's VT model: the terminal shows the buffer, border-only == a full repaint (a window overlapping the ring in front); the covered parts of the ring left out (4 pieces, no repaint of the window in front); the cache across ASCII mode (initScreen with FV_ASCII); a frame class overriding Draw |
+| 015_Frame | TFrame's constructor; FV's look inactive / active / dragging, `☼` / `↕`, a bare frame in a plain group; a wide and a long title; small sizes; 3 writes full, 3 border-only (both sides one `fillColumns`), no dispatch; the string cache; through fv.video's VT model: the terminal shows the buffer, border-only == a full repaint (a window overlapping the ring in front); the covered parts of the ring left out (4 pieces, no repaint of the window in front); the cache across ASCII mode (initScreen with FV_ASCII); a frame class overriding Draw |
 | 016_Window | the constructor (FV's defaults, the frame from InitFrame, a bad number, the guard), an InitFrame override without a frame, GetTitle, the frame's title and number, the three palettes, cmClose (Valid no / yes, another window, without wfClose), cmSelectWindowNum through message, an unselectable window, Tab, unknown keys / commands |
 | 018_Names | reserved names (also under nocasematch), `_newReserved`, the constructor guard (a leaf, a group with subviews, through subclass constructors), the dialog loop and the anti-pattern, a constructor that skipped `inherited`, `VERBOSE_KKLASS=quiet`; every rc-2 refusal: one debug line under the switch, none without |
 | 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals |

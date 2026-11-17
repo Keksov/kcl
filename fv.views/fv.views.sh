@@ -137,6 +137,7 @@ declare -g __FV_VW_APAL=${__FV_VW_APAL:-123456789ABBC19DEFGGHIE2JKGG2JL2JKGG22JL
 declare -g __FV_VW_ERRSYM=${__FV_VW_ERRSYM:-0}
 declare -g __FV_VW_LSU=${__FV_VW_LSU:-0} __FV_VW_LOCKN=${__FV_VW_LOCKN:-0} __FV_VW_NODRAW=${__FV_VW_NODRAW:-0}
 declare -g __FV_VW_DEPTH=${__FV_VW_DEPTH:-0} __FV_VW_UCLIP=${__FV_VW_UCLIP-} __FV_VW_INGRP=${__FV_VW_INGRP:-0}
+declare -g __FV_VW_U1=${__FV_VW_U1:-0} __FV_VW_U2=${__FV_VW_U2:-0} __FV_VW_U3=${__FV_VW_U3:-0} __FV_VW_U4=${__FV_VW_U4:-0}
 declare -g __FV_VW_P1=${__FV_VW_P1:-0} __FV_VW_P2=${__FV_VW_P2:-0} __FV_VW_P3=${__FV_VW_P3:-0} __FV_VW_P4=${__FV_VW_P4:-0}
 declare -g __FV_VW_OIDX=${__FV_VW_OIDX:--1}
 # INDRAW[v]: set while v's Draw runs (the paint stack; re-entrancy rule);
@@ -497,15 +498,15 @@ fv.views._orderHit() {
 fv.views._drawRects() {
     fv.views._drawable "$1" || return 0
     local __fvw_bg __fvw_b1 __fvw_b2 __fvw_b3 __fvw_b4 __fvw_j
-    fv.views._nestCut "$1"
-    fv.views._bands
+    if (( ${#__FV_VW_INDRAW[@]} )); then fv.views._nestCut "$1"; fi
+    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
     fv.views._begin
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
         fv.views._paint "$1" "${__fvw_rs[@]:__fvw_j:4}"
         fv.views._shade "$1" "${__fvw_rs[@]:__fvw_j:4}" || :
     done
     fv.views._over "$1"
-    fv.views._wideMark
+    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
 }
@@ -559,9 +560,8 @@ fv.views._setCurrent() {
 # proc leave the caller's RESULT.
 fv.views._virt() {
     local __fvw_c=${1}_class __fvw_f __fvw_r=${RESULT-} __fvw_s=0
-    __fvw_c=${!__fvw_c-}
-    __fvw_f="${__fvw_c}_class_method_owner[$2]"
-    __fvw_f=${__FV_VW_IMPL[${!__fvw_f-}.$2]-}
+    # (one simple command: the assignments run in order)
+    __fvw_f="${!__fvw_c-}_class_method_owner[$2]" __fvw_f=${__FV_VW_IMPL[${!__fvw_f-}.$2]-}
     if [[ -z $__fvw_f ]]; then "$1.$2" "${@:3}"; return; fi
     "$__fvw_f" "$1" "${@:3}" || __fvw_s=$?
     if [[ -z ${__FV_VW_FUNC[$2]-} ]] || (( __fvw_s )); then RESULT=$__fvw_r; fi
@@ -1364,23 +1364,23 @@ fv.views._groupGetHelpCtx() {
 fv.views._begin() {
     __fvw_bg=$__FV_VW_INGRP __fvw_b1=$__FV_VW_P1 __fvw_b2=$__FV_VW_P2 __fvw_b3=$__FV_VW_P3 __fvw_b4=$__FV_VW_P4
     if (( __FV_VW_DEPTH == 0 )); then
-        if fv.video.getClip; then __FV_VW_UCLIP=$RESULT; else __FV_VW_UCLIP=''; fi
+        # (the caller's clip read as a friend: fv.video's __FV_VS_CX1 .. CY2,
+        # meaningful only while a screen exists)
+        if (( ${__FV_VS_H:-0} )); then
+            __FV_VW_UCLIP=1 __FV_VW_U1=$__FV_VS_CX1 __FV_VW_U2=$__FV_VS_CY1 __FV_VW_U3=$__FV_VS_CX2 __FV_VW_U4=$__FV_VS_CY2
+        else
+            __FV_VW_UCLIP=''
+        fi
     fi
     __FV_VW_DEPTH=$(( __FV_VW_DEPTH + 1 )) __FV_VW_INGRP=1
 }
 fv.views._end() {
-    local __fvw_c=$__FV_VW_UCLIP __fvw_1 __fvw_2 __fvw_3
     __FV_VW_DEPTH=$(( __FV_VW_DEPTH - 1 ))
     __FV_VW_INGRP=$__fvw_bg __FV_VW_P1=$__fvw_b1 __FV_VW_P2=$__fvw_b2 __FV_VW_P3=$__fvw_b3 __FV_VW_P4=$__fvw_b4
     if (( __FV_VW_DEPTH == 0 )); then
-        if [[ -n $__fvw_c ]]; then
-            __fvw_1=${__fvw_c%% *} __fvw_c=${__fvw_c#* }
-            __fvw_2=${__fvw_c%% *} __fvw_c=${__fvw_c#* }
-            __fvw_3=${__fvw_c%% *} __fvw_c=${__fvw_c#* }
-            fv.video.setClip "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_c" || :
-        fi
+        if [[ -n $__FV_VW_UCLIP ]]; then fv.video._clipf "$__FV_VW_U1" "$__FV_VW_U2" "$__FV_VW_U3" "$__FV_VW_U4"; fi
     elif (( ! __fvw_bg )); then
-        fv.video.setClip "$__fvw_b1" "$__fvw_b2" "$__fvw_b3" "$__fvw_b4" || :
+        fv.video._clipf "$__fvw_b1" "$__fvw_b2" "$__fvw_b3" "$__fvw_b4"
     fi
     return 0
 }
@@ -1494,7 +1494,7 @@ fv.views._paint() {
     FV_CLIP_X1=$(( __fvw_1 - FV_DRAW_X )) FV_CLIP_Y1=$(( __fvw_2 - FV_DRAW_Y ))
     FV_CLIP_X2=$(( __fvw_3 - FV_DRAW_X )) FV_CLIP_Y2=$(( __fvw_4 - FV_DRAW_Y ))
     __FV_VW_P1=$__fvw_1 __FV_VW_P2=$__fvw_2 __FV_VW_P3=$__fvw_3 __FV_VW_P4=$__fvw_4 __FV_VW_INGRP=0
-    fv.video.setClip "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4" || :
+    fv.video._clipf "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4"
     __fvw_o=${1}_class
     __fvw_o="${!__fvw_o-}_class_method_owner[Draw]"
     __fvw_f=${__FV_VW_IMPL[${!__fvw_o-}.Draw]-}
@@ -1508,13 +1508,13 @@ fv.views._paint() {
     FV_DRAW_VIEW=$__fvw_sv FV_DRAW_X=$__fvw_sx FV_DRAW_Y=$__fvw_sy FV_DRAW_PAL=$__fvw_sp
     FV_CLIP_X1=$__fvw_c1 FV_CLIP_Y1=$__fvw_c2 FV_CLIP_X2=$__fvw_c3 FV_CLIP_Y2=$__fvw_c4
     __FV_VW_P1=$__fvw_p1 __FV_VW_P2=$__fvw_p2 __FV_VW_P3=$__fvw_p3 __FV_VW_P4=$__fvw_p4 __FV_VW_INGRP=$__fvw_g
-    if (( ! __fvw_g )); then fv.video.setClip "$__fvw_p1" "$__fvw_p2" "$__fvw_p3" "$__fvw_p4" || :; fi
+    if (( ! __fvw_g )); then fv.video._clipf "$__fvw_p1" "$__fvw_p2" "$__fvw_p3" "$__fvw_p4"; fi
     return 0
 }
 
 # fv.views._shade V R1 R2 R3 R4 — V's shadow (FV ShadowSize 2 x 1: the two
 # columns right of V from its second row, the row below V from its third
-# column) ∩ R ∩ V's owner's clip, attribute only (fv.video.shadeRect, the
+# column) ∩ R ∩ V's owner's clip, attribute only (fv.video._shadef, the
 # shadow symbol V). rc 0 when something was shaded (the fv.video clip was set
 # to R ∩ the owner's clip), 1 when nothing
 fv.views._shade() {
@@ -1540,8 +1540,8 @@ fv.views._shade() {
         if (( __fvw_bx > __fvw_3 )); then __fvw_bx=$__fvw_3; fi
         if (( __fvw_by > __fvw_4 )); then __fvw_by=$__fvw_4; fi
         if (( __fvw_ax >= __fvw_bx || __fvw_ay >= __fvw_by )); then continue; fi
-        if (( ! __fvw_n )); then fv.video.setClip "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4" || :; __fvw_n=1; fi
-        fv.video.shadeRect "$__fvw_ax" "$__fvw_ay" "$(( __fvw_bx - __fvw_ax ))" "$(( __fvw_by - __fvw_ay ))" || :
+        if (( ! __fvw_n )); then fv.video._clipf "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4"; __fvw_n=1; fi
+        fv.video._shadef "$__fvw_ax" "$__fvw_ay" "$(( __fvw_bx - __fvw_ax ))" "$(( __fvw_by - __fvw_ay ))" || :
     done
     (( __fvw_n ))
 }
@@ -1564,33 +1564,67 @@ fv.views._covers() {
 # fv.views._over V — paint, clipped to each rectangle of the caller's array
 # __fvw_rs (absolute X1 Y1 X2 Y2, ...), every visible view in front of V or
 # of one of V's owners whose S() meets it (back to front at each level), and
-# its shadow
+# its shadow. `ring` (fv.views._frameBorder): the rectangles are the one-cell
+# pieces of a frame's border, which lets a view inside them pass at once
 fv.views._over() {
-    local __fvw_v=$1 __fvw_o __fvw_i=-1 __fvw_n __fvw_k __fvw_j __fvw_m=${#__fvw_rs[@]}
-    local __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4
+    local __fvw_v=$1 __fvw_o __fvw_n __fvw_u1 __fvw_u2 __fvw_u3 __fvw_u4
+    if (( ! ${#__fvw_rs[@]} )); then return 0; fi
+    # (the rectangles' bounding box, built at the first level with a view in
+    # front: fv.views._overLevel)
+    __fvw_u1=''
     while :; do
         local -n __fvw_vd=${__fvw_v}_data
         __fvw_o=${__fvw_vd[Owner]-}
         if [[ -z $__fvw_o ]]; then return 0; fi
         local -n __fvw_ol=${__fvw_o}_views
         __fvw_n=${#__fvw_ol[@]}
-        fv.views._idx "$__fvw_o" "$__fvw_v"
-        for (( __fvw_i = __fvw_i + 1; __fvw_i < __fvw_n; __fvw_i++ )); do
-            __fvw_k=${__fvw_ol[__fvw_i]}
-            local -n __fvw_kd=${__fvw_k}_data
-            if (( ! (${__fvw_kd[State]:-0} & FV_SF_VISIBLE) )); then continue; fi
-            # (a view whose Draw is running: not painted again from inside it)
-            if [[ -n ${__FV_VW_INDRAW[$__fvw_k]-} ]]; then continue; fi
-            fv.views._srect "$__fvw_k"
-            for (( __fvw_j = 0; __fvw_j < __fvw_m; __fvw_j += 4 )); do
-                if (( __fvw_r1 >= __fvw_rs[__fvw_j+2] || __fvw_rs[__fvw_j] >= __fvw_r3 )); then continue; fi
-                if (( __fvw_r2 < __fvw_rs[__fvw_j+3] && __fvw_rs[__fvw_j+1] < __fvw_r4 )); then
-                    fv.views._paint "$__fvw_k" "${__fvw_rs[@]:__fvw_j:4}"
-                    if (( ${__fvw_kd[State]:-0} & FV_SF_SHADOW )); then fv.views._shade "$__fvw_k" "${__fvw_rs[@]:__fvw_j:4}" || :; fi
-                fi
-            done
-        done
+        # (the front-most view of its owner: nothing in front of it there)
+        if ! [ "${__fvw_ol[__fvw_n-1]-}" = "$__fvw_v" ]; then fv.views._overLevel "${2-}"; fi
         __fvw_v=$__fvw_o
+    done
+}
+# fv.views._overLevel [ring] — _over at one owner level (its locals: __fvw_v
+# the path node, __fvw_o its owner, __fvw_ol / __fvw_n the owner's subviews,
+# __fvw_u1..u4 the box): every visible view in front of __fvw_v whose S()
+# meets a rectangle painted over it, with its shadow. Apart because bash
+# copies a function's body on every call: at most levels nothing is in front
+fv.views._overLevel() {
+    local __fvw_i=-1 __fvw_k __fvw_j __fvw_m=${#__fvw_rs[@]} __fvw_t __fvw_rg=0 __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4
+    if [ "${1-}" = ring ]; then __fvw_rg=1; fi
+    if [[ -z $__fvw_u1 ]]; then
+        # (a view in front that misses the box is passed with one test)
+        __fvw_u1=${__fvw_rs[0]} __fvw_u2=${__fvw_rs[1]} __fvw_u3=${__fvw_rs[2]} __fvw_u4=${__fvw_rs[3]}
+        for (( __fvw_j = 4; __fvw_j < __fvw_m; __fvw_j += 4 )); do
+            if (( __fvw_rs[__fvw_j] < __fvw_u1 )); then __fvw_u1=${__fvw_rs[__fvw_j]}; fi
+            if (( __fvw_rs[__fvw_j+1] < __fvw_u2 )); then __fvw_u2=${__fvw_rs[__fvw_j+1]}; fi
+            if (( __fvw_rs[__fvw_j+2] > __fvw_u3 )); then __fvw_u3=${__fvw_rs[__fvw_j+2]}; fi
+            if (( __fvw_rs[__fvw_j+3] > __fvw_u4 )); then __fvw_u4=${__fvw_rs[__fvw_j+3]}; fi
+        done
+    fi
+    fv.views._idx "$__fvw_o" "$__fvw_v"
+    for (( __fvw_i = __fvw_i + 1; __fvw_i < __fvw_n; __fvw_i++ )); do
+        __fvw_k=${__fvw_ol[__fvw_i]}
+        local -n __fvw_kd=${__fvw_k}_data
+        __fvw_t=${__fvw_kd[State]:-0}
+        if (( ! (__fvw_t & FV_SF_VISIBLE) )); then continue; fi
+        # (a view whose Draw is running: not painted again from inside it)
+        if [[ -n ${__FV_VW_INDRAW[$__fvw_k]-} ]]; then continue; fi
+        # S(k), as fv.views._srect
+        __fvw_r1=${__FV_VW_AX[$__fvw_k]} __fvw_r2=${__FV_VW_AY[$__fvw_k]}
+        __fvw_r3=$(( __fvw_r1 + ${__fvw_kd[SizeX]:-0} )) __fvw_r4=$(( __fvw_r2 + ${__fvw_kd[SizeY]:-0} ))
+        if (( __fvw_t & FV_SF_SHADOW )); then __fvw_r3=$(( __fvw_r3 + 2 )) __fvw_r4=$(( __fvw_r4 + 1 )); fi
+        if (( __fvw_r1 >= __fvw_u3 || __fvw_u1 >= __fvw_r3 || __fvw_r2 >= __fvw_u4 || __fvw_u2 >= __fvw_r4 )); then continue; fi
+        # (ring: the rectangles are one-cell pieces of a frame's border,
+        # each on an edge of their box: a view strictly inside the box
+        # meets none of them)
+        if (( __fvw_rg && __fvw_r1 > __fvw_u1 && __fvw_r3 < __fvw_u3 && __fvw_r2 > __fvw_u2 && __fvw_r4 < __fvw_u4 )); then continue; fi
+        for (( __fvw_j = 0; __fvw_j < __fvw_m; __fvw_j += 4 )); do
+            if (( __fvw_r1 >= __fvw_rs[__fvw_j+2] || __fvw_rs[__fvw_j] >= __fvw_r3 )); then continue; fi
+            if (( __fvw_r2 < __fvw_rs[__fvw_j+3] && __fvw_rs[__fvw_j+1] < __fvw_r4 )); then
+                fv.views._paint "$__fvw_k" "${__fvw_rs[@]:__fvw_j:4}"
+                if (( ${__fvw_kd[State]:-0} & FV_SF_SHADOW )); then fv.views._shade "$__fvw_k" "${__fvw_rs[@]:__fvw_j:4}" || :; fi
+            fi
+        done
     done
 }
 
@@ -1690,6 +1724,10 @@ fv.views._bands() {
 # friend) are marked in __FV_VW_WROW; a row repainted across the whole width
 # without one is unmarked
 fv.views._wideMark() {
+    # (nothing marked and no row of the screen holds wide cells: nothing to
+    # mark or unmark; a caller IFS that joins with a digit only takes the
+    # loop below)
+    if (( ! ${#__FV_VW_WROW[@]} )) && [[ ${__FV_VS_WIDE[*]-} != *[123]* ]]; then return 0; fi
     local __fvw_j __fvw_y __fvw_a=$FV_SCREEN_H __fvw_b=0
     local -a __fvw_full=()
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
@@ -1716,15 +1754,15 @@ fv.views._drawView() {
     local __fvw_bg __fvw_b1 __fvw_b2 __fvw_b3 __fvw_b4 __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4 __fvw_j
     fv.views._srect "$1"
     local -a __fvw_rs=("$__fvw_r1" "$__fvw_r2" "$__fvw_r3" "$__fvw_r4")
-    fv.views._nestCut "$1"
-    fv.views._bands
+    if (( ${#__FV_VW_INDRAW[@]} )); then fv.views._nestCut "$1"; fi
+    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
     fv.views._begin
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
         fv.views._paint "$1" "${__fvw_rs[@]:__fvw_j:4}"
         fv.views._shade "$1" "${__fvw_rs[@]:__fvw_j:4}" || :
     done
     fv.views._over "$1"
-    fv.views._wideMark
+    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
 }
@@ -1751,13 +1789,13 @@ fv.views._drawUnder() {
         __fvw_g=${__fvw_gd[Owner]}
     done
     local -a __fvw_rs=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4")
-    fv.views._bands
+    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
     fv.views._begin
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
         fv.views._paint "$__fvw_g" "${__fvw_rs[@]:__fvw_j:4}"
     done
     fv.views._over "$__fvw_g"
-    fv.views._wideMark
+    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
 }
@@ -1768,10 +1806,10 @@ fv.views._overOnly() {
     fv.views._drawable "$1" || return 0
     local __fvw_bg __fvw_b1 __fvw_b2 __fvw_b3 __fvw_b4
     local -a __fvw_rs=("$2" "$3" "$4" "$5")
-    fv.views._bands
+    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
     fv.views._begin
     fv.views._over "$1"
-    fv.views._wideMark
+    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
 }
@@ -1817,7 +1855,9 @@ fv.views.drawPart() {
     if [[ -n ${__FV_VW_GRP[$1]-} ]]; then fv.views._bad drawPart "'$1' is a group: drawPart paints a leaf (redraw a group with drawView)"; return; fi
     if ! declare -F "$2" >/dev/null; then fv.views._bad drawPart "'$2' is not a function"; return; fi
     local -a __fvw_v
-    if ! fv.views._ints "$3" "$4"; then fv.views._bad drawPart 'Y1 Y2 must be integers'; return; fi
+    # (rows of 1-9 plain digits without a call; anything else: _ints)
+    if [[ $3$4 != *[!0123456789]* && ${#3}${#4} == [123456789][123456789] ]]; then __fvw_v=("$(( 10#$3 ))" "$(( 10#$4 ))")
+    elif ! fv.views._ints "$3" "$4"; then fv.views._bad drawPart 'Y1 Y2 must be integers'; return; fi
     local __fvw_r=${RESULT-} __fvw_s=0 __fvw_j __fvw_e=0
     if ! fv.views._drawable "$1"; then return 0; fi
     if [[ -n ${__FV_VW_INDRAW[$1]-} ]]; then return 0; fi
@@ -1829,7 +1869,7 @@ fv.views.drawPart() {
     local __fvw_sv=$FV_DRAW_VIEW __fvw_sx=$FV_DRAW_X __fvw_sy=$FV_DRAW_Y __fvw_sp=$FV_DRAW_PAL
     local __fvw_c1=$FV_CLIP_X1 __fvw_c2=$FV_CLIP_Y1 __fvw_c3=$FV_CLIP_X2 __fvw_c4=$FV_CLIP_Y2
     local -a __fvw_rs=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4")
-    fv.views._nestCut "$1"
+    if (( ${#__FV_VW_INDRAW[@]} )); then fv.views._nestCut "$1"; fi
     if (( ! ${#__fvw_rs[@]} )); then return 0; fi
     fv.views._begin
     if [[ -z ${__FV_VW_PAL[$1]+x} ]]; then fv.views._pal "$1"; fi
@@ -1840,7 +1880,7 @@ fv.views.drawPart() {
         FV_CLIP_X1=$(( __fvw_1 - FV_DRAW_X )) FV_CLIP_Y1=$(( __fvw_2 - FV_DRAW_Y ))
         FV_CLIP_X2=$(( __fvw_3 - FV_DRAW_X )) FV_CLIP_Y2=$(( __fvw_4 - FV_DRAW_Y ))
         __FV_VW_P1=$__fvw_1 __FV_VW_P2=$__fvw_2 __FV_VW_P3=$__fvw_3 __FV_VW_P4=$__fvw_4
-        fv.video.setClip "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4" || :
+        fv.video._clipf "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4"
         __fvw_e=0
         "$2" "$1" "${@:5}" || __fvw_e=$?
         if (( __fvw_e )); then __fvw_s=$__fvw_e; fi
@@ -1849,9 +1889,9 @@ fv.views.drawPart() {
     FV_DRAW_VIEW=$__fvw_sv FV_DRAW_X=$__fvw_sx FV_DRAW_Y=$__fvw_sy FV_DRAW_PAL=$__fvw_sp
     FV_CLIP_X1=$__fvw_c1 FV_CLIP_Y1=$__fvw_c2 FV_CLIP_X2=$__fvw_c3 FV_CLIP_Y2=$__fvw_c4
     __FV_VW_INGRP=1
-    fv.views._bands
+    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
     fv.views._over "$1"
-    fv.views._wideMark
+    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
     RESULT=$__fvw_r
@@ -2033,7 +2073,7 @@ fv.views._wcol() {
 fv.views.writeStr() {
     if (( $# == 4 )) && [[ -n $FV_DRAW_VIEW && $1$2 != *[!0123456789]* && ${#1}${#2} == [1234567][1234567] ]]; then
         if [[ ${4-} == [123456789] || ${4-} == [123456789][0123456789] ]] && (( $4 <= ${#FV_DRAW_PAL} )); then
-            fv.video.writeStr "$(( FV_DRAW_X + 10#$1 ))" "$(( FV_DRAW_Y + 10#$2 ))" "$3" "${FV_DRAW_PAL:$4-1:1}"
+            fv.video._wstr "$(( FV_DRAW_X + 10#$1 ))" "$(( FV_DRAW_Y + 10#$2 ))" "$3" "${FV_DRAW_PAL:$4-1:1}"
             return
         fi
     fi
@@ -2149,7 +2189,7 @@ fv.views._groupDraw() {
         fi
     done
     __FV_VW_INGRP=$__fvw_g
-    if (( __fvw_t )) && [[ ${2-} != 1 ]]; then fv.video.setClip "$__fvw_p1" "$__fvw_p2" "$__fvw_p3" "$__fvw_p4" || :; fi
+    if (( __fvw_t )) && [[ ${2-} != 1 ]]; then fv.video._clipf "$__fvw_p1" "$__fvw_p2" "$__fvw_p3" "$__fvw_p4"; fi
     return 0
 }
 
@@ -2175,7 +2215,12 @@ fv.views._frameCreate() {   # F
 fv.views._frameTitle() {
     local __fvw_c=${1}_class __fvw_r=${RESULT-}
     __fvw_c="${!__fvw_c-}_class_method_owner[GetTitle]"
-    if [[ -n ${!__fvw_c-} ]]; then
+    if [ "${__FV_VW_IMPL[${!__fvw_c-}.GetTitle]-}" = fv.views._windowGetTitle ]; then
+        # (TWindow's GetTitle, inline: no RESULT to save and restore)
+        local -n __fvw_od=${1}_data
+        __fvw_ti=${__fvw_od[Title]-}
+        if [[ -n $2 && $2 != *[!0123456789]* && ${#2} -le 9 ]] && (( ${#__fvw_ti} > 10#$2 )); then __fvw_ti=${__fvw_ti:0:10#$2}; fi
+    elif [[ -n ${!__fvw_c-} ]]; then
         RESULT=''
         fv.views._virt "$1" GetTitle "$2" || RESULT=''
         __fvw_ti=${RESULT-}
@@ -2236,18 +2281,38 @@ fv.views._frameRows() {
     if (( __fvw_fl & (FV_WF_CLOSE | FV_WF_ZOOM) )); then __fvw_L=$(( __fvw_L - 6 )); fi
     if (( __fvw_nm )); then __fvw_L=$(( __fvw_L - 4 )); fi
     if [[ -n $__fvw_o ]]; then fv.views._frameTitle "$__fvw_o" "$__fvw_L"; fi
-    if (( __fvw_a && (__fvw_fl & FV_WF_ZOOM) )) && [[ -n $__fvw_o ]]; then
-        local __fvw_m1=$FV_MIN_X __fvw_m2=$FV_MIN_Y __fvw_m3=$FV_MAX_X __fvw_m4=$FV_MAX_Y
-        fv.views._virt "$__fvw_o" SizeLimits || :
-        if (( ${__fvw_od[SizeX]:-0} == FV_MAX_X && ${__fvw_od[SizeY]:-0} == FV_MAX_Y )); then __fvw_z=1; fi
-        FV_MIN_X=$__fvw_m1 FV_MIN_Y=$__fvw_m2 FV_MAX_X=$__fvw_m3 FV_MAX_Y=$__fvw_m4
-    fi
+    if (( __fvw_a && (__fvw_fl & FV_WF_ZOOM) )) && [[ -n $__fvw_o ]]; then fv.views._frameZoom; fi
     # one cache slot per state (active x dragging), so a focus change back and
     # forth finds both looks built: the caller's __fvw_fc = "F.SLOT"
     __fvw_fc="$1.$(( (__fvw_st & FV_SF_DRAGGING ? 2 : 0) + __fvw_a ))"
     __fvw_key="$__fvw_f.$__fvw_lo$__fvw_hi$__fvw_tc.$__fvw_a.$__fvw_w.$__fvw_fl.$__fvw_nm.$__fvw_fm.$__fvw_z.${FV_VIDEO_ASCII:-0}.$__fvw_p|$__fvw_ti"
     if [ "${__FV_VW_FK[$__fvw_fc]-}" = "$__fvw_key" ]; then return 0; fi
-    # (a cache miss: build the rows)
+    fv.views._frameBuild
+}
+# fv.views._frameZoom — _frameRows' zoom icon state (its locals: __fvw_o the
+# owner, __fvw_od its data): __fvw_z=1 when the owner is at its SizeLimits
+# maximum (TView's SizeLimits inline: the owner's owner's size)
+fv.views._frameZoom() {
+    local __fvw_k="${__fvw_o}_class"
+    __fvw_k="${!__fvw_k-}_class_method_owner[SizeLimits]"
+    if [ "${__FV_VW_IMPL[${!__fvw_k-}.SizeLimits]-}" = fv.views._viewSizeLimits ]; then
+        # (TView's SizeLimits, inline: its maximum is the owner's owner's size)
+        __fvw_k=${__fvw_od[Owner]-}
+        if [[ -n $__fvw_k ]]; then
+            local -n __fvw_oo=${__fvw_k}_data
+            if (( ${__fvw_od[SizeX]:-0} == ${__fvw_oo[SizeX]:-0} && ${__fvw_od[SizeY]:-0} == ${__fvw_oo[SizeY]:-0} )); then __fvw_z=1; fi
+        elif (( ${__fvw_od[SizeX]:-0} == __FV_VW_HIGH && ${__fvw_od[SizeY]:-0} == __FV_VW_HIGH )); then __fvw_z=1; fi
+    else
+        local __fvw_m1=$FV_MIN_X __fvw_m2=$FV_MIN_Y __fvw_m3=$FV_MAX_X __fvw_m4=$FV_MAX_Y
+        fv.views._virt "$__fvw_o" SizeLimits || :
+        if (( ${__fvw_od[SizeX]:-0} == FV_MAX_X && ${__fvw_od[SizeY]:-0} == FV_MAX_Y )); then __fvw_z=1; fi
+        FV_MIN_X=$__fvw_m1 FV_MIN_Y=$__fvw_m2 FV_MAX_X=$__fvw_m3 FV_MAX_Y=$__fvw_m4
+    fi
+}
+# fv.views._frameBuild — _frameRows' cache miss (its locals): the rows built
+# into the slot __fvw_fc under the key __fvw_key. Apart because bash copies a
+# function's whole body on every call (stage 2c-p): the cache hit stays short
+fv.views._frameBuild() {
     local __fvw_cl=${__fvw_p:__fvw_lo-1:1} __fvw_ch=${__fvw_p:__fvw_hi-1:1} __fvw_ct=${__fvw_p:__fvw_tc-1:1}
     __fvw_cl=${__fvw_cl:-$__FV_VW_ERRSYM} __fvw_ch=${__fvw_ch:-$__FV_VW_ERRSYM} __fvw_ct=${__fvw_ct:-$__FV_VW_ERRSYM}
     local __fvw_tl __fvw_hz __fvw_tr __fvw_vl __fvw_bl __fvw_br __fvw_s __fvw_r __fvw_i __fvw_n
@@ -2323,11 +2388,11 @@ fv.views._frameDraw() {
     local __fvw_h=${__fvw_d[SizeY]:-0} __fvw_fc
     if (( ${__fvw_d[SizeX]:-0} < 1 )); then return 0; fi
     fv.views._frameRows "$1"
-    fv.video.writeBuf "$FV_DRAW_X" "$FV_DRAW_Y" "${__FV_VW_FT[$__fvw_fc]}" "${__FV_VW_FTA[$__fvw_fc]}" || :
+    fv.video._wbf "$FV_DRAW_X" "$FV_DRAW_Y" "${__FV_VW_FT[$__fvw_fc]}" "${__FV_VW_FTA[$__fvw_fc]}" || :
     if (( __fvw_h > 2 )); then
-        fv.video.writeBuf "$FV_DRAW_X" "$(( FV_DRAW_Y + 1 ))" "${__FV_VW_FM[$__fvw_fc]}" "${__FV_VW_FMA[$__fvw_fc]}" "$(( __fvw_h - 2 ))" || :
+        fv.video._wbf "$FV_DRAW_X" "$(( FV_DRAW_Y + 1 ))" "${__FV_VW_FM[$__fvw_fc]}" "${__FV_VW_FMA[$__fvw_fc]}" "$(( __fvw_h - 2 ))" || :
     fi
-    fv.video.writeBuf "$FV_DRAW_X" "$(( FV_DRAW_Y + __fvw_h - 1 ))" "${__FV_VW_FB[$__fvw_fc]}" "${__FV_VW_FBA[$__fvw_fc]}" || :
+    fv.video._wbf "$FV_DRAW_X" "$(( FV_DRAW_Y + __fvw_h - 1 ))" "${__FV_VW_FB[$__fvw_fc]}" "${__FV_VW_FBA[$__fvw_fc]}" || :
 }
 
 # fv.views._frameBorder F — the BORDER-ONLY redraw (stage 2c-3 calls it when
@@ -2347,6 +2412,15 @@ fv.views._frameBorder() {
     local -n __fvw_d=${1}_data
     local __fvw_x=${__FV_VW_AX[$1]} __fvw_y=${__FV_VW_AY[$1]} __fvw_w=${__fvw_d[SizeX]:-0} __fvw_h=${__fvw_d[SizeY]:-0}
     if (( __fvw_w < 1 || __fvw_h < 1 )); then return 0; fi
+    fv.views._frameRing "$1"
+    RESULT=$__fvw_r
+}
+# fv.views._frameRing F — _frameBorder's work (its locals __fvw_x __fvw_y
+# __fvw_w __fvw_h __fvw_r): the ring's pieces, what covers them, the writes,
+# the views in front, the flush. Apart because bash copies a function's body
+# on every call: a frame that is not drawn (hidden, the view drawn whole
+# right after) pays only for the checks
+fv.views._frameRing() {
     local __fvw_bg __fvw_b1 __fvw_b2 __fvw_b3 __fvw_b4 __fvw_j __fvw_1 __fvw_2 __fvw_3 __fvw_4 __fvw_c=0
     # the ring as pieces (X1 Y1 X2 Y2) with a tag: t top, b bottom, s side
     local -a __fvw_rs=() __fvw_tg=() __fvw_q=(
@@ -2361,46 +2435,63 @@ fv.views._frameBorder() {
             __fvw_qt+=(s)
         fi
     fi
-    # each clipped to the frame's clip
-    for (( __fvw_j = 0; __fvw_j < ${#__fvw_q[@]}; __fvw_j += 4 )); do
-        __fvw_1=${__fvw_q[__fvw_j]} __fvw_2=${__fvw_q[__fvw_j+1]} __fvw_3=${__fvw_q[__fvw_j+2]} __fvw_4=${__fvw_q[__fvw_j+3]}
-        if (( __fvw_1 < __FV_VW_C1[$1] )); then __fvw_1=${__FV_VW_C1[$1]}; fi
-        if (( __fvw_2 < __FV_VW_C2[$1] )); then __fvw_2=${__FV_VW_C2[$1]}; fi
-        if (( __fvw_3 > __FV_VW_C3[$1] )); then __fvw_3=${__FV_VW_C3[$1]}; fi
-        if (( __fvw_4 > __FV_VW_C4[$1] )); then __fvw_4=${__FV_VW_C4[$1]}; fi
-        if (( __fvw_1 < __fvw_3 && __fvw_2 < __fvw_4 )); then
-            __fvw_rs+=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4") __fvw_tg+=("${__fvw_qt[__fvw_j/4]}")
-        fi
-    done
+    # each clipped to the frame's clip (the whole ring inside it: as built)
+    if (( __fvw_x >= __FV_VW_C1[$1] && __fvw_y >= __FV_VW_C2[$1] && __fvw_x + __fvw_w <= __FV_VW_C3[$1] && __fvw_y + __fvw_h <= __FV_VW_C4[$1] )); then
+        __fvw_rs=("${__fvw_q[@]}") __fvw_tg=("${__fvw_qt[@]}")
+    else
+        for (( __fvw_j = 0; __fvw_j < ${#__fvw_q[@]}; __fvw_j += 4 )); do
+            __fvw_1=${__fvw_q[__fvw_j]} __fvw_2=${__fvw_q[__fvw_j+1]} __fvw_3=${__fvw_q[__fvw_j+2]} __fvw_4=${__fvw_q[__fvw_j+3]}
+            if (( __fvw_1 < __FV_VW_C1[$1] )); then __fvw_1=${__FV_VW_C1[$1]}; fi
+            if (( __fvw_2 < __FV_VW_C2[$1] )); then __fvw_2=${__FV_VW_C2[$1]}; fi
+            if (( __fvw_3 > __FV_VW_C3[$1] )); then __fvw_3=${__FV_VW_C3[$1]}; fi
+            if (( __fvw_4 > __FV_VW_C4[$1] )); then __fvw_4=${__FV_VW_C4[$1]}; fi
+            if (( __fvw_1 < __fvw_3 && __fvw_2 < __fvw_4 )); then
+                __fvw_rs+=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4") __fvw_tg+=("${__fvw_qt[__fvw_j/4]}")
+            fi
+        done
+    fi
     fv.views._uncover "$1"
     if (( ! ${#__fvw_rs[@]} )); then RESULT=$__fvw_r; return 0; fi
     fv.views._begin
-    local __fvw_fc
+    local __fvw_fc __fvw_p1='' __fvw_p2 __fvw_p3
     fv.views._frameRows "$1"
-    # the side pieces under the frame's clip, then each row piece under its own
+    # the side pieces under the frame's clip (two pieces on the same rows, the
+    # usual pair of sides: one fv.video.fillColumns), then each row piece
+    # under its own clip
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
         if ! [ "${__fvw_tg[__fvw_j/4]}" = s ]; then continue; fi
         if (( ! __fvw_c )); then
-            fv.video.setClip "${__FV_VW_C1[$1]}" "${__FV_VW_C2[$1]}" "${__FV_VW_C3[$1]}" "${__FV_VW_C4[$1]}" || :
+            fv.video._clipf "${__FV_VW_C1[$1]}" "${__FV_VW_C2[$1]}" "${__FV_VW_C3[$1]}" "${__FV_VW_C4[$1]}"
             __fvw_c=1
         fi
-        fv.video.fillRect "${__fvw_rs[__fvw_j]}" "${__fvw_rs[__fvw_j+1]}" 1 "$(( __fvw_rs[__fvw_j+3] - __fvw_rs[__fvw_j+1] ))" \
-            "${__FV_VW_FSA[$__fvw_fc]}" "${__FV_VW_FS[$__fvw_fc]}" || :
+        if [[ -n $__fvw_p1 ]] && (( __fvw_rs[__fvw_j+1] == __fvw_p2 && __fvw_rs[__fvw_j+3] == __fvw_p3 )); then
+            fv.video._fcf "$__fvw_p2" "$(( __fvw_p3 - __fvw_p2 ))" "${__FV_VW_FSA[$__fvw_fc]}" "${__FV_VW_FS[$__fvw_fc]}" "$__fvw_p1" "${__fvw_rs[__fvw_j]}" || :
+            __fvw_p1=''
+            continue
+        fi
+        if [[ -n $__fvw_p1 ]]; then
+            fv.video._fcf "$__fvw_p2" "$(( __fvw_p3 - __fvw_p2 ))" "${__FV_VW_FSA[$__fvw_fc]}" "${__FV_VW_FS[$__fvw_fc]}" "$__fvw_p1" || :
+        fi
+        __fvw_p1=${__fvw_rs[__fvw_j]} __fvw_p2=${__fvw_rs[__fvw_j+1]} __fvw_p3=${__fvw_rs[__fvw_j+3]}
     done
+    if [[ -n $__fvw_p1 ]]; then
+        fv.video._fcf "$__fvw_p2" "$(( __fvw_p3 - __fvw_p2 ))" "${__FV_VW_FSA[$__fvw_fc]}" "${__FV_VW_FS[$__fvw_fc]}" "$__fvw_p1" || :
+    fi
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
         if [ "${__fvw_tg[__fvw_j/4]}" = s ]; then continue; fi
-        fv.video.setClip "${__fvw_rs[@]:__fvw_j:4}" || :
+        fv.video._clipf "${__fvw_rs[@]:__fvw_j:4}"
         if [ "${__fvw_tg[__fvw_j/4]}" = t ]; then
-            fv.video.writeBuf "$__fvw_x" "$__fvw_y" "${__FV_VW_FT[$__fvw_fc]}" "${__FV_VW_FTA[$__fvw_fc]}" || :
+            fv.video._wbf "$__fvw_x" "$__fvw_y" "${__FV_VW_FT[$__fvw_fc]}" "${__FV_VW_FTA[$__fvw_fc]}" || :
         else
-            fv.video.writeBuf "$__fvw_x" "$(( __fvw_y + __fvw_h - 1 ))" "${__FV_VW_FB[$__fvw_fc]}" "${__FV_VW_FBA[$__fvw_fc]}" || :
+            fv.video._wbf "$__fvw_x" "$(( __fvw_y + __fvw_h - 1 ))" "${__FV_VW_FB[$__fvw_fc]}" "${__FV_VW_FBA[$__fvw_fc]}" || :
         fi
     done
     # the views in front over what was written (one pass over all pieces: a
     # non-covering view meeting several pieces is painted once per piece)
-    fv.views._bands
-    fv.views._over "$1"
-    fv.views._wideMark
+    # (rows with wide cells make full-width bands of the pieces: then they
+    # are no ring any more)
+    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fv.views._over "$1"; else fv.views._over "$1" ring; fi
+    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
     RESULT=$__fvw_r
@@ -2414,17 +2505,26 @@ fv.views._frameBorder() {
 fv.views._uncover() {
     local __fvw_v=$1 __fvw_o __fvw_i=-1 __fvw_n __fvw_k __fvw_j __fvw_hit
     local __fvw_1 __fvw_2 __fvw_3 __fvw_4 __fvw_e1 __fvw_e2 __fvw_e3 __fvw_e4 __fvw_t
-    local -a __fvw_nr __fvw_nt
+    # (the ring's box: V's absolute rect)
+    local -n __fvw_bd=${1}_data
+    local __fvw_b1=${__FV_VW_AX[$1]} __fvw_b2=${__FV_VW_AY[$1]} __fvw_b3 __fvw_b4
+    __fvw_b3=$(( __fvw_b1 + ${__fvw_bd[SizeX]:-0} )) __fvw_b4=$(( __fvw_b2 + ${__fvw_bd[SizeY]:-0} ))
     while (( ${#__fvw_rs[@]} )); do
         local -n __fvw_vd=${__fvw_v}_data
         __fvw_o=${__fvw_vd[Owner]-}
         if [[ -z $__fvw_o ]]; then return 0; fi
         local -n __fvw_ol=${__fvw_o}_views
         __fvw_n=${#__fvw_ol[@]}
+        # (the front-most view of its owner: nothing in front of it there)
+        if [ "${__fvw_ol[__fvw_n-1]-}" = "$__fvw_v" ]; then __fvw_v=$__fvw_o; continue; fi
         fv.views._idx "$__fvw_o" "$__fvw_v"
         for (( __fvw_i = __fvw_i + 1; __fvw_i < __fvw_n && ${#__fvw_rs[@]}; __fvw_i++ )); do
             __fvw_k=${__fvw_ol[__fvw_i]}
             __fvw_e1=${__FV_VW_C1[$__fvw_k]} __fvw_e2=${__FV_VW_C2[$__fvw_k]} __fvw_e3=${__FV_VW_C3[$__fvw_k]} __fvw_e4=${__FV_VW_C4[$__fvw_k]}
+            # (one test for a view that misses the ring's box or lies inside
+            # its interior: the pieces are one cell thick, on V's border)
+            if (( __fvw_e1 >= __fvw_b3 || __fvw_b1 >= __fvw_e3 || __fvw_e2 >= __fvw_b4 || __fvw_b2 >= __fvw_e4 )) \
+               || (( __fvw_e1 > __fvw_b1 && __fvw_e3 < __fvw_b3 && __fvw_e2 > __fvw_b2 && __fvw_e4 < __fvw_b4 )); then continue; fi
             __fvw_hit=0
             for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
                 if (( __fvw_rs[__fvw_j] < __fvw_e3 && __fvw_e1 < __fvw_rs[__fvw_j+2] )); then
@@ -2435,25 +2535,32 @@ fv.views._uncover() {
             local -n __fvw_kd=${__fvw_k}_data
             if (( ! (${__fvw_kd[State]:-0} & FV_SF_VISIBLE) )); then continue; fi
             if ! fv.views._covers "$__fvw_k"; then continue; fi
-            __fvw_nr=() __fvw_nt=()
-            for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
-                __fvw_1=${__fvw_rs[__fvw_j]} __fvw_2=${__fvw_rs[__fvw_j+1]} __fvw_3=${__fvw_rs[__fvw_j+2]} __fvw_4=${__fvw_rs[__fvw_j+3]}
-                __fvw_t=${__fvw_tg[__fvw_j/4]}
-                if (( __fvw_1 >= __fvw_e3 || __fvw_e1 >= __fvw_3 || __fvw_2 >= __fvw_e4 || __fvw_e2 >= __fvw_4 )); then
-                    __fvw_nr+=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4") __fvw_nt+=("$__fvw_t")
-                elif (( __fvw_4 - __fvw_2 == 1 )); then
-                    if (( __fvw_1 < __fvw_e1 )); then __fvw_nr+=("$__fvw_1" "$__fvw_2" "$__fvw_e1" "$__fvw_4") __fvw_nt+=("$__fvw_t"); fi
-                    if (( __fvw_e3 < __fvw_3 )); then __fvw_nr+=("$__fvw_e3" "$__fvw_2" "$__fvw_3" "$__fvw_4") __fvw_nt+=("$__fvw_t"); fi
-                else
-                    if (( __fvw_2 < __fvw_e2 )); then __fvw_nr+=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_e2") __fvw_nt+=("$__fvw_t"); fi
-                    if (( __fvw_e4 < __fvw_4 )); then __fvw_nr+=("$__fvw_1" "$__fvw_e4" "$__fvw_3" "$__fvw_4") __fvw_nt+=("$__fvw_t"); fi
-                fi
-            done
-            __fvw_rs=("${__fvw_nr[@]}") __fvw_tg=("${__fvw_nt[@]}")
+            fv.views._uncut
         done
         __fvw_v=$__fvw_o
     done
     return 0
+}
+# fv.views._uncut — _uncover's cut (its locals): the pieces __fvw_rs / tags
+# __fvw_tg without what the covering view's clip __fvw_e1..e4 holds. Apart
+# because bash copies a function's body on every call: most borders are cut
+# by nothing
+fv.views._uncut() {
+    local -a __fvw_nr=() __fvw_nt=()
+    for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
+        __fvw_1=${__fvw_rs[__fvw_j]} __fvw_2=${__fvw_rs[__fvw_j+1]} __fvw_3=${__fvw_rs[__fvw_j+2]} __fvw_4=${__fvw_rs[__fvw_j+3]}
+        __fvw_t=${__fvw_tg[__fvw_j/4]}
+        if (( __fvw_1 >= __fvw_e3 || __fvw_e1 >= __fvw_3 || __fvw_2 >= __fvw_e4 || __fvw_e2 >= __fvw_4 )); then
+            __fvw_nr+=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4") __fvw_nt+=("$__fvw_t")
+        elif (( __fvw_4 - __fvw_2 == 1 )); then
+            if (( __fvw_1 < __fvw_e1 )); then __fvw_nr+=("$__fvw_1" "$__fvw_2" "$__fvw_e1" "$__fvw_4") __fvw_nt+=("$__fvw_t"); fi
+            if (( __fvw_e3 < __fvw_3 )); then __fvw_nr+=("$__fvw_e3" "$__fvw_2" "$__fvw_3" "$__fvw_4") __fvw_nt+=("$__fvw_t"); fi
+        else
+            if (( __fvw_2 < __fvw_e2 )); then __fvw_nr+=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_e2") __fvw_nt+=("$__fvw_t"); fi
+            if (( __fvw_e4 < __fvw_4 )); then __fvw_nr+=("$__fvw_1" "$__fvw_e4" "$__fvw_3" "$__fvw_4") __fvw_nt+=("$__fvw_t"); fi
+        fi
+    done
+    __fvw_rs=("${__fvw_nr[@]}") __fvw_tg=("${__fvw_nt[@]}")
 }
 
 # ==== events, focus, commands, modal views (P2 stage 2c-3; design §1.8, §2.2) ====
@@ -2547,22 +2654,30 @@ fv.views._groupEvent() {
             fv.views._dispatch "$1" phPostProcess "$FV_OF_POSTPROCESS" || return 0
         fi
     elif (( __fvw_b & FV_EM_MOUSE )); then
-        __fvw_ks=("${__fvw_gl[@]}")
-        for (( __fvw_i = ${#__fvw_ks[@]} - 1; __fvw_i >= 0; __fvw_i-- )); do
-            __fvw_k=${__fvw_ks[__fvw_i]}
-            local -n __fvw_kd=${__fvw_k}_data
-            if (( (${__fvw_kd[State]:-0} & FV_SF_VISIBLE) && FV_EV_MOUSE_X >= __FV_VW_AX[$__fvw_k] && FV_EV_MOUSE_Y >= __FV_VW_AY[$__fvw_k] )) \
-               && (( FV_EV_MOUSE_X < __FV_VW_AX[$__fvw_k] + ${__fvw_kd[SizeX]:-0} && FV_EV_MOUSE_Y < __FV_VW_AY[$__fvw_k] + ${__fvw_kd[SizeY]:-0} )); then
-                __fvw_ks=("$__fvw_k")
-                fv.views._dispatch "$1" phFocused 0 || :
-                return 0
-            fi
-        done
+        fv.views._groupMouse "$1"
     else
         __fvw_ks=("${__fvw_gl[@]}")
         fv.views._dispatch "$1" phFocused 0 || :
     fi
     return 0
+}
+
+# fv.views._groupMouse G — TGroup.HandleEvent's positional event (its
+# locals): the front-most visible subview whose rect holds the point gets
+# it (apart because bash copies a function's body on every call)
+fv.views._groupMouse() {
+    local __fvw_i __fvw_k
+    __fvw_ks=("${__fvw_gl[@]}")
+    for (( __fvw_i = ${#__fvw_ks[@]} - 1; __fvw_i >= 0; __fvw_i-- )); do
+        __fvw_k=${__fvw_ks[__fvw_i]}
+        local -n __fvw_kd=${__fvw_k}_data
+        if (( (${__fvw_kd[State]:-0} & FV_SF_VISIBLE) && FV_EV_MOUSE_X >= __FV_VW_AX[$__fvw_k] && FV_EV_MOUSE_Y >= __FV_VW_AY[$__fvw_k] )) \
+           && (( FV_EV_MOUSE_X < __FV_VW_AX[$__fvw_k] + ${__fvw_kd[SizeX]:-0} && FV_EV_MOUSE_Y < __FV_VW_AY[$__fvw_k] + ${__fvw_kd[SizeY]:-0} )); then
+            __fvw_ks=("$__fvw_k")
+            fv.views._dispatch "$1" phFocused 0 || :
+            return 0
+        fi
+    done
 }
 
 # fv.views._dispatch G PHASE OPTION — FV's DoHandleEvent for each view of
@@ -2592,6 +2707,12 @@ fv.views._dispatch() {
         __fvw_xf="${!__fvw_xf-}_class_method_owner[HandleEvent]"
         __fvw_xf=${__FV_VW_IMPL[${!__fvw_xf-}.HandleEvent]-}
         if [ "$__fvw_xf" = fv.views._viewEvent ] && ! [ "$FV_EV_WHAT" = evMouseDown ]; then continue; fi
+        # (a broadcast into a built-in group whose subtree has no listener:
+        # the delivery is skipped, its Phase effects kept: fv.views._quiet)
+        if (( __fvw_xb == FV_EM_BROADCAST )) && [[ -n ${__FV_VW_GRP[$__fvw_xk]-} ]] && fv.views._quiet "$__fvw_xk" "$FV_EV_COMMAND"; then
+            __fvw_xg[Phase]=$2
+            continue
+        fi
         __fvw_xg[Phase]=$2
         if [[ -z $__fvw_xf ]]; then "$__fvw_xk.HandleEvent" || :
         else
@@ -2603,6 +2724,53 @@ fv.views._dispatch() {
         __fvw_xb=${__FV_VW_EVBIT[${FV_EV_WHAT:-evNothing}]-0}
     done
     if [ "$FV_EV_WHAT" = evNothing ]; then return 1; fi
+    return 0
+}
+
+# fv.views._quiet V COMMAND — rc 0 when the broadcast COMMAND delivered to V
+# would reach no handler that reacts to it (stage 2c-p: the focus broadcasts
+# of a window switch cost a dispatch tree each). V's HandleEvent is TView's
+# (it reacts to evMouseDown only), or TGroup's / TWindow's (TWindow reacts to
+# cmSelectWindowNum: not quiet) and every subview the dispatch would reach
+# (EventMask with evBroadcast, live, still V's subview) is quiet itself. A
+# user override anywhere in the way is never quiet. The dispatch sets a
+# group's Phase before each subview it calls (not before a TView handler it
+# skips): when the answer is 0 the walk sets those Phases the same way (only
+# then: a walk that ends "not quiet" leaves no trace), so a skipped delivery
+# leaves the same state. A built-in HandleEvent that reacts to a broadcast
+# must make this answer 1 for it. NESTED (internal): the inner walk adds the
+# groups to stamp to the outer call's __fvw_qp
+fv.views._quiet() {
+    local __fvw_f=${1}_class
+    if [[ -z ${3-} ]]; then local -a __fvw_qp=(); fi
+    __fvw_f="${!__fvw_f-}_class_method_owner[HandleEvent]"
+    __fvw_f=${__FV_VW_IMPL[${!__fvw_f-}.HandleEvent]-}
+    if [ "$__fvw_f" = fv.views._viewEvent ]; then return 0; fi
+    if [ "$__fvw_f" = fv.views._windowEvent ]; then
+        if [ "$2" = cmSelectWindowNum ]; then return 1; fi
+    elif ! [ "$__fvw_f" = fv.views._groupEvent ]; then
+        return 1
+    fi
+    local -n __fvw_ql=${1}_views
+    local __fvw_k __fvw_t __fvw_p=0
+    for __fvw_k in "${__fvw_ql[@]}"; do
+        __fvw_t="${__fvw_k}_data[EventMask]"
+        if (( ! (${!__fvw_t:-0} & FV_EM_BROADCAST) )) || [[ -z ${__FV_VW_LIVE[$__fvw_k]-} ]]; then continue; fi
+        __fvw_t="${__fvw_k}_data[Owner]"
+        if ! [ "${!__fvw_t-}" = "$1" ]; then continue; fi
+        # (the subview's handler: TView's is quiet, a group's is looked into)
+        __fvw_t=${__fvw_k}_class
+        __fvw_t="${!__fvw_t-}_class_method_owner[HandleEvent]"
+        __fvw_t=${__FV_VW_IMPL[${!__fvw_t-}.HandleEvent]-}
+        if [ "$__fvw_t" = fv.views._viewEvent ]; then continue; fi
+        if [[ -z ${__FV_VW_GRP[$__fvw_k]-} ]]; then return 1; fi
+        fv.views._quiet "$__fvw_k" "$2" NESTED || return 1
+        __fvw_p=1
+    done
+    if (( __fvw_p )); then __fvw_qp+=("$1"); fi
+    if [[ -z ${3-} ]]; then
+        for __fvw_k in "${__fvw_qp[@]}"; do printf -v "${__fvw_k}_data[Phase]" '%s' phFocused; done
+    fi
     return 0
 }
 
@@ -2623,6 +2791,8 @@ fv.views.message() {
     fv.views._message "$1" "$2" "$3" "${4-}"
 }
 fv.views._message() {   # V WHAT COMMAND INFO
+    # (a broadcast that no handler would see: not delivered, nobody handles it)
+    if [ "$2" = evBroadcast ] && fv.views._quiet "$1" "$3"; then RESULT=''; return 1; fi
     local -a __fvw_es
     local __fvw_a='' __fvw_s=1
     fv.views._evSave
@@ -2662,9 +2832,24 @@ fv.views.setState() {
 # (sfExposed is read on the root only: 2c-2)
 fv.views._viewSetState() {
     local -n __fvw_sd=${1}_data
-    local __fvw_o=${__fvw_sd[Owner]-} __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4
+    local __fvw_o=${__fvw_sd[Owner]-}
     if (( $3 )); then __fvw_sd[State]=$(( ${__fvw_sd[State]:-0} | $2 )); else __fvw_sd[State]=$(( ${__fvw_sd[State]:-0} & ~$2 )); fi
     [[ -n $__fvw_o ]] || return 0
+    if (( $2 == FV_SF_FOCUSED )); then
+        fv.views._cursorLater "$1"
+        if (( $3 )); then fv.views._message "$__fvw_o" evBroadcast cmReceivedFocus "$1" || :
+        else fv.views._message "$__fvw_o" evBroadcast cmReleasedFocus "$1" || :; fi
+    elif (( $2 == FV_SF_VISIBLE || $2 == FV_SF_CURSORVIS || $2 == FV_SF_CURSORINS || $2 == FV_SF_SHADOW )); then
+        fv.views._viewSetStateX "$@"
+    fi
+    return 0
+}
+# fv.views._viewSetStateX V BIT ENABLE — TView.SetState's sfVisible,
+# sfCursorVis / sfCursorIns and sfShadow effects (V has an owner, the bit is
+# set); apart from the frequent bits (bash copies a function's body per call)
+fv.views._viewSetStateX() {
+    local -n __fvw_sd=${1}_data
+    local __fvw_o=${__fvw_sd[Owner]-} __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4
     if (( $2 == FV_SF_VISIBLE )); then
         if (( $3 )); then fv.views._drawView "$1"
         else
@@ -2677,10 +2862,6 @@ fv.views._viewSetState() {
     elif (( $2 == FV_SF_SHADOW )); then
         fv.views._abs "$1"
         fv.views._drawUnder "$__fvw_o" "$__fvw_r1" "$__fvw_r2" "$(( __fvw_r3 + 2 ))" "$(( __fvw_r4 + 1 ))"
-    elif (( $2 == FV_SF_FOCUSED )); then
-        fv.views._cursorLater "$1"
-        if (( $3 )); then fv.views._message "$__fvw_o" evBroadcast cmReceivedFocus "$1" || :
-        else fv.views._message "$__fvw_o" evBroadcast cmReleasedFocus "$1" || :; fi
     fi
     return 0
 }
@@ -2693,30 +2874,36 @@ fv.views._viewSetState() {
 fv.views._groupSetState() {
     fv.views._viewSetState "$@"
     if (( $2 == FV_SF_ACTIVE || $2 == FV_SF_DRAGGING )); then
-        [[ -n ${__FV_VW_GRP[$1]-} ]] || return 0
-        local -n __fvw_sl=${1}_views
-        local -a __fvw_ks=("${__fvw_sl[@]}") __fvw_fs=()
-        local __fvw_i __fvw_k __fvw_b
-        __FV_VW_LSU=$(( __FV_VW_LSU + 1 ))
-        for (( __fvw_i = ${#__fvw_ks[@]} - 1; __fvw_i >= 0; __fvw_i-- )); do
-            __fvw_k=${__fvw_ks[__fvw_i]}
-            fv.views._kid "$1" "$__fvw_k" || continue
-            local -n __fvw_gk=${__fvw_k}_data
-            __fvw_b=$(( ${__fvw_gk[State]:-0} & $2 ))
-            fv.views._virt "$__fvw_k" SetState "$2" "$3" || :
-            if [[ -n ${__FV_VW_FRM[$__fvw_k]-} && -n ${__FV_VW_LIVE[$__fvw_k]-} ]] && (( (${__fvw_gk[State]:-0} & $2) != __fvw_b )); then
-                __fvw_fs+=("$__fvw_k")
-            fi
-        done
-        for __fvw_k in "${__fvw_fs[@]}"; do
-            if fv.views._kid "$1" "$__fvw_k"; then fv.views._frameBorder "$__fvw_k"; fi
-        done
-        fv.views._release
+        if [[ -n ${__FV_VW_GRP[$1]-} ]]; then fv.views._groupActive "$@"; fi
     elif (( $2 == FV_SF_FOCUSED )); then
         local -n __fvw_sg=${1}_data
         local __fvw_c=${__fvw_sg[Current]-}
         if [[ -n $__fvw_c && -n ${__FV_VW_LIVE[$__fvw_c]-} ]]; then fv.views._virt "$__fvw_c" SetState "$FV_SF_FOCUSED" "$3" || :; fi
     fi
+    return 0
+}
+# fv.views._groupActive G BIT ENABLE — TGroup.SetState's sfActive /
+# sfDragging part: each subview's SetState, then the border-only redraw of
+# each subview TFrame whose bit changed (fv.views._frameBorder)
+fv.views._groupActive() {
+    local -n __fvw_sl=${1}_views
+    local -a __fvw_ks=("${__fvw_sl[@]}") __fvw_fs=()
+    local __fvw_i __fvw_k __fvw_b
+    __FV_VW_LSU=$(( __FV_VW_LSU + 1 ))
+    for (( __fvw_i = ${#__fvw_ks[@]} - 1; __fvw_i >= 0; __fvw_i-- )); do
+        __fvw_k=${__fvw_ks[__fvw_i]}
+        fv.views._kid "$1" "$__fvw_k" || continue
+        local -n __fvw_gk=${__fvw_k}_data
+        __fvw_b=$(( ${__fvw_gk[State]:-0} & $2 ))
+        fv.views._virt "$__fvw_k" SetState "$2" "$3" || :
+        if [[ -n ${__FV_VW_FRM[$__fvw_k]-} && -n ${__FV_VW_LIVE[$__fvw_k]-} ]] && (( (${__fvw_gk[State]:-0} & $2) != __fvw_b )); then
+            __fvw_fs+=("$__fvw_k")
+        fi
+    done
+    for __fvw_k in "${__fvw_fs[@]}"; do
+        if fv.views._kid "$1" "$__fvw_k"; then fv.views._frameBorder "$__fvw_k"; fi
+    done
+    fv.views._release
     return 0
 }
 
@@ -2947,36 +3134,7 @@ fv.views._resetCursor() {
             __fvw_v=$__fvw_k
             local -n __fvw_cd=${__fvw_v}_data
         done
-        if (( (${__fvw_cd[State]:-0} & __fvw_m) == __fvw_m )); then
-            __fvw_x=$(( __FV_VW_AX[$__fvw_v] + ${__fvw_cd[CursorX]:-0} )) __fvw_y=$(( __FV_VW_AY[$__fvw_v] + ${__fvw_cd[CursorY]:-0} ))
-            if (( __fvw_x >= 0 && __fvw_y >= 0 && __fvw_x >= __FV_VW_C1[$__fvw_v] && __fvw_x < __FV_VW_C3[$__fvw_v] )) \
-               && (( __fvw_y >= __FV_VW_C2[$__fvw_v] && __fvw_y < __FV_VW_C4[$__fvw_v] )); then
-                __fvw_t=1
-                if (( ${__fvw_cd[State]:-0} & FV_SF_CURSORINS )); then __fvw_t=2; fi
-                # covered by a visible view in front of it or of an owner, or an owner hidden
-                __fvw_k=$__fvw_v __fvw_g=0
-                while (( __fvw_t && __fvw_g++ < 4096 )); do
-                    local -n __fvw_cu=${__fvw_k}_data
-                    __fvw_o=${__fvw_cu[Owner]-}
-                    if [[ -z $__fvw_o ]]; then break; fi
-                    local -n __fvw_co=${__fvw_o}_data __fvw_cl=${__fvw_o}_views
-                    if (( ! (${__fvw_co[State]:-0} & FV_SF_VISIBLE) )); then __fvw_t=0; break; fi
-                    __fvw_i=-1
-                    fv.views._idx "$__fvw_o" "$__fvw_k"
-                    __fvw_n=${#__fvw_cl[@]}
-                    for (( __fvw_i = __fvw_i + 1; __fvw_i < __fvw_n; __fvw_i++ )); do
-                        __fvw_j=${__fvw_cl[__fvw_i]}
-                        local -n __fvw_cj=${__fvw_j}_data
-                        if (( (${__fvw_cj[State]:-0} & FV_SF_VISIBLE) && __fvw_x >= __FV_VW_AX[$__fvw_j] && __fvw_y >= __FV_VW_AY[$__fvw_j] )) \
-                           && (( __fvw_x < __FV_VW_AX[$__fvw_j] + ${__fvw_cj[SizeX]:-0} && __fvw_y < __FV_VW_AY[$__fvw_j] + ${__fvw_cj[SizeY]:-0} )); then
-                            __fvw_t=0
-                            break
-                        fi
-                    done
-                    __fvw_k=$__fvw_o
-                done
-            fi
-        fi
+        if (( (${__fvw_cd[State]:-0} & __fvw_m) == __fvw_m )); then fv.views._cursorAt; fi
     fi
     # (fv.video's cursor state read as a friend: __FV_VS_CURX / _CURY / _CURT)
     if (( __fvw_t )); then
@@ -2991,6 +3149,42 @@ fv.views._resetCursor() {
     fi
     if (( __fvw_c )); then fv.views._flush; fi
     RESULT=$__fvw_rr
+}
+
+# fv.views._cursorAt — _resetCursor's visible cursor (its locals: __fvw_v
+# the focused view, its data __fvw_cd): __fvw_x / __fvw_y its place, __fvw_t
+# its type, 0 when the place is outside the view's clip or a visible view in
+# front of it (or of an owner) holds it, or an owner is hidden. Apart because
+# bash copies a function's body on every call (most events have no cursor)
+fv.views._cursorAt() {
+    __fvw_x=$(( __FV_VW_AX[$__fvw_v] + ${__fvw_cd[CursorX]:-0} )) __fvw_y=$(( __FV_VW_AY[$__fvw_v] + ${__fvw_cd[CursorY]:-0} ))
+    if (( __fvw_x >= 0 && __fvw_y >= 0 && __fvw_x >= __FV_VW_C1[$__fvw_v] && __fvw_x < __FV_VW_C3[$__fvw_v] )) \
+       && (( __fvw_y >= __FV_VW_C2[$__fvw_v] && __fvw_y < __FV_VW_C4[$__fvw_v] )); then
+        __fvw_t=1
+        if (( ${__fvw_cd[State]:-0} & FV_SF_CURSORINS )); then __fvw_t=2; fi
+        # covered by a visible view in front of it or of an owner, or an owner hidden
+        __fvw_k=$__fvw_v __fvw_g=0
+        while (( __fvw_t && __fvw_g++ < 4096 )); do
+            local -n __fvw_cu=${__fvw_k}_data
+            __fvw_o=${__fvw_cu[Owner]-}
+            if [[ -z $__fvw_o ]]; then break; fi
+            local -n __fvw_co=${__fvw_o}_data __fvw_cl=${__fvw_o}_views
+            if (( ! (${__fvw_co[State]:-0} & FV_SF_VISIBLE) )); then __fvw_t=0; break; fi
+            __fvw_i=-1
+            fv.views._idx "$__fvw_o" "$__fvw_k"
+            __fvw_n=${#__fvw_cl[@]}
+            for (( __fvw_i = __fvw_i + 1; __fvw_i < __fvw_n; __fvw_i++ )); do
+                __fvw_j=${__fvw_cl[__fvw_i]}
+                local -n __fvw_cj=${__fvw_j}_data
+                if (( (${__fvw_cj[State]:-0} & FV_SF_VISIBLE) && __fvw_x >= __FV_VW_AX[$__fvw_j] && __fvw_y >= __FV_VW_AY[$__fvw_j] )) \
+                   && (( __fvw_x < __FV_VW_AX[$__fvw_j] + ${__fvw_cj[SizeX]:-0} && __fvw_y < __FV_VW_AY[$__fvw_j] + ${__fvw_cj[SizeY]:-0} )); then
+                    __fvw_t=0
+                    break
+                fi
+            done
+            __fvw_k=$__fvw_o
+        done
+    fi
 }
 
 # fv.views.setCursor V X Y — FV SetCursor: V's CursorX / CursorY, then the
@@ -3313,6 +3507,13 @@ fv.views._windowSetState() {
     [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
     if (( $2 == FV_SF_SELECTED )); then fv.views._virt "$1" SetState "$FV_SF_ACTIVE" "$3" || :; fi
     [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+    if (( $2 == FV_SF_SELECTED || $2 == FV_SF_EXPOSED )); then fv.views._windowCmds "$1" "$2" "$3"; fi
+    return 0
+}
+# fv.views._windowCmds W BIT ENABLE — TWindow.SetState's window commands:
+# sfSelected, or sfExposed while selected -> cmNext cmPrev, cmResize (wfGrow
+# or wfMove), cmClose (wfClose), cmZoom (wfZoom) enabled / disabled
+fv.views._windowCmds() {
     local -n __fvw_wd=${1}_data
     if (( $2 == FV_SF_SELECTED || ($2 == FV_SF_EXPOSED && (${__fvw_wd[State]:-0} & FV_SF_SELECTED)) )); then
         local __fvw_f=${__fvw_wd[Flags]:-0}
@@ -3340,6 +3541,23 @@ fv.views._windowSetState() {
 fv.views._windowEvent() {
     fv.views._groupEvent "$1"
     if [ "$FV_EV_WHAT" = evNothing ] || [[ -z ${__FV_VW_LIVE[$1]-} ]]; then return 0; fi
+    if [ "$FV_EV_WHAT" = evKeyDown ]; then
+        if [ "$FV_EV_KEY" = kbTab ] || [ "$FV_EV_KEY" = kbDown ] || [ "$FV_EV_KEY" = kbRight ]; then
+            fv.views._findFocus "$1" 0
+            FV_EV_WHAT=evNothing FV_EV_INFO=$1
+        elif [ "$FV_EV_KEY" = kbShiftTab ] || [ "$FV_EV_KEY" = kbUp ] || [ "$FV_EV_KEY" = kbLeft ]; then
+            fv.views._findFocus "$1" 1
+            FV_EV_WHAT=evNothing FV_EV_INFO=$1
+        fi
+    elif { [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmClose ]; } \
+         || { [ "$FV_EV_WHAT" = evBroadcast ] && [ "$FV_EV_COMMAND" = cmSelectWindowNum ]; }; then
+        fv.views._windowEventX "$1"
+    fi
+    return 0
+}
+# fv.views._windowEventX W — TWindow.HandleEvent's cmClose and
+# cmSelectWindowNum (apart: bash copies a function's body on every call)
+fv.views._windowEventX() {
     local -n __fvw_wd=${1}_data
     if [ "$FV_EV_WHAT" = evCommand ]; then
         if [ "$FV_EV_COMMAND" = cmClose ]; then
@@ -3359,14 +3577,6 @@ fv.views._windowEvent() {
         if [ "$FV_EV_COMMAND" = cmSelectWindowNum ] && [[ -n $FV_EV_INFO ]] && [ "$FV_EV_INFO" = "${__fvw_wd[Number]-}" ] \
            && (( (${__fvw_wd[Options]:-0} & FV_OF_SELECTABLE) && (${__fvw_wd[State]:-0} & FV_SF_VISIBLE) )); then
             fv.views._select "$1"
-            FV_EV_WHAT=evNothing FV_EV_INFO=$1
-        fi
-    elif [ "$FV_EV_WHAT" = evKeyDown ]; then
-        if [ "$FV_EV_KEY" = kbTab ] || [ "$FV_EV_KEY" = kbDown ] || [ "$FV_EV_KEY" = kbRight ]; then
-            fv.views._findFocus "$1" 0
-            FV_EV_WHAT=evNothing FV_EV_INFO=$1
-        elif [ "$FV_EV_KEY" = kbShiftTab ] || [ "$FV_EV_KEY" = kbUp ] || [ "$FV_EV_KEY" = kbLeft ]; then
-            fv.views._findFocus "$1" 1
             FV_EV_WHAT=evNothing FV_EV_INFO=$1
         fi
     fi

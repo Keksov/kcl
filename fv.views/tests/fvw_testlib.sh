@@ -23,7 +23,9 @@
 #   fvw_writes_on / fvw_writes_off
 #                         count fv.video writes in FVW_WRITES the same way
 #                         (writeStr writeBuf writeCStr writeChar fillRect
-#                         shadeRect)
+#                         shadeRect fillColumns; the friend
+#                         entries fv.video._shadef, _wstr, _fcf and _wbf count as
+#                         shadeRect, writeStr, fillColumns and writeBuf)
 #   fvw_budget LABEL LIMIT CMD...
 #                         one test: run CMD with the dispatch counter on;
 #                         pass when it made at most LIMIT dispatches; the
@@ -141,7 +143,7 @@ fvw_check() {
 
 FVW_CALLS=0 FVW_WRITES=0
 FVW_DISPATCHERS=(kk._exec kk._call kk._parent kk._constructor_exec)
-FVW_WRITERS=(fv.video.writeStr fv.video.writeBuf fv.video.writeCStr fv.video.writeChar fv.video.fillRect fv.video.shadeRect)
+FVW_WRITERS=(fv.video.writeStr fv.video.writeBuf fv.video.writeCStr fv.video.writeChar fv.video.fillRect fv.video.shadeRect fv.video.fillColumns fv.video._shadef fv.video._wstr fv.video._fcf fv.video._wbf)
 
 # fvw_wrap COUNTER FUNC... / fvw_unwrap FUNC... — the shim: FUNC becomes
 # "COUNTER += 1; __fvw_orig_FUNC "$@"" (the original's last command), the

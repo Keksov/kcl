@@ -170,6 +170,7 @@ c fv.video.definePalette 7 1 2
 c fv.video.setColorDepth 16
 c fv.video.writeBuf 2 1 $'\xd0\xb6\xe6\xbc\xa2' 123 2
 c fv.video.shadeRect 1 0 3 3
+c fv.video.fillColumns 0 3 4 $'\xe2\x95\x91' 0 19
 c fv.video.getRow 1
 r+="$REPLY,"
 c fv.video.getClip

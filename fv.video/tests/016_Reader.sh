@@ -339,7 +339,7 @@ child '
 exec {x}</dev/null
 exec {y}<>'"'$T/f2'"'
 exec {z}> >(read -r v)
-pids "$!"
+zp=$!; pids "$zp"
 FV_KEY_FD=$a __FV_VI_FD=$a
 FV_TTY_READER=1 fv.video._rstart
 rp=$__FV_VI_RPID wp=$__FV_VI_WPID rf=$__FV_VI_RFD; pids "$rp" "$wp"
@@ -363,6 +363,9 @@ for n in $w1; do
 done
 fv.video._rstop
 exec {z}>&-
+# (the process substitution ends on that EOF: waited for, so the survivor check
+# after the child does not race it)
+gone "$zp" || :
 if [[ -z $bad && -n $seen ]]; then echo "only 0 1 2 tty / 0 1 2"; else echo "extra:$bad x=$x y=$y z=$z a=$a rf=$rf"; fi'
 if [[ $REPLY == n/a ]]; then kt_test_start "the reader holds only fds 0, 1, 2 and the terminal; the watchdog only 0, 1, 2"; kt_test_pass "SKIP: no /proc/PID/fd"; SURV=''
 else check "the reader holds only fds 0, 1, 2 and the terminal; the watchdog only 0, 1, 2 (never the reader's pipe nor the terminal); the owner's other fds (a file, a fifo, a process-substitution pipe) are closed in both" "only 0 1 2 tty / 0 1 2" "$REPLY"; fi

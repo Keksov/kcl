@@ -13,7 +13,8 @@
 #   * the focus broadcasts cmReleasedFocus / cmReceivedFocus to the owner
 #     (FV_EV_INFO = the view), in FV's order;
 #   * sfActive propagation: each subview gets it, a frame's border is
-#     redrawn (4 fv.video writes), a leaf is not redrawn;
+#     redrawn (3 fv.video writes since 2c-p: both sides in one fillColumns),
+#     a leaf is not redrawn;
 #   * Tab in a window (TWindow: kbTab / kbDown / kbRight next, kbShiftTab /
 #     kbUp / kbLeft previous; hidden, disabled, unselectable views skipped);
 #   * click to focus the back window through the whole chain (consumed;
@@ -27,7 +28,11 @@
 #   * delete / hide of the focused window: the focus moves on (and
 #     cmReleasedFocus reaches the owner); insert into an active group passes
 #     sfActive (FV InsertBefore); select of a window already in front makes
-#     it Current (a deviation from FV's MakeFirst no-op).
+#     it Current (a deviation from FV's MakeFirst no-op);
+#   * stage 2c-p, quiet broadcasts: a broadcast that no handler would see is
+#     not delivered (no dispatch), the Phase a delivery sets is set the same
+#     way; a listening user leaf breaks the quiet and hears what it heard;
+#     the dispatch's skips (EventMask, removed views) apply to the walk.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -96,7 +101,7 @@ want+='w2<cmReceivedFocus:w2;w1<cmReceivedFocus:w2;desk<cmReceivedFocus:w2;w2<cm
 if [[ $HEARD == "$want" ]] && fvw_full app; then kt_test_pass "ok"; else kt_test_fail "heard [$HEARD] diff [$FVW_DIFF]"; fi
 for v in ld l1 l2; do "$v.delete"; done
 
-kt_test_start "sfActive: each subview gets it, the frame's border is redrawn (4 writes), the leaf is not redrawn, no dispatch"
+kt_test_start "sfActive: each subview gets it, the frame's border is redrawn (3 writes: top, bottom, both sides in one fillColumns), the leaf is not redrawn, no dispatch"
 FVW_DRAWS=()
 fvw_count_on; fvw_writes_on; FVW_CALLS=0 FVW_WRITES=0
 fv.views.setState w2 "$FV_SF_ACTIVE" 0
@@ -104,7 +109,7 @@ n=$FVW_CALLS w=$FVW_WRITES
 fvw_writes_off; fvw_count_off
 bits w2 w2l w2__fvframe; b=$REPLY
 fv.views.setState w2 "$FV_SF_ACTIVE" 1
-if [[ $n == 0 && $w == 4 && $b == 'w2:sf- w2l:sf- w2__fvframe:---' && ${FVW_DRAWS[w2l]:-0} == 0 ]] && fvw_full app; then kt_test_pass "ok"
+if [[ $n == 0 && $w == 3 && $b == 'w2:sf- w2l:sf- w2__fvframe:---' && ${FVW_DRAWS[w2l]:-0} == 0 ]] && fvw_full app; then kt_test_pass "ok"
 else kt_test_fail "dispatches $n writes $w bits [$b] draws ${FVW_DRAWS[w2l]:-0} diff [$FVW_DIFF]"; fi
 
 kt_test_start "side by side: selecting the other window redraws the two frame borders and its shadow only (no list drawn, 0 dispatches)"
@@ -116,7 +121,7 @@ fvw_count_on; fvw_writes_on; FVW_CALLS=0 FVW_WRITES=0
 fv.views.select w1
 n=$FVW_CALLS w=$FVW_WRITES
 fvw_writes_off; fvw_count_off
-kt_test_log "# writes select-side $w (2 borders x 4 + the shadow's shadeRect calls)"
+kt_test_log "# writes select-side $w (2 borders x 3 + the shadow strips)"
 if [[ $n == 0 && ${FVW_DRAWS[w1l]:-0} == 0 && ${FVW_DRAWS[w2l]:-0} == 0 ]] && (( w <= 12 )) && fvw_full app; then kt_test_pass "ok ($w writes)"
 else kt_test_fail "dispatches $n writes $w draws ${FVW_DRAWS[w1l]:-0}/${FVW_DRAWS[w2l]:-0} diff [$FVW_DIFF]"; fi
 fvw_untscene
@@ -270,6 +275,80 @@ fv.views.focus || r+="$?,"; fv.views.setState w1 x 1 || r+="$?,"; fv.views.setSt
 fv.views.setCursor w1l 1 || r+="$?,"; fv.views.setCursor w1l a 1 || r+="$?,"; fv.views.resetCursor || r+="$?,"
 fv.views.showCursor || r+="$?,"; fv.views.hideCursor nosuch || r+="$?"
 if [[ $r == '2,2,2,2,2,2,2,2,2,2' ]]; then kt_test_pass "ok"; else kt_test_fail "[$r]"; fi
+
+# --- stage 2c-p: a focus broadcast that no handler would see is not delivered ---
+kt_test_start "quiet broadcasts (2c-p): a window switch among built-in views and plain leaves costs no dispatch, the desktop's Phase is set as the dispatch sets it, the windows' is not"
+fv.views.select w1
+desk_data[Phase]=phX w1_data[Phase]=phY w2_data[Phase]=phY
+fvw_count_on; FVW_CALLS=0
+fv.views._quiet desk cmReleasedFocus; q1=$?
+fv.views._quiet w1 cmReleasedFocus; q2=$?
+fv.views._quiet desk cmSelectWindowNum; q3=$?
+n=$FVW_CALLS
+fvw_count_off
+r="$q1 $q2 $q3 $n ${desk_data[Phase]} ${w1_data[Phase]} ${w2_data[Phase]}"
+if [[ $r == '0 0 1 0 phFocused phY phY' ]]; then kt_test_pass "ok"; else kt_test_fail "[$r]"; fi
+
+kt_test_start "quiet broadcasts: a listening leaf (EventMask + evBroadcast, an override) makes its window and the desktop not quiet; it hears every focus broadcast as before"
+class TQListen : TView
+    public
+        override proc HandleEvent
+end
+TQListen.HandleEvent() { if [ "$FV_EV_WHAT" = evBroadcast ]; then QHEARD+="$this<$FV_EV_COMMAND:$FV_EV_INFO;"; fi; }
+build TQListen
+TQListen.new ql 30 1 35 2
+ql_data[EventMask]=$(( ql_data[EventMask] | FV_EM_BROADCAST ))
+fv.views.insert w1 ql
+QHEARD=''
+fv.views._quiet w1 cmReleasedFocus; q1=$?
+fv.views._quiet desk cmReleasedFocus; q2=$?
+fv.views._quiet w2 cmReleasedFocus; q3=$?
+fv.views.select w2
+fv.views.select w1
+want='ql<cmReleasedFocus:w1;ql<cmReleasedFocus:w1l;ql<cmReceivedFocus:w2;ql<cmReleasedFocus:w2;ql<cmReceivedFocus:w1;ql<cmReceivedFocus:w1l;'
+if [[ "$q1 $q2 $q3" == '1 1 0' && $QHEARD == "$want" ]] && fvw_full app; then kt_test_pass "ok"
+else kt_test_fail "quiet [$q1 $q2 $q3] heard [$QHEARD] want [$want] diff [$FVW_DIFF]"; fi
+
+kt_test_start "quiet broadcasts: a listener with an EventMask without evBroadcast, a destroyed one, and a hidden one in the list follow the dispatch's rules"
+ql_data[EventMask]=$(( ql_data[EventMask] & ~FV_EM_BROADCAST ))
+fv.views._quiet w1 cmReleasedFocus; q1=$?
+ql_data[EventMask]=$(( ql_data[EventMask] | FV_EM_BROADCAST ))
+fv.views.hide ql
+fv.views._quiet w1 cmReleasedFocus; q2=$?
+fv.views.show ql
+fv.views.delete w1 ql; ql.delete
+fv.views._quiet w1 cmReleasedFocus; q3=$?
+if [[ "$q1 $q2 $q3" == '0 1 0' ]]; then kt_test_pass "ok"; else kt_test_fail "[$q1 $q2 $q3] (masked quiet, hidden still reached, removed quiet)"; fi
+
+# (critic round: the walk into quiet subgroups must leave no Phase behind when a
+# later subview makes the answer "not quiet" and a listener in front handles the
+# broadcast before the dispatch reaches those groups)
+kt_test_start "quiet broadcasts: a walk that ends not quiet leaves the Phase of the quiet subgroups it looked into untouched (message and dispatch)"
+class TQClear : TView
+    public
+        override proc HandleEvent
+end
+TQClear.HandleEvent() { if [ "$FV_EV_WHAT" = evBroadcast ]; then QGOT+="$this;"; fv.views.clearEvent "$this"; fi; }
+build TQClear
+TGroup.new qr 0 0 40 12; TGroup.new qg2 0 0 10 5; TGroup.new qg3 0 0 5 3; TGroup.new qg4 0 0 2 2
+fv.views.insert qg3 qg4; fv.views.insert qg2 qg3; fv.views.insert qr qg2
+TQClear.new qlc 20 1 25 2
+qlc_data[EventMask]=$(( qlc_data[EventMask] | FV_EM_BROADCAST ))
+fv.views.insert qr qlc
+qr_data[Phase]=phPostProcess qg2_data[Phase]=phPostProcess qg3_data[Phase]=phPostProcess qg4_data[Phase]=phPostProcess
+QGOT=''
+fv.views.message qr evBroadcast cmSomething ''; rc=$?
+r1="$rc $RESULT $QGOT ${qr_data[Phase]} ${qg2_data[Phase]} ${qg3_data[Phase]} ${qg4_data[Phase]}"
+qr_data[Phase]=phPostProcess qg2_data[Phase]=phPostProcess qg3_data[Phase]=phPostProcess
+TGroup.new qtop 0 0 40 12; fv.views.insert qtop qr
+fv.drivers.clearEvent; FV_EV_WHAT=evBroadcast FV_EV_COMMAND=cmOther
+QGOT=''
+fv.views._virt qtop HandleEvent
+r2="$FV_EV_WHAT $QGOT ${qtop_data[Phase]-} ${qr_data[Phase]} ${qg2_data[Phase]} ${qg3_data[Phase]}"
+fv.drivers.clearEvent
+qtop.delete   # (a group's delete takes its subviews with it)
+if [[ $r1 == '0 qlc qlc; phFocused phPostProcess phPostProcess phPostProcess' && $r2 == 'evNothing qlc; phFocused phFocused phPostProcess phPostProcess' ]]; then kt_test_pass "ok"
+else kt_test_fail "message [$r1] dispatch [$r2]"; fi
 
 fvw_untscene
 kt_test_log "008_Focus.sh completed"
