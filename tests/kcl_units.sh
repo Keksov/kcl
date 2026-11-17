@@ -99,6 +99,9 @@ KCL_UNITS=(
     # (fv.menus: TStatusLine on fv.views' TView; it adds its built-in
     # bodies to fv.views' elision table at load and from its constructor)
     "fv.menus|||"
+    # (fv.app: TBackground / TDesktop / TProgram / TApplication on fv.views
+    # and fv.menus; it adds its built-in bodies to fv.views' elision tables)
+    "fv.app|||"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),

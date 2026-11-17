@@ -21,7 +21,9 @@
 #   * the end of input: a keyboard drag ends as Esc, a mouse drag where it is
 #     (latched); a cmResizeApp from the event source ends a drag at its
 #     bounds clamped into the owner's new extent, no undo (the events after
-#     it stay unread);
+#     it stay unread); stage 2f: so does a resize the event source handled
+#     itself (evNothing answered, __FV_VW_RESIZES + 1), read by the step loop
+#     or by the drain;
 #   * the event record put back (cmResize, a mouse-down, a direct call),
 #     RESULT kept; the owner-process rule inside $( ) (rc 2, nothing read);
 #     dragView's refusals;
@@ -329,5 +331,44 @@ fv.views.drawView app
 if [[ $leak == 0 && $np == 0 && -n ${__FV_VW_LIVE[w2__fvframe]-} ]] && fvw_full app; then kt_test_pass "ok"
 else kt_test_fail "leak $leak pend $np frame [${__FV_VW_LIVE[w2__fvframe]-}] diff [$FVW_DIFF]"; fi
 
+
+# ---- stage 2f: a resize the event source handled itself (__FV_VW_RESIZES) ----------
+# (fv.app's GetEvent hands a cmResizeApp to the application at once and clears
+# it, as FV does with a system event; the source here does the same: it resizes,
+# counts, and answers evNothing)
+rzsrc() {
+    if (( ${#FVW_EVQ[@]} )) && [[ ${FVW_EVQ[0]} == resized ]]; then
+        FVW_EVQ=("${FVW_EVQ[@]:1}")
+        shrink; __FV_VW_RESIZES=$(( __FV_VW_RESIZES + 1 ))
+        fv.drivers.clearEvent; RESULT=evNothing
+        return 0
+    fi
+    fvw_getev "$@"
+}
+kt_test_start "stage 2f: a resize the source handled itself (evNothing, __FV_VW_RESIZES + 1) ends a keyboard drag clamped, no undo, the next events unread"
+w2_data[GrowMode]=0
+fvw_events 'key kbRight' 'resized' 'key kbEsc'
+__FV_VW_GETEVENT=rzsrc
+send evCommand cmResize
+bounds; r1="$REPLY|${#FVW_EVQ[@]}"; dragging; r1+="|$REPLY"
+unshrink; fv.views.locate w2 30 5 70 22
+if [[ $r1 == '31 5 71 20|1|0' ]]; then kt_test_pass "ok"; else kt_test_fail "[$r1]"; fi
+reset
+kt_test_start "stage 2f: a resize the source handled itself ends a mouse drag (read by the step loop, and met in the drain with timeout 0); the mouse-up after it unread"
+w2_data[GrowMode]=0
+fvw_events 'resized' 'up 0 0'
+__FV_VW_GETEVENT=rzsrc
+mdown 50 5
+bounds; r1="$REPLY|${#FVW_EVQ[@]}"
+unshrink; fv.views.locate w2 30 5 70 22
+reset
+w2_data[GrowMode]=0
+fvw_events 'move 45 7' 'resized' 'up 0 0'
+__FV_VW_GETEVENT=rzsrc
+mdown 50 5
+bounds; r2="$REPLY|${#FVW_EVQ[@]}"
+unshrink; fv.views.locate w2 30 5 70 22
+if [[ $r1 == '30 5 70 20|1' && $r2 == '25 7 65 22|1' ]]; then kt_test_pass "ok"; else kt_test_fail "[$r1] [$r2]"; fi
+reset
 fvw_untscene
 kt_test_log "017_Drag.sh completed"

@@ -32,7 +32,10 @@
 #   * stage 2c-p, quiet broadcasts: a broadcast that no handler would see is
 #     not delivered (no dispatch), the Phase a delivery sets is set the same
 #     way; a listening user leaf breaks the quiet and hears what it heard;
-#     the dispatch's skips (EventMask, removed views) apply to the walk.
+#     the dispatch's skips (EventMask, removed views) apply to the walk;
+#   * stage 2f: a built-in group handler of another unit (an IMPL entry) is
+#     not quiet until it is listed in __FV_VW_QGRP; listed, the walk goes into
+#     its subviews.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -350,5 +353,29 @@ qtop.delete   # (a group's delete takes its subviews with it)
 if [[ $r1 == '0 qlc qlc; phFocused phPostProcess phPostProcess phPostProcess' && $r2 == 'evNothing qlc; phFocused phFocused phPostProcess phPostProcess' ]]; then kt_test_pass "ok"
 else kt_test_fail "message [$r1] dispatch [$r2]"; fi
 
+
+# --- stage 2f: __FV_VW_QGRP, built-in group handlers of the units above (fv.app) ---
+kt_test_start "stage 2f: a built-in group handler of another unit is not quiet until it is listed in __FV_VW_QGRP; listed, the walk goes into its subviews (a listener there still breaks the quiet)"
+class TQG : TGroup
+    public
+        override proc HandleEvent
+end
+TQG.HandleEvent() { fvw_qgEvent "$this" || return; }
+build TQG
+fvw_qgEvent() { fv.views._groupEvent "$1"; }
+__FV_VW_IMPL[TQG.HandleEvent]=fvw_qgEvent
+TQG.new qg 0 0 20 5
+TView.new qv 0 0 5 1
+fv.views.insert qg qv
+fv.views._quiet qg cmReleasedFocus; q1=$?
+__FV_VW_QGRP[fvw_qgEvent]=1
+fv.views._quiet qg cmReleasedFocus; q2=$?
+TQListen.new ql2 1 1 3 2
+ql2_data[EventMask]=$(( ql2_data[EventMask] | FV_EM_BROADCAST ))
+fv.views.insert qg ql2
+fv.views._quiet qg cmReleasedFocus; q3=$?
+unset '__FV_VW_QGRP[fvw_qgEvent]' '__FV_VW_IMPL[TQG.HandleEvent]'
+qg.delete
+if [[ "$q1 $q2 $q3" == '1 0 1' ]]; then kt_test_pass "ok"; else kt_test_fail "[$q1 $q2 $q3]"; fi
 fvw_untscene
 kt_test_log "008_Focus.sh completed"

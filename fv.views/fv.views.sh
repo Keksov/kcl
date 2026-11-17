@@ -190,6 +190,11 @@ declare -g __FV_VW_CPEND=${__FV_VW_CPEND-} __FV_VW_EH=${__FV_VW_EH:-0}
 declare -g __FV_VW_GETEVENT=${__FV_VW_GETEVENT:-fv.drivers.getEvent} __FV_VW_PUTEVENT=${__FV_VW_PUTEVENT:-fv.drivers.putEvent}
 declare -g __FV_VW_EOF=${__FV_VW_EOF:-0} __FV_VW_OWNER=${__FV_VW_OWNER:-$BASHPID} __FV_VW_CMDINIT=${__FV_VW_CMDINIT-}
 declare -g FV_COMMANDSETCHANGED=${FV_COMMANDSETCHANGED:-0}
+# RESIZES (stage 2f): the count of terminal resizes the event source handled
+# itself (fv.app's GetEvent hands a cmResizeApp to the application at once and
+# clears it, as FV's TProgram.GetEvent does with a system event): an inner
+# loop that keeps geometry of its own (dragView) compares it around each read
+declare -g __FV_VW_RESIZES=${__FV_VW_RESIZES:-0}
 declare -gA __FV_VW_CMDOFF
 if [[ -z $__FV_VW_CMDINIT ]]; then
     # FV: CurCommandSet = [0..255] - [cmZoom, cmClose, cmResize, cmNext, cmPrev]
@@ -203,6 +208,12 @@ fi
 # (fv.menus, fv.app) add their classes' entries, which a re-source of this
 # unit must keep.
 declare -gA __FV_VW_IMPL __FV_VW_FUNC
+# QGRP (stage 2f): built-in HandleEvent bodies of the units above this one
+# that react to no broadcast and pass one on as TGroup's does (fv.app's
+# TDesktop / TProgram / TApplication): fv.views._quiet walks into them as into
+# TGroup's. Merged on a reload, like IMPL
+declare -gA __FV_VW_QGRP
+__FV_VW_QGRP+=()
 __FV_VW_IMPL+=(
     [TView.ChangeBounds]=fv.views._viewChangeBounds [TView.CalcBounds]=fv.views._viewCalcBounds
     [TView.SizeLimits]=fv.views._viewSizeLimits [TView.GetHelpCtx]=fv.views._viewGetHelpCtx
@@ -2775,7 +2786,7 @@ fv.views._quiet() {
     if [ "$__fvw_f" = fv.views._viewEvent ] || [ "$__fvw_f" = fv.views._frameEvent ]; then return 0; fi
     if [ "$__fvw_f" = fv.views._windowEvent ]; then
         if [ "$2" = cmSelectWindowNum ]; then return 1; fi
-    elif ! [ "$__fvw_f" = fv.views._groupEvent ]; then
+    elif ! [ "$__fvw_f" = fv.views._groupEvent ] && [[ -z ${__FV_VW_QGRP[${__fvw_f:-.}]-} ]]; then
         return 1
     fi
     local -n __fvw_ql=${1}_views
@@ -3811,17 +3822,19 @@ fv.views._moveGrow() {
 # as the modal loop does; a source failing otherwise counts as it, with a
 # debug line)
 fv.views._dragNext() {
-    local __fvw_s
+    local __fvw_s __fvw_rz
     while :; do
         fv.views._showNow
         if (( __FV_VW_EOF )); then __fvw_e=e; return 0; fi
-        __fvw_s=0
+        __fvw_s=0 __fvw_rz=$__FV_VW_RESIZES
         "$__FV_VW_GETEVENT" || __fvw_s=$?
         if (( __fvw_s )); then
             if (( __fvw_s != 1 )); then kk.debug "Error: fv.views.dragView: the event source '$__FV_VW_GETEVENT' failed (rc $__fvw_s): taken for the end of input"; fi
             __FV_VW_EOF=1 __fvw_e=e
             return 0
         fi
+        # (a resize the source handled itself: __FV_VW_RESIZES)
+        if (( __FV_VW_RESIZES != __fvw_rz )); then __fvw_e=z; return 0; fi
         if [ "$FV_EV_WHAT" = evKeyDown ]; then
             if (( $1 )); then __fvw_e=k; return 0; fi
         elif [ "$FV_EV_WHAT" = evMouseMove ]; then
@@ -3842,15 +3855,16 @@ fv.views._dragNext() {
 # cmResizeApp or the end of input stops and is kept for the loop
 # (__fvw_pe = u / z / e); anything else is dropped (FV's MouseEvent drops it)
 fv.views._dragDrain() {
-    local __fvw_s
+    local __fvw_s __fvw_rz
     while :; do
-        __fvw_s=0
+        __fvw_s=0 __fvw_rz=$__FV_VW_RESIZES
         "$__FV_VW_GETEVENT" 0 || __fvw_s=$?
         if (( __fvw_s )); then
             if (( __fvw_s != 1 )); then kk.debug "Error: fv.views.dragView: the event source '$__FV_VW_GETEVENT' failed (rc $__fvw_s): taken for the end of input"; fi
             __FV_VW_EOF=1 __fvw_pe=e
             return 0
         fi
+        if (( __FV_VW_RESIZES != __fvw_rz )); then __fvw_pe=z; return 0; fi
         if [ "$FV_EV_WHAT" = evMouseMove ]; then __fvw_mx=$FV_EV_MOUSE_X __fvw_my=$FV_EV_MOUSE_Y
         elif [ "$FV_EV_WHAT" = evMouseUp ]; then __fvw_pe=u __fvw_ux=$FV_EV_MOUSE_X __fvw_uy=$FV_EV_MOUSE_Y; return 0
         elif [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmResizeApp ]; then __fvw_pe=z; return 0

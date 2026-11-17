@@ -16,8 +16,8 @@ the drawing context and writers, the painter with shadows, both lock
 counters and the minimal `TFrame` (2c-2); the event dispatch, the focus
 chain, command sets, the cursor, modal views and the basic `TWindow` (2c-3);
 window zoom, `dragView` (keyboard and mouse) and the frame's mouse (2d). The
-application (`TProgram` / `TApplication`, `Run`, the real event source)
-comes with stage 2f.
+application (`TProgram` / `TApplication`, `Run`, the real event source) is
+[`fv.app`](../fv.app/README.md) (stage 2f), which uses the hooks below.
 
 ## Quick start
 
@@ -556,7 +556,10 @@ listener leaves no Phase behind). A window switch among built-in windows thus wa
 tree instead of dispatching it (a desktop with two windows, Git-bash:
 ~0.4–0.5 ms instead of ~0.8–1.1 ms per broadcast, four broadcasts per
 switch). A later built-in `HandleEvent` that reacts to a broadcast must be
-added to this rule (`fv.views._quiet`).
+added to this rule (`fv.views._quiet`). Stage 2f: the units above this one
+list their built-in group handlers that react to no broadcast and pass one
+on as TGroup's does in `__FV_VW_QGRP` (fv.app's TDesktop, TProgram and
+TApplication handlers): the walk goes into them as into TGroup's.
 
 **Click to focus** (TView's `HandleEvent`, D8): a mouse-down on a selectable
 view that is neither selected nor disabled focuses it (`fv.views.focus`) and
@@ -708,10 +711,12 @@ group, a wrong argument count, a bad number, a name with other characters.
   drains the waiting mouse moves with `TIMEOUT` 0, "only what is already
   there", so fv.app's `_getEvent` must pass it on), `__FV_VW_PUTEVENT` (FV
   `PutEvent`, default `fv.drivers.putEvent`), `__FV_VW_EOF` (the latch;
-  reset by whoever starts a new input) and `__FV_VW_OWNER` (the screen's
-  owner, `BASHPID` when the unit was loaded).
-* A terminal resize while a modal view runs is fv.app's `_getEvent` (2f);
-  one during a drag ends the drag ("Dragging").
+  reset by whoever starts a new input), `__FV_VW_OWNER` (the screen's
+  owner, `BASHPID` when the unit was loaded) and `__FV_VW_RESIZES` (stage
+  2f: the event source adds 1 for each `cmResizeApp` it handled itself).
+* A terminal resize while a modal view runs is handled inside fv.app's
+  event source (FV's system event, handled at once and cleared: the loop
+  sees `evNothing`); one during a drag ends the drag ("Dragging").
 
 ## TWindow
 
@@ -827,8 +832,11 @@ Procedure: `RESULT` kept, rc 0; rc 2 for a malformed call or in a subshell
   event source ends the drag at once, with V's bounds clamped into its
   owner's new extent by `MoveGrow` (limits = the owner's extent, the size
   limits asked again) and no undo; the drag does not post it again. The
-  event source handles the resize before it hands the event on (fv.app's
-  `_getEvent`, 2f); events after it stay unread.
+  same happens when the event source handled the resize itself and
+  answered something else (fv.app's GetEvent: FV's `TProgram.GetEvent`
+  handles the system event at once and clears it): the drag compares
+  `__FV_VW_RESIZES` around each read, the step loop's and the drain's
+  (stage 2f). Events after it stay unread.
 * The event record is put back afterwards (FV passes `Event` by value).
 
 The framework's own drags (FV's `DragWindow`): `cmResize` in
@@ -908,16 +916,17 @@ poll).
 
 * **instance classes with FV field names**, and fields of other instances
   read and written directly under the kklass friend contract;
-* **friend entries for the fv.\* units above this one** (fv.menus, later
+* **friend entries for the fv.\* units above this one** (fv.menus,
   fv.app — the same framework, versioned together; not for scripts): the
   elision tables `__FV_VW_IMPL` / `__FV_VW_FUNC` (a unit adds its classes'
-  built-in bodies; a reload of this unit merges, so they survive), calls of
+  built-in bodies; a reload of this unit merges, so they survive), the
+  quiet-broadcast table `__FV_VW_QGRP` (merged likewise), calls of
   `fv.views._virt` (the elision entry), `fv.views._topView V` (topView into
   the caller's `__fvw_t`, no checks), `fv.views._viewEvent` (TView's
   HandleEvent body), reads of `__FV_VW_LIVE` (a live view), `__FV_VW_CRC` (a
   refused TView part's rc), `__FV_VW_ERRSYM`, the disabled-command set
   `__FV_VW_CMDOFF` and the event hooks `__FV_VW_PUTEVENT` / `__FV_VW_EOF`.
-  fv.menus' README lists what it uses;
+  fv.menus' and fv.app's READMEs list what they use;
 * **loud refusals**: re-creating a live view, a reserved name and a
   constructor that skipped `inherited` print one `Error:` line on stderr (not
   only under `VERBOSE_KKLASS=debug`; `quiet` silences them) — a silent rc
@@ -1000,7 +1009,7 @@ anything on it fails one test.
 | 005_Overlap | the desktop-like scene: painter's order and FV's cells, 4 dispatches for the first paint, shadows (2 × 1, characters kept, over a sibling, clipped by the owner); move, resize, a group resize, makeFirst / putInFrontOf, a reorder without overlap, delete / insert, hide / show: each leaves exactly a full repaint's screen and draws each list at most once; the covering skip (framed group and leaf cover; frameless group, hidden frame, shadow do not); a frameless group's subview hidden / shown / moved / deleted (repainted from below the group); wide characters at a repaint edge; randomized wide-character scenes (seeded, 2 × 30 operations: every redraw == a full repaint) |
 | 006_Lock | lockScreenUpdate (nested, the update held, sent once, RESULT kept); lock / unlock: draws and the hooks' redraws held, redrawn once at 0 (also FV's "Lock; change fields; Unlock"), nested counts, an inner group inside a locked owner, both counters together, refusals, the aliases, a group destroyed while locked; destroying a locked window, or one holding a locked group, sends the removal at once |
 | 007_Events | the phases (pre / focused / post, the Phase each handler sees), positional events (the front-most visible view, hidden skipped, a disabled one swallows), broadcasts, the EventMask skip without a call (dispatch counts; built-in views 0), disabled views, the stop at evNothing, views removed / destroyed meanwhile, unknown names, click to focus and ofFirstClick, a nested group's Current, message (the handler, rc, the caller's record restored), RESULT kept, a handler's rc under `set -e`, refusals |
-| 008_Focus | the chain's bits, select of a covered window (== a full repaint, its list drawn once), the focus broadcasts in FV's order, sfActive propagation (a frame border = 3 writes, no leaf redraw), side by side (borders + shadow only), Tab in a window (arrows too; unselectable / disabled skipped), focusNext / selectNext, focus with an ofValidate Current, click to focus through the chain, resetCursor (position, shape, outside, covered, unfocused), a SetState override, hide / show / sfShadow, delete of the focused window, insert into an active group, select of a front window that is not Current, refusals; quiet broadcasts (stage 2c-p: no dispatch, the Phase a delivery sets, a listening leaf breaks the quiet and hears what it heard, the dispatch's skips in the walk; a walk that ends not quiet leaves no Phase behind) |
+| 008_Focus | the chain's bits, select of a covered window (== a full repaint, its list drawn once), the focus broadcasts in FV's order, sfActive propagation (a frame border = 3 writes, no leaf redraw), side by side (borders + shadow only), Tab in a window (arrows too; unselectable / disabled skipped), focusNext / selectNext, focus with an ofValidate Current, click to focus through the chain, resetCursor (position, shape, outside, covered, unfocused), a SetState override, hide / show / sfShadow, delete of the focused window, insert into an active group, select of a front window that is not Current, refusals; quiet broadcasts (stage 2c-p: no dispatch, the Phase a delivery sets, a listening leaf breaks the quiet and hears what it heard, the dispatch's skips in the walk; a walk that ends not quiet leaves no Phase behind); stage 2f: a built-in group handler of another unit is quiet only when listed in `__FV_VW_QGRP` |
 | 009_Commands | FV's default set at load (and across a re-source), enable / disable / commandEnabled, the changed flag, getCommands / setCommands, the window commands by Flags, execView restoring the set, refusals |
 | 011_ZeroFork | the three stages (drawing included: frames, shadows, locks, drawPart with every writer; stage 2c-3: a TWindow, the focus chain, message, a key through the dispatch, commands, the cursor, a modal view with a scripted event source, mouseEvent, endModal, cmClose; stage 2d: cmZoom, a keyboard drag, a mouse drag with the drain, the close icon, dragView) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
 | 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes); a second scene (stage 2c-3: windows whose names differ only in case, the focus chain, select, message, Tab, a click, commands, the cursor, two modal views, cmZoom and back, a keyboard and a mouse drag, the close icon, cmClose) under the same setups (`inherited` replaced by the built-in body under the IFS of letters, a kklass limit) |
@@ -1008,6 +1017,6 @@ anything on it fails one test.
 | 014_Modal | execView (RESULT, inserted / removed, == a full repaint, sfModal and the top view while it runs; topView; the event record, Phase, Options, Current put back; EnterSelect), Valid refusals, endModal from a leaf, modal in modal, no HandleEvent for evNothing, the end of input (no Valid asked), the latch, the "save?" box at the end of input, a failing event source, a root's Execute (cmQuit), the owner-process rule in `$( )`, a dialog destroying itself, a modal cmClose (cmCancel posted), endModal without a modal view, mouseEvent (tracking, the mouse-up, the end of input), refusals; stage 2d: drags inside a modal view (cmResize's keyboard drag, a mouse drag by the frame), each step shown at once; a resize mid-modal is 2f (mid-drag: 017) |
 | 015_Frame | TFrame's constructor; FV's look inactive / active / dragging, `☼` / `↕`, a bare frame in a plain group; a wide and a long title; small sizes; 3 writes full, 3 border-only (both sides one `fillColumns`), no dispatch; the string cache; through fv.video's VT model: the terminal shows the buffer, border-only == a full repaint (a window overlapping the ring in front); the covered parts of the ring left out (4 pieces, no repaint of the window in front); the cache across ASCII mode (initScreen with FV_ASCII); a frame class overriding Draw; stage 2d, the frame's mouse: the close icon's press tracking (one top-row write per change, cmClose posted on a release on it, nothing off it or at the end of input, the posted event closing the window), the zoom icon, a double click, an inactive frame (no icons: drags), the grow corner, a frame class with its own Draw, quiet for broadcasts |
 | 016_Window | the constructor (FV's defaults, the frame from InitFrame, a bad number, the guard), an InitFrame override without a frame, GetTitle, the frame's title and number, the three palettes, cmClose (Valid no / yes, another window, without wfClose), cmSelectWindowNum through message, an unselectable window, Tab, unknown keys / commands; stage 2d: SizeLimits (MinWinSize, FV_MINWINSIZE_X/_Y), Zoom and back (ZoomRect, the zoom icon), a bad ZoomRect, cmZoom, CalcBounds (the ZoomRect follows an owner resize), cmResize |
-| 017_Drag | stage 2d (+ critic round: Shift+Enter / Shift+Esc end a drag, icon tracking in a subshell and with the window destroyed by the source): the keyboard drag through `cmResize` (arrows, Shift + arrows, Ctrl ± 8, Home / End / PgUp / PgDn, Enter, Esc, a grow-only window), the limits (a column / row inside, `dmLimitLoY`, `dmLimitAll`, MinWinSize and the owner's size), `sfDragging` (border-only frame redraws: 3 writes in, 3 out), the mouse drag by the frame's top row and grow corner, motion coalescing (the drain's timeout 0, the last move wins, a key dropped, the mouse-up kept), the end of input (keyboard as Esc, mouse where it is), a `cmResizeApp` ending a drag (clamped into the new extent, no undo), the event record put back, the owner-process rule in `$( )`, `dragView`'s refusals; the counts of one keyboard step, one mouse step and a zoom (logged) |
+| 017_Drag | stage 2f: a resize the event source handled itself (`__FV_VW_RESIZES`, evNothing answered) ends a keyboard and a mouse drag (the step loop's read and the drain's); stage 2d (+ critic round: Shift+Enter / Shift+Esc end a drag, icon tracking in a subshell and with the window destroyed by the source): the keyboard drag through `cmResize` (arrows, Shift + arrows, Ctrl ± 8, Home / End / PgUp / PgDn, Enter, Esc, a grow-only window), the limits (a column / row inside, `dmLimitLoY`, `dmLimitAll`, MinWinSize and the owner's size), `sfDragging` (border-only frame redraws: 3 writes in, 3 out), the mouse drag by the frame's top row and grow corner, motion coalescing (the drain's timeout 0, the last move wins, a key dropped, the mouse-up kept), the end of input (keyboard as Esc, mouse where it is), a `cmResizeApp` ending a drag (clamped into the new extent, no undo), the event record put back, the owner-process rule in `$( )`, `dragView`'s refusals; the counts of one keyboard step, one mouse step and a zoom (logged) |
 | 018_Names | reserved names (also under nocasematch), `_newReserved`, the constructor guard (a leaf, a group with subviews, through subclass constructors), the dialog loop and the anti-pattern, a constructor that skipped `inherited`, `VERBOSE_KKLASS=quiet`; every rc-2 refusal: one debug line under the switch, none without |
 | 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals |

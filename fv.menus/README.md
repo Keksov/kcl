@@ -10,9 +10,10 @@ class on [`fv.views`](../fv.views/README.md)' `TView`. `TMenuBar` and
 
 The unit loads `kklass_pascal` and `fv.views`.
 
-**Status: P2 stage 2e.** The application (`fv.app`, stage 2f) makes the
-status line in its `InitStatusLine`, holds it in `FV_STATUSLINE` and calls
-its `Update` from `Idle`; until then a script inserts it itself.
+**Status: P2 stage 2e.** The application ([`fv.app`](../fv.app/README.md),
+stage 2f) makes the status line in its `InitStatusLine`, holds it in
+`FV_STATUSLINE` and calls its `Update` from `Idle`; without an application
+a script inserts it itself.
 
 ## Quick start
 
@@ -195,7 +196,7 @@ dispatch unless a class on it overrides `GetHelpCtx`). **D17**: a changed
 (another def, another `Hint`); a class that overrides `Draw` is redrawn on
 every change, as in FV.
 
-### Hooks left for fv.app (stage 2f)
+### What fv.app does with it (stage 2f, as planned here)
 
 * `InitStatusLine` makes the line under the reserved name
   `fv.views._newReserved "$app" status TStatusLine AX AY BX BY LIST…`
