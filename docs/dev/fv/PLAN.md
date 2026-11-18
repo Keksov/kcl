@@ -1,6 +1,6 @@
 # fv — a Free Vision-style text UI library for bash (kcl/fv.*)
 
-**Status:** PLANNED 2026-11-09. P0 next. **Ledger:** [`fv_ledger.json`](fv_ledger.json)
+**Status:** P0–P2 done and on main (2026-11-18); next: the deep performance round (D21), then P3. **Ledger:** [`fv_ledger.json`](fv_ledger.json)
 (single source of truth for status).
 
 Owner request (2026-11-07): a set of windowing classes that other scripts can use, with
@@ -40,6 +40,8 @@ Sources:
 | D17 | 2026-11-16 | **Redraw only what changed** (P2 Q2, owner choice): the framework's own focus, z-order and bounds changes redraw only the changed parts (Tab 12.0 ms vs 25.3 ms FV-exact at 80x24); user `fv.views.lock`/`unlock` keep FV's meaning (a group marked while locked is redrawn once at 0); `lockScreenUpdate`/`unlockScreenUpdate` only hold back the terminal update. |
 | D18 | 2026-11-16 | **First paint counted from `Run`** (P2 Q3, owner choice): `initScreen` belongs to start-up; P2 gate = P2's own scene <= 15 ms on Git-bash 80x24; the bench prints `paint` and `paint+init`; the two-panel list scene (~16-17 ms) and the native rows stay under F-1 for P3 and a later fv.video step; palette caching goes into stage 2a. |
 | D19 | 2026-11-16 | **kklass friend contract** (P2 Q4, owner choice): the kklass book documents `${inst}_class`, `${inst}_data[F]` (reads and the allowed writes), `${CLASS}_class_method_owner` and the dispatcher names as friend tables (format, set -u behaviour), pinned by one kklass test; no helper functions, no runtime cost. |
+| D20 | 2026-11-18 | **P2 timing gate on Linux CI** (owner): measured on the GitHub CI Linux rows with the `fvviews` bench; first paint with cold palettes; Tab = the full F6 path (key, status line, cmNext); Windows rows tracked as ratios to Linux, not blocking. Supersedes D18's "Git-bash 80×24". |
+| D21 | 2026-11-18 | **Deep performance round before P3** (owner): the per-event path (read, routing, the app's HandleEvent override), flush splitting (R2) and fv.video's write path for big screens (R9). Design stage first, then implementation with a critic; numbers on CI. |
 
 ## 2. What the measurements say
 
