@@ -293,27 +293,27 @@ class TView
         var DragMode
         var HelpCtx
         constructor Create
-        destructor Done
-        proc ChangeBounds
-        proc CalcBounds
-        proc SizeLimits
-        func GetHelpCtx
-        proc Draw
-        func GetPalette
-        proc MakeFirst
-        proc PutInFrontOf
-        proc Locate
-        proc MoveTo
-        proc GrowTo
-        proc DrawView
-        proc Show
-        proc Hide
-        proc HandleEvent
-        proc SetState
-        func Valid
-        func Execute
-        proc EndModal
-        proc Select
+        nofields destructor Done
+        nofields proc ChangeBounds
+        nofields proc CalcBounds
+        nofields proc SizeLimits
+        nofields func GetHelpCtx
+        nofields proc Draw
+        nofields func GetPalette
+        nofields proc MakeFirst
+        nofields proc PutInFrontOf
+        nofields proc Locate
+        nofields proc MoveTo
+        nofields proc GrowTo
+        nofields proc DrawView
+        nofields proc Show
+        nofields proc Hide
+        nofields proc HandleEvent
+        nofields proc SetState
+        nofields func Valid
+        nofields func Execute
+        nofields proc EndModal
+        nofields proc Select
 end
 # TView.new NAME AX AY BX BY — FV `Init(R)` with `R.Assign(AX, AY, BX, BY)`
 # (corners, B exclusive). rc 1: NAME is a live view (the tree is repaired,
@@ -350,20 +350,20 @@ class TGroup : TView
         var EndState
         var LockFlag
         constructor Create
-        override proc ChangeBounds
-        override func GetHelpCtx
-        override proc Draw
-        override proc HandleEvent
-        override proc SetState
-        override func Valid
-        override func Execute
-        override proc EndModal
-        proc Insert
-        proc InsertBefore
-        proc Lock
-        proc Unlock
-        proc SelectNext
-        func ExecView
+        nofields override proc ChangeBounds
+        nofields override func GetHelpCtx
+        nofields override proc Draw
+        nofields override proc HandleEvent
+        nofields override proc SetState
+        nofields override func Valid
+        nofields override func Execute
+        nofields override proc EndModal
+        nofields proc Insert
+        nofields proc InsertBefore
+        nofields proc Lock
+        nofields proc Unlock
+        nofields proc SelectNext
+        nofields func ExecView
 end
 # TGroup.new NAME AX AY BX BY — FV TGroup.Init: TView's, then ofSelectable +
 # ofBuffered, EventMask $FFFF, an empty subview list. A refused TView part
@@ -403,9 +403,9 @@ class TFrame : TView
     public
         var FrameMode
         constructor Create
-        override proc Draw
-        override func GetPalette
-        override proc HandleEvent
+        nofields override proc Draw
+        nofields override func GetPalette
+        nofields override proc HandleEvent
 end
 TFrame.Create() {
     inherited
@@ -434,15 +434,15 @@ class TWindow : TGroup
         var Frame
         var ZoomRect
         constructor Create
-        override proc HandleEvent
-        override proc SetState
-        override func GetPalette
-        override proc SizeLimits
-        override proc CalcBounds
-        func GetTitle
-        proc InitFrame
-        proc Close
-        proc Zoom
+        nofields override proc HandleEvent
+        nofields override proc SetState
+        nofields override func GetPalette
+        nofields override proc SizeLimits
+        nofields override proc CalcBounds
+        nofields func GetTitle
+        nofields proc InitFrame
+        nofields proc Close
+        nofields proc Zoom
 end
 TWindow.Create() {
     inherited

@@ -79,8 +79,8 @@ class TBackground : TView
     public
         var Pattern
         constructor Create
-        override proc Draw
-        override func GetPalette
+        nofields override proc Draw
+        nofields override func GetPalette
 end
 TBackground.Create() {
     inherited
@@ -101,11 +101,11 @@ class TDesktop : TGroup
         var Background
         var TileColumnsFirst
         constructor Create
-        override proc HandleEvent
-        proc InitBackground
-        proc TileError
-        proc Tile
-        proc Cascade
+        nofields override proc HandleEvent
+        nofields proc InitBackground
+        nofields proc TileError
+        nofields proc Tile
+        nofields proc Cascade
 end
 TDesktop.Create() {
     inherited
@@ -131,17 +131,17 @@ build TDesktop
 class TProgram : TGroup
     public
         constructor Create
-        destructor Done
-        override proc HandleEvent
-        override func GetPalette
-        proc Run
-        func GetEvent
-        proc PutEvent
-        proc Idle
-        proc InitScreen
-        proc InitStatusLine
-        proc InitMenuBar
-        proc InitDesktop
+        nofields destructor Done
+        nofields override proc HandleEvent
+        nofields override func GetPalette
+        nofields proc Run
+        nofields func GetEvent
+        nofields proc PutEvent
+        nofields proc Idle
+        nofields proc InitScreen
+        nofields proc InitStatusLine
+        nofields proc InitMenuBar
+        nofields proc InitDesktop
 end
 TProgram.Create() {
     if [[ -n ${__FV_VW_LIVE[$this]-} ]]; then
@@ -180,11 +180,11 @@ build TProgram
 class TApplication : TProgram
     public
         constructor Create
-        destructor Done
-        override proc HandleEvent
-        proc GetTileRect
-        proc Tile
-        proc Cascade
+        nofields destructor Done
+        nofields override proc HandleEvent
+        nofields proc GetTileRect
+        nofields proc Tile
+        nofields proc Cascade
 end
 TApplication.Create() {
     local __fva_v=0

@@ -79,14 +79,14 @@ __FV_MN_CUR+=() __FV_MN_GREY+=() __FV_MN_HINT+=() __FV_MN_AM+=()
 class TStatusLine : TView
     public
         constructor Create
-        destructor Done
-        override proc Draw
-        override proc HandleEvent
-        override func GetPalette
-        func Hint
-        proc Update
-        proc AddDef
-        proc AddItem
+        nofields destructor Done
+        nofields override proc Draw
+        nofields override proc HandleEvent
+        nofields override func GetPalette
+        nofields func Hint
+        nofields proc Update
+        nofields proc AddDef
+        nofields proc AddItem
 end
 TStatusLine.Create() {
     local -a __fvm_dn=() __fvm_dx=() __fvm_df=() __fvm_it=() __fvm_ik=() __fvm_ic=()

@@ -240,7 +240,10 @@ so nothing walks the owner chain on a draw or a click. It is updated by
 ## Virtual elision
 
 Every built-in virtual has its body in a plain function; the kklass method is
-one line calling it, so `inherited` from your override reaches it. Wherever
+one line calling it, so `inherited` from your override reaches it. These
+one-line methods are declared `nofields` (kklass book, "Field-free bodies"):
+a call of one, an `inherited` into it included, binds none of the class's
+fields (TView's 13, TWindow's 23). Wherever
 FV would call a virtual, the framework calls `fv.views._virt V METHOD ARGS`:
 it reads V's class and the class's kklass owner table (`TView_class_method_owner`
 and so on, the [friend contract](../../kklass/docs/kklass_book.md#friend-tables-for-framework-units))
