@@ -37,7 +37,13 @@ TView.new lab 2 2 12 3
 TView.new st 0 22 80 23
 TFrame.new frm 0 0 1 1
 exec {FVO}>/dev/null; FV_VIDEO_OUT_FD=$FVO FV_SCREEN_W=80 FV_SCREEN_H=24; fv.video.initScreen
-pf12() { fv.views.writeStr 0 0 "Part" 1; fv.views.writeCStr 4 0 "~ok~" 1 2; fv.views.fill 6 0 2 1 "#" 3; }
+pf12() {
+    fv.views.writeStr 0 0 "Part" 1; fv.views.writeCStr 4 0 "~ok~" 1 2; fv.views.fill 6 0 2 1 "#" 3
+    # (D21 stage E: the second row lies past the one-row view; an associative array refused)
+    local -a t12=("Ж" "below") a12=(4 55555); local -A m12=([k]=v)
+    fv.views.writeLines 8 0 t12 a12; r+="wl$?.$RESULT,"
+    fv.views.writeLines 8 0 m12 a12 || r+="wa$?,"
+}
 cut12() { local LC_ALL=C.UTF-8; fv.video.getRow "$1"; r+="${RESULT:$2:$3}|${REPLY:$2:$3}$4"; }   # (cells of row Y, sliced in UTF-8 whatever the setup)
 '
 SCENE='
@@ -124,15 +130,15 @@ kt_test_start "reference run: the scene as expected"
 # BY (20*39 + 23 shr 1) div 23 = 34; Win: gfGrowAll, +40 / +16
 want='desk[st {Win[Lab lab]*lab} {win[]}]*win;desk[st {Win[lab Lab]*lab} {win[]}]*win;win,st,st,win,nil1,nil1;'
 want+='Win=41 18 74 35,win=60 0 80 34,Lab=1 1 10 2,lab=2 2 12 3,st=0 22 80 23,abs=43:21:53:22;-23 -1,42 20,in,out,help=17;'
-want+='1,2,1,2,2,1,2;desk[st {Win[Lab]} {win[]}]*win;desk[st {win[]}]*win'
+want+='1,2,1,2,2,1,2;desk[st {Win[Lab]} {win[]}]*win;desk[st {win[]}]*winwl0.5,wa2,'
 # the drawing: getColor frm 3 (win has no palette: app entry 2), the refused
 # writer; row 3 = win's top row after the move and the resize (inactive after
 # the border-only redraw; the title cut to L = 25-10-6-4 = 5 characters,
 # centred; the cells beside it stale: desk has no background); row 21 = win's
 # bottom shadow row (its characters kept, symbol V); row 23 = st after
-# drawPart (Part, ~ok~ in colours 1 / 2, ## in colour 3)
+# drawPart (Part, ~ok~ in colours 1 / 2, ## in colour 3, Ж by writeLines in 4)
 want+='|D=2,2,  ┌──────── Кейсы ──2─────┐  |00111111111111111111111111122,║                  ║       |22VVVVVVVVVVVVVVVVVVVVVVVVV,'
-want+='Partok## |111122331|G=1,E,desk[{win[frm]}]*win,2,del,gone'
+want+='Partok##Ж|111122334|G=1,E,desk[{win[frm]}]*win,2,del,gone'
 if [[ $ref == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$ref] want [$want]"; fi
 
 # (an IFS of letters: kklass's .new crashes bash, so that setup skips the

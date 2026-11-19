@@ -5,8 +5,10 @@
 #   * the design's scene: TMyApp (a TApplication whose HandleEvent, an
 #     override, calls inherited), its desktop, two TWindows of 40 x 23 side by
 #     side, each with a TTestList stand-in (TView's default EventMask; Draw =
-#     one writeBuf per visible row; kbDown = two drawParts; kbPgDn = a new
-#     page + drawView), the status line; the overlap scene puts the second
+#     one writeLines call for its visible rows, D21 stage E: the "# writes"
+#     logs count one write per painted stand-in, before stage E one per row;
+#     kbDown = two drawParts; kbPgDn = a new page + drawView), the status
+#     line; the overlap scene puts the second
 #     window over half of the first;
 #   * every action but the repaint runs through app.Run with the scripted
 #     terminal (the real TProgram.GetEvent: the status line's keys, the

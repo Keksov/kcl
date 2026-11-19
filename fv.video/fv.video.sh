@@ -1684,6 +1684,65 @@ fv.video._wbf() {
     if (( ${__FV_VS_DX1[__fvv_y]-99999} > __fvv_x )); then __FV_VS_DX1[__fvv_y]=$__fvv_x; fi
     if (( ${__FV_VS_DX2[__fvv_y]-0} < __fvv_x + __fvv_n )); then __FV_VS_DX2[__fvv_y]=$(( __fvv_x + __fvv_n )); fi
 }
+# fv.video._wrows X Y TEXTS ATTRS — FRIEND ENTRY for fv.views.writeLines
+# (D21 stage E): for every index k of the indexed array named TEXTS, in index
+# order, exactly `writeBuf X Y+k TEXTS[k] ATTRS[k]` (ATTRS: the array of the
+# rows' symbol strings; a missing element is ''), in one call: one guard,
+# every symbol and every text checked at once (the elements joined with '0',
+# a symbol and a printable character), then per row the narrow splice. A row
+# that needs more (a text outside the narrow cache, bad symbols, ATTRS of
+# another length) goes through writeBuf itself; a narrow row on a row with
+# wide cells through _putw. RESULT = the widest row's cells (writeBuf's
+# RESULT, the maximum over the rows; 0 for no rows); a row writeBuf refuses
+# leaves RESULT '' and rc 2 after the other rows are written. The caller
+# passes integers (no check); the names are checked here (the caller's checks
+# would cost a second pass over them): rc 3 with RESULT '' and nothing written
+# for a name that is no identifier, starts with __fv (any case) or is RESULT,
+# or an associative array — no message: the caller reports it (fv.views'
+# refusal). Not for scripts
+fv.video._wrows() {
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ -z $3 || -z $4 || $3$4 == *[!_$__FV_VS_SYMS]* || $3 == [0123456789]* || $4 == [0123456789]* || $3 == __[fF][vV]* || $4 == __[fF][vV]* || $3 == RESULT || $4 == RESULT ]]; then RESULT=''; return 3; fi
+    if (( ! __FV_VS_H )); then fv.video._noscr writeBuf; return; fi
+    local -n __fvv_tt=$3 __fvv_aa=$4
+    local IFS=0 __fvv_x __fvv_y __fvv_t __fvv_a='' __fvv_b __fvv_w=0 __fvv_xl='' __fvv_n __fvv_o __fvv_r __fvv_k __fvv_st=0 __fvv_sa=0 __fvv_ss=0 __fvv_s=0 __fvv_m=0 __fvv_e=0
+    # (joined with '0': an associative array's attributes are 'A', no other's hold one)
+    if [[ ${__fvv_tt[*]@a}${__fvv_aa[*]@a} == *A* ]]; then RESULT=''; return 3; fi
+    if [[ ${__fvv_tt[*]-} == $__FV_VS_PNA ]]; then __fvv_st=1 __fvv_ss=1; fi
+    if [[ ${__fvv_aa[*]-} == *[!$__FV_VS_SYMS]* ]]; then __fvv_sa=1 __fvv_ss=1; fi
+    for __fvv_k in "${!__fvv_tt[@]}"; do
+        __fvv_y=$(( $2 + __fvv_k )) __fvv_x=$1 __fvv_t=${__fvv_tt[__fvv_k]} __fvv_b=${__fvv_aa[__fvv_k]-}
+        if (( __fvv_ss )); then
+            if (( __fvv_st )) && [[ $__fvv_t == $__FV_VS_PNA ]]; then
+                # (writeBuf's narrow cache hit; anything else is writeBuf's)
+                __FV_VS_V=${__FV_VS_TC[$__fvv_t]-$'\x04'}
+                if [[ $__FV_VS_V == [!$'\x03\x04']* ]]; then __fvv_t=$__FV_VS_V; else __fvv_s=1; fi
+            fi
+            if (( __fvv_sa )) && [[ $__fvv_b == *[!$__FV_VS_SYMS]* ]]; then __fvv_s=1; fi
+        fi
+        if (( __fvv_s || ${#__fvv_b} != ${#__fvv_t} )); then
+            __fvv_s=0
+            if fv.video.writeBuf "$__fvv_x" "$__fvv_y" "${__fvv_tt[__fvv_k]}" "$__fvv_b"; then
+                if (( RESULT > __fvv_m )); then __fvv_m=$RESULT; fi
+            else __fvv_e=1; fi
+            continue
+        fi
+        if (( ${#__fvv_t} > __fvv_m )); then __fvv_m=${#__fvv_t}; fi
+        if (( __fvv_y < __FV_VS_CY1 || __fvv_y >= __FV_VS_CY2 )); then continue; fi
+        if (( __FV_VS_WIDE[__fvv_y] )); then fv.video._putw; continue; fi
+        # (writeBuf's narrow row, as in its body)
+        __fvv_n=${#__fvv_t} __fvv_o=0
+        if (( __fvv_x < __FV_VS_CX1 || __fvv_x + __fvv_n > __FV_VS_CX2 || ! __fvv_n )); then fv.video._putc || continue; fi
+        __fvv_r=${__FV_VS_CH[__fvv_y]}
+        __FV_VS_CH[__fvv_y]=${__fvv_r:0:__fvv_x}${__fvv_t:__fvv_o:__fvv_n}${__fvv_r:__fvv_x+__fvv_n}
+        __fvv_r=${__FV_VS_AT[__fvv_y]}
+        __FV_VS_AT[__fvv_y]=${__fvv_r:0:__fvv_x}${__fvv_b:__fvv_o:__fvv_n}${__fvv_r:__fvv_x+__fvv_n}
+        if (( ${__FV_VS_DX1[__fvv_y]-99999} > __fvv_x )); then __FV_VS_DX1[__fvv_y]=$__fvv_x; fi
+        if (( ${__FV_VS_DX2[__fvv_y]-0} < __fvv_x + __fvv_n )); then __FV_VS_DX2[__fvv_y]=$(( __fvv_x + __fvv_n )); fi
+    done
+    if (( __fvv_e )); then RESULT=''; return 2; fi
+    RESULT=$__fvv_m
+}
 # fv.video._wbuf X Y TEXT ATTRS [H] — writeBuf's less common cases (its
 # locals): ATTRS of another length (rc 2), wide cells (the leads' symbols),
 # a repeat count other than 1

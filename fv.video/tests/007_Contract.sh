@@ -68,6 +68,8 @@ fv.video.setClip 0 0 5 5; fv.video.resetClip; fv.video.setCursorPos 1 1; fv.vide
 fv.video.definePalette z 1 2 1; fv.video.setColorDepth 16; fv.video.detectColorDepth
 fv.video.writeBuf 0 0 ab AB 3; fv.video.shadeRect 0 0 4 2; fv.video.getRow 1; fv.video.getClip
 fv.video.fillColumns 0 3 2 x 1 4; fv.video._fcf 0 2 3 y 0 2; fv.video._clipf -1 0 99 9; fv.video._wstr 0 0 ab 1; fv.video._wbf 0 1 ab 12 2; fv.video._shadef 0 0 2 2
+T=(ab 'жук') A=(12 345); unset NOROWS; fv.video._wrows 0 1 T A; fv.video._wrows 0 0 NOROWS NOROWS
+A[1]=3; if fv.video._wrows 0 1 T A 2>/dev/null; then exit 9; fi
 if fv.video.fillColumns 0 1 2 x; then exit 9; fi
 if fv.video.writeStr x 0 a 1; then exit 9; fi
 if fv.video.writeBuf 0 0 a A -1; then exit 9; fi

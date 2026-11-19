@@ -6,9 +6,9 @@
 #   * the scene: app (TTApp: a TGroup whose HandleEvent, an override, calls
 #     inherited and takes cmNext as FV's TDesktop does — the design's TMyApp
 #     + desktop) > desk > bg, two TWindows of 40 x 23 side by side, each with
-#     a TTestList stand-in (TView's default EventMask; Draw = one writeBuf
-#     per visible row; kbDown = two drawParts; kbPgDn = a new page +
-#     drawView); the overlap scene puts the second window over half of the
+#     a TTestList stand-in (TView's default EventMask; Draw = one
+#     writeLines call for its visible rows, D21 stage E; kbDown = two
+#     drawParts; kbPgDn = a new page + drawView); the overlap scene puts the second window over half of the
 #     first;
 #   * every action runs through TGroup's Execute (the modal loop of the
 #     root) with the scripted event source: the dispatches counted with the
@@ -17,8 +17,9 @@
 #     Down 6, PgDn 8, Tab side by side 8, Tab overlapping 10, click 8,
 #     repaint 6;
 #   * row and cell independence: the same actions with a 21-row and a
-#     42-row stand-in give the same dispatch counts (and the same writes:
-#     one per row only where rows are painted);
+#     42-row stand-in give the same dispatch counts and the same writes
+#     (one writeLines per painted stand-in: before D21 stage E one write
+#     per row, so the writes grew by 21 per painted stand-in);
 #   * the drawing shape (write counter): a full frame draw <= 3 writes, a
 #     window's shadow <= 2 shade calls, a border-only frame redraw <= 4
 #     writes.
@@ -110,18 +111,14 @@ for k in "${!CNT[@]}"; do
     [[ ${CNT[42|$l]-x} == "${CNT[$k]}" ]] || bad+=" [$l: ${CNT[$k]} vs ${CNT[42|$l]-none}]"
 done
 if [[ -z $bad && ${#CNT[@]} == 18 ]]; then kt_test_pass "ok (${#CNT[@]} counts)"; else kt_test_fail "$bad (${#CNT[@]} counts)"; fi
-kt_test_start "the writes: one per stand-in row painted, nothing else grows with the rows (42-row minus 21-row = 21 per painted stand-in; Down, Tab side by side, click on the inactive window: equal)"
+kt_test_start "the writes do not grow with the rows: one writeLines per painted stand-in (42-row minus 21-row = 0 for every action)"
 bad=''
 for k in "${!WRT[@]}"; do
     [[ $k == 21\|* ]] || continue
     l=${k#21|}
-    d=$(( WRT[42|$l] - WRT[$k] ))
-    case $l in
-        Down|'Tab side by side'|'click on the inactive window') (( d == 0 )) || bad+=" [$l: ${WRT[$k]} vs ${WRT[42|$l]}]" ;;
-        *) (( d > 0 && d % 21 == 0 )) || bad+=" [$l: ${WRT[$k]} vs ${WRT[42|$l]}]" ;;
-    esac
+    (( WRT[42|$l] == WRT[$k] )) || bad+=" [$l: ${WRT[$k]} vs ${WRT[42|$l]}]"
 done
-if [[ -z $bad ]]; then kt_test_pass "ok"; else kt_test_fail "$bad"; fi
+if [[ -z $bad && ${#WRT[@]} == 18 ]]; then kt_test_pass "ok"; else kt_test_fail "$bad (${#WRT[@]} counts)"; fi
 
 kt_test_log "the drawing shape in the §3.1 scene (write counter)"
 lscene 80 24 side
@@ -134,7 +131,7 @@ eval "__fvb_${src}"
 frame_on() { fv.views._frameDraw() { local b=$FVW_WRITES s=0; __fvb_fv.views._frameDraw "$@" || s=$?; FRAMEW+="$(( FVW_WRITES - b )) "; return "$s"; }; }
 frame_off() { eval "$src"; }
 run "cmd cmNext"
-kt_test_start "the front window drawn whole: its frame <= 3 writes, its shadow <= 2 shade calls, one write per stand-in row, one dispatch (the stand-in's Draw)"
+kt_test_start "the front window drawn whole: its frame <= 3 writes, its shadow <= 2 shade calls, one write for the stand-in's 21 rows (writeLines), one dispatch (the stand-in's Draw)"
 frame_on; shade_on; fvw_count_on; fvw_writes_on; FVW_CALLS=0 FVW_WRITES=0 FVW_SHADES=0 FRAMEW=''
 fv.views.drawView w1
 a="$FVW_WRITES $FVW_SHADES $FVW_CALLS ${FRAMEW% }"
@@ -143,7 +140,7 @@ fvw_writes_off; fvw_count_off; shade_off; frame_off
 read -r w s c f <<< "$a"
 kt_test_log "# writes full frame $f"
 kt_test_log "# writes window $w + $s shade calls"
-if [[ $f == [0123] ]] && (( s <= 2 && w == f + 21 && c == 1 )); then kt_test_pass "writes $w, shades $s, dispatches $c, frame $f"; else kt_test_fail "writes / shades / dispatches / frame [$a]"; fi
+if [[ $f == [0123] ]] && (( s <= 2 && w == f + 1 && c == 1 )); then kt_test_pass "writes $w, shades $s, dispatches $c, frame $f"; else kt_test_fail "writes / shades / dispatches / frame [$a]"; fi
 kt_test_start "a border-only frame redraw (sfDragging on, then off) <= 4 writes each, no dispatch"
 fvw_count_on; fvw_writes_on; FVW_CALLS=0 FVW_WRITES=0
 fv.views.setState w1 "$FV_SF_DRAGGING" 1

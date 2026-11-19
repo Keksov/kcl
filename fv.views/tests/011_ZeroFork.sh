@@ -100,7 +100,7 @@ desk_data[State]=\$(( desk_data[State] | FV_SF_EXPOSED )) w1_data[State]=\$(( w1
 w1_data[Title]=Zero w1_data[Flags]=15 w1_data[Number]=3
 TFrame.new fr 0 0 30 15; fv.views.insertBefore w1 fr ''
 fr_data[State]=\$(( fr_data[State] | FV_SF_ACTIVE ))
-pf() { fv.views.writeStr 0 0 'part' 1; fv.views.fill 0 0 1 1 '#' 2; fv.views.writeCStr 0 0 'a~b~' 1 2; fv.views.writeLine 0 0 1 x 1; fv.views.writeChar 0 0 y 1; }
+pf() { fv.views.writeStr 0 0 'part' 1; fv.views.fill 0 0 1 1 '#' 2; fv.views.writeCStr 0 0 'a~b~' 1 2; fv.views.writeLine 0 0 1 x 1; local -a t=(x) a=(1); fv.views.writeLines 0 0 t a; fv.views.writeChar 0 0 y 1; }
 fv.views.drawView desk; fv.views.redraw w1; fv.views.moveTo w1 6 6
 fv.views.lock desk; fv.views.growTo w1 31 16; fv.views.unlock desk
 fv.views.lockScreenUpdate; fv.views._frameBorder fr; fv.views.unlockScreenUpdate

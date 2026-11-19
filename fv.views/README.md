@@ -365,6 +365,7 @@ drawing entry.
 | `fv.views.writeChar X Y CH COLOR [COUNT]` | `WriteChar` (COUNT default 1) |
 | `fv.views.writeCStr X Y TEXT C1 C2` | `MoveCStr` + `WriteLine`: each `~` switches between the entries C1 and C2 (FV's Lo / Hi) |
 | `fv.views.writeLine X Y H TEXT ATTRS` | `WriteLine(X, Y, W, H, Buf)`: the row TEXT with **resolved** symbols ATTRS (one per display cell, as FV's `TDrawBuffer` holds resolved attributes: build them from `FV_DRAW_PAL` / `getColor`) on the H rows Y … Y+H−1 (fv.video's repeat count) |
+| `fv.views.writeLines X Y TEXTS ATTRS` | `WriteLine` per row, in one call (D21 stage E; for lists: P3's `TListViewer`): TEXTS and ATTRS are the **names** of two indexed arrays; for every index k of TEXTS, in order, the row `TEXTS[k]` with the resolved symbols `ATTRS[k]` at row Y+k — exactly `writeLine X Y+k 1 TEXTS[k] ATTRS[k]` (a sparse TEXTS skips rows, a missing `ATTRS[k]` is `''`), one fv.video call for all rows. RESULT = the widest row's cells (writeLine's answer, the maximum over the rows; 0 for no rows or an unset name). rc 2 with RESULT `''` and nothing written for a malformed call (also a name that is no identifier, starts with `__fv` in any case or is `RESULT`, or an associative array); a row writeLine would refuse (symbols, length) makes rc 2 with RESULT `''` after the other rows are written |
 | `fv.views.fill X Y W H CH COLOR` | `MoveChar` + `WriteLine` with H rows |
 
 A write with X and Y plain digits and COLOR 1–99 inside the palette takes a
@@ -914,8 +915,9 @@ poll).
 (§3.1): `TMyApp` (a `TApplication` whose `HandleEvent` override calls
 `inherited`), the desktop, two windows side by side (half the screen wide,
 the desktop's height) with a list stand-in `TTestList` each (TView's default
-`EventMask`; `Draw` = one `writeBuf` per visible row; kbDown = two
-`drawPart`s; kbPgDn = a new page + `drawView`), the status line.
+`EventMask`; `Draw` = one `writeBuf` per visible row — since D21 stage E
+one `writeLines` call; kbDown = two `drawPart`s; kbPgDn = a new page +
+`drawView`), the status line.
 
 The dispatch budget (`tests/010_CallBudget.sh` here, `fv.app`'s
 `014_CallBudget.sh` through the application; the limits are the design's
@@ -1041,6 +1043,24 @@ the same as before in every case):
   fv.video's text and symbol checks are range globs and `writeBuf` / `_wbf`
   carry `_put`'s body inline (fv.video's README, "Cost").
 
+**D21 stage E, the batch row writer.** `fv.views.writeLines` (the writers'
+table) draws all the rows of a list's Draw in one call over fv.video's friend
+entry `_wrows`: one call, one caller-state guard, every text and every symbol
+checked at once (the elements joined), then a splice per row — instead of the
+call, the argument checks and the guard per row of one `writeLine` each
+(~180 µs per row at 80 columns, ~270 µs at 200 on the profiling laptop). A
+row that needs more (wide text, a text outside the narrow cache, a refused
+row) goes through writeBuf itself; a narrow row over a row with wide cells
+through fv.video's wide splice. The bench's list stand-in (`TTestList`, in
+the tests and in `tools/bench/fvviewcases.sh`) draws through it as P3's lists
+will: the `# writes` notes count one write per painted list (paint / redraw
+at 80×24 49 → 9, PgDn 21 → 1; the dispatch counts unchanged). Local A/B
+(Git-bash, paired, ratios only): redraw 80×24 0.85, 200×50 0.79, first paint
+0.85 / 0.79, PgDn 0.82. A ONE-row paint costs more through writeLines than
+through writeLine (the two names checked, ~50 µs), so a one-row repaint (a
+list's FocusItem, the stand-in's kbDown drawPart) uses writeLine: Down is
+unchanged.
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -1129,7 +1149,7 @@ garbage); for stage 2c-3 the scripted event source (`fvw_events`: no
 terminal), `fvw_root` and the events scene (`fvw_tscene`: an application-like
 root with a TMyApp-like override, a desktop, two `TWindow`s with a list
 stand-in each that handles keys); for stage 2g the design's list stand-in
-`TTestList` (TView's default EventMask, one `writeBuf` per row, `drawPart`
+`TTestList` (TView's default EventMask, one `writeLines` per Draw (D21 stage E; one `writeBuf` per row before), `drawPart`
 on kbDown, a new page on kbPgDn; `fvw_classes3`, `fvw_mklwin`). Each test file's stderr is captured:
 anything on it fails one test.
 
@@ -1144,7 +1164,7 @@ anything on it fails one test.
 | 007_Events | the phases (pre / focused / post, the Phase each handler sees), positional events (the front-most visible view, hidden skipped, a disabled one swallows), broadcasts, the EventMask skip without a call (dispatch counts; built-in views 0), disabled views, the stop at evNothing, views removed / destroyed meanwhile, unknown names, click to focus and ofFirstClick, a nested group's Current, message (the handler, rc, the caller's record restored), RESULT kept, a handler's rc under `set -e`, refusals |
 | 008_Focus | the chain's bits, select of a covered window (== a full repaint, its list drawn once), the focus broadcasts in FV's order, sfActive propagation (a frame border = 3 writes, no leaf redraw), side by side (borders + shadow only), Tab in a window (arrows too; unselectable / disabled skipped), focusNext / selectNext, focus with an ofValidate Current, click to focus through the chain, resetCursor (position, shape, outside, covered, unfocused), a SetState override, hide / show / sfShadow, delete of the focused window, insert into an active group, select of a front window that is not Current, refusals; quiet broadcasts (stage 2c-p: no dispatch, the Phase a delivery sets, a listening leaf breaks the quiet and hears what it heard, the dispatch's skips in the walk; a walk that ends not quiet leaves no Phase behind); stage 2f: a built-in group handler of another unit is quiet only when listed in `__FV_VW_QGRP` |
 | 009_Commands | FV's default set at load (and across a re-source), enable / disable / commandEnabled, the changed flag, getCommands / setCommands, the window commands by Flags, execView restoring the set, refusals |
-| 010_CallBudget | stage 2g, the design's §3.1 scene built from fv.views' classes (a TMyApp-like root with `inherited`, a desktop, two 40 × 23 `TWindow`s side by side with a `TTestList` stand-in each, and the overlap scene) through TGroup's Execute with the scripted event source: the dispatch budgets with §3.2's limits (Down 6, PgDn 8, Tab side by side 8, Tab overlapping 10, click 8, repaint 6) and the writes, logged; a 42-row stand-in costs the dispatches of a 21-row one, action by action, and one write per painted row more; the drawing shape (a full frame 3 writes, a window's shadow 2 shade calls, a border-only redraw 3 writes)
+| 010_CallBudget | stage 2g, the design's §3.1 scene built from fv.views' classes (a TMyApp-like root with `inherited`, a desktop, two 40 × 23 `TWindow`s side by side with a `TTestList` stand-in each, and the overlap scene) through TGroup's Execute with the scripted event source: the dispatch budgets with §3.2's limits (Down 6, PgDn 8, Tab side by side 8, Tab overlapping 10, click 8, repaint 6) and the writes, logged; a 42-row stand-in costs the dispatches of a 21-row one, action by action, and the same writes (D21 stage E: the stand-in draws with one writeLines, one write per painted list); the drawing shape (a full frame 3 writes, a window's shadow 2 shade calls, a border-only redraw 3 writes)
 | 011_ZeroFork | the three stages (drawing included: frames, shadows, locks, drawPart with every writer; stage 2c-3: a TWindow, the focus chain, message, a key through the dispatch, commands, the cursor, a modal view with a scripted event source, mouseEvent, endModal, cmClose; stage 2d: cmZoom, a keyboard drag, a mouse drag with the drain, the close icon, dragView) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
 | 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes); a second scene (stage 2c-3: windows whose names differ only in case, the focus chain, select, message, Tab, a click, commands, the cursor, two modal views, cmZoom and back, a keyboard and a mouse drag, the close icon, cmClose) under the same setups (`inherited` replaced by the built-in body under the IFS of letters, a kklass limit) |
 | 013_Elision | every built-in virtual of the three stages (incl. `Draw`, `GetPalette` of TView / TGroup / TFrame) overridden with `inherited`: dispatch counts (0 / 2), results, user fields named like locals; the RESULT / rc rule both ways (also failing bodies, under `set -e`); overrides inside the painter; `kk.class --forget` + redefinition; a scene under `set -eu`, nocasematch and odd IFS; the unsupported func shapes (`return 0`, a failing last command) pinned as kklass behaves today; stage 2c-3: HandleEvent / SetState / Valid / Execute / EndModal of TView / TGroup and TWindow's HandleEvent / SetState / GetPalette / GetTitle / InitFrame / Close overridden with `inherited` (0 / 2 dispatches, the RESULT rule, through the dispatch, a select and execView); stage 2d: TFrame's HandleEvent and TWindow's SizeLimits / CalcBounds / Zoom (0 / 2, CalcBounds 6; through locate, cmZoom, an owner resize, a click on the close icon) |
@@ -1155,3 +1175,4 @@ anything on it fails one test.
 | 018_Names | reserved names (also under nocasematch), `_newReserved`, the constructor guard (a leaf, a group with subviews, through subclass constructors), the dialog loop and the anti-pattern, a constructor that skipped `inherited`, `VERBOSE_KKLASS=quiet`; every rc-2 refusal: one debug line under the switch, none without |
 | 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals; D21: the answer split without a here-string (the first line, at blanks only, no globbing in a folder with files named like indices, the caller's `set -f` kept) |
 | 020_Caches | D21: each structure cache's drop (DEX at insert / delete, FRL at insert / delete / putInFrontOf, OEX at insert: each test fails with its drop removed) and what is read live (hide / show, a State or Options field written by hand, the root's sfExposed, a lock, a bounds change); drawPart's fast path (the painter's rc and RESULT, rows with leading zeros, a redefined painter, the rc 127 of an unset one); the union cover (two windows side by side: the background not drawn, the shadow under the front window not shaded; a gap, a hidden window, a frameless group: drawn; each == a full repaint); drawView and the order redraw's shadow strips cut to the owner's clip (the status line in front of the desktop not repainted) |
+| 021_Rows | D21 stage E: `writeLines` = one `writeLine` per index inside a drawPart (160 seeded random cases: narrow, Cyrillic, wide, emoji, combining and control text, empty rows, sparse arrays, missing / short / long / bad symbol strings; views past their owner and off the screen, negative X / Y, painted row ranges, rows with wide cells, ASCII mode, 40×12 and 200×50; rc and RESULT too); a Draw override with one writeLines == the per-row Draw; refusals rc 2 / RESULT `''` / nothing written (count, X / Y, outside a Draw, bad names, `__fv*`, `RESULT`, associative arrays: no key evaluated); a refused row (the others written), no rows (RESULT 0); under set -eu. 010's write counts follow the stand-in (one write per painted list); 011 and 012 call it too |

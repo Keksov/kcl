@@ -2272,6 +2272,35 @@ fv.views.writeLine() {
     fv.views._wxy "$1" "$2" writeLine || return
     fv.video.writeBuf "$__fvw_x" "$__fvw_y" "$4" "$5" "$3"
 }
+# fv.views.writeLines X Y TEXTS ATTRS — (D21 stage E) many rows in one call:
+# TEXTS and ATTRS are names of two indexed arrays; for every index k of
+# TEXTS, in order, the row TEXTS[k] with the RESOLVED symbols ATTRS[k] at
+# view row Y+k, exactly as `writeLine X Y+k 1 TEXTS[k] ATTRS[k]` (a sparse
+# TEXTS skips rows; a missing ATTRS[k] is ''). One fv.video call for all the
+# rows (fv.video._wrows). RESULT = the widest row's cells advanced (writeLine's
+# answer, the maximum over the rows; 0 for no rows); rc 2 with RESULT '' for
+# a malformed call (nothing written: the count, outside a Draw, X / Y not
+# integers, a name that is no identifier, starts with __fv or is RESULT, an
+# associative array) and after the rows when a row is refused (the rows
+# writeLine refuses: symbols not fv.video's, ATTRS not as long as the text).
+# The names are checked by fv.video._wrows (its rc 3, reported here): the
+# common call is as thin as writeLine's
+fv.views.writeLines() {
+    if (( $# == 4 )) && [[ -n $FV_DRAW_VIEW && $1$2 != *[!0123456789]* && ${#1}${#2} == [1234567][1234567] ]]; then
+        fv.video._wrows "$(( FV_DRAW_X + 10#$1 ))" "$(( FV_DRAW_Y + 10#$2 ))" "$3" "$4" || fv.views._wlrc "$?"
+        return
+    fi
+    if (( $# != 4 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    local __fvw_x __fvw_y
+    fv.views._wxy "$1" "$2" writeLines || return
+    fv.video._wrows "$__fvw_x" "$__fvw_y" "$3" "$4" || fv.views._wlrc "$?"
+}
+# fv.views._wlrc RC — writeLines' answer for fv.video._wrows' rc: 3 (a name
+# refused) -> the refusal (rc 2, RESULT '', the debug line), else RC
+fv.views._wlrc() {
+    if (( $1 == 3 )); then fv.views._bad writeLines 'TEXTS ATTRS must be names of indexed arrays (identifiers; not __fv*, not RESULT)'; return; fi
+    return "$1"
+}
 # fv.views.fill X Y W H CH COLOR — the rectangle filled with CH's first
 # cluster in palette entry COLOR (FV MoveChar + WriteLine with H rows)
 fv.views.fill() {

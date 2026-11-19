@@ -24,8 +24,9 @@
 #                         count fv.video writes in FVW_WRITES the same way
 #                         (writeStr writeBuf writeCStr writeChar fillRect
 #                         shadeRect fillColumns; the friend
-#                         entries fv.video._shadef, _wstr, _fcf and _wbf count as
-#                         shadeRect, writeStr, fillColumns and writeBuf)
+#                         entries fv.video._shadef, _wstr, _fcf, _wbf and _wrows
+#                         count as shadeRect, writeStr, fillColumns, writeBuf
+#                         and one write per writeLines call)
 #   fvw_budget LABEL LIMIT CMD...
 #                         one test: run CMD with the dispatch counter on;
 #                         pass when it made at most LIMIT dispatches; the
@@ -99,10 +100,11 @@
 # Stage 2g (the call budget, design §3.1):
 #   fvw_classes3          TTestList (design §3.1's list stand-in: a TView
 #                         with TView's default EventMask and fields Top /
-#                         Focused; Draw, an override, writes one row per
-#                         visible row with fv.views.writeLine (one fv.video
-#                         writeBuf each: " item N" in palette entry 6, the
-#                         focused row in entry 7; rows FV_CLIP_Y1..Y2-1);
+#                         Focused; Draw, an override, writes its visible
+#                         rows with ONE fv.views.writeLines call (D21 stage
+#                         E, as P3's TListViewer: one fv.video write per
+#                         list; " item N" in palette entry 6, the focused
+#                         row in entry 7; rows FV_CLIP_Y1..Y2-1);
 #                         HandleEvent, an override: kbDown -> two drawParts
 #                         (the old and the new focused row, painter
 #                         fvw_tlpaint), kbPgDn -> the next page (Top +=
@@ -163,7 +165,7 @@ fvw_check() {
 
 FVW_CALLS=0 FVW_WRITES=0
 FVW_DISPATCHERS=(kk._exec kk._call kk._parent kk._constructor_exec)
-FVW_WRITERS=(fv.video.writeStr fv.video.writeBuf fv.video.writeCStr fv.video.writeChar fv.video.fillRect fv.video.shadeRect fv.video.fillColumns fv.video._shadef fv.video._wstr fv.video._fcf fv.video._wbf)
+FVW_WRITERS=(fv.video.writeStr fv.video.writeBuf fv.video.writeCStr fv.video.writeChar fv.video.fillRect fv.video.shadeRect fv.video.fillColumns fv.video._shadef fv.video._wstr fv.video._fcf fv.video._wbf fv.video._wrows)
 
 # fvw_wrap COUNTER FUNC... / fvw_unwrap FUNC... — the shim: FUNC becomes
 # "COUNTER += 1; __fvw_orig_FUNC "$@"" (the original's last command), the
@@ -463,22 +465,34 @@ fvw_classes3() {
     }
     build TTestList
 }
-# fvw_tlpaint V TOP FOCUSED — the stand-in's rows FV_CLIP_Y1 .. FV_CLIP_Y2-1:
-# one writeLine (fv.video writeBuf) per row, attributes resolved from
+# fvw_tlpaint V TOP FOCUSED — the stand-in's rows FV_CLIP_Y1 .. FV_CLIP_Y2-1
+# in one writeLines call (D21 stage E; element y = row y; a single row with
+# writeLine, as a list's FocusItem repaint), attributes resolved from
 # FV_DRAW_PAL (entry 6 normal, 7 focused; FV's TDrawBuffer holds resolved
 # attributes), the strings of attributes kept per symbol and width
 fvw_tlpaint() {
     local -n __t_d=${1}_data
     local y s a n=${FV_DRAW_PAL:5:1} f=${FV_DRAW_PAL:6:1} w=${__t_d[SizeX]:-0}
+    local -a tt=() aa=()
     [[ -n $n ]] || n=${FV_DRAW_PAL:0:1}
     [[ -n $f ]] || f=$n
     if [[ -z ${FVW_TLA[$n$w]-} ]]; then printf -v a '%*s' "$w" ''; FVW_TLA[$n$w]=${a// /$n}; fi
     if [[ -z ${FVW_TLA[$f$w]-} ]]; then printf -v a '%*s' "$w" ''; FVW_TLA[$f$w]=${a// /$f}; fi
-    for (( y = FV_CLIP_Y1; y < FV_CLIP_Y2; y++ )); do
+    if (( FV_CLIP_Y2 - FV_CLIP_Y1 == 1 )); then
+        # (one row, e.g. kbDown's drawPart: writeLine, as a list's FocusItem
+        # repaint does; writeLines pays ~50 us more for a single row)
+        y=$FV_CLIP_Y1
         printf -v s '%-*s' "$w" " item $(( $2 + y ))"
         if (( y == $3 )); then a=${FVW_TLA[$f$w]}; else a=${FVW_TLA[$n$w]}; fi
         fv.views.writeLine 0 "$y" 1 "${s:0:w}" "$a"
+        return
+    fi
+    for (( y = FV_CLIP_Y1; y < FV_CLIP_Y2; y++ )); do
+        printf -v s '%-*s' "$w" " item $(( $2 + y ))"
+        tt[y]=${s:0:w}
+        if (( y == $3 )); then aa[y]=${FVW_TLA[$f$w]}; else aa[y]=${FVW_TLA[$n$w]}; fi
     done
+    fv.views.writeLines 0 0 tt aa
 }
 fvw_mklwin() {
     fvw_classes3
