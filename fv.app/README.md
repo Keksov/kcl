@@ -311,6 +311,14 @@ first paint of the P2 scene from `Run` 40.4 ms (≈ 21 ms quiet against
 D18's 15 ms: missed, F-1 stays open). The stage 2f times (a slower machine
 still, scripted terminal) are superseded by these.
 
+D21 (the deep performance round, stages A–C; mechanism in
+[fv.views "Cost"](../fv.views/README.md#cost), new times from the CI bench):
+the dispatch counts above are unchanged; the writes drop where a paint is
+covered or cut to its owner — 21 / 42 rows: the first paint 49 / 91, F6 and
+the click side by side 9 / 9, back 27 / 48, the repaint 50 / 92, the resize
+102 / 50 (92), F6 overlapping 29 / 28 (50 / 49), the click on the covered
+window 29 / 50.
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:

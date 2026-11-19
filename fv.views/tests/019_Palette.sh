@@ -121,4 +121,29 @@ fv.views.getColor kid; out+="$?"; fv.views.getColor kid -1; out+="$?"; fv.views.
 if [[ $a == 0 && $out == 22222 ]]; then kt_test_pass "ok"; else kt_test_fail "[$a] [$out]"; fi
 
 root.delete; lone.delete
+
+# D21: the GetPalette answer is split without a here-string: the first line
+# only, at blanks only (a tab stays inside its word), no globbing (a '*' in
+# a folder holding a file named 7 is no index 7), the caller's set -f kept
+class TPOdd : TView
+    public
+        override func GetPalette
+end
+TPOdd.GetPalette() { RESULT=$PODD; }
+build TPOdd
+TPOdd.new podd 0 0 2 1
+kt_test_start "GetPalette's answer: the first line, split at blanks, a tab inside a word, no globbing; set -f state kept"
+(
+    cd "$FVW_TMP" && : > ./7 && : > ./3
+    PODD=$'  2  *  4\t5  ?  3 \n9 9' fv.views._pal podd
+    a=${__FV_VW_PAL[podd]}
+    set -f; unset '__FV_VW_PAL[podd]'
+    PODD=$'*\n' fv.views._pal podd
+    b="${__FV_VW_PAL[podd]}:$-"
+    printf "%s %s" "$a" "$b" > "$FVW_TMP/podd.out"
+)
+r=$(<"$FVW_TMP/podd.out")
+want="2${__FV_VW_ERRSYM}${__FV_VW_ERRSYM}${__FV_VW_ERRSYM}3 ${__FV_VW_ERRSYM}:"
+if [[ $r == "$want"*f* ]]; then kt_test_pass "ok"; else kt_test_fail "[$r] want [$want...f...]"; fi
+podd.delete
 kt_test_log "019_Palette.sh completed"

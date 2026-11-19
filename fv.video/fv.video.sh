@@ -641,7 +641,14 @@ fv.video.doneVideo() {
 # Locale (D11): every entry point runs with UTF-8 character semantics: a
 # caller whose locale is not UTF-8 gets `local LC_ALL=$__FV_VS_LOC` for the
 # call; without any UTF-8 locale the unit runs in C and stores ASCII only
-# (FV_VIDEO_ASCII=1). nocasematch is cleared for the call (fv.video._g).
+# (FV_VIDEO_ASCII=1). nocasematch is cleared and globasciiranges set for
+# the call (fv.video._g). The text check "anything but printable ASCII" is
+# the pattern __FV_VS_PNA (D21): on bash 5.3+ the range glob `*[!\ -~]*`
+# (code order under globasciiranges for every character); before 5.3
+# globasciiranges orders only characters <= U+00FF by code and collates the
+# rest (en_US.UTF-8 puts U+FF0C, U+3002, ... inside ` -~`), so there the
+# bracket lists the 95 characters, no range. The symbol check is
+# `*[!$__FV_VS_SYMS]*` (a list, never a range).
 # "UTF-8" = both probes, a 2-byte (P, U+0436) and a 3-byte (B, U+2500)
 # character, count 1: legacy CJK locales (eucJP, GBK, Big5, eucKR) pass the
 # first alone.
@@ -684,6 +691,14 @@ declare -ga __FV_VS_FP=($'[\xcc\xcd\xd5-\xe1\xe3-\xff]' $'\xc2\xad' $'\xd2[\x83-
     $'\xe2[!\x80\x81\x86\x87\x94-\x97]' $'\xe2\x80[\x8b-\x8f\xa8-\xaf]' $'\xe2\x81[\xa0-\xbf]'
     $'\xe2\x97[\xbc-\xbf]')
 declare -g __FV_VS_SYMS=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+# __FV_VS_PNA: the pattern "the text holds a character outside printable
+# ASCII" (see Locale above), used unquoted in [[ == ]]
+if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
+    declare -g __FV_VS_PNA='*[!\ -~]*'
+else
+    # (the 95 printable ASCII characters listed, each pattern-escaped)
+    declare -g __FV_VS_PNA=$'*[! \x5c\x21\x22\x23\x24\x25\x26\x27\x28\x29\x5c\x2a\x2b\x2c\x5c\x2d\x2e\x2f0123456789\x3a\x3b\x3c\x3d\x3e\x5c\x3f\x40ABCDEFGHIJKLMNOPQRSTUVWXYZ\x5c\x5b\x5c\x5c\x5c\x5d\x5c\x5e\x5f\x60abcdefghijklmnopqrstuvwxyz\x7b\x7c\x7d\x7e]*'
+fi
 declare -g FV_VIDEO_ASCII=${FV_VIDEO_ASCII:-0} FV_VIDEO_COLORS=${FV_VIDEO_COLORS:-256} FV_VIDEO_OUT_FD=${FV_VIDEO_OUT_FD-}
 declare -g __FV_VS_W=${__FV_VS_W:-0} __FV_VS_H=${__FV_VS_H:-0} __FV_VS_SP=${__FV_VS_SP-} __FV_VS_DEF=${__FV_VS_DEF:-0}
 declare -g __FV_VS_CX1=${__FV_VS_CX1:-0} __FV_VS_CY1=${__FV_VS_CY1:-0} __FV_VS_CX2=${__FV_VS_CX2:-0} __FV_VS_CY2=${__FV_VS_CY2:-0}
@@ -844,17 +859,18 @@ fv.video._load() {
 }
 fv.video._load
 
-# fv.video._g FUNC ARGS — FUNC with nocasematch off and a UTF-8 locale (C
-# when there is none), both put back on every return path. An entry point
-# runs itself through it when the caller's state needs it; __fvv_g stops the
-# second round. nocasematch goes off first (the name compares are
+# fv.video._g FUNC ARGS — FUNC with nocasematch off, globasciiranges on (the
+# range globs, D21) and a UTF-8 locale (C when there is none), all put back
+# on every return path. An entry point runs itself through it when the
+# caller's state needs it; __fvv_g stops the second round. nocasematch goes off first (the name compares are
 # case-sensitive). The locale (L-1): LC_ALL C, or a value a restore takes
 # (__FV_VS_LOK) -> a `local LC_ALL` here; every other caller in
 # fv.video._gx (kept apart: bash copies a function body on each call, so
 # this one stays short).
 fv.video._g() {
-    local __fvv_g=1 __fvv_rc=0 __fvv_nc=0
+    local __fvv_g=1 __fvv_rc=0 __fvv_nc=0 __fvv_ga=0
     if [[ $BASHOPTS == *nocasematch* ]]; then __fvv_nc=1; shopt -u nocasematch; fi
+    if [[ $BASHOPTS != *globasciiranges* ]]; then __fvv_ga=1; shopt -s globasciiranges; fi
     if [[ ${#__FV_VS_P}${#__FV_VS_B} == 11 ]]; then "$@" || __fvv_rc=$?
     elif [[ ${LC_ALL-} == C || ${__FV_VS_LOK[${LC_ALL:-.}]-} == 1 ]]; then
         local LC_ALL=${__FV_VS_LOC:-C}
@@ -862,6 +878,7 @@ fv.video._g() {
     else fv.video._gx "$@" || __fvv_rc=$?
     fi
     if (( __fvv_nc )); then shopt -s nocasematch; fi
+    if (( __fvv_ga )); then shopt -u globasciiranges; fi
     return "$__fvv_rc"
 }
 
@@ -1307,7 +1324,7 @@ fv.video._alloc() {
 # the default palette, the colour depth (FV_COLORS; with the terminal on the
 # detection, else 256), W x H blanks, the cursor hidden at 0,0
 fv.video.initScreen() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_e __fvv_s
     RESULT=''
     fv.video._mode
@@ -1339,7 +1356,7 @@ fv.video.initScreen() {
 # FV_SCREEN_W x FV_SCREEN_H, clear, damage everything, reset the clip; the
 # palette, the depth and the cursor stay
 fv.video.resizeScreen() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     RESULT=''
     if (( ! ${#__FV_VS_PAL[@]} )); then fv.video._noscr resizeScreen; return; fi
     fv.video._alloc
@@ -1367,7 +1384,7 @@ fv.video._depth() {
 # fv.video.detectColorDepth — the detection chain on demand, applied as
 # setColorDepth does; RESULT = 16 | 256
 fv.video.detectColorDepth() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     fv.video._depth 1
     fv.video.setColorDepth "$__FV_VS_DEPTH"
     RESULT=$__FV_VS_DEPTH
@@ -1375,7 +1392,7 @@ fv.video.detectColorDepth() {
 
 # fv.video.setColorDepth 16|256 — rebuild every symbol's SGR, damage all
 fv.video.setColorDepth() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_s
     if [[ ${1-} != 16 && ${1-} != 256 ]]; then fv.video._bad setColorDepth '16|256' "$@"; return; fi
     RESULT=''
@@ -1387,7 +1404,7 @@ fv.video.setColorDepth() {
 # fv.video.definePalette SYM FG BG [BOLD] — SYM one of [0-9A-Za-z], FG / BG
 # 0-255, BOLD 0|1 (default 0); rc 2 otherwise
 fv.video.definePalette() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_f=${2-} __fvv_b=${3-} __fvv_o=${4:-0} __fvv_k=1
     if [[ -n $__fvv_f && $__fvv_f != *[!0123456789]* && ${#__fvv_f} -le 3 && -n $__fvv_b && $__fvv_b != *[!0123456789]* && ${#__fvv_b} -le 3 ]]; then
         if (( 10#$__fvv_f <= 255 && 10#$__fvv_b <= 255 )); then __fvv_k=0; fi
@@ -1551,12 +1568,12 @@ fv.video._putw() {
 # fv.video.writeStr X Y TEXT ATTR — TEXT at (X,Y) in the symbol ATTR (FV
 # MoveStr + WriteLine); RESULT = the display cells TEXT advances (unclipped)
 fv.video.writeStr() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_x=${1-} __fvv_y=${2-} __fvv_t=${3-} __fvv_a=${4-} __fvv_b='' __fvv_w=0 __fvv_xl='' __fvv_n __fvv_o __fvv_r
     if [[ $__fvv_x$__fvv_y == *[!0123456789]* || -z $__fvv_x || -z $__fvv_y || $__fvv_x == 0?* || $__fvv_y == 0?* || $__fvv_x == ????????* || $__fvv_y == ????????* ]] \
         && ! fv.video._xy "$__fvv_x" "$__fvv_y" || [[ $__fvv_a != [$__FV_VS_SYMS] ]]; then fv.video._bad writeStr 'X Y TEXT ATTR' "$@"; return; fi
     if (( ! __FV_VS_H )); then fv.video._noscr writeStr; return; fi
-    if [[ $__fvv_t == *[![:print:]]* || $__fvv_t == *[![:ascii:]]* ]]; then
+    if [[ $__fvv_t == $__FV_VS_PNA ]]; then
         # _text's narrow cache hit, inline
         __FV_VS_V=${__FV_VS_TC[$__fvv_t]-$'\x04'}
         if [[ $__FV_VS_V == [!$'\x03\x04']* ]]; then __fvv_t=$__FV_VS_V; else fv.video._textx; fi
@@ -1579,10 +1596,10 @@ fv.video.writeStr() {
 # caller-state guard kept (the text is cut and cached by characters); the
 # same cells, damage and RESULT as writeStr. Not for scripts
 fv.video._wstr() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     if (( ! __FV_VS_H )); then fv.video._noscr writeStr; return; fi
     local __fvv_x=$1 __fvv_y=$2 __fvv_t=$3 __fvv_a=$4 __fvv_b='' __fvv_w=0 __fvv_xl='' __fvv_n __fvv_o __fvv_r
-    if [[ $__fvv_t == *[![:print:]]* || $__fvv_t == *[![:ascii:]]* ]]; then
+    if [[ $__fvv_t == $__FV_VS_PNA ]]; then
         __FV_VS_V=${__FV_VS_TC[$__fvv_t]-$'\x04'}
         if [[ $__FV_VS_V == [!$'\x03\x04']* ]]; then __fvv_t=$__FV_VS_V; else fv.video._textx; fi
     fi
@@ -1616,7 +1633,7 @@ fv.video._lead() {
 # scr_put_ca) on H rows from Y (FV WriteLine; default 1, 0 writes nothing);
 # RESULT = the cells advanced along the row, whatever H
 fv.video.writeBuf() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_x=${1-} __fvv_y=${2-} __fvv_t=${3-} __fvv_a='' __fvv_b=${4-} __fvv_w=0 __fvv_xl='' __fvv_n __fvv_o __fvv_r
     if [[ $__fvv_x$__fvv_y == *[!0123456789]* || -z $__fvv_x || -z $__fvv_y || $__fvv_x == 0?* || $__fvv_y == 0?* || $__fvv_x == ????????* || $__fvv_y == ????????* ]] \
         && ! fv.video._xy "$__fvv_x" "$__fvv_y" || [[ $__fvv_b == *[!$__FV_VS_SYMS]* ]]; then fv.video._bad writeBuf 'X Y TEXT ATTRS [H]' "$@"; return; fi
@@ -1626,13 +1643,21 @@ fv.video.writeBuf() {
         if [[ ${5:-1} != 1 ]] && { ! fv.video._num "$5" || (( __fvv_v < 0 )); }; then fv.video._bad writeBuf 'X Y TEXT ATTRS [H]' "$@"; return; fi
         fv.video._noscr writeBuf; return
     fi
-    if [[ $__fvv_t == *[![:print:]]* || $__fvv_t == *[![:ascii:]]* ]]; then
+    if [[ $__fvv_t == $__FV_VS_PNA ]]; then
         __FV_VS_V=${__FV_VS_TC[$__fvv_t]-$'\x04'}
         if [[ $__FV_VS_V == [!$'\x03\x04']* ]]; then __fvv_t=$__FV_VS_V; else fv.video._textx; fi
     fi
     if (( ${#__fvv_b} != ${#__fvv_t} || __fvv_w )) || [[ ${5:-1} != 1 ]]; then fv.video._wbuf "$@"; return; fi
-    RESULT=${#__fvv_t}
-    fv.video._put
+    RESULT=${#__fvv_t} __fvv_n=${#__fvv_t} __fvv_o=0
+    # (_put's body, inline: one call less per row; D21)
+    if (( __fvv_y < __FV_VS_CY1 || __fvv_y >= __FV_VS_CY2 || __FV_VS_WIDE[__fvv_y] )); then fv.video._putx; return; fi
+    if (( __fvv_x < __FV_VS_CX1 || __fvv_x + __fvv_n > __FV_VS_CX2 || ! __fvv_n )); then fv.video._putc || return 0; fi
+    __fvv_r=${__FV_VS_CH[__fvv_y]}
+    __FV_VS_CH[__fvv_y]=${__fvv_r:0:__fvv_x}${__fvv_t:__fvv_o:__fvv_n}${__fvv_r:__fvv_x+__fvv_n}
+    __fvv_r=${__FV_VS_AT[__fvv_y]}
+    __FV_VS_AT[__fvv_y]=${__fvv_r:0:__fvv_x}${__fvv_b:__fvv_o:__fvv_n}${__fvv_r:__fvv_x+__fvv_n}
+    if (( ${__FV_VS_DX1[__fvv_y]-99999} > __fvv_x )); then __FV_VS_DX1[__fvv_y]=$__fvv_x; fi
+    if (( ${__FV_VS_DX2[__fvv_y]-0} < __fvv_x + __fvv_n )); then __FV_VS_DX2[__fvv_y]=$(( __fvv_x + __fvv_n )); fi
 }
 # fv.video._wbf X Y TEXT ATTRS [H] — FRIEND ENTRY for the fv.* units (stage
 # 2c-p): writeBuf for a caller that passes integers and a symbol string it
@@ -1640,16 +1665,24 @@ fv.video.writeBuf() {
 # caller-state guard kept; the rest as writeBuf (ATTRS of another length or a
 # bad H are still refused). Not for scripts
 fv.video._wbf() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     if (( ! __FV_VS_H )); then fv.video._noscr writeBuf; return; fi
     local __fvv_x=$1 __fvv_y=$2 __fvv_t=$3 __fvv_a='' __fvv_b=$4 __fvv_w=0 __fvv_xl='' __fvv_n __fvv_o __fvv_r
-    if [[ $__fvv_t == *[![:print:]]* || $__fvv_t == *[![:ascii:]]* ]]; then
+    if [[ $__fvv_t == $__FV_VS_PNA ]]; then
         __FV_VS_V=${__FV_VS_TC[$__fvv_t]-$'\x04'}
         if [[ $__FV_VS_V == [!$'\x03\x04']* ]]; then __fvv_t=$__FV_VS_V; else fv.video._textx; fi
     fi
     if (( ${#__fvv_b} != ${#__fvv_t} || __fvv_w )) || [[ ${5:-1} != 1 ]]; then fv.video._wbuf "$@"; return; fi
-    RESULT=${#__fvv_t}
-    fv.video._put
+    RESULT=${#__fvv_t} __fvv_n=${#__fvv_t} __fvv_o=0
+    # (_put's body, inline: one call less per row; D21)
+    if (( __fvv_y < __FV_VS_CY1 || __fvv_y >= __FV_VS_CY2 || __FV_VS_WIDE[__fvv_y] )); then fv.video._putx; return; fi
+    if (( __fvv_x < __FV_VS_CX1 || __fvv_x + __fvv_n > __FV_VS_CX2 || ! __fvv_n )); then fv.video._putc || return 0; fi
+    __fvv_r=${__FV_VS_CH[__fvv_y]}
+    __FV_VS_CH[__fvv_y]=${__fvv_r:0:__fvv_x}${__fvv_t:__fvv_o:__fvv_n}${__fvv_r:__fvv_x+__fvv_n}
+    __fvv_r=${__FV_VS_AT[__fvv_y]}
+    __FV_VS_AT[__fvv_y]=${__fvv_r:0:__fvv_x}${__fvv_b:__fvv_o:__fvv_n}${__fvv_r:__fvv_x+__fvv_n}
+    if (( ${__FV_VS_DX1[__fvv_y]-99999} > __fvv_x )); then __FV_VS_DX1[__fvv_y]=$__fvv_x; fi
+    if (( ${__FV_VS_DX2[__fvv_y]-0} < __fvv_x + __fvv_n )); then __FV_VS_DX2[__fvv_y]=$(( __fvv_x + __fvv_n )); fi
 }
 # fv.video._wbuf X Y TEXT ATTRS [H] — writeBuf's less common cases (its
 # locals): ATTRS of another length (rc 2), wide cells (the leads' symbols),
@@ -1669,7 +1702,7 @@ fv.video._wbuf() {
 # own keyed by TEXT (__FV_VS_SC the cells, __FV_VS_SX the markers, __FV_VS_TB
 # the symbol string with \x03 / \x04 for ATTR1 / 2).
 fv.video.writeCStr() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_x=${1-} __fvv_y=${2-} __fvv_t=${3-} __fvv_a='' __fvv_b='' __fvv_1=${4-} __fvv_2=${5-} __fvv_w=0 __fvv_xl='' __fvv_n __fvv_o __fvv_r
     if [[ $__fvv_x$__fvv_y == *[!0123456789]* || -z $__fvv_x || -z $__fvv_y || $__fvv_x == 0?* || $__fvv_y == 0?* || $__fvv_x == ????????* || $__fvv_y == ????????* ]] \
         && ! fv.video._xy "$__fvv_x" "$__fvv_y" || [[ $__fvv_1 != [$__FV_VS_SYMS] || $__fvv_2 != [$__FV_VS_SYMS] ]]; then
@@ -1696,7 +1729,7 @@ fv.video._cstr() {
     if [[ $__FV_VS_V != $'\x04' ]]; then
         __fvv_b=${__FV_VS_TB[$__fvv_key]-} __fvv_w=1 __fvv_xl=${__FV_VS_SX[$__fvv_key]-} __fvv_t=${__FV_VS_V:1}
     else
-        if [[ $__fvv_t == *[![:print:]]* || $__fvv_t == *[![:ascii:]]* ]]; then fv.video._san; fi
+        if [[ $__fvv_t == $__FV_VS_PNA ]]; then fv.video._san; fi
         if (( __fvv_f )); then
             # every character one cell: the segments' symbols by their lengths
             while :; do
@@ -1735,7 +1768,7 @@ fv.video._cstr() {
 fv.video._unit() {
     local __fvv_w=0 __fvv_xl=''
     __fvv_uc=''
-    if [[ $__fvv_t == *[![:print:]]* || $__fvv_t == *[![:ascii:]]* ]]; then fv.video._text; fi
+    if [[ $__fvv_t == $__FV_VS_PNA ]]; then fv.video._text; fi
     __fvv_u=${__fvv_t:0:1}
     if (( __fvv_w )); then
         if [[ ${__fvv_t:1:1} == "$__FV_VS_CONT" ]]; then __fvv_u+=$__FV_VS_CONT; fi
@@ -1823,7 +1856,7 @@ fv.video._rrow() {
 # CH ('' is a blank) COUNT times (default 1; FV MoveChar); RESULT = its width
 # x COUNT
 fv.video.writeChar() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_x=${1-} __fvv_y=${2-} __fvv_v=${5:-1} __fvv_rw __fvv_h=1 __fvv_t=${3:- } __fvv_a=${4-} __fvv_u __fvv_uc
     if [[ $__fvv_x$__fvv_y == *[!0123456789]* || -z $__fvv_x || -z $__fvv_y || $__fvv_x == 0?* || $__fvv_y == 0?* || $__fvv_x == ????????* || $__fvv_y == ????????* ]] \
         && ! fv.video._xy "$__fvv_x" "$__fvv_y" || [[ $__fvv_a != [$__FV_VS_SYMS] ]] \
@@ -1842,7 +1875,7 @@ fv.video.writeChar() {
 # first character (cluster) of CH (default a blank), clipped; a wide CH fills
 # whole pairs and a space when W is odd; RESULT = W (0 when negative)
 fv.video.fillRect() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_x=${1-} __fvv_y=${2-} __fvv_rw=${3-} __fvv_h=${4-} __fvv_t=${6:- } __fvv_a=${5-} __fvv_u __fvv_uc
     if [[ $__fvv_x$__fvv_y$__fvv_rw$__fvv_h == *[!0123456789]* || -z $__fvv_x || -z $__fvv_y || -z $__fvv_rw || -z $__fvv_h \
         || $__fvv_x == 0?* || $__fvv_y == 0?* || $__fvv_rw == 0?* || $__fvv_h == 0?* \
@@ -1864,7 +1897,7 @@ fv.video.fillRect() {
 # space in a one-cell column), in one call — a frame's two sides (stage
 # 2c-p). RESULT = 1 (the cells a column advances, as fillRect's W 1)
 fv.video.fillColumns() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     # (the array first: kkore's unit lint reads `${4:- }` as the end of the body)
     local -a __fvv_cs=()
     local __fvv_y=${1-} __fvv_h=${2-} __fvv_a=${3-} __fvv_t=${4:- } __fvv_v __fvv_c __fvv_i
@@ -1894,7 +1927,7 @@ fv.video.fillColumns() {
 # one or two columns in ascending order (a frame's sides): no argument
 # check, the caller-state guard kept. Not for scripts
 fv.video._fcf() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     if (( ! __FV_VS_H )); then fv.video._noscr fillColumns; return; fi
     local -a __fvv_cs=("${@:5}")
     local __fvv_y=$1 __fvv_h=$2 __fvv_a=$3 __fvv_t=${4:- }
@@ -1987,7 +2020,7 @@ fv.video._xywh() {
 # terminal draws it in its first half's colours). Damage as for a write;
 # RESULT = W (0 when negative).
 fv.video.shadeRect() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_x=${1-} __fvv_y=${2-} __fvv_rw=${3-} __fvv_h=${4-} __fvv_a=${5:-$__FV_VS_SHADOW}
     if [[ $__fvv_x$__fvv_y$__fvv_rw$__fvv_h == *[!0123456789]* || -z $__fvv_x || -z $__fvv_y || -z $__fvv_rw || -z $__fvv_h \
         || $__fvv_x == 0?* || $__fvv_y == 0?* || $__fvv_rw == 0?* || $__fvv_h == 0?* \
@@ -2007,7 +2040,7 @@ fv.video.shadeRect() {
 # kept (a row with wide cells is cut by characters). RESULT is left alone;
 # rc 1 without a screen. Not for scripts (shadeRect checks what it is given)
 fv.video._shadef() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     if (( ! __FV_VS_H )); then return 1; fi
     local __fvv_x=$1 __fvv_y=$2 __fvv_rw=$3 __fvv_h=$4 __fvv_a=$__FV_VS_SHADOW
     fv.video._shade
@@ -2051,7 +2084,7 @@ fv.video._shadew() {
 # default symbol), whatever the clip; damage all (rows the terminal already
 # shows that way emit nothing)
 fv.video.clearScreen() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_a=${1:-$__FV_VS_DEF} __fvv_y
     if [[ $__fvv_a != [$__FV_VS_SYMS] ]]; then fv.video._bad clearScreen '[ATTR]' "$@"; return; fi
     if (( ! __FV_VS_H )); then fv.video._noscr clearScreen; return; fi
@@ -2071,7 +2104,7 @@ fv.video.clearScreen() {
 # fv.video.setClip X1 Y1 X2 Y2 — writes go only into [X1,X2) x [Y1,Y2) (FV
 # TRect, B exclusive), intersected with the screen; a reallocation resets it
 fv.video.setClip() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_x=${1-} __fvv_y=${2-} __fvv_rw=${3-} __fvv_h=${4-}
     if [[ $__fvv_x$__fvv_y$__fvv_rw$__fvv_h == *[!0123456789]* || -z $__fvv_x || -z $__fvv_y || -z $__fvv_rw || -z $__fvv_h \
         || $__fvv_x == 0?* || $__fvv_y == 0?* || $__fvv_rw == 0?* || $__fvv_h == 0?* \
@@ -2097,7 +2130,7 @@ fv.video._clipf() {
 }
 
 fv.video.resetClip() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     RESULT=''
     __FV_VS_CX1=0 __FV_VS_CY1=0 __FV_VS_CX2=$__FV_VS_W __FV_VS_CY2=$__FV_VS_H
 }
@@ -2116,7 +2149,7 @@ fv.video.getClip() {
 # a wide character dropped), REPLY = the row's symbols, one per cell
 # (the screen's width W of them, both halves of a wide character included)
 fv.video.getRow() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_y=${1-} __fvv_r __fvv_o='' __fvv_e __fvv_p=0 __fvv_j
     if [[ -z $__fvv_y || $__fvv_y == *[!0123456789]* || $__fvv_y == 0?* || ${#__fvv_y} -gt 7 ]] || (( $# != 1 )); then
         REPLY=''; fv.video._bad getRow Y "$@"; return
@@ -2140,7 +2173,7 @@ fv.video.getRow() {
 # fv.video.setCursorPos X Y — where the cursor stands after the next update
 # (clamped to the screen there)
 fv.video.setCursorPos() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_x __fvv_y
     if ! fv.video._xy "${1-}" "${2-}" || (( __fvv_x < 0 || __fvv_y < 0 )); then fv.video._bad setCursorPos 'X Y' "$@"; return; fi
     RESULT=''
@@ -2150,7 +2183,7 @@ fv.video.setCursorPos() {
 # fv.video.setCursorType 0..3 — FPC crHidden 0 (ESC[?25l); crUnderLine,
 # crBlock, crHalfBlock 1-3 all show it (ESC[?25h, no shape sequence)
 fv.video.setCursorType() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     if [[ ${1-} != [0123] ]]; then fv.video._bad setCursorType '0..3' "$@"; return; fi
     RESULT=''
     __FV_VS_CURT=$1
@@ -2160,9 +2193,9 @@ fv.video.setCursorType() {
 # stores it (StringDisplayWidth: wide characters 2, a cluster its base's
 # width, a control or invalid sequence 1 as its '?')
 fv.video.strWidth() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local __fvv_t=${1-} __fvv_w=0 __fvv_xl=''
-    if [[ $__fvv_t == *[![:print:]]* || $__fvv_t == *[![:ascii:]]* ]]; then fv.video._text; fi
+    if [[ $__fvv_t == $__FV_VS_PNA ]]; then fv.video._text; fi
     RESULT=${#__fvv_t}
 }
 # fv.video._roww — updateScreen's body for a row with wide cells (its
@@ -2333,7 +2366,7 @@ fv.video._cells0() {
 # no screen, no fd (nothing emitted, the damage kept), or the printf failed
 # (the next frame is forced). Fork-free.
 fv.video.updateScreen() {
-    if [[ ( $BASHOPTS == *nocasematch* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     # IFS empty: the fd below is a bare redirect target (bash 5.1 prints >&"$fd" as &> "$fd"),
     # so a caller IFS holding digits must not split it
     local IFS= __fvv_f=0 __fvv_fd=${FV_VIDEO_OUT_FD:-${FV_TTY_FD-}} __fvv_w=$__FV_VS_W __fvv_h=$__FV_VS_H __fvv_y __fvv_c __fvv_a

@@ -456,10 +456,11 @@ Internal state is `__FV_VS_*`.
   emoji one `?`; `strWidth` counts the same cells. ASCII mode means "no
   Unicode knowledge": a terminal without a UTF-8 locale cannot show them.
 * **Caller state:** every entry point (bar `getClip`, which only reads four
-  integers) clears `nocasematch` for the call and puts it back on every
-  return path; `failglob`, `nullglob`, `noglob`,
-  `extglob`, `globasciiranges`, `IFS` and `set -eu` change nothing
-  (`tests/013`). Every function with a bare fd redirect (`>&$fd`, the form
+  integers) clears `nocasematch` and sets `globasciiranges` (the text
+  checks are range globs, D21) for the call and puts both back on every
+  return path; `failglob`, `nullglob`, `noglob`, `extglob`, `IFS` and
+  `set -eu` change nothing (`tests/013`, also `globasciiranges` off under a
+  collation that is not the code order). Every function with a bare fd redirect (`>&$fd`, the form
   bash 5.1 prints correctly) sets `local IFS=`, so a caller IFS holding
   digits cannot split the fd (`tests/015`, on a pty).
 * **Platform notes (PORT-1):** an integer argument is checked against
@@ -810,6 +811,22 @@ side-by-side windows (60.1: one damaged range per row sends each changed row
 whole, design R2) and 8.8 of a forced 80 × 24 redraw (54.8). The rest is
 the views' work ([fv.views "Cost"](../fv.views/README.md#cost)).
 
+**D21 (the deep performance round, stage B)**: the write path pays less per
+row. The text check `[[ $t == *[![:print:]]* || $t == *[![:ascii:]]* ]]`
+became one pattern, `__FV_VS_PNA` (a character class walks every cell
+through the locale: ~27 µs on a 200-cell row against ~2 µs for a range): on
+bash 5.3+ the range glob `*[!\ -~]*`, taken in code order with
+`globasciiranges` on (the caller-state guard of every entry sends a shell
+with it off to `fv.video._g`, which turns it on for the call); before 5.3
+`globasciiranges` orders only characters up to U+00FF by code and collates
+the rest (en_US.UTF-8 puts U+FF0C, U+3002, U+200B inside ` -~`), so there
+the bracket lists the 95 printable ASCII characters, no range. writeBuf's
+symbol check is `*[!$__FV_VS_SYMS]*`, a list (`tests/013`: a tab, é and CJK
+under en_US.UTF-8's collation with the option off; fullwidth, zero-width
+and a U+0101 symbol under every installed UTF-8 locale). `writeBuf` and the friend `_wbf` carry
+`_put`'s body inline (one call and return less per row; the names the bench
+counts are unchanged). New numbers come from the CI bench after the stage.
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -832,8 +849,9 @@ the views' work ([fv.views "Cost"](../fv.views/README.md#cost)).
   shape sequence); `clearScreen` sends nothing until `updateScreen` and
   ignores the clip; the buffer is at most 1024 columns wide (FVMaxWidth).
 * **friend entries for fv.\* units:** `fv.video._g CMD [ARGS…]` runs `CMD`
-  under this unit's caller-state guard (nocasematch off, a UTF-8 character
-  locale for a non-UTF-8 caller, both restored as above; rc = CMD's).
+  under this unit's caller-state guard (nocasematch off, globasciiranges on,
+  a UTF-8 character locale for a non-UTF-8 caller, all restored as above;
+  rc = CMD's).
   fv.views uses it to cut a frame title by characters for a C-locale caller.
   fv.views also reads the per-row flag `__FV_VS_WIDE[y]` (non-zero = the row
   holds wide cells or markers) to repaint such rows across the full width,
@@ -876,7 +894,7 @@ util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
 | 010_Palette | the default palette (32 symbols, `V` the shadow), `definePalette`, SGR with 256 / 16 colours, nearest-16 for all 256 indices against the VT model, repaints on depth and palette changes, the detection chain (FV_COLORS, TERM, COLORTERM, a `tput` stub, no `tput`) |
 | 011_Locale | silent load, a C caller (UTF-8 inside, locale back), ASCII mode (candidates stubbed to none; `FV_ASCII=1`), the maps, one `?` per sequence, control characters, invalid / cut / overlong / surrogate UTF-8 one `?` each while 4-byte characters and clusters become marker cells, C1 with `globasciiranges` off, legacy CJK caller locales, the caller's own locale as candidate, the text cache |
 | 012_VtModel | every frame replayed through the pure-bash VT model (`tests/fvv_vt.sh`, grid starting as garbage): scripted scenes, resize, and a seeded random property test (`FVV_SEED`, `FVV_FRAMES`): VT grid = buffer = a per-cell shadow model after every update, incremental = one forced repaint. Narrow text; the wide frames are 018's |
-| 013_CallerState | nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS, `set -eu`, C locale: same output, state kept; a second scene with wide characters, emoji, clusters, classes x / y and the fast path under the same setups; a caller locale bash cannot restore (LANG / LC_ALL / LC_CTYPE missing; LANG missing or empty beside a working LC_CTYPE and a missing LC_MESSAGES / LC_NUMERIC / LC_TIME; a shell left in UTF-8 under a missing name, before and after the load; a case-variant name under nocasematch): every entry point, the load, `_drain` (also from a real trap) keep the caller's locale variables and probe (after each call) and give a C caller's results (L-1); the P2 additions (`writeBuf` with H, `shadeRect`, `getRow`, `getClip`) are part of that scene |
+| 013_CallerState | nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS, `set -eu`, C locale: same output, state kept; a second scene with wide characters, emoji, clusters, classes x / y and the fast path under the same setups; D21: globasciiranges off under an installed locale whose collation is not the code order (en_US.UTF-8 and the like; a tab, é and CJK keep a C.UTF-8 caller's cells; a skip where there is none); a caller locale bash cannot restore (LANG / LC_ALL / LC_CTYPE missing; LANG missing or empty beside a working LC_CTYPE and a missing LC_MESSAGES / LC_NUMERIC / LC_TIME; a shell left in UTF-8 under a missing name, before and after the load; a case-variant name under nocasematch): every entry point, the load, `_drain` (also from a real trap) keep the caller's locale variables and probe (after each call) and give a C caller's results (L-1); the P2 additions (`writeBuf` with H, `shadeRect`, `getRow`, `getClip`) are part of that scene |
 | 014_Perf | repaint and partial-update cost against 3× the targets (numbers in the log) |
 | 015_ShellState | `script(1)`: init / done / the EXIT trap under an IFS holding digits, init under `IFS=$'\n\t'` and `$'\n'`, done → init → a full repaint |
 | 016_Reader | the reader and its watchdog (D13 + amendment). Without a terminal (a fifo stands in, every runtime): all 256 byte values forwarded unchanged and the end at end of file (under `set -eEuxT`, pipefail, ERR/DEBUG/RETURN traps, a UTF-8 locale); the owner killed with no byte typed (both gone within 1 s; with a child holding the watchdog pipe within 2 s); the reader alone blocks and ends at the next byte; INT/QUIT/TSTP/WINCH ignored by both, TERM/HUP/a failed write end the reader; `_rstart` / `_rstop`; `FV_TTY_READER` 0 / 1 / auto by `OSTYPE` / junk; `__FV_VI_POLL` '' and junk; a reader or a watchdog that does not start (both stopped); `TERM` ignored at shell start (stopped by `KILL`); the stop's timing; the reader keeps only fds 0/1/2/tty, the watchdog 0/1/2; `_rstop` never signals a pid that is not its child; the watchdog killed alone; data on the watchdog pipe; the reader dying alone (the watchdog exits without a signal, the stop signals nothing); the stop while a background child holds the watchdog pipe (no wait). `script(1)`: both alive while on (two children), keys / NUL / CSI / SGR mouse / UTF-8 / a 300-byte burst through the reader, Esc alone vs a sequence, both gone after doneVideo, exit, `set -e`, Ctrl+C, SIGTERM, SIGHUP (within 1 s) and `kill -9` of the main shell (no byte typed: within 1 s; a child holding the watchdog pipe: within 2 s), re-init, a subshell under an active parent, `FV_TTY_READER=0` and auto, signals to the reader alone, the reader killed → end of input, the restore drains through the pipe and never reads the terminal (with a reader) / drains the terminal (without), `TERM` ignored at shell start, a restore re-entered mid-stop drains only the pipe, an interactive shell's fd 255 (the terminal) is held by neither. Every reader / watchdog pid is reaped if it survives; every child shell too (its pid recorded, its stdout a file, the calling line in its command line and in `current`); the fds counted are those in three snapshots 50 ms apart |

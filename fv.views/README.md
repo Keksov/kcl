@@ -320,7 +320,7 @@ loud exception to kcl §1.2 (below).
 |---|---|---|
 | `fv.views.drawView V` | `DrawView` | V drawn in place (with its shadow), the views in front of it painted again over it, the terminal updated. Nothing (rc 0) for a view that cannot be drawn now (above). `RESULT` kept |
 | `fv.views.redraw V` | `Redraw` | as `drawView`, with a forced terminal update (every cell sent again); while the update is held (`lockScreenUpdate`, a user lock, inside another drawing entry) the force waits for the release |
-| `fv.views.drawPart V FN Y1 Y2 [ARGS]` | — (rule 4) | partial redraw of a **leaf** without a dispatch: your plain painter function runs as `FN V ARGS` with V's drawing context, its writes clipped to V's local rows `Y1 <= y < Y2`; then the views in front of V that overlap those rows are painted again, and the terminal is updated. A group is refused (rc 2, one debug line): a painter of a group would write over its own subviews (redraw a group with `drawView`). Nested inside a Draw, the part under a covering view in that Draw is left out, so FN may run once per remaining piece (below). rc = FN's (the last non-zero; 0 when V cannot be drawn now: FN does not run). For a list's cursor move (P3 `FocusItem`) |
+| `fv.views.drawPart V FN Y1 Y2 [ARGS]` | — (rule 4) | partial redraw of a **leaf** without a dispatch: your plain painter function runs as `FN V ARGS` with V's drawing context, its writes clipped to V's local rows `Y1 <= y < Y2`; then the views in front of V that overlap those rows are painted again, and the terminal is updated. A group is refused (rc 2, one debug line): a painter of a group would write over its own subviews (redraw a group with `drawView`). Nested inside a Draw, the part under a covering view in that Draw is left out, so FN may run once per remaining piece (below). rc = FN's (the last non-zero; 0 when V cannot be drawn now: FN does not run). For a list's cursor move (P3 `FocusItem`). FN is checked (`declare -F`) on its first use only (D21): a painter unset after that fails as bash does, rc 127 and "command not found" on stderr |
 | `fv.views.show V` / `hide V` | `Show` / `Hide` | the `sfVisible` bit, then (V in a group) FV's DrawShow (V drawn with its shadow) / DrawHide (its area, shadow included, repainted from below), then the owner's `ResetCurrent` for a selectable V. A no-op when the bit already is so; otherwise it is V's `SetState(sfVisible, …)` through the elision (an override of yours sees it) |
 | `fv.views.lock G` / `unlock G` | `TGroup.Lock` / `Unlock` | `LockFlag` counts. While G is locked no `drawView` of G or of a view inside it is drawn (the tree changes' redraws included) and the terminal update is held. When the count returns to 0, **G is redrawn once** (FV `Unlock` → `DrawView`; also after `Lock; change fields; Unlock` with no draw at all). An inner group unlocked inside its locked owner draws nothing: the owner's unlock draws both. `unlock` of an unlocked group: a no-op. A group destroyed while locked (or holding a locked group) no longer holds the update, and what was drawn meanwhile (its removal) is sent at once |
 | `fv.views.lockScreenUpdate` / `unlockScreenUpdate` | `LockScreenUpdate` / `UnlockScreenUpdate` | a count that holds the terminal update; the drawing into the buffer goes on. Back at 0, `unlockScreenUpdate` updates the terminal (FV calls `DrawScreenBuf` after it; here it is part of the call) unless a user lock still holds it. At 0 already: a no-op |
@@ -1000,6 +1000,47 @@ routing walk); the terminal update of whole rows (R2: one damaged range per
 row; a split at a long unchanged middle); P3's one write per visible row
 for the lists; fv.video's per-write cost for the 200 × 50 repaints (R9).
 
+**D21, the deep performance round (stages A–C).** The profile found no hot
+spot: every action is bash's per-command and per-call cost spread over the
+drawing entries, the covering walks and the routing. What changed (the
+numbers come from the CI bench run after the stage; the dispatch counts are
+the same as before in every case):
+
+* *Structure caches* (fv.views.sh, the state block; one helper,
+  `fv.views._restruct`, drops them wherever a subview list or an `Owner`
+  changes). They hold the tree's shape, never a field's value, so State,
+  Options and the bounds are read live and need no invalidation:
+  `__FV_VW_DEX[v]` is "v and every owner visible, the root exposed" as one
+  arithmetic test over the live `State` fields (`fv.views._drawable` without
+  the owner walk; the walk still runs under a lock or `SKIP`), dropped at
+  insert / delete / destruction; `__FV_VW_FRL[v]` lists the views in front of
+  v or of an owner (`_over`, the frame ring's `_uncover`), dropped at insert /
+  delete / destruction / putInFrontOf; `__FV_VW_OEX[g]` is "a subview of g
+  has ofPreProcess or ofPostProcess" over their live `Options`
+  (`_groupEvent` skips its pre / post scan with one test), dropped at insert
+  / delete / destruction.
+* *drawPart's fast path*: one test for the common call (a live leaf, a
+  painter seen before, rows of plain digits, no nesting, no wide rows), then
+  an inline body (`_begin` and the held flush inline, no argument helpers);
+  every other call takes the checked path. The painter is checked on its
+  first use only (`__FV_VW_PNT`): one unset after that fails with bash's
+  rc 127.
+* *Covered paints skipped*: a subview the visible covering views in front
+  hold **together** (the desktop's background behind two windows side by
+  side) and a shadow they hold (the back window's, under the front one) are
+  not drawn — `_ucover`, a rectangle subtraction, runs only when a view in
+  front holds the part's (or the strip's) top-left cell, so a scene where it
+  cannot succeed pays one test per view in front. A window's paint and the
+  order redraw's shadow strips are cut to the owner's clip: a shadow row
+  below the desktop no longer repaints the status line. The `# writes` notes
+  drop accordingly: paint / redraw / resize −2 (the background fill and the
+  covered shade), Tab / click −2, grow −1, overlap Tab / click / move −1.
+* *Smaller steps*: the dispatch loop's skip tests merged into one
+  arithmetic test and one compare, the class lookup one simple command;
+  `_pal` splits a palette without a here-string (80–280 µs each on Windows);
+  fv.video's text and symbol checks are range globs and `writeBuf` / `_wbf`
+  carry `_put`'s body inline (fv.video's README, "Cost").
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -1112,4 +1153,5 @@ anything on it fails one test.
 | 016_Window | the constructor (FV's defaults, the frame from InitFrame, a bad number, the guard), an InitFrame override without a frame, GetTitle, the frame's title and number, the three palettes, cmClose (Valid no / yes, another window, without wfClose), cmSelectWindowNum through message, an unselectable window, Tab, unknown keys / commands; stage 2d: SizeLimits (MinWinSize, FV_MINWINSIZE_X/_Y), Zoom and back (ZoomRect, the zoom icon), a bad ZoomRect, cmZoom, CalcBounds (the ZoomRect follows an owner resize), cmResize |
 | 017_Drag | stage 2f: a resize the event source handled itself (`__FV_VW_RESIZES`, evNothing answered) ends a keyboard and a mouse drag (the step loop's read and the drain's); stage 2d (+ critic round: Shift+Enter / Shift+Esc end a drag, icon tracking in a subshell and with the window destroyed by the source): the keyboard drag through `cmResize` (arrows, Shift + arrows, Ctrl ± 8, Home / End / PgUp / PgDn, Enter, Esc, a grow-only window), the limits (a column / row inside, `dmLimitLoY`, `dmLimitAll`, MinWinSize and the owner's size), `sfDragging` (border-only frame redraws: 3 writes in, 3 out), the mouse drag by the frame's top row and grow corner, motion coalescing (the drain's timeout 0, the last move wins, a key dropped, the mouse-up kept), the end of input (keyboard as Esc, mouse where it is), a `cmResizeApp` ending a drag (clamped into the new extent, no undo), the event record put back, the owner-process rule in `$( )`, `dragView`'s refusals; the counts of one keyboard step, one mouse step and a zoom (logged) |
 | 018_Names | reserved names (also under nocasematch), `_newReserved`, the constructor guard (a leaf, a group with subviews, through subclass constructors), the dialog loop and the anti-pattern, a constructor that skipped `inherited`, `VERBOSE_KKLASS=quiet`; every rc-2 refusal: one debug line under the switch, none without |
-| 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals |
+| 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals; D21: the answer split without a here-string (the first line, at blanks only, no globbing in a folder with files named like indices, the caller's `set -f` kept) |
+| 020_Caches | D21: each structure cache's drop (DEX at insert / delete, FRL at insert / delete / putInFrontOf, OEX at insert: each test fails with its drop removed) and what is read live (hide / show, a State or Options field written by hand, the root's sfExposed, a lock, a bounds change); drawPart's fast path (the painter's rc and RESULT, rows with leading zeros, a redefined painter, the rc 127 of an unset one); the union cover (two windows side by side: the background not drawn, the shadow under the front window not shaded; a gap, a hidden window, a frameless group: drawn; each == a full repaint); drawView and the order redraw's shadow strips cut to the owner's clip (the status line in front of the desktop not repainted) |

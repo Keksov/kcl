@@ -9,7 +9,10 @@
 # setup's options, IFS and locale are the same after the scene as before. A
 # second scene with wide characters, emoji and clusters (P1b: the walk, the
 # fast path's byte ranges, the class letters x / y) runs under the same
-# setups bar FV_ASCII. A third block (L-1) starts fresh shells whose locale
+# setups bar FV_ASCII. A range block (D21): globasciiranges off under an
+# installed UTF-8 locale whose collation is not the code order (tab-only,
+# é-only and CJK texts keep the cells of a C.UTF-8 caller; a skip where no
+# such locale exists). A third block (L-1) starts fresh shells whose locale
 # bash cannot restore (LANG / LC_ALL / LC_CTYPE naming a missing locale; LANG
 # missing or empty beside a working LC_CTYPE and a missing LC_MESSAGES /
 # LC_NUMERIC / LC_TIME; a shell left in UTF-8 under a missing name, before
@@ -135,6 +138,67 @@ for setup in 'shopt -s nocasematch' 'shopt -s failglob' 'shopt -s nullglob' 'set
     else kt_test_fail "output [$got] vs ref [$ref]; state before [$before] after [$after]"; fi
 done
 
+# --- globasciiranges off under a collation that is not the code order (D21) ---------
+# The text checks are range globs ([ -~], [0-9A-Za-z]); with globasciiranges
+# off bash takes a range in the locale's collation order, which in a UTF-8
+# locale other than C.UTF-8 can put a tab or a letter like é inside [ -~] and
+# leave a or Z out. The caller-state guard turns the option on for the call:
+# tab-only, é-only and CJK-only texts must give the cells of a C.UTF-8 caller.
+# The locale: the first installed one whose collation differs (else a skip).
+read -r -d '' SCENE4 <<'EOF' || :
+FV_SCREEN_W=10 FV_SCREEN_H=2
+r=''
+fv.video.initScreen
+fv.video.definePalette a 1 2; fv.video.definePalette A 3 4 1
+fv.video.writeStr 0 0 $'\t\t' a; r+="$RESULT."
+fv.video.writeStr 2 0 'é' a; r+="$RESULT."
+fv.video.writeStr 3 0 'éé' A; r+="$RESULT."
+fv.video.writeStr 5 0 '漢' a; r+="$RESULT."
+fv.video.writeBuf 0 1 $'\t' a; r+="$RESULT."
+fv.video.writeBuf 1 1 'é' A; r+="$RESULT."
+fv.video.writeCStr 2 1 $'\t~é~' a A; r+="$RESULT."
+fv.video.writeChar 4 1 $'\t' a 2; r+="$RESULT."
+fv.video.strWidth '漢'; r+="$RESULT."
+fv.video.strWidth $'\t\t'; r+="$RESULT."
+fv.video.strWidth 'é'; r+="$RESULT."
+( LC_ALL=C; printf '%s' "$r"; for y in 0 1; do printf ' [%q|%s]' "${__FV_VS_CH[y]}" "${__FV_VS_AT[y]}"; done )
+EOF
+GAPROBE='shopt -u globasciiranges; t=$'"'"'\t'"'"' e=$'"'"'\xc3\xa9'"'"'; [[ $t == [\ -~] || $e == [\ -~] || a != [\ -~] || Z != [\ -~] ]]'
+GALOC=''
+for l in en_US.UTF-8 de_DE.UTF-8 en_GB.UTF-8 ru_RU.UTF-8 fr_FR.UTF-8; do
+    if LC_ALL=$l "$BASH" -c "$GAPROBE" 2>/dev/null; then GALOC=$l; break; fi
+done
+run4() {
+    OUT=$("$BASH" -c "unset LC_ALL LC_CTYPE LANG; export LC_ALL=C.UTF-8
+source '$UNIT'
+p=\$'\\xd0\\xb6'
+$1
+$STATE
+printf '#'
+$SCENE4
+printf '#'
+$STATE" 2>&1)
+}
+run4 ''
+ref4=${OUT#*#} ref4=${ref4%#*}
+kt_test_start "range reference run: a tab is a '?', é one cell, 漢 two"
+# (the rows as this bash's %q prints them in C: its quoting style differs by version)
+want4=$(LC_ALL=C; printf '2.1.2.2.1.1.2.2.2.2.1.'; printf ' [%q|%s]' $'??\xc3\xa9\xc3\xa9\xc3\xa9\xe6\xbc\xa2\x01   ' aaaAAaa000 $'?\xc3\xa9?\xc3\xa9??    ' aAaAaa0000)
+if [[ $ref4 == "$want4" ]]; then kt_test_pass "ok"; else kt_test_fail "[$ref4]"; fi
+if [[ -z $GALOC ]]; then
+    kt_test_start "globasciiranges off under another collation: skipped (no installed UTF-8 locale collates [ -~] apart from the code order)"
+    kt_test_pass "skipped"
+else
+    for setup in "export LC_ALL=$GALOC; shopt -u globasciiranges" "export LC_ALL=$GALOC; shopt -u globasciiranges; shopt -s nocasematch"; do
+        kt_test_start "globasciiranges off under $GALOC's collation: the cells of a C.UTF-8 caller, the state kept: $setup"
+        run4 "$setup"
+        got=${OUT#*#} got=${got%#*}
+        before=${OUT%%#*} after=${OUT##*#}
+        if [[ $got == "$ref4" && $before == "$after" ]]; then kt_test_pass "ok"
+        else kt_test_fail "output [$got] vs ref [$ref4]; state before [$before] after [$after]"; fi
+    done
+fi
+
 
 # --- a caller locale name that does not exist (L-1) ---------------------------------
 # bash cannot restore a `local LC_ALL` to a name setlocale rejects (LANG /
@@ -253,5 +317,35 @@ for cfg in "LANG=$xx//" "LC_ALL=$xx//" "LC_CTYPE=$xx//" "LC_CTYPE=$xx LANG=C.UTF
     if [[ $got == "$ref3" && $fr == same && $s0 == "$s1" && $s2 == "$s3" && $k == "$kw" && -n $k ]]; then kt_test_pass "ok (\${#p} $pr)"
     else kt_test_fail "out [$got] vs ref [$ref3]; frame $fr; state start [$s0] loaded [$s1] scene before [$s2] after [$s3]; \${#p} per call [$k]"; fi
 done
+
+# The text check must not take a character above U+00FF for printable ASCII
+# under a locale's collation (bash < 5.3 orders only <= U+00FF by code with
+# globasciiranges on; en_US.UTF-8 collates U+FF0C, U+3002, U+200B, U+0101
+# inside ` -~` / `0-9A-Za-z`): widths and the symbol check as in C.UTF-8,
+# under every installed non-C UTF-8 locale (the 2f critic round, D21 stage B)
+COLL=$(cat <<'EOF'
+FV_SCREEN_W=12 FV_SCREEN_H=4
+exec {fd}>/dev/null; FV_VIDEO_OUT_FD=$fd
+fv.video.initScreen
+fv.video.definePalette a 1 2
+r=''
+fv.video.writeStr 0 0 $'\xef\xbc\x8c\xe3\x80\x82' a; r+="$RESULT."
+fv.video.writeStr 0 1 $'a\xe2\x80\x8bb' a; r+="$RESULT."
+fv.video.strWidth $'\xef\xbc\x8c\xe3\x80\x82'; r+="$RESULT."
+fv.video.writeBuf 0 2 ab $'a\xc4\x81' 2>/dev/null; r+="$?."
+fv.video.getRow 2; r+="[$REPLY]"
+printf '%s' "$r"
+EOF
+)
+nloc=0
+for l in en_US.UTF-8 de_DE.UTF-8 en_GB.UTF-8 ru_RU.UTF-8 fr_FR.UTF-8 C.UTF-8; do
+    LC_ALL=$l "$BASH" -c 'x=$'"'"'\xd0\xb6'"'"'; (( ${#x} == 1 ))' 2>/dev/null || continue
+    nloc=$(( nloc + 1 ))
+    kt_test_start "characters above U+00FF under $l (bash $BASH_VERSION): fullwidth 2 cells each, a zero-width space 0, a symbol U+0101 refused (rc 2)"
+    OUT=$(LC_ALL=$l "$BASH" -c "source '$UNIT'
+$COLL" 2>&1)
+    if [[ $OUT == '4.2.4.2.[000000000000]' ]]; then kt_test_pass "ok"; else kt_test_fail "[$OUT]"; fi
+done
+if (( nloc == 0 )); then kt_test_start "characters above U+00FF under a UTF-8 locale: skipped (none installed)"; kt_test_pass "skipped"; fi
 
 kt_test_log "013_CallerState.sh completed"

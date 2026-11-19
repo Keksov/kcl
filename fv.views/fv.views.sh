@@ -154,6 +154,29 @@ declare -gA __FV_VW_INDRAW
 declare -ga __FV_VW_WROW
 __FV_VW_INDRAW+=() __FV_VW_WROW+=()
 declare -g __FV_VW_FORCE=${__FV_VW_FORCE:-0}
+# D21 structure caches, rebuilt lazily. They hold the tree's SHAPE only (who
+# owns whom, the order of each subview list), never a field's value: State,
+# Options, the bounds and the absolute rects are read live on every use, so
+# setState / show / hide, a bounds change and a field written through the
+# friend contract need no invalidation. Dropped by fv.views._restruct:
+#   DEX[v]  the arithmetic test "v and every owner visible, the root exposed"
+#           over the LIVE State fields (fv.views._drawable's fast path; taken
+#           only without a lock and without SKIP). Dropped at insert, delete
+#           (_detach) and destruction (_free): an Owner changed
+#   FRL[v]  the views in front of v or of an owner, innermost level first,
+#           back to front within a level (fv.views._over / _uncover). Dropped
+#           at insert, delete, destruction and putInFrontOf (an order change)
+#   OEX[g]  the arithmetic test "a subview of g has ofPreProcess or
+#           ofPostProcess" over the subviews' LIVE Options fields
+#           (fv.views._groupEvent's pre / post scan). Dropped at insert,
+#           delete and destruction: g's list changed (its order does not
+#           matter to the test)
+#   PNT[f]  a painter function drawPart has seen (its declare -F check);
+#           never dropped: a painter unset after its first drawPart fails
+#           with bash's "command not found" (rc 127) instead of rc 2
+# Any code that edits ${g}_views or a view's Owner calls fv.views._restruct.
+declare -gA __FV_VW_DEX __FV_VW_FRL __FV_VW_OEX __FV_VW_PNT
+__FV_VW_DEX+=() __FV_VW_FRL+=() __FV_VW_OEX+=() __FV_VW_PNT+=()
 # The drawing context of the Draw that runs (design §1.5; '' / 0 outside one):
 # the view, its absolute origin, its resolved palette, and the part of it
 # this paint may write in the view's own coordinates ([X1,X2) x [Y1,Y2)).
@@ -491,10 +514,20 @@ fv.views._order() {
         local -n __fvw_od=${1}_data
         local __fvw_x=${__FV_VW_AX[$1]} __fvw_y=${__FV_VW_AY[$1]} __fvw_w=${__fvw_od[SizeX]:-0} __fvw_h=${__fvw_od[SizeY]:-0}
         # (the two shadow strips: right of V from its second row, below V from its third column)
-        local -a __fvw_rs=(
+        local -a __fvw_rs=() __fvw_q=(
             "$(( __fvw_x + __fvw_w ))" "$(( __fvw_y + 1 ))" "$(( __fvw_x + __fvw_w + 2 ))" "$(( __fvw_y + __fvw_h + 1 ))"
             "$(( __fvw_x + 2 ))" "$(( __fvw_y + __fvw_h ))" "$(( __fvw_x + __fvw_w ))" "$(( __fvw_y + __fvw_h + 1 ))")
-        fv.views._drawRects "$1"
+        # (D21: each strip cut to the owner's clip, where the shadow is shaded; an empty one dropped)
+        local __fvw_j __fvw_1 __fvw_2 __fvw_3 __fvw_4
+        for (( __fvw_j = 0; __fvw_j < 8; __fvw_j += 4 )); do
+            __fvw_1=${__fvw_q[__fvw_j]} __fvw_2=${__fvw_q[__fvw_j+1]} __fvw_3=${__fvw_q[__fvw_j+2]} __fvw_4=${__fvw_q[__fvw_j+3]}
+            if (( __fvw_1 < __FV_VW_C1[$2] )); then __fvw_1=${__FV_VW_C1[$2]}; fi
+            if (( __fvw_2 < __FV_VW_C2[$2] )); then __fvw_2=${__FV_VW_C2[$2]}; fi
+            if (( __fvw_3 > __FV_VW_C3[$2] )); then __fvw_3=${__FV_VW_C3[$2]}; fi
+            if (( __fvw_4 > __FV_VW_C4[$2] )); then __fvw_4=${__FV_VW_C4[$2]}; fi
+            if (( __fvw_1 < __fvw_3 && __fvw_2 < __fvw_4 )); then __fvw_rs+=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4"); fi
+        done
+        if (( ${#__fvw_rs[@]} )); then fv.views._drawRects "$1"; fi
     elif (( __fvw_m == 2 )); then fv.views._overOnly "$1" "$__fvw_q1" "$__fvw_q2" "$__fvw_q3" "$__fvw_q4"; fi
 }
 # fv.views._orderHit V G — after V moved from the old index __FV_VW_OIDX,
@@ -674,6 +707,14 @@ fv.views._idx() {
     done
 }
 
+# fv.views._restruct [order] — drop the D21 structure caches (see the state
+# block): after any edit of a subview list or an Owner; `order` (a list
+# reordered, every Owner the same) drops only what depends on the order
+fv.views._restruct() {
+    __FV_VW_FRL=()
+    if [[ -z ${1-} ]]; then __FV_VW_DEX=() __FV_VW_OEX=(); fi
+}
+
 # fv.views._calc V [ONLY] — the absolute origin and clip of V and its
 # subtree (ONLY 1: of V alone; its subviews keep their old cache)
 fv.views._calc() {
@@ -758,6 +799,7 @@ fv.views._detach() {
         __fvw_ix=$__fvw_i
     fi
     if (( __fvw_ix >= 0 )); then __fvw_l=("${__fvw_l[@]:0:$__fvw_ix}" "${__fvw_l[@]:$__fvw_ix+1}"); fi
+    fv.views._restruct
     if [[ -z ${__FV_VW_LIVE[$2]-} ]]; then return 0; fi
     __fvw_d[Owner]=''
     fv.views._calc "$2"
@@ -782,6 +824,7 @@ fv.views._free() {
         local -n __fvw_l=${1}_views
         local -a __fvw_kids=("${__fvw_l[@]}")
         __fvw_l=()
+        fv.views._restruct
         for (( __fvw_k = ${#__fvw_kids[@]} - 1; __fvw_k >= 0; __fvw_k-- )); do
             if [[ -n ${__FV_VW_LIVE[${__fvw_kids[__fvw_k]}]-} ]]; then
                 local -n __fvw_kd=${__fvw_kids[__fvw_k]}_data
@@ -813,6 +856,8 @@ fv.views._free() {
     unset '__FV_VW_LIVE[$1]' '__FV_VW_AX[$1]' '__FV_VW_AY[$1]' \
         '__FV_VW_C1[$1]' '__FV_VW_C2[$1]' '__FV_VW_C3[$1]' '__FV_VW_C4[$1]' \
         '__FV_VW_PAL[$1]' '__FV_VW_FRM[$1]' '__FV_VW_LK[$1]'
+    # (the name may come back as a new view: nothing of this one's shape stays)
+    fv.views._restruct
 }
 
 # ---- construction, destruction, reserved names (design §1.6) ----------------
@@ -960,6 +1005,7 @@ fv.views._insert() {   # G V TARGET CALLER
     fi
     __fvw_l=("${__fvw_l[@]:0:$__fvw_i+1}" "$2" "${__fvw_l[@]:$__fvw_i+1}")
     __fvw_d[Owner]=$1
+    fv.views._restruct
     fv.views._calc "$2"
     fv.views._palReset "$2"
     local __fvw_rr=${RESULT-} __fvw_sk=$__FV_VW_SKIP
@@ -1027,6 +1073,7 @@ fv.views.putInFrontOf() {
     __fvw_i=-1
     if [[ -n $2 ]]; then fv.views._idx "$__fvw_g" "$2"; fi
     __fvw_l=("${__fvw_l[@]:0:$__fvw_i+1}" "$1" "${__fvw_l[@]:$__fvw_i+1}")
+    fv.views._restruct order
     if (( ${__fvw_d[State]:-0} & FV_SF_VISIBLE )); then
         local __fvw_rr=${RESULT-} __fvw_sk=$__FV_VW_SKIP __fvw_m=0 __fvw_q1 __fvw_q2 __fvw_q3 __fvw_q4
         __FV_VW_LSU=$(( __FV_VW_LSU + 1 ))
@@ -1481,16 +1528,28 @@ fv.views._cursorNow() {
 # application, a desktop-less user or test on its root group)
 fv.views._drawable() {
     if (( __FV_VW_NODRAW > 0 )); then return 1; fi
-    local __fvw_v=$1
+    # (D21: no lock, no SKIP and the chain known: one arithmetic test over
+    # the live State fields of V and its owners)
+    if [[ -n ${__FV_VW_DEX[$1]-} && -z $__FV_VW_SKIP && -z ${__FV_VW_LK[*]-} ]]; then (( ${__FV_VW_DEX[$1]} )); return; fi
+    fv.views._drawableX "$1"
+}
+# fv.views._drawableX V — _drawable's walk: the answer, and V's chain test
+# stored in __FV_VW_DEX
+fv.views._drawableX() {
+    local __fvw_v=$1 __fvw_e='' __fvw_ok=1
     while :; do
         local -n __fvw_dd=${__fvw_v}_data
-        if (( ! (${__fvw_dd[State]:-0} & FV_SF_VISIBLE) )) || [[ -n ${__FV_VW_LK[$__fvw_v]-} ]]; then return 1; fi
-        # (a view the running framework sequence draws whole right after)
-        if [[ -n $__FV_VW_SKIP ]] && [ "$__fvw_v" = "$__FV_VW_SKIP" ]; then return 1; fi
+        __fvw_e+="${__fvw_v}_data[State] & "
+        if (( __fvw_ok )); then
+            if (( ! (${__fvw_dd[State]:-0} & FV_SF_VISIBLE) )) || [[ -n ${__FV_VW_LK[$__fvw_v]-} ]]; then __fvw_ok=0
+            # (a view the running framework sequence draws whole right after)
+            elif [[ -n $__FV_VW_SKIP ]] && [ "$__fvw_v" = "$__FV_VW_SKIP" ]; then __fvw_ok=0; fi
+        fi
         if [[ -z ${__fvw_dd[Owner]-} ]]; then break; fi
         __fvw_v=${__fvw_dd[Owner]}
     done
-    (( ${__fvw_dd[State]:-0} & FV_SF_EXPOSED ))
+    __FV_VW_DEX[$1]="($__fvw_e$FV_SF_VISIBLE) && (${__fvw_v}_data[State] & $FV_SF_EXPOSED)"
+    (( __fvw_ok && (${__fvw_dd[State]:-0} & FV_SF_EXPOSED) ))
 }
 
 # fv.views._srect V — __fvw_r1..4 (the caller's): S(V), V's absolute rect
@@ -1594,56 +1653,56 @@ fv.views._covers() {
 
 # fv.views._over V — paint, clipped to each rectangle of the caller's array
 # __fvw_rs (absolute X1 Y1 X2 Y2, ...), every visible view in front of V or
-# of one of V's owners whose S() meets it (back to front at each level), and
-# its shadow. `ring` (fv.views._frameBorder): the rectangles are the one-cell
-# pieces of a frame's border, which lets a view inside them pass at once
+# of one of V's owners whose S() meets it (back to front at each level, the
+# innermost level first), and its shadow. `ring` (fv.views._frameBorder): the
+# rectangles are the one-cell pieces of a frame's border, which lets a view
+# inside them pass at once. D21: the views in front come from the structure
+# cache __FV_VW_FRL (fv.views._frontList); most views have none in front
 fv.views._over() {
-    local __fvw_v=$1 __fvw_o __fvw_n __fvw_u1 __fvw_u2 __fvw_u3 __fvw_u4
     if (( ! ${#__fvw_rs[@]} )); then return 0; fi
-    # (the rectangles' bounding box, built at the first level with a view in
-    # front: fv.views._overLevel)
-    __fvw_u1=''
+    if [[ -z ${__FV_VW_FRL[$1]+x} ]]; then fv.views._frontList "$1"; fi
+    if [[ -n ${__FV_VW_FRL[$1]} ]]; then fv.views._overList "$1" "${2-}"; fi
+    return 0
+}
+# fv.views._frontList V — __FV_VW_FRL[V] = the views in front of V or of an
+# owner (each followed by a blank): at each owner level from V's up, the
+# siblings in front of the path node, back to front
+fv.views._frontList() {
+    local __fvw_v=$1 __fvw_o __fvw_i __fvw_f=''
     while :; do
         local -n __fvw_vd=${__fvw_v}_data
         __fvw_o=${__fvw_vd[Owner]-}
-        if [[ -z $__fvw_o ]]; then return 0; fi
+        if [[ -z $__fvw_o ]]; then break; fi
         local -n __fvw_ol=${__fvw_o}_views
-        __fvw_n=${#__fvw_ol[@]}
-        # (the front-most view of its owner: nothing in front of it there)
-        if ! [ "${__fvw_ol[__fvw_n-1]-}" = "$__fvw_v" ]; then fv.views._overLevel "${2-}"; fi
+        fv.views._idx "$__fvw_o" "$__fvw_v"
+        for (( __fvw_i = __fvw_i + 1; __fvw_i < ${#__fvw_ol[@]}; __fvw_i++ )); do __fvw_f+="${__fvw_ol[__fvw_i]} "; done
         __fvw_v=$__fvw_o
     done
+    __FV_VW_FRL[$1]=$__fvw_f
 }
-# fv.views._overLevel [ring] — _over at one owner level (its locals: __fvw_v
-# the path node, __fvw_o its owner, __fvw_ol / __fvw_n the owner's subviews,
-# __fvw_u1..u4 the box): every visible view in front of __fvw_v whose S()
-# meets a rectangle painted over it, with its shadow. Apart because bash
-# copies a function's body on every call: at most levels nothing is in front
-fv.views._overLevel() {
-    local __fvw_i=-1 __fvw_k __fvw_j __fvw_m=${#__fvw_rs[@]} __fvw_t __fvw_rg=0 __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4
-    if [ "${1-}" = ring ]; then __fvw_rg=1; fi
-    if [[ -z $__fvw_u1 ]]; then
-        # (a view in front that misses the box is passed with one test)
-        __fvw_u1=${__fvw_rs[0]} __fvw_u2=${__fvw_rs[1]} __fvw_u3=${__fvw_rs[2]} __fvw_u4=${__fvw_rs[3]}
-        for (( __fvw_j = 4; __fvw_j < __fvw_m; __fvw_j += 4 )); do
-            if (( __fvw_rs[__fvw_j] < __fvw_u1 )); then __fvw_u1=${__fvw_rs[__fvw_j]}; fi
-            if (( __fvw_rs[__fvw_j+1] < __fvw_u2 )); then __fvw_u2=${__fvw_rs[__fvw_j+1]}; fi
-            if (( __fvw_rs[__fvw_j+2] > __fvw_u3 )); then __fvw_u3=${__fvw_rs[__fvw_j+2]}; fi
-            if (( __fvw_rs[__fvw_j+3] > __fvw_u4 )); then __fvw_u4=${__fvw_rs[__fvw_j+3]}; fi
-        done
-    fi
-    fv.views._idx "$__fvw_o" "$__fvw_v"
-    for (( __fvw_i = __fvw_i + 1; __fvw_i < __fvw_n; __fvw_i++ )); do
-        __fvw_k=${__fvw_ol[__fvw_i]}
+# fv.views._overList V [ring] — _over's walk over V's front list: every
+# visible view whose S() meets a rectangle is painted over it, with its
+# shadow. Apart because bash copies a function's body on every call
+fv.views._overList() {
+    local __fvw_q=${__FV_VW_FRL[$1]} __fvw_k __fvw_j __fvw_m=${#__fvw_rs[@]} __fvw_t __fvw_rg=0 __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4
+    local __fvw_u1=${__fvw_rs[0]} __fvw_u2=${__fvw_rs[1]} __fvw_u3=${__fvw_rs[2]} __fvw_u4=${__fvw_rs[3]}
+    if [ "${2-}" = ring ]; then __fvw_rg=1; fi
+    # (the rectangles' bounding box: a view in front that misses it is passed with one test)
+    for (( __fvw_j = 4; __fvw_j < __fvw_m; __fvw_j += 4 )); do
+        if (( __fvw_rs[__fvw_j] < __fvw_u1 )); then __fvw_u1=${__fvw_rs[__fvw_j]}; fi
+        if (( __fvw_rs[__fvw_j+1] < __fvw_u2 )); then __fvw_u2=${__fvw_rs[__fvw_j+1]}; fi
+        if (( __fvw_rs[__fvw_j+2] > __fvw_u3 )); then __fvw_u3=${__fvw_rs[__fvw_j+2]}; fi
+        if (( __fvw_rs[__fvw_j+3] > __fvw_u4 )); then __fvw_u4=${__fvw_rs[__fvw_j+3]}; fi
+    done
+    while [[ -n $__fvw_q ]]; do
+        __fvw_k=${__fvw_q%% *} __fvw_q=${__fvw_q#*[ ]}
         local -n __fvw_kd=${__fvw_k}_data
         __fvw_t=${__fvw_kd[State]:-0}
-        if (( ! (__fvw_t & FV_SF_VISIBLE) )); then continue; fi
-        # (a view whose Draw is running: not painted again from inside it)
-        if [[ -n ${__FV_VW_INDRAW[$__fvw_k]-} ]]; then continue; fi
+        # (hidden, or a view whose Draw is running: not painted again from inside it)
+        if (( ! (__fvw_t & FV_SF_VISIBLE) )) || [[ -n ${__FV_VW_INDRAW[$__fvw_k]-} ]]; then continue; fi
         # S(k), as fv.views._srect
         __fvw_r1=${__FV_VW_AX[$__fvw_k]} __fvw_r2=${__FV_VW_AY[$__fvw_k]}
-        __fvw_r3=$(( __fvw_r1 + ${__fvw_kd[SizeX]:-0} )) __fvw_r4=$(( __fvw_r2 + ${__fvw_kd[SizeY]:-0} ))
-        if (( __fvw_t & FV_SF_SHADOW )); then __fvw_r3=$(( __fvw_r3 + 2 )) __fvw_r4=$(( __fvw_r4 + 1 )); fi
+        __fvw_r3=$(( __fvw_r1 + ${__fvw_kd[SizeX]:-0} + (__fvw_t & FV_SF_SHADOW ? 2 : 0) )) __fvw_r4=$(( __fvw_r2 + ${__fvw_kd[SizeY]:-0} + (__fvw_t & FV_SF_SHADOW ? 1 : 0) ))
         if (( __fvw_r1 >= __fvw_u3 || __fvw_u1 >= __fvw_r3 || __fvw_r2 >= __fvw_u4 || __fvw_u2 >= __fvw_r4 )); then continue; fi
         # (ring: the rectangles are one-cell pieces of a frame's border,
         # each on an edge of their box: a view strictly inside the box
@@ -1784,6 +1843,18 @@ fv.views._drawView() {
     fv.views._drawable "$1" || return 0
     local __fvw_bg __fvw_b1 __fvw_b2 __fvw_b3 __fvw_b4 __fvw_r1 __fvw_r2 __fvw_r3 __fvw_r4 __fvw_j
     fv.views._srect "$1"
+    # (D21: S(V) cut to the owner's clip: neither V nor its shadow reaches past it)
+    local -n __fvw_vo=${1}_data
+    local __fvw_ow=${__fvw_vo[Owner]-}
+    if [[ -n $__fvw_ow ]]; then
+        if (( __fvw_r1 < __FV_VW_C1[$__fvw_ow] )); then __fvw_r1=${__FV_VW_C1[$__fvw_ow]}; fi
+        if (( __fvw_r2 < __FV_VW_C2[$__fvw_ow] )); then __fvw_r2=${__FV_VW_C2[$__fvw_ow]}; fi
+        if (( __fvw_r3 > __FV_VW_C3[$__fvw_ow] )); then __fvw_r3=${__FV_VW_C3[$__fvw_ow]}; fi
+        if (( __fvw_r4 > __FV_VW_C4[$__fvw_ow] )); then __fvw_r4=${__FV_VW_C4[$__fvw_ow]}; fi
+        # (nothing inside the owner's clip: no drawing, but a held frame or a
+        # pending forced update still goes out, as the full path's flush does)
+        if (( __fvw_r1 >= __fvw_r3 || __fvw_r2 >= __fvw_r4 )); then fv.views._flush; return 0; fi
+    fi
     local -a __fvw_rs=("$__fvw_r1" "$__fvw_r2" "$__fvw_r3" "$__fvw_r4")
     if (( ${#__FV_VW_INDRAW[@]} )); then fv.views._nestCut "$1"; fi
     if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
@@ -1881,10 +1952,56 @@ fv.views.redraw() {
 # in that Draw is left out (FN may then run once per remaining piece). rc:
 # FN's (the last non-zero one; 0 when V cannot be drawn now: FN does not run)
 fv.views.drawPart() {
-    if (( $# < 4 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    # (D21 fast path, one test: a live leaf, a painter seen before, rows of
+    # 1-9 plain digits, not nested in a Draw, no wide rows; the rest, and
+    # every refusal, take the checked path)
+    if (( $# < 4 )) || [[ -z $1 || -z $2 || -z ${__FV_VW_LIVE[$1]-} || -n ${__FV_VW_GRP[$1]-} || -z ${__FV_VW_PNT[$2]-} \
+          || $3$4 == *[!0123456789]* || ${#3}${#4} != [123456789][123456789] ]] || (( ${#__FV_VW_INDRAW[@]} || ${#__FV_VW_WROW[@]} )); then
+        fv.views._drawPartX "$@"; return
+    fi
+    fv.views._drawable "$1" || return 0
+    local __fvw_r=${RESULT-} __fvw_s=0 __fvw_1=${__FV_VW_C1[$1]} __fvw_2=$(( __FV_VW_AY[$1] + 10#$3 )) __fvw_3=${__FV_VW_C3[$1]} __fvw_4=$(( __FV_VW_AY[$1] + 10#$4 ))
+    if (( __fvw_2 < __FV_VW_C2[$1] )); then __fvw_2=${__FV_VW_C2[$1]}; fi
+    if (( __fvw_4 > __FV_VW_C4[$1] )); then __fvw_4=${__FV_VW_C4[$1]}; fi
+    if (( __fvw_1 >= __fvw_3 || __fvw_2 >= __fvw_4 )); then return 0; fi
+    local __fvw_sv=$FV_DRAW_VIEW __fvw_sx=$FV_DRAW_X __fvw_sy=$FV_DRAW_Y __fvw_sp=$FV_DRAW_PAL
+    local __fvw_c1=$FV_CLIP_X1 __fvw_c2=$FV_CLIP_Y1 __fvw_c3=$FV_CLIP_X2 __fvw_c4=$FV_CLIP_Y2
+    local __fvw_bg=$__FV_VW_INGRP __fvw_b1=$__FV_VW_P1 __fvw_b2=$__FV_VW_P2 __fvw_b3=$__FV_VW_P3 __fvw_b4=$__FV_VW_P4
+    local -a __fvw_rs=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4")
+    # (fv.views._begin, inline)
+    if (( __FV_VW_DEPTH == 0 )); then
+        if (( ${__FV_VS_H:-0} )); then __FV_VW_UCLIP=1 __FV_VW_U1=$__FV_VS_CX1 __FV_VW_U2=$__FV_VS_CY1 __FV_VW_U3=$__FV_VS_CX2 __FV_VW_U4=$__FV_VS_CY2
+        else __FV_VW_UCLIP=''; fi
+    fi
+    if [[ -z ${__FV_VW_PAL[$1]+x} ]]; then fv.views._pal "$1"; fi
+    __FV_VW_DEPTH=$(( __FV_VW_DEPTH + 1 )) __FV_VW_INGRP=0 __FV_VW_INDRAW[$1]=1
+    FV_DRAW_VIEW=$1 FV_DRAW_X=${__FV_VW_AX[$1]} FV_DRAW_Y=${__FV_VW_AY[$1]} FV_DRAW_PAL=${__FV_VW_PAL[$1]}
+    FV_CLIP_X1=$(( __fvw_1 - FV_DRAW_X )) FV_CLIP_Y1=$(( __fvw_2 - FV_DRAW_Y )) FV_CLIP_X2=$(( __fvw_3 - FV_DRAW_X )) FV_CLIP_Y2=$(( __fvw_4 - FV_DRAW_Y ))
+    __FV_VW_P1=$__fvw_1 __FV_VW_P2=$__fvw_2 __FV_VW_P3=$__fvw_3 __FV_VW_P4=$__fvw_4
+    fv.video._clipf "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4"
+    "$2" "$1" "${@:5}" || __fvw_s=$?
+    unset '__FV_VW_INDRAW[$1]'
+    FV_DRAW_VIEW=$__fvw_sv FV_DRAW_X=$__fvw_sx FV_DRAW_Y=$__fvw_sy FV_DRAW_PAL=$__fvw_sp
+    FV_CLIP_X1=$__fvw_c1 FV_CLIP_Y1=$__fvw_c2 FV_CLIP_X2=$__fvw_c3 FV_CLIP_Y2=$__fvw_c4
+    __FV_VW_INGRP=1
+    fv.views._over "$1"
+    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
+    fv.views._end
+    # (fv.views._flush, inline for the held case: inside an event handler)
+    if (( __FV_VW_LSU || __FV_VW_LOCKN )); then
+        if (( __FV_VW_DEPTH == 0 )); then __FV_VW_PEND=1; fi
+    else fv.views._flush; fi
+    RESULT=$__fvw_r
+    return "$__fvw_s"
+}
+# fv.views._drawPartX — drawPart's checked path (the first call with a
+# painter, rows other than plain digits, a nested draw, wide rows)
+fv.views._drawPartX() {
+    if (( $# < 4 )); then fv.views._bad drawPart 'wrong argument count'; return; fi
     fv.views._view "$1" drawPart || return
     if [[ -n ${__FV_VW_GRP[$1]-} ]]; then fv.views._bad drawPart "'$1' is a group: drawPart paints a leaf (redraw a group with drawView)"; return; fi
     if ! declare -F "$2" >/dev/null; then fv.views._bad drawPart "'$2' is not a function"; return; fi
+    __FV_VW_PNT[$2]=1
     local -a __fvw_v
     # (rows of 1-9 plain digits without a call; anything else: _ints)
     if [[ $3$4 != *[!0123456789]* && ${#3}${#4} == [123456789][123456789] ]]; then __fvw_v=("$(( 10#$3 ))" "$(( 10#$4 ))")
@@ -2024,8 +2141,10 @@ fv.views._pal() {
     fv.views._virt "$1" GetPalette || RESULT=''
     if [[ -z ${RESULT-} ]]; then __FV_VW_PAL[$1]=$__fvw_b; RESULT=$__fvw_r; return 0; fi
     local -a __fvw_a
-    local IFS=' '
-    read -r -a __fvw_a <<< "$RESULT"
+    # (as `read -r -a` with IFS=' ' did: the first line, split at blanks, no globbing)
+    local - IFS=' '
+    set -f
+    __fvw_a=(${RESULT%%$'\n'*})
     for __fvw_n in "${__fvw_a[@]}"; do
         if [[ $__fvw_n == *[!0123456789]* || ${#__fvw_n} -gt 4 ]]; then __fvw_p+=$__FV_VW_ERRSYM; continue; fi
         __fvw_i=$(( 10#$__fvw_n ))
@@ -2190,7 +2309,7 @@ fv.views._viewDraw() {
 fv.views._groupDraw() {
     if ! [ "${FV_DRAW_VIEW-}" = "$1" ]; then return 0; fi
     local -n __fvw_l=${1}_views
-    local __fvw_n=${#__fvw_l[@]} __fvw_i __fvw_j __fvw_k __fvw_q __fvw_t=0 __fvw_cv
+    local __fvw_n=${#__fvw_l[@]} __fvw_i __fvw_j __fvw_k __fvw_q __fvw_t=0 __fvw_cv __fvw_tl
     local __fvw_p1=$__FV_VW_P1 __fvw_p2=$__FV_VW_P2 __fvw_p3=$__FV_VW_P3 __fvw_p4=$__FV_VW_P4 __fvw_g=$__FV_VW_INGRP
     local __fvw_1 __fvw_2 __fvw_3 __fvw_4
     __FV_VW_INGRP=1
@@ -2204,23 +2323,97 @@ fv.views._groupDraw() {
         if (( __fvw_p3 < __fvw_3 )); then __fvw_3=$__fvw_p3; fi
         if (( __fvw_p4 < __fvw_4 )); then __fvw_4=$__fvw_p4; fi
         if (( __fvw_1 < __fvw_3 && __fvw_2 < __fvw_4 )); then
-            __fvw_cv=0
+            __fvw_cv=0 __fvw_tl=0
             for (( __fvw_j = __fvw_i + 1; __fvw_j < __fvw_n; __fvw_j++ )); do
                 __fvw_q=${__fvw_l[__fvw_j]}
                 if (( __FV_VW_C1[$__fvw_q] > __fvw_1 || __FV_VW_C2[$__fvw_q] > __fvw_2 )); then continue; fi
-                if (( __FV_VW_C3[$__fvw_q] < __fvw_3 || __FV_VW_C4[$__fvw_q] < __fvw_4 )); then continue; fi
+                if (( __FV_VW_C3[$__fvw_q] < __fvw_3 || __FV_VW_C4[$__fvw_q] < __fvw_4 )); then
+                    # (it holds the part's top-left cell: several views together may cover the part)
+                    if (( __FV_VW_C3[$__fvw_q] > __fvw_1 && __FV_VW_C4[$__fvw_q] > __fvw_2 )); then __fvw_tl=1; fi
+                    continue
+                fi
                 local -n __fvw_qd=${__fvw_q}_data
                 if (( ! (${__fvw_qd[State]:-0} & FV_SF_VISIBLE) )); then continue; fi
                 if fv.views._covers "$__fvw_q"; then __fvw_cv=1; break; fi
             done
+            # (D21: no single view in front covers it: maybe several together,
+            # when one of them holds the part's top-left cell)
+            if (( ! __fvw_cv && __fvw_tl )) && fv.views._ucover "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4"; then __fvw_cv=1; fi
             if (( ! __fvw_cv )); then fv.views._paint "$__fvw_k" "$__fvw_p1" "$__fvw_p2" "$__fvw_p3" "$__fvw_p4"; __fvw_t=1; fi
         fi
-        if (( ${__fvw_kd[State]:-0} & FV_SF_SHADOW )); then
+        if (( ${__fvw_kd[State]:-0} & FV_SF_SHADOW )) && { (( __fvw_i + 1 == __fvw_n )) || ! fv.views._shcover; }; then
             if fv.views._shade "$__fvw_k" "$__fvw_p1" "$__fvw_p2" "$__fvw_p3" "$__fvw_p4"; then __fvw_t=1; fi
         fi
     done
     __FV_VW_INGRP=$__fvw_g
     if (( __fvw_t )) && [[ ${2-} != 1 ]]; then fv.video._clipf "$__fvw_p1" "$__fvw_p2" "$__fvw_p3" "$__fvw_p4"; fi
+    return 0
+}
+
+# fv.views._ucover X1 Y1 X2 Y2 — _groupDraw's union test (its locals:
+# __fvw_l the subviews, __fvw_n their count, __fvw_i the subview drawn): rc 0
+# when the visible COVERING subviews in front of it hold the rectangle
+# together (each takes its clip out of what is left; FV's own writes are
+# clipped by the views in front the same way, so nothing visible changes)
+fv.views._ucover() {
+    local -a __fvw_ur=("$1" "$2" "$3" "$4") __fvw_un
+    local __fvw_j __fvw_q __fvw_e1 __fvw_e2 __fvw_e3 __fvw_e4 __fvw_x __fvw_a1 __fvw_a2 __fvw_a3 __fvw_a4 __fvw_tb __fvw_bb
+    for (( __fvw_j = __fvw_i + 1; __fvw_j < __fvw_n; __fvw_j++ )); do
+        __fvw_q=${__fvw_l[__fvw_j]}
+        __fvw_e1=${__FV_VW_C1[$__fvw_q]} __fvw_e2=${__FV_VW_C2[$__fvw_q]} __fvw_e3=${__FV_VW_C3[$__fvw_q]} __fvw_e4=${__FV_VW_C4[$__fvw_q]}
+        __fvw_un=()
+        for (( __fvw_x = 0; __fvw_x < ${#__fvw_ur[@]}; __fvw_x += 4 )); do
+            __fvw_a1=${__fvw_ur[__fvw_x]} __fvw_a2=${__fvw_ur[__fvw_x+1]} __fvw_a3=${__fvw_ur[__fvw_x+2]} __fvw_a4=${__fvw_ur[__fvw_x+3]}
+            if (( __fvw_a1 >= __fvw_e3 || __fvw_e1 >= __fvw_a3 || __fvw_a2 >= __fvw_e4 || __fvw_e2 >= __fvw_a4 )); then
+                __fvw_un+=("$__fvw_a1" "$__fvw_a2" "$__fvw_a3" "$__fvw_a4"); continue
+            fi
+            # (the first piece this view meets: is it a visible covering view at all)
+            if [[ -z ${__fvw_tb-} ]]; then
+                local -n __fvw_uq=${__fvw_q}_data
+                if (( ! (${__fvw_uq[State]:-0} & FV_SF_VISIBLE) )) || ! fv.views._covers "$__fvw_q"; then __fvw_tb=n; else __fvw_tb=y; fi
+            fi
+            if [ "$__fvw_tb" = n ]; then __fvw_un+=("$__fvw_a1" "$__fvw_a2" "$__fvw_a3" "$__fvw_a4"); continue; fi
+            __fvw_bb=$__fvw_a4
+            if (( __fvw_a2 < __fvw_e2 )); then __fvw_un+=("$__fvw_a1" "$__fvw_a2" "$__fvw_a3" "$__fvw_e2"); __fvw_a2=$__fvw_e2; fi
+            if (( __fvw_e4 < __fvw_bb )); then __fvw_un+=("$__fvw_a1" "$__fvw_e4" "$__fvw_a3" "$__fvw_bb"); __fvw_bb=$__fvw_e4; fi
+            if (( __fvw_a1 < __fvw_e1 )); then __fvw_un+=("$__fvw_a1" "$__fvw_a2" "$__fvw_e1" "$__fvw_bb"); fi
+            if (( __fvw_e3 < __fvw_a3 )); then __fvw_un+=("$__fvw_e3" "$__fvw_a2" "$__fvw_a3" "$__fvw_bb"); fi
+        done
+        __fvw_tb=''
+        __fvw_ur=("${__fvw_un[@]}")
+        if (( ! ${#__fvw_ur[@]} )); then return 0; fi
+    done
+    return 1
+}
+# fv.views._shcover — _groupDraw's shadow test (its locals; the subview
+# __fvw_k with sfShadow, the paint rectangle __fvw_p1..p4): rc 0 when both
+# shadow strips, cut to the paint rectangle, are held by covering subviews in
+# front (fv.views._ucover): the shade would be painted over at once. One
+# visible difference from shading anyway: when a strip's edge cuts a wide
+# character of the view behind, the skipped shade no longer marks that
+# character's other half (shading it left one blank cell in the shadow
+# colour outside the strip); the skip leaves the character as it was
+fv.views._shcover() {
+    local -n __fvw_sk=${__fvw_k}_data
+    local __fvw_x=${__FV_VW_AX[$__fvw_k]} __fvw_y=${__FV_VW_AY[$__fvw_k]} __fvw_w=${__fvw_sk[SizeX]:-0} __fvw_h=${__fvw_sk[SizeY]:-0}
+    local __fvw_s1 __fvw_s2 __fvw_s3 __fvw_s4 __fvw_z __fvw_j __fvw_q
+    for __fvw_z in 0 1; do
+        if (( __fvw_z )); then __fvw_s1=$(( __fvw_x + 2 )) __fvw_s2=$(( __fvw_y + __fvw_h )) __fvw_s3=$(( __fvw_x + __fvw_w )) __fvw_s4=$(( __fvw_y + __fvw_h + 1 ))
+        else __fvw_s1=$(( __fvw_x + __fvw_w )) __fvw_s2=$(( __fvw_y + 1 )) __fvw_s3=$(( __fvw_x + __fvw_w + 2 )) __fvw_s4=$(( __fvw_y + __fvw_h + 1 )); fi
+        if (( __fvw_s1 < __fvw_p1 )); then __fvw_s1=$__fvw_p1; fi
+        if (( __fvw_s2 < __fvw_p2 )); then __fvw_s2=$__fvw_p2; fi
+        if (( __fvw_s3 > __fvw_p3 )); then __fvw_s3=$__fvw_p3; fi
+        if (( __fvw_s4 > __fvw_p4 )); then __fvw_s4=$__fvw_p4; fi
+        if (( __fvw_s1 >= __fvw_s3 || __fvw_s2 >= __fvw_s4 )); then continue; fi
+        # (a view in front must hold the strip's top-left cell: most shadows
+        # end here, before the subtraction)
+        for (( __fvw_j = __fvw_i + 1; __fvw_j < __fvw_n; __fvw_j++ )); do
+            __fvw_q=${__fvw_l[__fvw_j]}
+            if (( __FV_VW_C1[$__fvw_q] <= __fvw_s1 && __FV_VW_C2[$__fvw_q] <= __fvw_s2 && __FV_VW_C3[$__fvw_q] > __fvw_s1 && __FV_VW_C4[$__fvw_q] > __fvw_s2 )); then break; fi
+        done
+        if (( __fvw_j == __fvw_n )); then return 1; fi
+        fv.views._ucover "$__fvw_s1" "$__fvw_s2" "$__fvw_s3" "$__fvw_s4" || return 1
+    done
     return 0
 }
 
@@ -2536,41 +2729,34 @@ fv.views._frameRing() {
 # relies on z-clipping there). A row piece keeps its parts left and right of
 # the view, a column piece those above and below
 fv.views._uncover() {
-    local __fvw_v=$1 __fvw_o __fvw_i=-1 __fvw_n __fvw_k __fvw_j __fvw_hit
+    local __fvw_q __fvw_k __fvw_j __fvw_hit
     local __fvw_1 __fvw_2 __fvw_3 __fvw_4 __fvw_e1 __fvw_e2 __fvw_e3 __fvw_e4 __fvw_t
+    # (D21: the views in front of V or of an owner, from the structure cache)
+    if [[ -z ${__FV_VW_FRL[$1]+x} ]]; then fv.views._frontList "$1"; fi
+    __fvw_q=${__FV_VW_FRL[$1]}
+    if [[ -z $__fvw_q ]]; then return 0; fi
     # (the ring's box: V's absolute rect)
     local -n __fvw_bd=${1}_data
     local __fvw_b1=${__FV_VW_AX[$1]} __fvw_b2=${__FV_VW_AY[$1]} __fvw_b3 __fvw_b4
     __fvw_b3=$(( __fvw_b1 + ${__fvw_bd[SizeX]:-0} )) __fvw_b4=$(( __fvw_b2 + ${__fvw_bd[SizeY]:-0} ))
-    while (( ${#__fvw_rs[@]} )); do
-        local -n __fvw_vd=${__fvw_v}_data
-        __fvw_o=${__fvw_vd[Owner]-}
-        if [[ -z $__fvw_o ]]; then return 0; fi
-        local -n __fvw_ol=${__fvw_o}_views
-        __fvw_n=${#__fvw_ol[@]}
-        # (the front-most view of its owner: nothing in front of it there)
-        if [ "${__fvw_ol[__fvw_n-1]-}" = "$__fvw_v" ]; then __fvw_v=$__fvw_o; continue; fi
-        fv.views._idx "$__fvw_o" "$__fvw_v"
-        for (( __fvw_i = __fvw_i + 1; __fvw_i < __fvw_n && ${#__fvw_rs[@]}; __fvw_i++ )); do
-            __fvw_k=${__fvw_ol[__fvw_i]}
-            __fvw_e1=${__FV_VW_C1[$__fvw_k]} __fvw_e2=${__FV_VW_C2[$__fvw_k]} __fvw_e3=${__FV_VW_C3[$__fvw_k]} __fvw_e4=${__FV_VW_C4[$__fvw_k]}
-            # (one test for a view that misses the ring's box or lies inside
-            # its interior: the pieces are one cell thick, on V's border)
-            if (( __fvw_e1 >= __fvw_b3 || __fvw_b1 >= __fvw_e3 || __fvw_e2 >= __fvw_b4 || __fvw_b2 >= __fvw_e4 )) \
-               || (( __fvw_e1 > __fvw_b1 && __fvw_e3 < __fvw_b3 && __fvw_e2 > __fvw_b2 && __fvw_e4 < __fvw_b4 )); then continue; fi
-            __fvw_hit=0
-            for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
-                if (( __fvw_rs[__fvw_j] < __fvw_e3 && __fvw_e1 < __fvw_rs[__fvw_j+2] )); then
-                    if (( __fvw_rs[__fvw_j+1] < __fvw_e4 && __fvw_e2 < __fvw_rs[__fvw_j+3] )); then __fvw_hit=1; break; fi
-                fi
-            done
-            if (( ! __fvw_hit )); then continue; fi
-            local -n __fvw_kd=${__fvw_k}_data
-            if (( ! (${__fvw_kd[State]:-0} & FV_SF_VISIBLE) )); then continue; fi
-            if ! fv.views._covers "$__fvw_k"; then continue; fi
-            fv.views._uncut
+    while [[ -n $__fvw_q ]] && (( ${#__fvw_rs[@]} )); do
+        __fvw_k=${__fvw_q%% *} __fvw_q=${__fvw_q#*[ ]}
+        __fvw_e1=${__FV_VW_C1[$__fvw_k]} __fvw_e2=${__FV_VW_C2[$__fvw_k]} __fvw_e3=${__FV_VW_C3[$__fvw_k]} __fvw_e4=${__FV_VW_C4[$__fvw_k]}
+        # (one test for a view that misses the ring's box or lies inside
+        # its interior: the pieces are one cell thick, on V's border)
+        if (( __fvw_e1 >= __fvw_b3 || __fvw_b1 >= __fvw_e3 || __fvw_e2 >= __fvw_b4 || __fvw_b2 >= __fvw_e4 )) \
+           || (( __fvw_e1 > __fvw_b1 && __fvw_e3 < __fvw_b3 && __fvw_e2 > __fvw_b2 && __fvw_e4 < __fvw_b4 )); then continue; fi
+        __fvw_hit=0
+        for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
+            if (( __fvw_rs[__fvw_j] < __fvw_e3 && __fvw_e1 < __fvw_rs[__fvw_j+2] )); then
+                if (( __fvw_rs[__fvw_j+1] < __fvw_e4 && __fvw_e2 < __fvw_rs[__fvw_j+3] )); then __fvw_hit=1; break; fi
+            fi
         done
-        __fvw_v=$__fvw_o
+        if (( ! __fvw_hit )); then continue; fi
+        local -n __fvw_kd=${__fvw_k}_data
+        if (( ! (${__fvw_kd[State]:-0} & FV_SF_VISIBLE) )); then continue; fi
+        if ! fv.views._covers "$__fvw_k"; then continue; fi
+        fv.views._uncut
     done
     return 0
 }
@@ -2666,12 +2852,16 @@ fv.views._groupEvent() {
         # one pass over the list as it is now (back to front): the views
         # with ofPreProcess / ofPostProcess (most groups have none)
         local -a __fvw_k1=() __fvw_k2=()
-        for __fvw_k in "${__fvw_gl[@]}"; do
-            __fvw_t="${__fvw_k}_data[Options]"
-            __fvw_t=${!__fvw_t:-0}
-            if (( __fvw_t & FV_OF_PREPROCESS )); then __fvw_k1+=("$__fvw_k"); fi
-            if (( __fvw_t & FV_OF_POSTPROCESS )); then __fvw_k2+=("$__fvw_k"); fi
-        done
+        # (D21: one test over the live Options of all subviews first: __FV_VW_OEX)
+        if [[ -z ${__FV_VW_OEX[$1]+x} ]]; then fv.views._oexpr "$1"; fi
+        if (( ${__FV_VW_OEX[$1]} )); then
+            for __fvw_k in "${__fvw_gl[@]}"; do
+                __fvw_t="${__fvw_k}_data[Options]"
+                __fvw_t=${!__fvw_t:-0}
+                if (( __fvw_t & FV_OF_PREPROCESS )); then __fvw_k1+=("$__fvw_k"); fi
+                if (( __fvw_t & FV_OF_POSTPROCESS )); then __fvw_k2+=("$__fvw_k"); fi
+            done
+        fi
         if (( ${#__fvw_k1[@]} )); then
             __fvw_ks=("${__fvw_k1[@]}")
             fv.views._dispatch "$1" phPreProcess "$FV_OF_PREPROCESS" || return 0
@@ -2693,6 +2883,16 @@ fv.views._groupEvent() {
         fv.views._dispatch "$1" phFocused 0 || :
     fi
     return 0
+}
+
+# fv.views._oexpr G — __FV_VW_OEX[G] = the arithmetic test "a subview of G
+# has ofPreProcess or ofPostProcess" over their live Options fields (a
+# structure cache: dropped by fv.views._restruct)
+fv.views._oexpr() {
+    local -n __fvw_ol=${1}_views
+    local __fvw_k __fvw_e=''
+    for __fvw_k in "${__fvw_ol[@]}"; do __fvw_e+="${__fvw_k}_data[Options] | "; done
+    __FV_VW_OEX[$1]="($__fvw_e 0) & $(( FV_OF_PREPROCESS | FV_OF_POSTPROCESS ))"
 }
 
 # fv.views._groupMouse G — TGroup.HandleEvent's positional event (its
@@ -2729,16 +2929,15 @@ fv.views._dispatch() {
     for (( __fvw_xi = ${#__fvw_ks[@]} - 1; __fvw_xi >= 0; __fvw_xi-- )); do
         if [ "$FV_EV_WHAT" = evNothing ] || [[ -z ${__FV_VW_LIVE[$1]-} ]]; then return 1; fi
         __fvw_xk=${__fvw_ks[__fvw_xi]}
-        __fvw_xt="${__fvw_xk}_data[EventMask]"
-        if (( ! (__fvw_xb & ${!__fvw_xt:-0}) )); then continue; fi
+        # (D21: the skip tests merged: a destroyed view, the EventMask, no longer
+        # G's, the pre / post option, disabled for a positional / focused event)
         if [[ -z ${__FV_VW_LIVE[$__fvw_xk]-} ]]; then continue; fi
         local -n __fvw_xd=${__fvw_xk}_data
-        if ! [ "${__fvw_xd[Owner]-}" = "$1" ]; then continue; fi
-        if (( $3 && ! (${__fvw_xd[Options]:-0} & $3) )); then continue; fi
-        if (( (${__fvw_xd[State]:-0} & FV_SF_DISABLED) && (__fvw_xb & (FV_EM_MOUSE | FV_EM_KEYBOARD | FV_EM_COMMAND)) )); then continue; fi
-        __fvw_xf=${__fvw_xk}_class
-        __fvw_xf="${!__fvw_xf-}_class_method_owner[HandleEvent]"
-        __fvw_xf=${__FV_VW_IMPL[${!__fvw_xf-}.HandleEvent]-}
+        if (( ! (__fvw_xb & ${__fvw_xd[EventMask]:-0}) || ($3 && ! (${__fvw_xd[Options]:-0} & $3)) \
+              || ((${__fvw_xd[State]:-0} & FV_SF_DISABLED) && (__fvw_xb & (FV_EM_MOUSE | FV_EM_KEYBOARD | FV_EM_COMMAND))) )) \
+           || ! [ "${__fvw_xd[Owner]-}" = "$1" ]; then continue; fi
+        # (one simple command: the assignments run in order)
+        __fvw_xf=${__fvw_xk}_class __fvw_xf="${!__fvw_xf-}_class_method_owner[HandleEvent]" __fvw_xf=${__FV_VW_IMPL[${!__fvw_xf-}.HandleEvent]-}
         # (TView's and TFrame's handlers react to a mouse-down only)
         if { [ "$__fvw_xf" = fv.views._viewEvent ] || [ "$__fvw_xf" = fv.views._frameEvent ]; } && ! [ "$FV_EV_WHAT" = evMouseDown ]; then continue; fi
         # (a broadcast into a built-in group whose subtree has no listener:
