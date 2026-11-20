@@ -1960,6 +1960,19 @@ fv.views._wideMark() {
     # holds wide cells: nothing to mark or unmark; a caller IFS that joins
     # with a digit only takes the loop below)
     if (( ! (${#__FV_VW_WROW[@]} || ${#__FV_VS_WNEW[@]}) )) && [[ ${__FV_VS_WIDE[*]-} != *[123]* ]]; then return 0; fi
+    # (one rectangle short of the full width, no wide character written and
+    # no row of it holding wide cells: nothing to mark, nothing to unmark —
+    # the rows kept marked after CJK do not take the loop on every repaint)
+    if (( ! ${#__FV_VS_WNEW[@]} && ${#__fvw_rs[@]} == 4 )) && (( __fvw_rs[0] > 0 || __fvw_rs[2] < FV_SCREEN_W )); then
+        local __fvw_y=${__fvw_rs[1]} __fvw_e=${__fvw_rs[3]}
+        if (( __fvw_y < 0 )); then __fvw_y=0; fi
+        if (( __fvw_e > FV_SCREEN_H )); then __fvw_e=$FV_SCREEN_H; fi
+        if (( __fvw_e <= __fvw_y )) || [[ "${__FV_VS_WIDE[*]:__fvw_y:__fvw_e-__fvw_y}" != *[123]* ]]; then return 0; fi
+    fi
+    fv.views._wideMarkx
+}
+# fv.views._wideMarkx — fv.views._wideMark's loop
+fv.views._wideMarkx() {
     local __fvw_j __fvw_y __fvw_a=$FV_SCREEN_H __fvw_b=0
     local -a __fvw_full=()
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
