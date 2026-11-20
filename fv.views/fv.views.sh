@@ -1832,10 +1832,17 @@ fv.views._bands() {
             if (( __fvw_e > FV_SCREEN_H )); then __fvw_e=$FV_SCREEN_H; fi
             for (( ; __fvw_y < __fvw_e; __fvw_y++ )); do
                 if [[ -z ${__FV_VW_WROW[__fvw_y]-} || -n ${__fvw_hb[__fvw_y]-} ]]; then continue; fi
-                __fvw_s=${__FV_VS_CH[__fvw_y]-}
-                if (( __fvw_x1 > 0 )) && [[ ${__fvw_s:__fvw_x1:1} == "$__FV_VS_CONT" ]] || [[ ${__fvw_s:__fvw_x2:1} == "$__FV_VS_CONT" ]]; then
-                    __fvw_hb[__fvw_y]=1
-                    continue
+                # (a row that holds no continuation cell now, fv.video's
+                # WIDE bit 1, has no pair at an edge: no character read; such
+                # rows stay marked once seen, so this keeps them cheap)
+                if (( ${__FV_VS_WIDE[__fvw_y]:-0} & 1 )); then
+                    __fvw_s=${__FV_VS_CH[__fvw_y]-}
+                    if (( __fvw_x1 > 0 )) && [[ ${__fvw_s:__fvw_x1:1} == "$__FV_VS_CONT" ]] || [[ ${__fvw_s:__fvw_x2:1} == "$__FV_VS_CONT" ]]; then
+                        __fvw_hb[__fvw_y]=1
+                        continue
+                    fi
+                elif (( __fvw_bw )); then
+                    __fvw_s=${__FV_VS_CH[__fvw_y]-}
                 fi
                 if (( __fvw_bw )); then
                     if (( __fvw_x1 > 0 )) && [[ ${__fvw_s:__fvw_x1-1:1} == ' ' ]]; then __fvw_wl[__fvw_j/4]=1; fi
@@ -1865,7 +1872,7 @@ fv.views._bands() {
             if (( __fvw_y < 0 )); then __fvw_y=0; fi
             if (( __fvw_e > FV_SCREEN_H )); then __fvw_e=$FV_SCREEN_H; fi
             for (( ; __fvw_y < __fvw_e; __fvw_y++ )); do
-                if [[ -z ${__FV_VW_WROW[__fvw_y]-} || -n ${__fvw_hb[__fvw_y]-} ]]; then continue; fi
+                if [[ -z ${__FV_VW_WROW[__fvw_y]-} || -n ${__fvw_hb[__fvw_y]-} ]] || (( ! (${__FV_VS_WIDE[__fvw_y]:-0} & 1) )); then continue; fi
                 __fvw_s=${__FV_VS_CH[__fvw_y]-}
                 if { (( __fvw_x1 > 0 )) && [[ ${__fvw_s:__fvw_x1:1} == "$__FV_VS_CONT" ]]; } || { (( __fvw_x2 > 0 )) && [[ ${__fvw_s:__fvw_x2:1} == "$__FV_VS_CONT" ]]; }; then
                     __fvw_hb[__fvw_y]=1
