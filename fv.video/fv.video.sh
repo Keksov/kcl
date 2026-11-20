@@ -690,6 +690,28 @@ declare -ga __FV_VS_UV=($'[\xc2-\xdf][\x80-\xbf]' $'\xe0[\xa0-\xbf][\x80-\xbf]'
 declare -ga __FV_VS_FP=($'[\xcc\xcd\xd5-\xe1\xe3-\xff]' $'\xc2\xad' $'\xd2[\x83-\x89]'
     $'\xe2[!\x80\x81\x86\x87\x94-\x97]' $'\xe2\x80[\x8b-\x8f\xa8-\xaf]' $'\xe2\x81[\xa0-\xbf]'
     $'\xe2\x97[\xbc-\xbf]')
+# the wide fast path (P3 10.12; C-locale byte patterns, the common first):
+# the plain wide characters = the runs of class w (fv.unicode, Unicode 16) in
+# CJK Unified + Extension A + Yijing U+3400-9FFF, Hiragana U+3041-3096 and
+# U+309B-309F (not the combining U+3099-309A), Katakana U+30A0-30FF, CJK
+# punctuation U+3000-3029, Hangul syllables U+AC00-D7A3, CJK compatibility
+# ideographs U+F900-FAFF, fullwidth forms U+FF01-FF60 and U+FFE0-FFE6.
+# Every one is 2 wide, a BMP character, and joins nothing (tests/022 checks
+# each code point against fv.unicode). W3: any 3-byte sequence (the
+# substitution that adds the continuations, once the test passed); AMP: 1
+# when bash has patsub_replacement (& in a replacement; >= 5.2; tests set 0
+# for the 5.1 loop); RC / RU the replacements "the match + \x01" / "+ \x1f"
+# (from a variable: an unquoted & there is the match too)
+declare -ga __FV_VS_WB=($'[\xe4-\xe9][\x80-\xbf][\x80-\xbf]' $'\xe3\x81[\x81-\xbf]' $'\xe3\x82[\x80-\x96\x9b-\xbf]'
+    $'\xe3\x83[\x80-\xbf]' $'\xe3\x80[\x80-\xa9]' $'[\xeb\xec][\x80-\xbf][\x80-\xbf]' $'\xea[\xb0-\xbf][\x80-\xbf]'
+    $'\xed[\x80-\x9d][\x80-\xbf]' $'\xed\x9e[\x80-\xa3]' $'\xe3[\x90-\xbf][\x80-\xbf]' $'\xef\xbc[\x81-\xbf]'
+    $'\xef\xbd[\x80-\xa0]' $'\xef\xbf[\xa0-\xa6]' $'\xef[\xa4-\xab][\x80-\xbf]')
+declare -g __FV_VS_W3=$'[\xe0-\xef][\x80-\xbf][\x80-\xbf]' __FV_VS_RC=$'&\x01' __FV_VS_RU=$'&\x1f'
+if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 2) )); then
+    declare -g __FV_VS_AMP=1
+else
+    declare -g __FV_VS_AMP=0
+fi
 declare -g __FV_VS_SYMS=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 # __FV_VS_PNA: the pattern "the text holds a character outside printable
 # ASCII" (see Locale above), used unquoted in [[ == ]]
@@ -1016,6 +1038,14 @@ fv.video._san1() {
     local LC_ALL=C
     __fvv_f=1
     if [[ $__fvv_t == *[[:cntrl:]]* ]]; then __fvv_t=${__fvv_t//[[:cntrl:]]/"?"}; fi
+    fv.video._san2
+}
+# fv.video._san2 — _san1 after the control characters (C locale; _wrows' batch
+# runs it once over many rows joined with \x1f, which nothing here touches).
+# With __fvv_wq set (the caller's local: _textx) a text the fast set refuses
+# and without a 4-byte sequence tries the wide fast path: __fvv_f = 2 and
+# __fvv_t = its cells when every non-ASCII character is a plain wide one
+fv.video._san2() {
     if [[ $__fvv_t != *[![:ascii:]]* ]]; then return 0; fi
     if (( ! __fvv_u )); then fv.video._bytes 0; return 0; fi
     if [[ $__fvv_t == *$__FV_VS_C1* ]]; then __fvv_t=${__fvv_t//$__FV_VS_C1/"?"}; fi
@@ -1030,8 +1060,39 @@ fv.video._san1() {
         || $__fvv_t == *${__FV_VS_FP[3]}* || $__fvv_t == *${__FV_VS_FP[4]}* || $__fvv_t == *${__FV_VS_FP[5]}* \
         || $__fvv_t == *${__FV_VS_FP[6]}* ]]; then
         __fvv_f=0
-        if [[ $__fvv_t == *[$'\xf0'-$'\xf4']* ]]; then __fvv_a4=1; fi
+        if [[ $__fvv_t == *[$'\xf0'-$'\xf4']* ]]; then __fvv_a4=1
+        elif (( ${__fvv_wq:-0} )) && fv.video._wfb; then __fvv_f=2; fi
     fi
+}
+
+# fv.video._wfb — the wide fast path (P3 10.12; C locale, __fvv_t valid and
+# sanitised): rc 0 and __fvv_t = its cells when every non-ASCII character of
+# it is in __FV_VS_WB, the plain wide characters (class w in fv.unicode,
+# never joined to anything: no zero-width character, modifier, VS16 or ZWJ
+# can be among them), each one cell + the continuation \x01 — the walk's
+# answer without the walk; rc 1 (nothing changed) otherwise. The test removes
+# the accepted sequences pattern by pattern (the common ones first) until no
+# non-ASCII byte is left; the cells come from one substitution (& =
+# patsub_replacement, bash >= 5.2 with the option on; __FV_VS_AMP 0 forces
+# the loop, the bash 5.1 path)
+fv.video._wfb() {
+    # (a 2-byte, an E0-E2 3-byte or a 4-byte sequence: never accepted)
+    if [[ $__fvv_t == *[$'\xc2'-$'\xe2\xf0'-$'\xf4']* ]]; then return 1; fi
+    local __fvv_s=${__fvv_t//${__FV_VS_WB[0]}/} __fvv_i=1 __fvv_o='' __fvv_q
+    while [[ $__fvv_s == *[![:ascii:]]* ]]; do
+        if (( __fvv_i >= ${#__FV_VS_WB[@]} )); then return 1; fi
+        __fvv_s=${__fvv_s//${__FV_VS_WB[__fvv_i]}/} __fvv_i=$(( __fvv_i + 1 ))
+    done
+    if (( __FV_VS_AMP )) && [[ $BASHOPTS == *patsub_replacement* ]]; then
+        __fvv_t=${__fvv_t//$__FV_VS_W3/$__FV_VS_RC}
+        return 0
+    fi
+    # (every non-ASCII byte now starts a 3-byte sequence)
+    while [[ $__fvv_t == *[![:ascii:]]* ]]; do
+        __fvv_q=${__fvv_t%%[![:ascii:]]*}
+        __fvv_o+=$__fvv_q${__fvv_t:${#__fvv_q}:3}$__FV_VS_CONT __fvv_t=${__fvv_t:${#__fvv_q}+3}
+    done
+    __fvv_t=$__fvv_o$__fvv_t
 }
 
 # fv.video._fast TEXT — rc 0 when valid UTF-8 TEXT is in the fast set (the
@@ -1068,9 +1129,10 @@ fv.video._text() {
 # (kept apart: the common narrow hit then copies a short body)
 fv.video._textx() {
     if [[ $__FV_VS_V != $'\x04' ]]; then __fvv_w=1 __fvv_xl=${__FV_VS_TX[$__fvv_t]-} __fvv_t=${__FV_VS_V:1}; return 0; fi
-    local __fvv_key=$__fvv_t __fvv_f __fvv_a4=0
+    local __fvv_key=$__fvv_t __fvv_f __fvv_a4=0 __fvv_wq=1
     fv.video._san
-    if (( ! __fvv_f )); then fv.video._textw; fi
+    if (( __fvv_f == 2 )); then __fvv_w=1
+    elif (( ! __fvv_f )); then fv.video._textw; fi
     if (( ${#__FV_VS_TC[@]} >= 512 )); then fv.video._tcclear; fi
     if (( __fvv_w )); then __FV_VS_TC[$__fvv_key]=$'\x03'$__fvv_t __FV_VS_TX[$__fvv_key]=$__fvv_xl
     else __FV_VS_TC[$__fvv_key]=$__fvv_t; fi
@@ -1616,8 +1678,11 @@ fv.video._wstr() {
 }
 
 # fv.video._lead — __fvv_b with the symbol of every continuation cell of the
-# cells __fvv_t set to its lead's (a wide character has one look)
+# cells __fvv_t set to its lead's (a wide character has one look); nothing to
+# do for symbols all alike (a list row: one test on the short ASCII string
+# instead of a walk over the multibyte cells, P3 3a-1)
 fv.video._lead() {
+    if [[ -z ${__fvv_b//"${__fvv_b:0:1}"/} ]]; then return 0; fi
     local __fvv_q=$__fvv_t __fvv_p=0 __fvv_e
     while [[ $__fvv_q == *"$__FV_VS_CONT"* ]]; do
         __fvv_e=${__fvv_q%%"$__FV_VS_CONT"*}
@@ -1689,10 +1754,14 @@ fv.video._wbf() {
 # order, exactly `writeBuf X Y+k TEXTS[k] ATTRS[k]` (ATTRS: the array of the
 # rows' symbol strings; a missing element is ''), in one call: one guard,
 # every symbol and every text checked at once (the elements joined with '0',
-# a symbol and a printable character), then per row the narrow splice. A row
-# that needs more (a text outside the narrow cache, bad symbols, ATTRS of
-# another length) goes through writeBuf itself; a narrow row on a row with
-# wide cells through _putw. RESULT = the widest row's cells (writeBuf's
+# a symbol and a printable character), then per row the narrow splice.
+# Texts the text cache does not hold are converted at the first such row, all
+# of them at once, into the cache (_wrb, P3 10.11: one validity check over the
+# rows joined); a row with wide cells (a wide text, or a narrow one on a row
+# with wide cells) goes through _putw (P3 10.12). A row with bad symbols or
+# ATTRS of another length goes through writeBuf itself (its refusal), as does
+# a text the batch left out (none in practice: past 256 fresh texts the next
+# batch takes the rest). RESULT = the widest row's cells (writeBuf's
 # RESULT, the maximum over the rows; 0 for no rows); a row writeBuf refuses
 # leaves RESULT '' and rc 2 after the other rows are written. The caller
 # passes integers (no check); the names are checked here (the caller's checks
@@ -1705,7 +1774,7 @@ fv.video._wrows() {
     if [[ -z $3 || -z $4 || $3$4 == *[!_$__FV_VS_SYMS]* || $3 == [0123456789]* || $4 == [0123456789]* || $3 == __[fF][vV]* || $4 == __[fF][vV]* || $3 == RESULT || $4 == RESULT ]]; then RESULT=''; return 3; fi
     if (( ! __FV_VS_H )); then fv.video._noscr writeBuf; return; fi
     local -n __fvv_tt=$3 __fvv_aa=$4
-    local IFS=0 __fvv_x __fvv_y __fvv_t __fvv_a='' __fvv_b __fvv_w=0 __fvv_xl='' __fvv_n __fvv_o __fvv_r __fvv_k __fvv_st=0 __fvv_sa=0 __fvv_ss=0 __fvv_s=0 __fvv_m=0 __fvv_e=0
+    local IFS=0 __fvv_x __fvv_y __fvv_t __fvv_a='' __fvv_b __fvv_w=0 __fvv_xl='' __fvv_n __fvv_o __fvv_r __fvv_k __fvv_st=0 __fvv_sa=0 __fvv_ss=0 __fvv_s=0 __fvv_m=0 __fvv_e=0 __fvv_bt=0
     # (joined with '0': an associative array's attributes are 'A', no other's hold one)
     if [[ ${__fvv_tt[*]@a}${__fvv_aa[*]@a} == *A* ]]; then RESULT=''; return 3; fi
     if [[ ${__fvv_tt[*]-} == $__FV_VS_PNA ]]; then __fvv_st=1 __fvv_ss=1; fi
@@ -1714,22 +1783,22 @@ fv.video._wrows() {
         __fvv_y=$(( $2 + __fvv_k )) __fvv_x=$1 __fvv_t=${__fvv_tt[__fvv_k]} __fvv_b=${__fvv_aa[__fvv_k]-}
         if (( __fvv_ss )); then
             if (( __fvv_st )) && [[ $__fvv_t == $__FV_VS_PNA ]]; then
-                # (writeBuf's narrow cache hit; anything else is writeBuf's)
+                # (writeBuf's narrow cache hit; a wide hit or a miss: _wrx)
                 __FV_VS_V=${__FV_VS_TC[$__fvv_t]-$'\x04'}
-                if [[ $__FV_VS_V == [!$'\x03\x04']* ]]; then __fvv_t=$__FV_VS_V; else __fvv_s=1; fi
+                if [[ $__FV_VS_V == [!$'\x03\x04']* ]]; then __fvv_t=$__FV_VS_V; else fv.video._wrx || __fvv_s=1; fi
             fi
             if (( __fvv_sa )) && [[ $__fvv_b == *[!$__FV_VS_SYMS]* ]]; then __fvv_s=1; fi
         fi
         if (( __fvv_s || ${#__fvv_b} != ${#__fvv_t} )); then
-            __fvv_s=0
+            __fvv_s=0 __fvv_w=0 __fvv_xl=''
             if fv.video.writeBuf "$__fvv_x" "$__fvv_y" "${__fvv_tt[__fvv_k]}" "$__fvv_b"; then
                 if (( RESULT > __fvv_m )); then __fvv_m=$RESULT; fi
             else __fvv_e=1; fi
             continue
         fi
         if (( ${#__fvv_t} > __fvv_m )); then __fvv_m=${#__fvv_t}; fi
-        if (( __fvv_y < __FV_VS_CY1 || __fvv_y >= __FV_VS_CY2 )); then continue; fi
-        if (( __FV_VS_WIDE[__fvv_y] )); then fv.video._putw; continue; fi
+        if (( __fvv_y < __FV_VS_CY1 || __fvv_y >= __FV_VS_CY2 )); then __fvv_w=0 __fvv_xl=''; continue; fi
+        if (( __fvv_w || __FV_VS_WIDE[__fvv_y] )); then fv.video._wrw; continue; fi
         # (writeBuf's narrow row, as in its body)
         __fvv_n=${#__fvv_t} __fvv_o=0
         if (( __fvv_x < __FV_VS_CX1 || __fvv_x + __fvv_n > __FV_VS_CX2 || ! __fvv_n )); then fv.video._putc || continue; fi
@@ -1742,6 +1811,150 @@ fv.video._wrows() {
     done
     if (( __fvv_e )); then RESULT=''; return 2; fi
     RESULT=$__fvv_m
+}
+# fv.video._wrw — _wrows' row with wide cells (its locals): a wide text takes
+# its leads' symbols (writeBuf's rule), then _putw; the wide state is reset
+fv.video._wrw() {
+    if (( __fvv_w )); then fv.video._lead; fi
+    fv.video._putw
+    __fvv_w=0 __fvv_xl=''
+}
+# fv.video._wrx — the batch writers' row whose text the narrow cache does not
+# answer (their locals, __FV_VS_V = the cache's answer): a miss converts the
+# misses from this row on at once (_wrb; a batch that failed is not tried
+# again: rc 1, the row is the caller's per-row case); then a narrow answer
+# sets __fvv_t to the cells, a wide one __fvv_t, __fvv_w = 1 and __fvv_xl.
+# rc 1 when the text is still not in the cache
+fv.video._wrx() {
+    if [[ $__FV_VS_V == $'\x04' ]]; then
+        if (( __fvv_bt )); then return 1; fi
+        fv.video._wrb || __fvv_bt=1
+        __FV_VS_V=${__FV_VS_TC[$__fvv_t]-$'\x04'}
+        if [[ $__FV_VS_V == $'\x04' ]]; then return 1; fi
+        if [[ $__FV_VS_V != $'\x03'* ]]; then __fvv_t=$__FV_VS_V; return 0; fi
+    fi
+    __fvv_w=1 __fvv_xl=${__FV_VS_TX[$__fvv_t]-} __fvv_t=${__FV_VS_V:1}
+}
+# fv.video._wrb — the batch of fresh rows (P3 10.11; the caller's nameref
+# __fvv_tt and row index __fvv_k): every text of __fvv_tt from index k on
+# that holds a character outside printable ASCII and that the text cache
+# does not hold (at most 256 of them) is converted as _text would and cached
+# — the control characters per row ('?', a \x1f too), then ONE validity
+# check (_san2) over the rows joined with \x1f, split back, then per row the
+# fast set, the wide fast path (10.12) or the walk. All but the walk run in
+# one C-locale scope (_wrb1: the text test is byte-wise there, the cache keys
+# the same bytes). rc 1 (nothing cached: the rows take the per-row path; a
+# safety net, the control pass leaves no \x1f in a row) when the split does
+# not give the rows back
+fv.video._wrb() {
+    local __fvv_q __fvv_c=0 __fvv_i __fvv_r=0 __fvv_pe=${#__FV_VS_P}${#__FV_VS_B}
+    local -a __fvv_ms=() __fvv_mc=() __fvv_mw=()
+    # (under a caller LC_ALL a restore rejects, stderr off as in _san)
+    if [[ -n ${LC_ALL-} && $LC_ALL != C && $LC_ALL != POSIX && $LC_ALL != "$__FV_VS_LOC" ]] && ! fv.video._lcknown; then
+        fv.video._wrb1 2>/dev/null
+    else fv.video._wrb1; fi
+    if [[ ${#__FV_VS_P}${#__FV_VS_B} != "$__fvv_pe" ]]; then fv.video._lcx "$__fvv_pe" 2>/dev/null; fi
+    # (the rows that need the walk, in the call's UTF-8 locale)
+    for __fvv_i in "${!__fvv_mw[@]}"; do fv.video._wrbw; done
+    return "$__fvv_r"
+}
+# fv.video._wrb1 — _wrb's C-locale part: the missed rows into __fvv_ms, the
+# check, the narrow and plain wide ones cached; __fvv_mc = the sanitised
+# rows, __fvv_mw[i] = the walk's 4-byte flag for a row that needs the walk
+fv.video._wrb1() {
+    local LC_ALL=C - IFS=$__FV_VS_US __fvv_t='' __fvv_j __fvv_f=1 __fvv_a4=0 __fvv_u=0 __fvv_s __fvv_p
+    if [[ $__fvv_pe == 11 ]] && (( ! FV_VIDEO_ASCII )); then __fvv_u=1; fi
+    for __fvv_j in "${!__fvv_tt[@]}"; do
+        if (( __fvv_j < __fvv_k )); then continue; fi
+        __fvv_q=${__fvv_tt[__fvv_j]}
+        if [[ $__fvv_q != $__FV_VS_PNA || -n ${__FV_VS_TC[$__fvv_q]+1} ]]; then continue; fi
+        __fvv_ms[__fvv_c]=$__fvv_q __fvv_c=$(( __fvv_c + 1 ))
+        if [[ $__fvv_q == *[[:cntrl:]]* ]]; then __fvv_q=${__fvv_q//[[:cntrl:]]/"?"}; fi
+        __fvv_t+=$__fvv_q$__FV_VS_US
+        if (( __fvv_c >= 256 )); then break; fi
+    done
+    fv.video._san2
+    set -f
+    __fvv_mc=($__fvv_t)
+    if (( ${#__fvv_mc[@]} != __fvv_c )); then __fvv_r=1; return 0; fi
+    if (( ${#__FV_VS_TC[@]} + __fvv_c > 512 )); then fv.video._tcclear; fi
+    for (( __fvv_i = 0; __fvv_i < __fvv_c; __fvv_i++ )); do
+        __fvv_t=${__fvv_mc[__fvv_i]} __fvv_q=${__fvv_ms[__fvv_i]}
+        if (( __fvv_f )) || fv.video._fast "$__fvv_t"; then __FV_VS_TC[$__fvv_q]=$__fvv_t
+        elif [[ $__fvv_t == *[$'\xf0'-$'\xf4']* ]]; then __fvv_mw[__fvv_i]=1
+        elif fv.video._wfb; then __FV_VS_TC[$__fvv_q]=$'\x03'$__fvv_t __FV_VS_TX[$__fvv_q]=''
+        else __fvv_mw[__fvv_i]=0; fi
+    done
+}
+# fv.video._wrbw — _wrb's row __fvv_i that needs the walk (_textw), cached
+fv.video._wrbw() {
+    local __fvv_t=${__fvv_mc[__fvv_i]} __fvv_w=0 __fvv_xl='' __fvv_a4=${__fvv_mw[__fvv_i]}
+    __fvv_q=${__fvv_ms[__fvv_i]}
+    fv.video._textw
+    if (( __fvv_w )); then __FV_VS_TC[$__fvv_q]=$'\x03'$__fvv_t __FV_VS_TX[$__fvv_q]=$__fvv_xl
+    else __FV_VS_TC[$__fvv_q]=$__fvv_t; fi
+}
+
+# fv.video._wrowsu X Y W TEXTS SYMS — FRIEND ENTRY for fv.views.writeRows (P3
+# 10.2, uniform-symbol rows): for every index k of the indexed array named
+# TEXTS, in order, the row TEXTS[k] in the ONE symbol SYMS[k] at (X, Y+k),
+# cut or padded to W cells by fv.video's own cells (a wide character that the
+# cut halves becomes a space, writeBuf's edge rule; a short row is padded
+# with spaces): the same cells, symbols, side map and damage as a writeBuf of
+# the text clipped to [X, X+W) plus spaces up to X+W, in one call. W < 1
+# writes nothing. Fresh texts are converted at once (_wrb), as in _wrows. A
+# row whose SYMS[k] is not one symbol is refused: rc 2 and RESULT '' after
+# the other rows; else RESULT = W (0 for no rows or W < 1). X, Y, W are the
+# caller's integers (no check); the names as in _wrows (rc 3, no message);
+# no screen rc 1. Not for scripts
+fv.video._wrowsu() {
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if [[ -z $4 || -z $5 || $4$5 == *[!_$__FV_VS_SYMS]* || $4 == [0123456789]* || $5 == [0123456789]* || $4 == __[fF][vV]* || $5 == __[fF][vV]* || $4 == RESULT || $5 == RESULT ]]; then RESULT=''; return 3; fi
+    if (( ! __FV_VS_H )); then fv.video._noscr writeRows; return; fi
+    local -n __fvv_tt=$4 __fvv_sy=$5
+    local IFS=0 __fvv_x __fvv_y __fvv_t __fvv_a __fvv_b='' __fvv_w=0 __fvv_xl='' __fvv_n __fvv_o __fvv_r __fvv_k __fvv_c=$3 __fvv_p='' __fvv_m=0 __fvv_e=0 __fvv_bt=0 __fvv_st=0
+    if [[ ${__fvv_tt[*]@a}${__fvv_sy[*]@a} == *A* ]]; then RESULT=''; return 3; fi
+    if (( __fvv_c < 1 )); then __fvv_c=0; fi
+    if [[ ${__fvv_tt[*]-} == $__FV_VS_PNA ]]; then __fvv_st=1; fi
+    for __fvv_k in "${!__fvv_tt[@]}"; do
+        __fvv_y=$(( $2 + __fvv_k )) __fvv_a=${__fvv_sy[__fvv_k]-} __fvv_m=$__fvv_c
+        if [[ $__fvv_a != [$__FV_VS_SYMS] ]]; then __fvv_e=1; continue; fi
+        if (( __fvv_y < __FV_VS_CY1 || __fvv_y >= __FV_VS_CY2 || ! __fvv_c )); then continue; fi
+        __fvv_x=$1 __fvv_t=${__fvv_tt[__fvv_k]}
+        if (( __fvv_st )) && [[ $__fvv_t == $__FV_VS_PNA ]]; then
+            __FV_VS_V=${__FV_VS_TC[$__fvv_t]-$'\x04'}
+            if [[ $__FV_VS_V == [!$'\x03\x04']* ]]; then __fvv_t=$__FV_VS_V; else fv.video._wrx || fv.video._textx; fi
+        fi
+        __fvv_n=${#__fvv_t}
+        if (( __fvv_n != __fvv_c )); then fv.video._wrcut; fi
+        if (( __fvv_w || __FV_VS_WIDE[__fvv_y] )); then
+            fv.video._putw
+            __fvv_w=0 __fvv_xl=''
+            continue
+        fi
+        # (writeStr's narrow row, as in its body: the symbol's fill string)
+        if [[ -z ${__FV_VS_FILL[$__fvv_a]+1} ]]; then __FV_VS_FILL[$__fvv_a]=${__FV_VS_SP// /$__fvv_a}; fi
+        __fvv_n=$__fvv_c __fvv_o=0
+        if (( __fvv_x < __FV_VS_CX1 || __fvv_x + __fvv_n > __FV_VS_CX2 )); then fv.video._putc || continue; fi
+        __fvv_r=${__FV_VS_CH[__fvv_y]}
+        __FV_VS_CH[__fvv_y]=${__fvv_r:0:__fvv_x}${__fvv_t:__fvv_o:__fvv_n}${__fvv_r:__fvv_x+__fvv_n}
+        __fvv_r=${__FV_VS_AT[__fvv_y]}
+        __FV_VS_AT[__fvv_y]=${__fvv_r:0:__fvv_x}${__FV_VS_FILL[$__fvv_a]:0:__fvv_n}${__fvv_r:__fvv_x+__fvv_n}
+        if (( ${__FV_VS_DX1[__fvv_y]-99999} > __fvv_x )); then __FV_VS_DX1[__fvv_y]=$__fvv_x; fi
+        if (( ${__FV_VS_DX2[__fvv_y]-0} < __fvv_x + __fvv_n )); then __FV_VS_DX2[__fvv_y]=$(( __fvv_x + __fvv_n )); fi
+    done
+    if (( __fvv_e )); then RESULT=''; return 2; fi
+    RESULT=$__fvv_m
+}
+# fv.video._wrcut — _wrowsu's cells __fvv_t (__fvv_n of them) to __fvv_c
+# cells: padded with spaces, or cut (a wide character the cut halves leaves
+# a space; its marker entry, past the cells, is never written)
+fv.video._wrcut() {
+    if (( __fvv_n < __fvv_c )); then
+        if (( ${#__fvv_p} < __fvv_c )); then printf -v __fvv_p '%*s' "$__fvv_c" ''; fi
+        __fvv_t+=${__fvv_p:0:__fvv_c-__fvv_n}
+    elif [[ ${__fvv_t:__fvv_c:1} == "$__FV_VS_CONT" ]]; then __fvv_t=${__fvv_t:0:__fvv_c-1}' '
+    else __fvv_t=${__fvv_t:0:__fvv_c}; fi
 }
 # fv.video._wbuf X Y TEXT ATTRS [H] — writeBuf's less common cases (its
 # locals): ATTRS of another length (rc 2), wide cells (the leads' symbols),
@@ -2256,6 +2469,133 @@ fv.video.strWidth() {
     local __fvv_t=${1-} __fvv_w=0 __fvv_xl=''
     if [[ $__fvv_t == $__FV_VS_PNA ]]; then fv.video._text; fi
     RESULT=${#__fvv_t}
+}
+
+# fv.video.clusters TEXT CL CW — (P3 10.1) TEXT cut into clusters exactly as
+# the writes cut it into cells: the indexed array named CL gets the cluster
+# strings, the one named CW their cells (1 or 2); RESULT = the count. Both
+# arrays are replaced (an empty TEXT: two empty arrays, RESULT 0).
+#   * UTF-8 mode: a cluster is one cell's content — a character, a wide
+#     character (2), a base with its zero-width followers, a ZWJ sequence, a
+#     flag, a VS16 emoji, a character past U+FFFF (the walk's rules, D14).
+#     Valid TEXT without control characters comes back whole (CL joined =
+#     TEXT): a zero-width character at TEXT's start is a cluster of its own
+#     without the space the screen shows before it. A control character or
+#     an invalid sequence is the cluster '?' (as stored).
+#   * ASCII mode: every character — one UTF-8 sequence as the writes count
+#     them, or one byte below 0x80 — is one cluster of one cell holding
+#     TEXT's own bytes (the screen shows '?' or the map's letter there).
+# Printable ASCII takes a fast path (no text check). Bad names (no
+# identifier, __fv*, RESULT, CL = CW, an associative array) or another
+# argument count: rc 2, RESULT '', nothing changed
+fv.video.clusters() {
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
+    if (( $# != 3 )) || [[ -z $2 || -z $3 || $2$3 == *[!_$__FV_VS_SYMS]* || $2 == [0123456789]* || $3 == [0123456789]* \
+        || $2 == __[fF][vV]* || $3 == __[fF][vV]* || $2 == RESULT || $3 == RESULT || $2 == "$3" ]]; then
+        fv.video._bad clusters 'TEXT CL CW: CL CW names of two indexed arrays' "$@"; return
+    fi
+    local - IFS=$__FV_VS_US __fvv_t=$1 __fvv_w=0 __fvv_xl='' __fvv_o=''
+    # (the attribute of an unset name reads '' only without set -u; `local -` puts it back)
+    set +u -f
+    local -n __fvv_cl=$2 __fvv_cw=$3
+    if [[ ${__fvv_cl@a}${__fvv_cw@a} == *A* ]]; then fv.video._bad clusters 'CL CW must not be associative arrays' "$@"; return; fi
+    __fvv_cl=() __fvv_cw=()
+    if [[ $__fvv_t == $__FV_VS_PNA ]]; then
+        if (( FV_VIDEO_ASCII )); then fv.video._inc fv.video._cla
+        else
+            fv.video._text
+            if (( __fvv_w )); then fv.video._clw "$1"; else fv.video._clsep "$__fvv_t"; fi
+        fi
+    else fv.video._clsep "$__fvv_t"; fi
+    if [[ -n $__fvv_o ]]; then fv.video._clput; fi
+    RESULT=${#__fvv_cl[@]}
+}
+# fv.video._clsep STR — every character of STR + \x1f appended to __fvv_o
+# (one substitution with patsub_replacement, else a loop)
+fv.video._clsep() {
+    local __fvv_i
+    if (( __FV_VS_AMP )) && [[ $BASHOPTS == *patsub_replacement* ]]; then __fvv_o+=${1//?/$__FV_VS_RU}; return 0; fi
+    for (( __fvv_i = 0; __fvv_i < ${#1}; __fvv_i++ )); do __fvv_o+=${1:__fvv_i:1}$__FV_VS_US; done
+}
+# fv.video._clput — clusters' __fvv_o (each cluster + \x1f, all narrow) into
+# CL, a 1 per cluster into CW (IFS \x1f, globbing off: the caller's)
+fv.video._clput() {
+    local __fvv_s
+    __fvv_cl=($__fvv_o)
+    printf -v __fvv_s '%*s' "${#__fvv_cl[@]}" ''
+    __fvv_s=${__fvv_s// /1$__FV_VS_US}
+    __fvv_cw=($__fvv_s)
+}
+# fv.video._clw TEXT — clusters' wide cells __fvv_t of TEXT (markers in __fvv_xl, one
+# entry per marker in cell order) into CL / CW, cell by cell
+fv.video._clw() {
+    local __fvv_c __fvv_e __fvv_q=$__fvv_xl __fvv_i=0 __fvv_n=1
+    while [[ -n $__fvv_t ]]; do
+        __fvv_c=${__fvv_t:0:1} __fvv_t=${__fvv_t:1} __fvv_n=1
+        if [[ ${__fvv_t:0:1} == "$__FV_VS_CONT" ]]; then __fvv_t=${__fvv_t:1} __fvv_n=2; fi
+        if [[ $__fvv_c == "$__FV_VS_MARK" ]]; then
+            __fvv_e=${__fvv_q%%"$__FV_VS_US"*} __fvv_q=${__fvv_q#*"$__FV_VS_US"}
+            __fvv_c=${__fvv_e#*:}
+            # (an orphan zero-width character at the start: the screen's space dropped)
+            if (( ! __fvv_i )) && [[ $__fvv_c == ' '?* && $1 != ' '* ]]; then __fvv_c=${__fvv_c:1}; fi
+        fi
+        __fvv_cl[__fvv_i]=$__fvv_c __fvv_cw[__fvv_i]=$__fvv_n __fvv_i=$(( __fvv_i + 1 ))
+    done
+}
+# fv.video._cla — clusters in ASCII mode (C locale, via _inc): TEXT's
+# sequences as _bytes takes them (a lead byte and up to 3 continuation
+# bytes; each other byte alone) into __fvv_o
+fv.video._cla() {
+    local __fvv_q __fvv_c __fvv_n __fvv_b
+    # (a \x1f in TEXT is a character here, not a separator: each cluster goes
+    # straight into the arrays; critic 3a-1 M1)
+    if [[ $__fvv_t == *"$__FV_VS_US"* ]]; then fv.video._cla1; return; fi
+    while [[ $__fvv_t == *[![:ascii:]]* ]]; do
+        __fvv_q=${__fvv_t%%[![:ascii:]]*}
+        fv.video._clsep "$__fvv_q"
+        __fvv_t=${__fvv_t:${#__fvv_q}} __fvv_c=${__fvv_t:0:1}
+        printf -v __fvv_b '%d' "'$__fvv_c"
+        if (( (__fvv_b &= 255) >= 240 )); then __fvv_n=3; elif (( __fvv_b >= 224 )); then __fvv_n=2
+        elif (( __fvv_b >= 192 )); then __fvv_n=1; else __fvv_n=0; fi
+        while (( __fvv_n-- > 0 )) && [[ -n ${__fvv_t:${#__fvv_c}:1} ]]; do
+            printf -v __fvv_b '%d' "'${__fvv_t:${#__fvv_c}:1}"
+            if (( (__fvv_b &= 255) < 128 || __fvv_b >= 192 )); then break; fi
+            __fvv_c=${__fvv_t:0:${#__fvv_c}+1}
+        done
+        __fvv_o+=$__fvv_c$__FV_VS_US __fvv_t=${__fvv_t:${#__fvv_c}}
+    done
+    fv.video._clsep "$__fvv_t"
+}
+# fv.video._cla1 — _cla for a TEXT holding \x1f (C locale, via _inc): the
+# same sequences, appended to CL / CW one by one (__fvv_o stays empty)
+fv.video._cla1() {
+    local __fvv_c __fvv_n __fvv_b __fvv_i=0
+    while [[ -n $__fvv_t ]]; do
+        __fvv_c=${__fvv_t:0:1}
+        printf -v __fvv_b '%d' "'$__fvv_c"
+        if (( (__fvv_b &= 255) >= 240 )); then __fvv_n=3; elif (( __fvv_b >= 224 )); then __fvv_n=2
+        elif (( __fvv_b >= 192 )); then __fvv_n=1; else __fvv_n=0; fi
+        while (( __fvv_n-- > 0 )) && [[ -n ${__fvv_t:${#__fvv_c}:1} ]]; do
+            printf -v __fvv_b '%d' "'${__fvv_t:${#__fvv_c}:1}"
+            if (( (__fvv_b &= 255) < 128 || __fvv_b >= 192 )); then break; fi
+            __fvv_c=${__fvv_t:0:${#__fvv_c}+1}
+        done
+        __fvv_cl[__fvv_i]=$__fvv_c __fvv_cw[__fvv_i]=1 __fvv_i=$(( __fvv_i + 1 )) __fvv_t=${__fvv_t:${#__fvv_c}}
+    done
+}
+# fv.video._inc FUNC — FUNC in a scope of the C locale, the caller's locale
+# kept as _san keeps it (L-1: under an LC_ALL a restore rejects the scope
+# runs with stderr off; a failed restore is put right)
+fv.video._inc() {
+    local __fvv_pe=${#__FV_VS_P}${#__FV_VS_B}
+    if [[ -n ${LC_ALL-} && $LC_ALL != C && $LC_ALL != POSIX && $LC_ALL != "$__FV_VS_LOC" ]] && ! fv.video._lcknown; then
+        fv.video._inc1 "$1" 2>/dev/null
+    else fv.video._inc1 "$1"; fi
+    if [[ ${#__FV_VS_P}${#__FV_VS_B} != "$__fvv_pe" ]]; then fv.video._lcx "$__fvv_pe" 2>/dev/null; fi
+}
+fv.video._inc1() {
+    local LC_ALL=C
+    "$1"
 }
 # fv.video._roww — updateScreen's body for a row with wide cells (its
 # locals): equal to the shown copy only when the side map's version is too;

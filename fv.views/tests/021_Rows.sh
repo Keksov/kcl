@@ -16,7 +16,10 @@
 #   * refusals, rc 2 with RESULT '' and nothing written: outside a Draw,
 #     the count, X / Y not integers, names that are no identifiers, start
 #     with __fv (any case) or are RESULT, an associative array; a row
-#     refused: rc 2, RESULT '', the other rows written; under set -eu.
+#     refused: rc 2, RESULT '', the other rows written; under set -eu;
+#   * writeRows X Y W TEXTS SYMS (P3 10.2) = fv.video._wrowsu at the view's
+#     origin inside a drawPart (random cases); its refusals (count, X, W,
+#     names, outside a Draw), a refused row, a wide pair cut at W.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -193,6 +196,82 @@ r=$OUTP
 fvw_cells 1 1 3; r+=" $RESULT"; fvw_cells 1 2 3; r+="|$RESULT"; fvw_cells 1 3 3; r+="|$RESULT"; fvw_cells 1 4 3; r+="|$RESULT"
 fvw_check "a refused row: rc 2, RESULT '', the other rows written; no rows: RESULT 0; a negative Y (row -1 above the view: clipped, row 0 written)" \
     "2[]0[0]0[0]0[1] ya |   |   |dd " "$r"
+root.delete
+
+# --- writeRows (P3 10.2): fv.video._wrowsu in view coordinates ----------------------------
+# p_rows / p_rowsu: FN V X Y W (rows from RT / RS); OUTP = "rc[RESULT]"
+p_rows() { fv.views.writeRows "$2" "$3" "$4" RT RS; OUTP="$?[$RESULT]"; }
+p_rowsu() { fv.video._wrowsu "$(( FV_DRAW_X + $2 ))" "$(( FV_DRAW_Y + $3 ))" "$4" RT RS; OUTP="$?[$RESULT]"; }
+RANDOM=2113
+fail='' n=0
+for (( i = 0; i < 60; i++ )); do
+    if (( i % 5 == 4 )); then W=200 H=50; else W=40 H=12; fi
+    if (( i % 7 == 6 )); then FV_ASCII=1; else unset FV_ASCII; fi
+    fvw_screen "$W" "$H"
+    TGroup.new root 0 0 "$W" "$H"
+    fvw_expose root
+    vx=$(( RANDOM % 8 - 2 )) vy=$(( RANDOM % 6 - 2 ))
+    TView.new v "$vx" "$vy" $(( vx + 1 + RANDOM % 50 )) $(( vy + 1 + RANDOM % 16 ))
+    fv.views.insert root v
+    x=$(( RANDOM % 14 )) y=$(( RANDOM % 8 )) w=$(( RANDOM % 30 ))
+    y1=$(( RANDOM % 6 - 1 )) y2=$(( y1 + RANDOM % 14 ))
+    RT=() RS=()
+    for (( k = 0; k < RANDOM % 14; k++ )); do
+        RT[k]=${POOL[RANDOM % ${#POOL[@]}]}
+        if (( RANDOM % 15 )); then RS[k]=${SYMS:RANDOM % 62:1}; else RS[k]='#'; fi
+    done
+    ground
+    OUTP=''; fv.views.drawPart v p_rowsu "$y1" "$y2" "$x" "$y" "$w" 2>/dev/null; want=$OUTP
+    fvw_snap; s1=$REPLY
+    ground
+    OUTP=''; fv.views.drawPart v p_rows "$y1" "$y2" "$x" "$y" "$w" 2>/dev/null; got=$OUTP
+    fvw_snap
+    n=$(( n + 1 ))
+    if [[ $REPLY != "$s1" || $got != "$want" ]]; then fail+=" [i=$i ${W}x$H x=$x y=$y w=$w got=$got want=$want]"; fi
+    root.delete
+done
+unset FV_ASCII
+fvw_check "writeRows = fv.video._wrowsu at the view's origin inside a drawPart: $n random cases (cut / padded rows, wide text, a refused symbol, ASCII mode, painted row ranges)" "" "$fail"
+fvw_screen 20 6
+TGroup.new root 0 0 20 6; fvw_expose root
+TView.new v 1 1 15 5; fv.views.insert root v
+fv.views.drawView root
+fvw_snap; s0=$REPLY
+RT=(ab cd) RS=(1 2)
+pbadr() {
+    local -a __fvx=(a) aa=(1)
+    OUTP=''
+    RESULT=keep; fv.views.writeRows 0 0 4 RT RS x; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows 0 0 4 RT; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows x 0 4 RT RS; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows 0 0 -1 RT RS; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows 0 0 4x RT RS; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows 0 0 '' RT RS; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows 0 0 4 '' RS; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows 0 0 4 __fvx aa; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows 0 0 4 RT RESULT; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows 0 0 4 MA RS; OUTP+="$?[$RESULT]"
+    RESULT=keep; fv.views.writeRows 0 0 4 MI RS; OUTP+="$?[$RESULT]${FVW_INJ-}"
+}
+fv.views.drawPart v pbadr 0 4
+fvw_snap
+fvw_check "writeRows: malformed calls inside a Draw: rc 2, RESULT '', nothing written (count, X, W negative / not digits / empty, names, associative arrays: no key evaluated)" \
+    "2[]2[]2[]2[]2[]2[]2[]2[]2[]2[]2[] same" "$OUTP $([[ $REPLY == "$s0" ]] && printf same)"
+RESULT=keep; fv.views.writeRows 0 0 4 RT RS; r="$?[$RESULT]"
+fvw_snap
+fvw_check "writeRows outside a Draw: rc 2, RESULT '', nothing written" "2[] same" "$r $([[ $REPLY == "$s0" ]] && printf same)"
+pokr() {
+    local -a t=(aa "${HAN}${JI}x" cc dd) s=(1 2 '#' 4) e=()
+    fv.views.writeRows 0 0 3 t s; OUTP="$?[$RESULT]"
+    fv.views.writeRows 0 0 3 e e; OUTP+="$?[$RESULT]"
+    t=(xy) s=(5)
+    fv.views.writeRows 1 -1 3 t s; OUTP+="$?[$RESULT]"
+}
+fv.views.drawPart v pokr 0 4 2>/dev/null
+r=$OUTP
+fvw_cells 1 1 4; r+=" $RESULT"; fvw_cells 1 2 4; r+="|$RESULT"; fvw_cells 1 3 4; r+="|$RESULT"; fvw_cells 1 4 4; r+="|$RESULT"
+fvw_check "writeRows: a refused row (rc 2, RESULT '', the others written), a wide pair cut at W 3, no rows RESULT 0, a negative Y (the checked path)" \
+    "2[]0[0]0[3] aa  |${HAN}   |    |dd  " "$r"
 root.delete
 
 kt_test_start "under set -eu: writeLines in a Draw (plain, in if / ||, a refused call, an unset name), no error output"

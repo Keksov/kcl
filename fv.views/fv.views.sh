@@ -2301,6 +2301,32 @@ fv.views._wlrc() {
     if (( $1 == 3 )); then fv.views._bad writeLines 'TEXTS ATTRS must be names of indexed arrays (identifiers; not __fv*, not RESULT)'; return; fi
     return "$1"
 }
+# fv.views.writeRows X Y W TEXTS SYMS — (P3 10.2) uniform-symbol rows: for
+# every index k of the indexed array named TEXTS, in order, the row TEXTS[k]
+# in the ONE resolved symbol SYMS[k] at view row Y+k, cut or padded to W
+# cells by fv.video's own cells (a wide character the cut halves becomes a
+# space; a short row is padded with spaces) — a list row with wide text
+# without a width call per row. One fv.video call (fv.video._wrowsu).
+# RESULT = W (0 for no rows or W 0); rc 2 with RESULT '' for a malformed call
+# (nothing written: the count, outside a Draw, X / Y / W not integers or W
+# negative, the names as writeLines') and after the rows when a row is
+# refused (SYMS[k] not one fv.video symbol)
+fv.views.writeRows() {
+    if (( $# == 5 )) && [[ -n $FV_DRAW_VIEW && $1$2$3 != *[!0123456789]* && ${#1}${#2}${#3} == [1234567][1234567][1234567] ]]; then
+        fv.video._wrowsu "$(( FV_DRAW_X + 10#$1 ))" "$(( FV_DRAW_Y + 10#$2 ))" "$(( 10#$3 ))" "$4" "$5" || fv.views._wrrc "$?"
+        return
+    fi
+    if (( $# != 5 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    local __fvw_x __fvw_y
+    fv.views._wxy "$1" "$2" writeRows || return
+    if [[ -z $3 || $3 == *[!0123456789]* || ${#3} -gt 7 ]]; then fv.views._bad writeRows 'W must be an integer >= 0'; return; fi
+    fv.video._wrowsu "$__fvw_x" "$__fvw_y" "$(( 10#$3 ))" "$4" "$5" || fv.views._wrrc "$?"
+}
+# fv.views._wrrc RC — writeRows' answer for fv.video._wrowsu's rc (as _wlrc)
+fv.views._wrrc() {
+    if (( $1 == 3 )); then fv.views._bad writeRows 'TEXTS SYMS must be names of indexed arrays (identifiers; not __fv*, not RESULT)'; return; fi
+    return "$1"
+}
 # fv.views.fill X Y W H CH COLOR — the rectangle filled with CH's first
 # cluster in palette entry COLOR (FV MoveChar + WriteLine with H rows)
 fv.views.fill() {

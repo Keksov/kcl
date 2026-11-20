@@ -33,7 +33,7 @@ miss=''
 for f in insert insertBefore delete makeFirst putInFrontOf first last next prev nextView prevView \
     getBounds getExtent locate moveTo growTo changeBounds makeLocal makeGlobal mouseInView isView \
     drawView redraw drawPart show hide lock unlock lockScreenUpdate unlockScreenUpdate getColor resetPalette \
-    writeStr writeChar writeCStr writeLine writeLines fill _frameBorder \
+    writeStr writeChar writeCStr writeLine writeLines writeRows fill _frameBorder \
     message clearEvent setState select focus focusNext selectNext \
     enableCommands disableCommands commandEnabled getCommands setCommands \
     resetCursor setCursor showCursor hideCursor blockCursor normalCursor \

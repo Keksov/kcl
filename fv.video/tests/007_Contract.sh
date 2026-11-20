@@ -70,6 +70,8 @@ fv.video.writeBuf 0 0 ab AB 3; fv.video.shadeRect 0 0 4 2; fv.video.getRow 1; fv
 fv.video.fillColumns 0 3 2 x 1 4; fv.video._fcf 0 2 3 y 0 2; fv.video._clipf -1 0 99 9; fv.video._wstr 0 0 ab 1; fv.video._wbf 0 1 ab 12 2; fv.video._shadef 0 0 2 2
 T=(ab 'жук') A=(12 345); unset NOROWS; fv.video._wrows 0 1 T A; fv.video._wrows 0 0 NOROWS NOROWS
 A[1]=3; if fv.video._wrows 0 1 T A 2>/dev/null; then exit 9; fi
+S=(1 2); fv.video._wrowsu 0 0 4 T S; fv.video._wrowsu 0 0 4 NOROWS NOROWS; S[1]=xy; if fv.video._wrowsu 0 0 4 T S 2>/dev/null; then exit 9; fi
+fv.video.clusters 'a漢😀' CL CW; fv.video.clusters '' CL CW; fv.video.clusters x NEWCL NEWCW; if fv.video.clusters x CL 2>/dev/null; then exit 9; fi
 if fv.video.fillColumns 0 1 2 x; then exit 9; fi
 if fv.video.writeStr x 0 a 1; then exit 9; fi
 if fv.video.writeBuf 0 0 a A -1; then exit 9; fi
