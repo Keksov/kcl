@@ -1817,6 +1817,23 @@ fv.views._nestCut() {
 fv.views._bands() {
     __FV_VW_BANDED=0
     if (( ! ${#__FV_VW_WROW[@]} )); then return 0; fi
+    # (the common case without the long body: one rectangle, no WIDEN, not
+    # nested in a Draw (that one bands every marked row), and no
+    # row of it holds a continuation cell now (fv.video's WIDE bit 1) — then
+    # no wide pair lies at its edges, in any caller locale. Rows stay marked
+    # once wide cells were seen (WNEW), so this keeps a list that showed CJK
+    # and now shows other text as cheap as before; a caller IFS that joins
+    # with 1 or 3 only takes the long body)
+    if (( ${#__fvw_rs[@]} == 4 && ! ${1:-0} && ! ${#__FV_VW_INDRAW[@]} )); then
+        local __fvw_y=${__fvw_rs[1]} __fvw_e=${__fvw_rs[3]}
+        if (( __fvw_y < 0 )); then __fvw_y=0; fi
+        if (( __fvw_e > FV_SCREEN_H )); then __fvw_e=$FV_SCREEN_H; fi
+        if (( __fvw_e <= __fvw_y )) || [[ "${__FV_VS_WIDE[*]:__fvw_y:__fvw_e-__fvw_y}" != *[13]* ]]; then return 0; fi
+    fi
+    fv.views._bandsx "$@"
+}
+# fv.views._bandsx [WIDEN] — fv.views._bands' long body
+fv.views._bandsx() {
     local __fvw_j __fvw_y __fvw_r __fvw_s __fvw_w=$FV_SCREEN_W __fvw_q __fvw_e __fvw_k __fvw_x1 __fvw_x2 __fvw_a __fvw_b __fvw_bw=${1:-0}
     local -a __fvw_nr=() __fvw_dn=() __fvw_hb=() __fvw_iv=() __fvw_wl=() __fvw_wr=()
     if (( ${#__FV_VS_PB} == 2 && ! ${#__FV_VW_INDRAW[@]} )); then
