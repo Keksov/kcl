@@ -204,6 +204,28 @@ fvw_unwrap fv.views._moveGrow
 if [[ $r1 == '3|33 5 73 22|6|/0/0/0/0//' && $r2 == '3|34 6 74 23|2' ]] && fvw_full app; then kt_test_pass "ok"; else kt_test_fail "[$r1] [$r2] diff [$FVW_DIFF]"; fi
 reset
 
+kt_test_start "the drain stops at an evMouseAuto as at evNothing (fv.drivers answers one instead of evNothing while the button is held; with a tiny FV_IDLE_TIMEOUT every read is one): one read per drain, the drag goes on to the mouse-up"
+# (the source: a read with timeout 0 is always an evMouseAuto at the press's
+# cell — after 50 of them a mouse-up, so that a drain that never stops ends)
+ASRC_N=0
+asrc() {
+    if [[ ${1-} == 0 ]]; then
+        ASRC_N=$(( ASRC_N + 1 ))
+        fv.drivers.clearEvent
+        if (( ASRC_N > 50 )); then FV_EV_WHAT=evMouseUp FV_EV_MOUSE_X=60 FV_EV_MOUSE_Y=9
+        else FV_EV_WHAT=evMouseAuto FV_EV_MOUSE_X=50 FV_EV_MOUSE_Y=5 FV_EV_MOUSE_BUTTONS=1; fi
+        RESULT=$FV_EV_WHAT
+        return 0
+    fi
+    fvw_getev "$@"
+}
+fvw_events 'move 51 5' 'move 52 6' 'up 53 6'
+__FV_VW_GETEVENT=asrc
+mdown 50 5
+bounds; r="$ASRC_N|$REPLY|$FVW_EVN"
+if [[ $r == '2|33 6 73 23|3' ]] && fvw_full app; then kt_test_pass "ok"; else kt_test_fail "[$r] (drain reads | bounds | step reads) diff [$FVW_DIFF]"; fi
+reset
+
 kt_test_start "mouse: the grow corner grows the window by the mouse (the offset kept)"
 fvw_events 'move 60 15' 'up 60 15'
 mdown 69 21

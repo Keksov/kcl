@@ -116,6 +116,18 @@
 #   fvw_mklwin NAME AX AY BX BY TITLE NUM
 #                         a TWindow with a selectable TTestList NAMEl over
 #                         its interior
+# P3 stage 3a-2 (the widget stages' scenes):
+#   fvw_dscene [W H] [N]  a headless screen and the dialog scene: the events
+#                         scene (fvw_tscene) plus a dialog-like window dlg in
+#                         front of w1 and w2 (a TWindow, gray palette, no
+#                         number, centred on the desk, 40 x N+4 at least FV's
+#                         16 x 6, made the desk's Current as fv.views.select
+#                         does) with N (default 4) selectable one-row TTLeaf
+#                         controls dlgc1..dlgcN in a column (x 2, y 2, 3, ...;
+#                         dlgc1 its Current); FVW_DLG = the control names.
+#                         Not drawn yet (the selects draw their frames;
+#                         drawView app paints it all)
+#   fvw_undscene          app.delete (as fvw_untscene)
 #
 # Timing runs never use the shims.
 
@@ -429,6 +441,30 @@ fvw_tscene() {
     FVW_DRAWS=() FVW_GOT='' FVW_ROW=()
 }
 fvw_untscene() { app.delete; }
+
+# ---- P3 stage 3a-2 ----------------------------------------------------------------
+fvw_dscene() {
+    local n=${3:-4} i w=40 h dx dy
+    fvw_tscene "${1:-80}" "${2:-24}"
+    h=$(( n + 4 )); (( h < 6 )) && h=6
+    dx=$(( (FV_SCREEN_W - w) / 2 )) dy=$(( (FV_SCREEN_H - h) / 2 ))
+    TWindow.new dlg "$dx" "$dy" $(( dx + w )) $(( dy + h )) 'Dialog' "$FV_WN_NONUMBER"
+    dlg_data[Palette]=$FV_WP_GRAYWINDOW
+    FVW_DLG=()
+    for (( i = 1; i <= n; i++ )); do
+        TTLeaf.new "dlgc$i" 2 $(( i + 1 )) $(( w - 2 )) $(( i + 2 ))
+        local -n __t_c=dlgc${i}_data
+        __t_c[Options]=$(( __t_c[Options] | FV_OF_SELECTABLE ))
+        unset -n __t_c
+        fv.views.insert dlg "dlgc$i"
+        FVW_DLG+=("dlgc$i")
+    done
+    fv.views.select dlgc1
+    fv.views.insert desk dlg
+    fv.views.select dlg
+    FVW_DRAWS=() FVW_GOT='' FVW_ROW=()
+}
+fvw_undscene() { app.delete; }
 
 # ---- stage 2g --------------------------------------------------------------------
 fvw_classes3() {

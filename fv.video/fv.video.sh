@@ -735,6 +735,12 @@ declare -gA __FV_VS_FILL __FV_VS_PAL __FV_VS_SGR __FV_VS_AMAP __FV_VS_TC
 # (cells, markers, symbol strings; V: a cache read); CC: the per-character
 # class cache of the walk
 declare -ga __FV_VS_XV __FV_VS_OXV
+# WNEW[y] = 1: a write through _putw put a wide character into row y (or
+# wrote into a row that held one) since its reader last looked — also one
+# the clip cut or a later write overwrote, so the row may show none now; the
+# reader (fv.views._wideMark, a friend) clears it. Rows written only by the
+# narrow paths are never set
+declare -ga __FV_VS_WNEW
 declare -gA __FV_VS_X __FV_VS_TX __FV_VS_TB __FV_VS_CC __FV_VS_SC __FV_VS_SX
 declare -g __FV_VS_XSEQ=${__FV_VS_XSEQ:-0} __FV_VS_V=
 # a caller locale bash cannot restore (L-1, fv.video._g): LOK[value of the
@@ -745,7 +751,7 @@ __FV_VS_LOK+=()
 # set (for set -u) without losing what a reload finds
 __FV_VS_CH+=() __FV_VS_AT+=() __FV_VS_OCH+=() __FV_VS_OAT+=() __FV_VS_DX1+=() __FV_VS_DX2+=() __FV_VS_WIDE+=() __FV_VS_N16+=()
 __FV_VS_FILL+=() __FV_VS_PAL+=() __FV_VS_SGR+=() __FV_VS_AMAP+=() __FV_VS_TC+=()
-__FV_VS_XV+=() __FV_VS_OXV+=() __FV_VS_X+=() __FV_VS_TX+=() __FV_VS_TB+=() __FV_VS_CC+=() __FV_VS_SC+=() __FV_VS_SX+=()
+__FV_VS_XV+=() __FV_VS_OXV+=() __FV_VS_WNEW+=() __FV_VS_X+=() __FV_VS_TX+=() __FV_VS_TB+=() __FV_VS_CC+=() __FV_VS_SC+=() __FV_VS_SX+=()
 # the UTF-8 locale candidates; xterm's default colours 0-15 (R G B each); the
 # 6x6x6 cube levels; FV's DOS colour order -> ANSI; the default palette:
 # symbol 0 = FPC's DefaultAttr $07, then the 30 distinct bytes of FV's
@@ -1369,7 +1375,7 @@ fv.video._alloc() {
     __FV_VS_FILL[$__FV_VS_DEF]=${__FV_VS_SP// /$__FV_VS_DEF}
     __fvv_a=${__FV_VS_FILL[$__FV_VS_DEF]}
     __FV_VS_CH=() __FV_VS_AT=() __FV_VS_OCH=() __FV_VS_OAT=() __FV_VS_WIDE=() __FV_VS_DX1=() __FV_VS_DX2=()
-    __FV_VS_X=() __FV_VS_XV=() __FV_VS_OXV=()
+    __FV_VS_X=() __FV_VS_XV=() __FV_VS_OXV=() __FV_VS_WNEW=()
     for (( __fvv_y = 0; __fvv_y < __fvv_h; __fvv_y++ )); do
         __FV_VS_CH[__fvv_y]=$__FV_VS_SP __FV_VS_AT[__fvv_y]=$__fvv_a __FV_VS_WIDE[__fvv_y]=0
         __FV_VS_DX1[__fvv_y]=0 __FV_VS_DX2[__fvv_y]=$__fvv_w
@@ -1567,6 +1573,8 @@ fv.video._puth() {
 #   * the markers the write overwrites leave __FV_VS_X, the text's markers
 #     enter it; the row's flags (__FV_VS_WIDE: 1 holds \x01, 2 holds \x02)
 #     and, when the side map changed, its version (__FV_VS_XV) follow;
+#   * the row's WNEW flag is set for wide text or a row that held a wide
+#     character (fv.views' marking reads and clears it);
 #   * the damage covers the blanked halves too.
 fv.video._putw() {
     local __fvv_n=${#__fvv_t} __fvv_o=0 __fvv_s __fvv_m __fvv_r __fvv_g __fvv_d1 __fvv_d2 __fvv_q __fvv_p __fvv_e __fvv_j __fvv_v=0
@@ -1621,6 +1629,9 @@ fv.video._putw() {
     __fvv_r=${__FV_VS_CH[__fvv_y]} __fvv_e=0
     if [[ $__fvv_r == *"$__FV_VS_CONT"* ]]; then __fvv_e=1; fi
     if [[ $__fvv_r == *"$__FV_VS_MARK"* ]]; then __fvv_e=$(( __fvv_e + 2 )); fi
+    # (WNEW: wide text written, or a row that held a wide character written
+    # into: its reader marks the row even when none shows any more)
+    if (( __fvv_w || __FV_VS_WIDE[__fvv_y] & 1 )); then __FV_VS_WNEW[__fvv_y]=1; fi
     __FV_VS_WIDE[__fvv_y]=$__fvv_e
     if (( __fvv_v )); then __FV_VS_XSEQ=$(( __FV_VS_XSEQ + 1 )); __FV_VS_XV[__fvv_y]=$__FV_VS_XSEQ; fi
     if (( ${__FV_VS_DX1[__fvv_y]-99999} > __fvv_d1 )); then __FV_VS_DX1[__fvv_y]=$__fvv_d1; fi

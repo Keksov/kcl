@@ -148,12 +148,15 @@ declare -g __FV_VW_U1=${__FV_VW_U1:-0} __FV_VW_U2=${__FV_VW_U2:-0} __FV_VW_U3=${
 declare -g __FV_VW_P1=${__FV_VW_P1:-0} __FV_VW_P2=${__FV_VW_P2:-0} __FV_VW_P3=${__FV_VW_P3:-0} __FV_VW_P4=${__FV_VW_P4:-0}
 declare -g __FV_VW_OIDX=${__FV_VW_OIDX:--1}
 # INDRAW[v]: set while v's Draw runs (the paint stack; re-entrancy rule);
-# WROW[y]: 1 for a screen row that holds or held wide cells (repainted in
-# full-width bands); FORCE: a forced update (redraw) waiting for the release
+# WROW[y]: 1 for a screen row that holds or held wide cells, or that a
+# wide character was written into (also one hidden at once: fv.video's
+# WNEW; looked at by the edge test, fv.views._bands); FORCE: a forced
+# update (redraw) waiting for the release; BANDED: the bands and widened
+# rectangles the last fv.views._bands made
 declare -gA __FV_VW_INDRAW
 declare -ga __FV_VW_WROW
 __FV_VW_INDRAW+=() __FV_VW_WROW+=()
-declare -g __FV_VW_FORCE=${__FV_VW_FORCE:-0}
+declare -g __FV_VW_FORCE=${__FV_VW_FORCE:-0} __FV_VW_BANDED=${__FV_VW_BANDED:-0}
 # D21 structure caches, rebuilt lazily. They hold the tree's SHAPE only (who
 # owns whom, the order of each subview list), never a field's value: State,
 # Options, the bounds and the absolute rects are read live on every use, so
@@ -237,6 +240,19 @@ declare -gA __FV_VW_IMPL __FV_VW_FUNC
 # TGroup's. Merged on a reload, like IMPL
 declare -gA __FV_VW_QGRP
 __FV_VW_QGRP+=()
+# BCAST (stage 3a-2, the broadcast table): the broadcasts each built-in
+# HandleEvent body reacts to, BCAST[BODY]="cmA cmB ..." ('' = none). The
+# dispatch and fv.views._quiet skip, without a call, a view whose handler is
+# a body with a row that does not list the command (a group: when its
+# subtree has no listener either); a body without a row (and a user
+# override, always) gets every broadcast its EventMask lets through. A QGRP
+# entry counts as the row ''. Merged on a reload, like IMPL: the units above
+# this one add the rows of their bodies
+declare -gA __FV_VW_BCAST
+__FV_VW_BCAST+=(
+    [fv.views._viewEvent]='' [fv.views._frameEvent]='' [fv.views._groupEvent]=''
+    [fv.views._windowEvent]='cmSelectWindowNum'
+)
 __FV_VW_IMPL+=(
     [TView.ChangeBounds]=fv.views._viewChangeBounds [TView.CalcBounds]=fv.views._viewCalcBounds
     [TView.SizeLimits]=fv.views._viewSizeLimits [TView.GetHelpCtx]=fv.views._viewGetHelpCtx
@@ -573,7 +589,7 @@ fv.views._drawRects() {
         fv.views._shade "$1" "${__fvw_rs[@]:__fvw_j:4}" || :
     done
     fv.views._over "$1"
-    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
+    if (( ${#__FV_VW_WROW[@]} || ${#__FV_VS_WNEW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
 }
@@ -1767,32 +1783,129 @@ fv.views._nestCut() {
     __fvw_rs=("${__fvw_nr[@]}")
 }
 
-# fv.views._bands — wide characters and the repaint edges: a write cut by a
-# clip edge leaves a blank in the visible half of a wide character and blanks
-# the other half of the one it covers (fv.video's rules), so a repaint
+# fv.views._bands [WIDEN] — wide characters and the repaint edges: a write cut
+# by a clip edge leaves a blank in the visible half of a wide character and
+# blanks the other half of the one it covers (fv.video's rules), so a repaint
 # rectangle whose edge cuts a wide character would differ from a full
 # repaint. Rows that hold or held wide cells (__FV_VW_WROW, kept by
-# fv.views._wideMark) are therefore repainted across the whole screen width:
-# each rectangle of the caller's __fvw_rs is split into runs of rows, and a
-# run of such rows becomes a full-width band (each row banded once). No such
-# row: nothing to do
+# fv.views._wideMark) are therefore looked at. Stage 3a-2, the edge test: such
+# a row is repainted across the whole screen width (a full-width band) only
+#   * when a wide pair straddles the left or the right edge X1 / X2 of a
+#     rectangle on it: fv.video's row (read as a friend) holds a continuation
+#     cell at X1 or at X2. Outside the rectangle the screen already is what a
+#     full repaint gives, so such a pair is in the new picture too, and only
+#     there can a clipped paint differ from a full repaint (a pair cut at a
+#     clip edge of the view itself is cut the same way by both);
+#   * when two rectangles on the row meet or overlap (the edge between them
+#     lies inside what is repainted: the screen there tells nothing).
+# Otherwise the rectangle alone leaves the full repaint's cells. WIDEN 1 (the
+# repaints after a view left cells it covered: drawUnder, overOnly): a view
+# that no longer covers an edge cell uncovers the whole pair it had blanked
+# half of, so the picture can change one cell beyond the rectangle, where
+# that blanked half shows a space — a rectangle is widened by one cell on
+# each side where one of its wide rows has a space beside the edge (inside
+# the screen), and the test runs on the widened edges too (the extra cells
+# of its other rows are only repainted as they are: no split). A caller whose
+# locale is not UTF-8 (the friend read indexes characters) and a paint
+# nested in a Draw (fv.views._nestCut's pieces border a view whose paint is
+# running) band every such row, as before stage 3a-2. The callers run it
+# BEFORE they write anything (the test reads the screen as it was). A
+# rectangle with a row to band is split into runs at the band edges, a run to
+# band becoming one full-width band (each row banded once).
+# __FV_VW_BANDED = the number of bands and widened rectangles made (0:
+# __fvw_rs is unchanged)
 fv.views._bands() {
+    __FV_VW_BANDED=0
     if (( ! ${#__FV_VW_WROW[@]} )); then return 0; fi
-    local __fvw_j __fvw_y __fvw_r __fvw_s __fvw_w=$FV_SCREEN_W __fvw_q
-    local -a __fvw_nr=() __fvw_dn=()
-    local __fvw_e
+    local __fvw_j __fvw_y __fvw_r __fvw_s __fvw_w=$FV_SCREEN_W __fvw_q __fvw_e __fvw_k __fvw_x1 __fvw_x2 __fvw_a __fvw_b __fvw_bw=${1:-0}
+    local -a __fvw_nr=() __fvw_dn=() __fvw_hb=() __fvw_iv=() __fvw_wl=() __fvw_wr=()
+    if (( ${#__FV_VS_PB} == 2 && ! ${#__FV_VW_INDRAW[@]} )); then
+        # (pass 1, the edge test: __fvw_hb[y] = 1 for a row to band;
+        # __fvw_wl / __fvw_wr [j/4] = 1 when rectangle j widens to the left /
+        # right (WIDEN: a space beside its edge on one of its wide rows, the
+        # half a view it no longer covers may have blanked); __fvw_iv[y] = 1
+        # once a rectangle covers the row)
+        for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
+            __fvw_x1=${__fvw_rs[__fvw_j]} __fvw_x2=${__fvw_rs[__fvw_j+2]}
+            __fvw_y=${__fvw_rs[__fvw_j+1]} __fvw_e=${__fvw_rs[__fvw_j+3]}
+            if (( __fvw_y < 0 )); then __fvw_y=0; fi
+            if (( __fvw_e > FV_SCREEN_H )); then __fvw_e=$FV_SCREEN_H; fi
+            for (( ; __fvw_y < __fvw_e; __fvw_y++ )); do
+                if [[ -z ${__FV_VW_WROW[__fvw_y]-} || -n ${__fvw_hb[__fvw_y]-} ]]; then continue; fi
+                __fvw_s=${__FV_VS_CH[__fvw_y]-}
+                if (( __fvw_x1 > 0 )) && [[ ${__fvw_s:__fvw_x1:1} == "$__FV_VS_CONT" ]] || [[ ${__fvw_s:__fvw_x2:1} == "$__FV_VS_CONT" ]]; then
+                    __fvw_hb[__fvw_y]=1
+                    continue
+                fi
+                if (( __fvw_bw )); then
+                    if (( __fvw_x1 > 0 )) && [[ ${__fvw_s:__fvw_x1-1:1} == ' ' ]]; then __fvw_wl[__fvw_j/4]=1; fi
+                    if [[ ${__fvw_s:__fvw_x2:1} == ' ' ]]; then __fvw_wr[__fvw_j/4]=1; fi
+                fi
+                if [[ -n ${__fvw_iv[__fvw_y]-} ]]; then
+                    # (an earlier rectangle on this row that meets this one;
+                    # WIDEN: as both may be widened)
+                    for (( __fvw_k = 0; __fvw_k < __fvw_j; __fvw_k += 4 )); do
+                        __fvw_a=$(( __fvw_rs[__fvw_k] - 2 * __fvw_bw )) __fvw_b=$(( __fvw_rs[__fvw_k+2] + 2 * __fvw_bw ))
+                        if (( __fvw_y >= __fvw_rs[__fvw_k+1] && __fvw_y < __fvw_rs[__fvw_k+3] && __fvw_a <= __fvw_x2 && __fvw_x1 <= __fvw_b )); then
+                            __fvw_hb[__fvw_y]=1
+                            break
+                        fi
+                    done
+                fi
+                __fvw_iv[__fvw_y]=1
+            done
+        done
+        # (a widened rectangle: its other wide rows tested at the new edges)
+        for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
+            if [[ -z ${__fvw_wl[__fvw_j/4]-}${__fvw_wr[__fvw_j/4]-} ]]; then continue; fi
+            __fvw_x1=$(( __fvw_rs[__fvw_j] - 1 )) __fvw_x2=$(( __fvw_rs[__fvw_j+2] + 1 ))
+            if [[ -z ${__fvw_wl[__fvw_j/4]-} ]]; then __fvw_x1=0; fi
+            if [[ -z ${__fvw_wr[__fvw_j/4]-} ]]; then __fvw_x2=-1; fi
+            __fvw_y=${__fvw_rs[__fvw_j+1]} __fvw_e=${__fvw_rs[__fvw_j+3]}
+            if (( __fvw_y < 0 )); then __fvw_y=0; fi
+            if (( __fvw_e > FV_SCREEN_H )); then __fvw_e=$FV_SCREEN_H; fi
+            for (( ; __fvw_y < __fvw_e; __fvw_y++ )); do
+                if [[ -z ${__FV_VW_WROW[__fvw_y]-} || -n ${__fvw_hb[__fvw_y]-} ]]; then continue; fi
+                __fvw_s=${__FV_VS_CH[__fvw_y]-}
+                if { (( __fvw_x1 > 0 )) && [[ ${__fvw_s:__fvw_x1:1} == "$__FV_VS_CONT" ]]; } || { (( __fvw_x2 > 0 )) && [[ ${__fvw_s:__fvw_x2:1} == "$__FV_VS_CONT" ]]; }; then
+                    __fvw_hb[__fvw_y]=1
+                fi
+            done
+        done
+        if (( ! (${#__fvw_hb[@]} + ${#__fvw_wl[@]} + ${#__fvw_wr[@]}) )); then return 0; fi
+        local -n __fvw_bm=__fvw_hb
+    else
+        local -n __fvw_bm=__FV_VW_WROW
+    fi
+    # (pass 2: a rectangle is widened whole as pass 1 found (the extra cells
+    # of its other rows are only repainted as they are); one with rows to
+    # band is split into runs at the band edges, a run of rows to band
+    # becoming one full-width band)
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
         # (the rows on the screen only: nothing is drawn outside it)
         __fvw_y=${__fvw_rs[__fvw_j+1]} __fvw_e=${__fvw_rs[__fvw_j+3]}
         if (( __fvw_y < 0 )); then __fvw_y=0; fi
         if (( __fvw_e > FV_SCREEN_H )); then __fvw_e=$FV_SCREEN_H; fi
+        __fvw_x1=${__fvw_rs[__fvw_j]} __fvw_x2=${__fvw_rs[__fvw_j+2]}
+        if [[ -n ${__fvw_wl[__fvw_j/4]-}${__fvw_wr[__fvw_j/4]-} ]]; then
+            if [[ -n ${__fvw_wl[__fvw_j/4]-} ]]; then __fvw_x1=$(( __fvw_x1 - 1 )); fi
+            if [[ -n ${__fvw_wr[__fvw_j/4]-} ]] && (( __fvw_x2 < __fvw_w )); then __fvw_x2=$(( __fvw_x2 + 1 )); fi
+            __FV_VW_BANDED=$(( __FV_VW_BANDED + 1 ))
+        fi
+        for (( __fvw_r = __fvw_y; __fvw_r < __fvw_e; __fvw_r++ )); do
+            if [[ -n ${__fvw_bm[__fvw_r]-} ]]; then break; fi
+        done
+        if (( __fvw_r >= __fvw_e )); then
+            if (( __fvw_y < __fvw_e )); then __fvw_nr+=("$__fvw_x1" "$__fvw_y" "$__fvw_x2" "$__fvw_e"); fi
+            continue
+        fi
         while (( __fvw_y < __fvw_e )); do
-            __fvw_s=${__FV_VW_WROW[__fvw_y]-}
+            __fvw_s=${__fvw_bm[__fvw_y]-}
             for (( __fvw_r = __fvw_y + 1; __fvw_r < __fvw_e; __fvw_r++ )); do
-                if ! [ "${__FV_VW_WROW[__fvw_r]-}" = "$__fvw_s" ]; then break; fi
+                if ! [ "${__fvw_bm[__fvw_r]-}" = "$__fvw_s" ]; then break; fi
             done
             if [[ -z $__fvw_s ]]; then
-                __fvw_nr+=("${__fvw_rs[__fvw_j]}" "$__fvw_y" "${__fvw_rs[__fvw_j+2]}" "$__fvw_r")
+                __fvw_nr+=("$__fvw_x1" "$__fvw_y" "$__fvw_x2" "$__fvw_r")
             else
                 # (the rows not banded yet, as one band)
                 for (( __fvw_q = __fvw_y; __fvw_q < __fvw_r; __fvw_q++ )); do
@@ -1800,6 +1913,7 @@ fv.views._bands() {
                 done
                 if (( __fvw_q < __fvw_r )); then
                     __fvw_nr+=(0 "$__fvw_y" "$__fvw_w" "$__fvw_r")
+                    __FV_VW_BANDED=$(( __FV_VW_BANDED + 1 ))
                     for (( __fvw_q = __fvw_y; __fvw_q < __fvw_r; __fvw_q++ )); do __fvw_dn[__fvw_q]=1; done
                 fi
             fi
@@ -1811,13 +1925,17 @@ fv.views._bands() {
 
 # fv.views._wideMark — after a repaint: the rows of the caller's __fvw_rs
 # that now hold wide cells (fv.video's per-row flag __FV_VS_WIDE, read as a
-# friend) are marked in __FV_VW_WROW; a row repainted across the whole width
-# without one is unmarked
+# friend) are marked in __FV_VW_WROW, and so is every row fv.video wrote a
+# wide character into since the last look (its flag __FV_VS_WNEW, another
+# friend field, cleared here): a row whose only pair a view in front hides
+# by half at the first paint holds no continuation cell, yet a later repaint
+# that uncovers the pair needs the edge test; a row repainted across the
+# whole width with neither flag is unmarked
 fv.views._wideMark() {
-    # (nothing marked and no row of the screen holds wide cells: nothing to
-    # mark or unmark; a caller IFS that joins with a digit only takes the
-    # loop below)
-    if (( ! ${#__FV_VW_WROW[@]} )) && [[ ${__FV_VS_WIDE[*]-} != *[123]* ]]; then return 0; fi
+    # (nothing marked, no wide character written and no row of the screen
+    # holds wide cells: nothing to mark or unmark; a caller IFS that joins
+    # with a digit only takes the loop below)
+    if (( ! (${#__FV_VW_WROW[@]} || ${#__FV_VS_WNEW[@]}) )) && [[ ${__FV_VS_WIDE[*]-} != *[123]* ]]; then return 0; fi
     local __fvw_j __fvw_y __fvw_a=$FV_SCREEN_H __fvw_b=0
     local -a __fvw_full=()
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
@@ -1833,6 +1951,10 @@ fv.views._wideMark() {
         if (( ${__FV_VS_WIDE[__fvw_y]:-0} )); then __FV_VW_WROW[__fvw_y]=1
         elif [[ -n ${__fvw_full[__fvw_y]-} ]]; then unset '__FV_VW_WROW[__fvw_y]'; fi
     done
+    if (( ${#__FV_VS_WNEW[@]} )); then
+        for __fvw_y in "${!__FV_VS_WNEW[@]}"; do __FV_VW_WROW[__fvw_y]=1; done
+        __FV_VS_WNEW=()
+    fi
 }
 
 # fv.views._drawView V — FV DrawView (+ DrawShow's shadow): when V may be
@@ -1864,7 +1986,7 @@ fv.views._drawView() {
         fv.views._shade "$1" "${__fvw_rs[@]:__fvw_j:4}" || :
     done
     fv.views._over "$1"
-    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
+    if (( ${#__FV_VW_WROW[@]} || ${#__FV_VS_WNEW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
 }
@@ -1891,13 +2013,13 @@ fv.views._drawUnder() {
         __fvw_g=${__fvw_gd[Owner]}
     done
     local -a __fvw_rs=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4")
-    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
+    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands 1; fi
     fv.views._begin
     for (( __fvw_j = 0; __fvw_j < ${#__fvw_rs[@]}; __fvw_j += 4 )); do
         fv.views._paint "$__fvw_g" "${__fvw_rs[@]:__fvw_j:4}"
     done
     fv.views._over "$__fvw_g"
-    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
+    if (( ${#__FV_VW_WROW[@]} || ${#__FV_VS_WNEW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
 }
@@ -1908,10 +2030,10 @@ fv.views._overOnly() {
     fv.views._drawable "$1" || return 0
     local __fvw_bg __fvw_b1 __fvw_b2 __fvw_b3 __fvw_b4
     local -a __fvw_rs=("$2" "$3" "$4" "$5")
-    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
+    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands 1; fi
     fv.views._begin
     fv.views._over "$1"
-    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
+    if (( ${#__FV_VW_WROW[@]} || ${#__FV_VS_WNEW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
 }
@@ -1953,10 +2075,10 @@ fv.views.redraw() {
 # FN's (the last non-zero one; 0 when V cannot be drawn now: FN does not run)
 fv.views.drawPart() {
     # (D21 fast path, one test: a live leaf, a painter seen before, rows of
-    # 1-9 plain digits, not nested in a Draw, no wide rows; the rest, and
-    # every refusal, take the checked path)
+    # 1-9 plain digits, not nested in a Draw; the rest, and every refusal,
+    # take the checked path)
     if (( $# < 4 )) || [[ -z $1 || -z $2 || -z ${__FV_VW_LIVE[$1]-} || -n ${__FV_VW_GRP[$1]-} || -z ${__FV_VW_PNT[$2]-} \
-          || $3$4 == *[!0123456789]* || ${#3}${#4} != [123456789][123456789] ]] || (( ${#__FV_VW_INDRAW[@]} || ${#__FV_VW_WROW[@]} )); then
+          || $3$4 == *[!0123456789]* || ${#3}${#4} != [123456789][123456789] ]] || (( ${#__FV_VW_INDRAW[@]} )); then
         fv.views._drawPartX "$@"; return
     fi
     fv.views._drawable "$1" || return 0
@@ -1968,6 +2090,9 @@ fv.views.drawPart() {
     local __fvw_c1=$FV_CLIP_X1 __fvw_c2=$FV_CLIP_Y1 __fvw_c3=$FV_CLIP_X2 __fvw_c4=$FV_CLIP_Y2
     local __fvw_bg=$__FV_VW_INGRP __fvw_b1=$__FV_VW_P1 __fvw_b2=$__FV_VW_P2 __fvw_b3=$__FV_VW_P3 __fvw_b4=$__FV_VW_P4
     local -a __fvw_rs=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4")
+    # (rows with wide cells: the edge test before the painter writes; the
+    # views in front go over the bands it makes)
+    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
     # (fv.views._begin, inline)
     if (( __FV_VW_DEPTH == 0 )); then
         if (( ${__FV_VS_H:-0} )); then __FV_VW_UCLIP=1 __FV_VW_U1=$__FV_VS_CX1 __FV_VW_U2=$__FV_VS_CY1 __FV_VW_U3=$__FV_VS_CX2 __FV_VW_U4=$__FV_VS_CY2
@@ -1985,7 +2110,7 @@ fv.views.drawPart() {
     FV_CLIP_X1=$__fvw_c1 FV_CLIP_Y1=$__fvw_c2 FV_CLIP_X2=$__fvw_c3 FV_CLIP_Y2=$__fvw_c4
     __FV_VW_INGRP=1
     fv.views._over "$1"
-    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
+    if (( ${#__FV_VW_WROW[@]} || ${#__FV_VS_WNEW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     # (fv.views._flush, inline for the held case: inside an event handler)
     if (( __FV_VW_LSU || __FV_VW_LOCKN )); then
@@ -2019,6 +2144,10 @@ fv.views._drawPartX() {
     local -a __fvw_rs=("$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4")
     if (( ${#__FV_VW_INDRAW[@]} )); then fv.views._nestCut "$1"; fi
     if (( ! ${#__fvw_rs[@]} )); then return 0; fi
+    # (rows with wide cells: the edge test before the painter writes, its
+    # bands kept for the views in front)
+    local -a __fvw_ro=() __fvw_rb=()
+    if (( ${#__FV_VW_WROW[@]} )); then __fvw_ro=("${__fvw_rs[@]}"); fv.views._bands; __fvw_rb=("${__fvw_rs[@]}") __fvw_rs=("${__fvw_ro[@]}"); fi
     fv.views._begin
     if [[ -z ${__FV_VW_PAL[$1]+x} ]]; then fv.views._pal "$1"; fi
     FV_DRAW_VIEW=$1 FV_DRAW_X=${__FV_VW_AX[$1]} FV_DRAW_Y=${__FV_VW_AY[$1]} FV_DRAW_PAL=${__FV_VW_PAL[$1]}
@@ -2037,9 +2166,9 @@ fv.views._drawPartX() {
     FV_DRAW_VIEW=$__fvw_sv FV_DRAW_X=$__fvw_sx FV_DRAW_Y=$__fvw_sy FV_DRAW_PAL=$__fvw_sp
     FV_CLIP_X1=$__fvw_c1 FV_CLIP_Y1=$__fvw_c2 FV_CLIP_X2=$__fvw_c3 FV_CLIP_Y2=$__fvw_c4
     __FV_VW_INGRP=1
-    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fi
+    if (( ${#__fvw_ro[@]} )); then __fvw_rs=("${__fvw_rb[@]}"); fi
     fv.views._over "$1"
-    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
+    if (( ${#__FV_VW_WROW[@]} || ${#__FV_VS_WNEW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
     RESULT=$__fvw_r
@@ -2443,11 +2572,13 @@ fv.views._ucover() {
 # fv.views._shcover — _groupDraw's shadow test (its locals; the subview
 # __fvw_k with sfShadow, the paint rectangle __fvw_p1..p4): rc 0 when both
 # shadow strips, cut to the paint rectangle, are held by covering subviews in
-# front (fv.views._ucover): the shade would be painted over at once. One
-# visible difference from shading anyway: when a strip's edge cuts a wide
-# character of the view behind, the skipped shade no longer marks that
-# character's other half (shading it left one blank cell in the shadow
-# colour outside the strip); the skip leaves the character as it was
+# front (fv.views._ucover): the shade would be painted over at once. Not
+# when a strip's first or last column cuts a wide character of the views
+# behind (a continuation cell there, stage 3a-2): the shade marks that
+# character's other half too, outside the strip (fv.video's _shadew), which
+# stays visible as the half a view in front blanks — skipped, a partial
+# repaint whose rectangle holds the strip's part covered would differ from
+# a full repaint that shades it (fv.views._shwide)
 fv.views._shcover() {
     local -n __fvw_sk=${__fvw_k}_data
     local __fvw_x=${__FV_VW_AX[$__fvw_k]} __fvw_y=${__FV_VW_AY[$__fvw_k]} __fvw_w=${__fvw_sk[SizeX]:-0} __fvw_h=${__fvw_sk[SizeY]:-0}
@@ -2469,7 +2600,32 @@ fv.views._shcover() {
         if (( __fvw_j == __fvw_n )); then return 1; fi
         fv.views._ucover "$__fvw_s1" "$__fvw_s2" "$__fvw_s3" "$__fvw_s4" || return 1
     done
+    # (covered: rows with wide cells looked at, only then)
+    if [[ ${__FV_VS_WIDE[*]-} == *[13]* ]] && fv.views._shwide; then return 1; fi
     return 0
+}
+# fv.views._shwide — _shcover's wide test (its locals): rc 0 when a row of a
+# shadow strip cut to the paint rectangle holds wide cells and a
+# continuation cell at the strip's first or last column (where fv.video's
+# _shadew widens the shade); a caller whose locale is not UTF-8 (the read
+# indexes characters): rc 0 for any such row with wide cells
+fv.views._shwide() {
+    local __fvw_z __fvw_t
+    for __fvw_z in 0 1; do
+        if (( __fvw_z )); then __fvw_s1=$(( __fvw_x + 2 )) __fvw_s2=$(( __fvw_y + __fvw_h )) __fvw_s3=$(( __fvw_x + __fvw_w )) __fvw_s4=$(( __fvw_y + __fvw_h + 1 ))
+        else __fvw_s1=$(( __fvw_x + __fvw_w )) __fvw_s2=$(( __fvw_y + 1 )) __fvw_s3=$(( __fvw_x + __fvw_w + 2 )) __fvw_s4=$(( __fvw_y + __fvw_h + 1 )); fi
+        if (( __fvw_s1 < __fvw_p1 )); then __fvw_s1=$__fvw_p1; fi
+        if (( __fvw_s2 < __fvw_p2 )); then __fvw_s2=$__fvw_p2; fi
+        if (( __fvw_s3 > __fvw_p3 )); then __fvw_s3=$__fvw_p3; fi
+        if (( __fvw_s4 > __fvw_p4 )); then __fvw_s4=$__fvw_p4; fi
+        for (( ; __fvw_s2 < __fvw_s4 && __fvw_s1 < __fvw_s3; __fvw_s2++ )); do
+            if (( ! (${__FV_VS_WIDE[__fvw_s2]:-0} & 1) )); then continue; fi
+            if (( ${#__FV_VS_PB} != 2 )); then return 0; fi
+            __fvw_t=${__FV_VS_CH[__fvw_s2]}
+            if [[ ${__fvw_t:__fvw_s1:1} == "$__FV_VS_CONT" || ${__fvw_t:__fvw_s3:1} == "$__FV_VS_CONT" ]]; then return 0; fi
+        done
+    done
+    return 1
 }
 
 # TView.GetPalette (func) — FV: nil, '' (the view maps as its owner does)
@@ -2733,6 +2889,16 @@ fv.views._frameRing() {
     fi
     fv.views._uncover "$1"
     if (( ! ${#__fvw_rs[@]} )); then RESULT=$__fvw_r; return 0; fi
+    # (rows with wide cells: the edge test before anything is written; when it
+    # banded or widened pieces, the views in front go over those, else over
+    # the ring pieces)
+    local -a __fvw_ro=() __fvw_rb=()
+    if (( ${#__FV_VW_WROW[@]} )); then
+        __fvw_ro=("${__fvw_rs[@]}")
+        fv.views._bands
+        if (( __FV_VW_BANDED )); then __fvw_rb=("${__fvw_rs[@]}"); fi
+        __fvw_rs=("${__fvw_ro[@]}")
+    fi
     fv.views._begin
     local __fvw_fc __fvw_p1='' __fvw_p2 __fvw_p3
     fv.views._frameRows "$1"
@@ -2771,8 +2937,8 @@ fv.views._frameRing() {
     # non-covering view meeting several pieces is painted once per piece)
     # (rows with wide cells make full-width bands of the pieces: then they
     # are no ring any more)
-    if (( ${#__FV_VW_WROW[@]} )); then fv.views._bands; fv.views._over "$1"; else fv.views._over "$1" ring; fi
-    if (( ${#__FV_VW_WROW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
+    if (( ${#__fvw_rb[@]} )); then __fvw_rs=("${__fvw_rb[@]}"); fv.views._over "$1"; else fv.views._over "$1" ring; fi
+    if (( ${#__FV_VW_WROW[@]} || ${#__FV_VS_WNEW[@]} )) || [[ ${__FV_VS_WIDE[*]-} == *[123]* ]]; then fv.views._wideMark; fi
     fv.views._end
     fv.views._flush
     RESULT=$__fvw_r
@@ -2976,7 +3142,10 @@ fv.views._groupMouse() {
 # G, it lacks OPTION (the pre / post phase) or it is disabled for a
 # positional / focused event; else G's Phase = PHASE and the view's
 # HandleEvent through the elision, inline: TView's body does nothing but a
-# mouse-down's click to focus, so it is not even called for anything else
+# mouse-down's click to focus, so it is not even called for anything else;
+# a broadcast skips a built-in handler whose row in the broadcast table
+# (__FV_VW_BCAST) does not list the command (a group: when fv.views._quiet
+# finds its subtree quiet too)
 fv.views._dispatch() {
     local __fvw_xi __fvw_xk __fvw_xb __fvw_xf __fvw_xr __fvw_xt
     local -n __fvw_xg=${1}_data
@@ -2993,14 +3162,18 @@ fv.views._dispatch() {
            || ! [ "${__fvw_xd[Owner]-}" = "$1" ]; then continue; fi
         # (one simple command: the assignments run in order)
         __fvw_xf=${__fvw_xk}_class __fvw_xf="${!__fvw_xf-}_class_method_owner[HandleEvent]" __fvw_xf=${__FV_VW_IMPL[${!__fvw_xf-}.HandleEvent]-}
+        if (( __fvw_xb == FV_EM_BROADCAST )); then
+            # (stage 3a-2, the broadcast table: a built-in handler whose row
+            # does not list the command is skipped without a call — a leaf at
+            # once, a built-in group when its subtree has no listener either:
+            # the delivery is skipped, its Phase effects kept: fv.views._quiet)
+            if [[ -n $__fvw_xf && -n ${__FV_VW_BCAST[$__fvw_xf]+x}${__FV_VW_QGRP[$__fvw_xf]-} ]] \
+               && [[ " ${__FV_VW_BCAST[$__fvw_xf]-} " != *" $FV_EV_COMMAND "* ]]; then
+                if [[ -z ${__FV_VW_GRP[$__fvw_xk]-} ]]; then continue; fi
+                if fv.views._quiet "$__fvw_xk" "$FV_EV_COMMAND"; then __fvw_xg[Phase]=$2; continue; fi
+            fi
         # (TView's and TFrame's handlers react to a mouse-down only)
-        if { [ "$__fvw_xf" = fv.views._viewEvent ] || [ "$__fvw_xf" = fv.views._frameEvent ]; } && ! [ "$FV_EV_WHAT" = evMouseDown ]; then continue; fi
-        # (a broadcast into a built-in group whose subtree has no listener:
-        # the delivery is skipped, its Phase effects kept: fv.views._quiet)
-        if (( __fvw_xb == FV_EM_BROADCAST )) && [[ -n ${__FV_VW_GRP[$__fvw_xk]-} ]] && fv.views._quiet "$__fvw_xk" "$FV_EV_COMMAND"; then
-            __fvw_xg[Phase]=$2
-            continue
-        fi
+        elif { [ "$__fvw_xf" = fv.views._viewEvent ] || [ "$__fvw_xf" = fv.views._frameEvent ]; } && ! [ "$FV_EV_WHAT" = evMouseDown ]; then continue; fi
         __fvw_xg[Phase]=$2
         if [[ -z $__fvw_xf ]]; then "$__fvw_xk.HandleEvent" || :
         else
@@ -3017,29 +3190,29 @@ fv.views._dispatch() {
 
 # fv.views._quiet V COMMAND — rc 0 when the broadcast COMMAND delivered to V
 # would reach no handler that reacts to it (stage 2c-p: the focus broadcasts
-# of a window switch cost a dispatch tree each). V's HandleEvent is TView's
-# or TFrame's (they react to evMouseDown only: TFrame's handler, stage 2d, is
-# quiet for every broadcast), or TGroup's / TWindow's (TWindow reacts to
-# cmSelectWindowNum: not quiet) and every subview the dispatch would reach
-# (EventMask with evBroadcast, live, still V's subview) is quiet itself. A
-# user override anywhere in the way is never quiet. The dispatch sets a
-# group's Phase before each subview it calls (not before a TView handler it
-# skips): when the answer is 0 the walk sets those Phases the same way (only
-# then: a walk that ends "not quiet" leaves no trace), so a skipped delivery
-# leaves the same state. A built-in HandleEvent that reacts to a broadcast
-# must make this answer 1 for it. NESTED (internal): the inner walk adds the
-# groups to stamp to the outer call's __fvw_qp
+# of a window switch cost a dispatch tree each). Stage 3a-2: the answer
+# comes from the broadcast table __FV_VW_BCAST. V's HandleEvent is a built-in
+# body with a row (a QGRP entry: the row '') that does not list COMMAND
+# (TView's, TFrame's, TGroup's: ''; TWindow's: cmSelectWindowNum), and, for
+# a group, every subview the dispatch would reach (EventMask with
+# evBroadcast, live, still V's subview) is quiet itself. A user override
+# anywhere in the way is never quiet, nor is a built-in body without a row.
+# The dispatch sets a group's Phase before each subview it calls (not before
+# a handler the table skips): when the answer is 0 the walk sets those Phases
+# the same way (only then: a walk that ends "not quiet" leaves no trace), so
+# a skipped delivery leaves the same state. A built-in HandleEvent that
+# reacts to a broadcast lists it in its row. NESTED (internal): the inner
+# walk adds the groups to stamp to the outer call's __fvw_qp
 fv.views._quiet() {
     local __fvw_f=${1}_class
     if [[ -z ${3-} ]]; then local -a __fvw_qp=(); fi
     __fvw_f="${!__fvw_f-}_class_method_owner[HandleEvent]"
     __fvw_f=${__FV_VW_IMPL[${!__fvw_f-}.HandleEvent]-}
-    if [ "$__fvw_f" = fv.views._viewEvent ] || [ "$__fvw_f" = fv.views._frameEvent ]; then return 0; fi
-    if [ "$__fvw_f" = fv.views._windowEvent ]; then
-        if [ "$2" = cmSelectWindowNum ]; then return 1; fi
-    elif ! [ "$__fvw_f" = fv.views._groupEvent ] && [[ -z ${__FV_VW_QGRP[${__fvw_f:-.}]-} ]]; then
-        return 1
-    fi
+    # (the broadcast table: a user override, a built-in handler without a row
+    # and a row that lists COMMAND are not quiet; a leaf otherwise is)
+    if [[ -z $__fvw_f || -z ${__FV_VW_BCAST[$__fvw_f]+x}${__FV_VW_QGRP[$__fvw_f]-} ]] \
+       || [[ " ${__FV_VW_BCAST[$__fvw_f]-} " == *" $2 "* ]]; then return 1; fi
+    if [[ -z ${__FV_VW_GRP[$1]-} ]]; then return 0; fi
     local -n __fvw_ql=${1}_views
     local __fvw_k __fvw_t __fvw_p=0
     for __fvw_k in "${__fvw_ql[@]}"; do
@@ -3047,12 +3220,16 @@ fv.views._quiet() {
         if (( ! (${!__fvw_t:-0} & FV_EM_BROADCAST) )) || [[ -z ${__FV_VW_LIVE[$__fvw_k]-} ]]; then continue; fi
         __fvw_t="${__fvw_k}_data[Owner]"
         if ! [ "${!__fvw_t-}" = "$1" ]; then continue; fi
-        # (the subview's handler: TView's is quiet, a group's is looked into)
-        __fvw_t=${__fvw_k}_class
-        __fvw_t="${!__fvw_t-}_class_method_owner[HandleEvent]"
-        __fvw_t=${__FV_VW_IMPL[${!__fvw_t-}.HandleEvent]-}
-        if [ "$__fvw_t" = fv.views._viewEvent ] || [ "$__fvw_t" = fv.views._frameEvent ]; then continue; fi
-        if [[ -z ${__FV_VW_GRP[$__fvw_k]-} ]]; then return 1; fi
+        # (a leaf: quiet when its handler is built-in and its row does not
+        # list COMMAND, as the dispatch skips it; a group is looked into)
+        if [[ -z ${__FV_VW_GRP[$__fvw_k]-} ]]; then
+            __fvw_t=${__fvw_k}_class
+            __fvw_t="${!__fvw_t-}_class_method_owner[HandleEvent]"
+            __fvw_t=${__FV_VW_IMPL[${!__fvw_t-}.HandleEvent]-}
+            if [[ -n $__fvw_t && -n ${__FV_VW_BCAST[$__fvw_t]+x}${__FV_VW_QGRP[$__fvw_t]-} ]] \
+               && [[ " ${__FV_VW_BCAST[$__fvw_t]-} " != *" $2 "* ]]; then continue; fi
+            return 1
+        fi
         fv.views._quiet "$__fvw_k" "$2" NESTED || return 1
         __fvw_p=1
     done
@@ -4102,9 +4279,12 @@ fv.views._dragNext() {
 # fv.views._dragDrain — motion coalescing (design §2.2, R10): the events
 # already waiting are read ("$__FV_VW_GETEVENT" 0: fv.drivers' "only what is
 # there"); each mouse move replaces the caller's __fvw_mx / __fvw_my; the
-# first evNothing stops; a mouse-up (its place in __fvw_ux / __fvw_uy), a
-# cmResizeApp or the end of input stops and is kept for the loop
-# (__fvw_pe = u / z / e); anything else is dropped (FV's MouseEvent drops it)
+# first evNothing stops, and so does an evMouseAuto (fv.drivers sends one
+# instead of evNothing while a button is held: with a tiny FV_IDLE_TIMEOUT or
+# a slow loop every read may give one, and the drain would never end); a
+# mouse-up (its place in __fvw_ux / __fvw_uy), a cmResizeApp or the end of
+# input stops and is kept for the loop (__fvw_pe = u / z / e); anything else
+# is dropped (FV's MouseEvent drops it)
 fv.views._dragDrain() {
     local __fvw_s __fvw_rz
     while :; do
@@ -4119,7 +4299,7 @@ fv.views._dragDrain() {
         if [ "$FV_EV_WHAT" = evMouseMove ]; then __fvw_mx=$FV_EV_MOUSE_X __fvw_my=$FV_EV_MOUSE_Y
         elif [ "$FV_EV_WHAT" = evMouseUp ]; then __fvw_pe=u __fvw_ux=$FV_EV_MOUSE_X __fvw_uy=$FV_EV_MOUSE_Y; return 0
         elif [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmResizeApp ]; then __fvw_pe=z; return 0
-        elif [[ -z $FV_EV_WHAT ]] || [ "$FV_EV_WHAT" = evNothing ]; then return 0; fi
+        elif [[ -z $FV_EV_WHAT ]] || [ "$FV_EV_WHAT" = evNothing ] || [ "$FV_EV_WHAT" = evMouseAuto ]; then return 0; fi
     done
 }
 

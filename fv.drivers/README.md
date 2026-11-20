@@ -34,7 +34,7 @@ fv.video.doneVideo                            # mouse off too
 
 | Function | Answer |
 |---|---|
-| `fv.drivers.getEvent [TIMEOUT]` | the next event, in this order: the put event (once) → **a resize** (`FV_VIDEO_RESIZED` set: `fv.video.updateSize`, then `evCommand`, `FV_EV_COMMAND=cmResizeApp`, `FV_EV_ID` = width, `FV_EV_INFO` = height) → a key or mouse report via `fv.keyboard.getKeyEvent TIMEOUT` → `evNothing` when none came within TIMEOUT seconds (default `FV_IDLE_TIMEOUT`, **0.05**; `0` = only what is already there; at most 6 decimals). **Never blocks without a timeout.** rc 0 for every event, `evNothing` included; **rc 1 only at end of input** (end of file, a hung-up terminal: `FV_EV_EOF=1`, `evNothing`), so `while fv.drivers.getEvent` ends instead of spinning on a dead terminal; rc 2 = a bad TIMEOUT or fv.keyboard's rc 2 (a bad `FV_KEY_FD`) |
+| `fv.drivers.getEvent [TIMEOUT]` | the next event, in this order: the put event (once) → **a resize** (`FV_VIDEO_RESIZED` set: `fv.video.updateSize`, then `evCommand`, `FV_EV_COMMAND=cmResizeApp`, `FV_EV_ID` = width, `FV_EV_INFO` = height) → a key or mouse report via `fv.keyboard.getKeyEvent TIMEOUT` → `evMouseAuto` when none came and a button is held (the mouse rules below) → `evNothing` when none came within TIMEOUT seconds (default `FV_IDLE_TIMEOUT`, **0.05**; `0` = only what is already there; at most 6 decimals). **Never blocks without a timeout.** rc 0 for every event, `evNothing` included; **rc 1 only at end of input** (end of file, a hung-up terminal: `FV_EV_EOF=1`, `evNothing`), so `while fv.drivers.getEvent` ends instead of spinning on a dead terminal; rc 2 = a bad TIMEOUT or fv.keyboard's rc 2 (a bad `FV_KEY_FD`) |
 | `fv.drivers.putEvent` | keeps a copy of every `FV_EV_*` field in one slot; the next `getEvent` returns it before anything else. A second put overwrites the first (FV: `Pending := Event`); putting `evNothing` empties the slot |
 | `fv.drivers.clearEvent` | every `FV_EV_*` field back to its default (`evNothing`) |
 | `fv.drivers.initEvents [any]` | mouse reporting on, through `fv.mouse.enable` to `FV_TTY_FD` (`any` adds motion without a button); the held buttons, the click memory and fv.keyboard's queue (`fv.keyboard.flush`) are reset. rc 1 = no terminal (`fv.video.initVideo` first); rc 2 = a mode other than `any` |
@@ -52,18 +52,20 @@ fv.drivers.getEvent; do …; done < <(…)` when the loop needs an input of its 
 
 | Global | Values |
 |---|---|
-| `FV_EV_WHAT` | `evNothing evKeyDown evMouseDown evMouseUp evMouseMove evMouseWheel evCommand evBroadcast` (the last two only from `putEvent` for now) |
+| `FV_EV_WHAT` | `evNothing evKeyDown evMouseDown evMouseUp evMouseMove evMouseAuto evMouseWheel evCommand evBroadcast` (the last two only from `putEvent` for now) |
 | `FV_EV_KEY`, `FV_EV_CHAR` | `evKeyDown`: fv.keyboard's `FV_KEY` (`kbUp`, `kbChar`, `kbUnknown` …) and `FV_KEY_CHAR`; the raw bytes stay in `FV_KEY_SEQ` |
 | `FV_EV_COMMAND` | `evCommand` / `evBroadcast`: a command **name** (`cmResizeApp`, `cmQuit`, …), not a number |
 | `FV_EV_ID`, `FV_EV_INFO` | the message fields (`cmResizeApp`: width and height); `''` otherwise |
-| `FV_EV_MOUSE_X`, `FV_EV_MOUSE_Y` | the cell, 0-based |
+| `FV_EV_MOUSE_X`, `FV_EV_MOUSE_Y` | the cell, 0-based (`evMouseAuto`: the last report's) |
 | `FV_EV_MOUSE_BUTTONS` | the FV mask of the buttons **held after the event**: `mbLeftButton` 1, `mbRightButton` 2, `mbMiddleButton` 4 (FPC Mouse: "the button state after the button was released") |
 | `FV_EV_MOUSE_MODS` | fv.mouse's modifiers: 1 Shift, 2 Alt, 4 Ctrl |
 | `FV_EV_MOUSE_DOUBLE`, `FV_EV_MOUSE_TRIPLE` | 0/1 on `evMouseDown` (and `FV_EV_MOUSE_DOUBLE` on `evMouseWheel`) |
 | `FV_EV_WHEEL` | `mwUp` 1, `mwDown` 2 |
 | `FV_EV_EOF` | 1 after rc 1 |
 
-Inputs: `FV_IDLE_TIMEOUT` (seconds, default 0.05) and `FV_DOUBLE_DELAY`
+Inputs: `FV_IDLE_TIMEOUT` (seconds, default 0.05; also the auto-repeat's period, at least 0.01 s),
+`FV_REPEAT_DELAY` (seconds, default **0.44**, FV's RepeatDelay of 8 ticks:
+the first `evMouseAuto` after a press) and `FV_DOUBLE_DELAY`
 (seconds, default **0.44** = FV's DoubleDelay of 8 ticks × 54.945 ms) — each a
 positive number with at most 6 decimals, else the default and one debug line
 (checked once per value); fv.keyboard's `FV_KEY_FD` and `FV_ESC_TIMEOUT`.
@@ -89,8 +91,32 @@ clock).
   triples, and a wheel event breaks a click series.
 * `evNothing` (rc 0): a report fv.mouse rejects, a horizontal wheel (FV marks
   `mwLeft`/`mwRight` not implemented), a wheel release, buttons 8–11.
-* **Not produced:** `evMouseAuto` (repeat while a button is held) — it comes with
-  the scroll bars (P3).
+* **Auto-repeat, `evMouseAuto`** (P3 design 10.6, FV `GetMouseEvent`'s
+  `AutoTicks` / `AutoDelay`): while a button is held since a press and
+  nothing arrives, `getEvent` answers `evMouseAuto` — the first
+  `FV_REPEAT_DELAY` (default **0.44 s**, FV's `RepeatDelay` of 8 ticks)
+  after the press, then one per `FV_IDLE_TIMEOUT` (0.05 s, FV's one tick;
+  **at least 0.01 s**, so that a tiny timeout does not make every idle
+  read an `evMouseAuto`),
+  on a schedule: a late caller gets one, never a burst — at the **last
+  report's cell** (a drag moves it) with the held buttons and that report's
+  modifiers (`FV_EV_MOUSE_DOUBLE` / `_TRIPLE` 0). While it is armed the read
+  waits no longer than the next one is due (a `TIMEOUT` of 1 s is cut to the
+  time left), so it comes on time. The clock is wall time
+  (`EPOCHREALTIME`): when it goes back by more than a delay and a period,
+  the next one is due one period from the new time (the repeat goes on
+  instead of stalling until the clock catches up). A loop that reads
+  `getEvent 0` until `evNothing` must stop at `evMouseAuto` too (it comes
+  instead of `evNothing` while a button is held): fv.views' drag drain
+  does. **It never runs away (L2: a lost
+  release)**: a key event, any release (also of one button while another is
+  held, as FV) and any report with no button held (a move in `any` mode, an
+  X10 release) end it; a new press starts the delay again, so does a wheel
+  event with a button held (FV); a drag or a wheel alone never starts it.
+  A view gets it only with `evMouseAuto` (`FV_EM_MOUSEAUTO`, `$0008`) in its
+  `EventMask` or the mask given to `fv.views.mouseEvent`; TView's default
+  mask lacks it, as FV's. Users (P3): scroll bar arrows and page areas
+  held, a list dragged past its edge, an input line's drag-scroll.
 
 ## Deviations from Free Vision
 
@@ -103,6 +129,13 @@ clock).
   separate `GetMouseEvent` / `GetKeyEvent` order.
 * **`clearEvent` resets every field**; FV sets `What := evNothing` and
   `InfoPtr := @Self`.
+* **`evMouseAuto` ends on a key, and a report with no button held** (L2):
+  FV keeps `AutoTicks` running until a release, which a terminal can lose;
+  a wheel event with no button held does not start it (FV sets `AutoTicks`
+  on every wheel event and would repeat with no button). Its times are
+  seconds (`FV_REPEAT_DELAY`, `FV_IDLE_TIMEOUT`, the period at least
+  0.01 s), not ticks of 54.945 ms, and a wall clock gone back does not stall
+  it.
 
 ## Contract (kcl README §1) and deviations
 
@@ -135,6 +168,12 @@ So the event layer adds ~55–65 µs to a key and ~270–300 µs to a mouse repo
 (fv.mouse's decode, the held buttons, the clock for double clicks). Inlining
 `clearEvent` was tried and measured no difference (kept as a call).
 
+The auto-repeat (P3 stage 3a-2) costs an idle `getEvent` one arithmetic test
+while no button is held; while one is held since a press it reads the clock
+before the read (the timeout cut) and after an idle one: an idle `getEvent 0`
+with the read stubbed, Git-bash, laptop: ~85–90 µs unarmed, ~170–190 µs
+armed (2 × 2000 calls, 3 rounds) — only between a press and its release.
+
 In the application (fv P2 stage 2g, the `fvviews` bench of `tools/bench`:
 every action inside [`fv.app`](../fv.app/README.md)'s `Run`, keys from a
 file): reading a 5-byte key sequence (F12) costs ~1.2 ms of the ~5.8 ms a
@@ -145,7 +184,7 @@ The application layer is complete for P2: [`fv.views`](../fv.views/README.md),
 
 ## Tests
 
-`bash kcl/fv.drivers/tests/tests.sh` — 141 tests; all but `005` run without a
+`bash kcl/fv.drivers/tests/tests.sh` — 164 tests; all but `005` run without a
 terminal (bytes on a file or pipe fd, `FV_KEY_FD` set directly).
 
 | file | what |
@@ -158,6 +197,8 @@ terminal (bytes on a file or pipe fd, `FV_KEY_FD` set directly).
 | 006_ZeroFork | `PATH=''` and the static fork scan |
 | 007_Contract | `set -eu`, reload, never prints, no stray globals or functions |
 | 008_CallerState | the caller's nocasematch, locale and IFS |
+| 009_Auto | P3 3a-2, `evMouseAuto` through `__FV_DR_NOW` (idle reads stubbed): the delay (inclusive), the rate on its schedule (a late caller gets one), the last report's cell and modifiers, every ending condition (a release, a second button's release, a key, a buttonless move, an X10 release; a new press or a wheel with a button held restarts the delay; a drag or a wheel alone never arms it), the read cut to the time left, the period's floor of 0.01 s (a tiny `FV_IDLE_TIMEOUT`; a drain at one instant ends after one), the wall clock going back (a small step changes nothing, a big one: due one period from the new time, the read's timeout cut to it), `FV_REPEAT_DELAY` / `FV_IDLE_TIMEOUT` and a bad value, `initEvents` / `doneEvents`, FV's constants (fv.views' `FV_EM_MOUSEAUTO` = `$0008`), `fv.views.mouseEvent` without the bit skipping them, the real clock on a live pipe (the first not before 0.44 s) |
 
 Run on Git-bash 5.3.15, MSYS2 5.3.9, Cygwin 5.2.21 and Debian (bash 5.1.16 and
-5.2.37) in the lab VM (2026-11-09); 005 SKIPs on Git-bash only.
+5.2.37) in the lab VM (2026-11-09); 005 SKIPs on Git-bash only. P3 stage 3a-2
+(evMouseAuto, 009): Git-bash 5.3.15, MSYS2 5.3.9, Cygwin 5.2.21 (2026-11-20).

@@ -414,4 +414,25 @@ printf '%s ' \"\$FV_VIDEO_ASCII\"
 fv.video.writeStr 0 0 'жé' 1; printf '[%s]' \"\${__FV_VS_CH[0]}\"")
 check "no UTF-8 locale at all: ASCII mode for the screen" "1 [??      ]" "$r"
 
+# --- the per-row flag WNEW (fv.views' marking reads and clears it; P3 3a-2) ----------------
+scr 12 6
+r="[${!__FV_VS_WNEW[*]}] "
+fv.video.writeStr 0 0 'plain ascii' 1                       # narrow: no flag
+fv.video.writeStr 0 1 "ab${HAN}cd" 1                        # a wide character
+fv.video.setClip 0 0 3 6
+fv.video.writeStr 0 2 "ab${HAN}cd" 1                        # cut by the clip: a space shows
+fv.video.resetClip
+fv.video.writeStr 0 3 "x${JI}" 1; fv.video.writeStr 1 3 'yz' 1  # overwritten: none shows
+fv.video.fillRect 0 4 4 1 1 "$HAN"                          # a wide fill unit
+row 2; r+="[$ROW|${__FV_VS_WIDE[2]}] "; row 3; r+="[$ROW|${__FV_VS_WIDE[3]}] "
+r+="[${!__FV_VS_WNEW[*]}] "
+__FV_VS_WNEW=()
+fv.video.writeStr 0 5 'narrow' 1; fv.video.writeStr 0 3 'narrow' 1   # row 3 holds none now
+r+="[${!__FV_VS_WNEW[*]}] "
+fv.video.writeStr 0 1 'n' 1                                 # into a row that holds one
+r+="[${!__FV_VS_WNEW[*]}] "
+scr 12 6; r+="[${!__FV_VS_WNEW[*]}]"
+check "WNEW: set for a row a wide character was written into (also cut by the clip or overwritten at once, a wide fill) and for a write into a row that holds one; not for narrow writes elsewhere; allocation empties it" \
+    "[] [ab          |0] [xyz         |0] [1 2 3 4] [] [1] []" "$r"
+
 kt_test_log "017_Wide.sh completed"

@@ -474,10 +474,36 @@ or zoom, −4 with a number; in cells: wide characters count 2).
 * **Wide characters and repaint edges**: fv.video blanks the visible half of
   a wide character that a clip edge cuts, and the other half of one a write
   covers by half. A rectangle repaint whose edge cut such a character would
-  differ from a full repaint, so the screen rows that hold (or held) wide
-  cells are repainted across the whole width (read from fv.video's per-row
-  flag `__FV_VS_WIDE`, a friend read). Rows without wide cells cost nothing
-  extra.
+  differ from a full repaint. The screen rows that hold (or held) wide cells
+  (marked from fv.video's per-row flag `__FV_VS_WIDE`, a friend read), and
+  those a wide character was written into since the last look (fv.video's
+  per-row flag `__FV_VS_WNEW`, a friend field this unit reads and clears:
+  a row whose only pair a view in front hides by half at the first paint
+  holds no continuation cell, yet the move that uncovers the pair needs the
+  test), get
+  **the edge test** (P3 stage 3a-2, design 10.5; before it every such row
+  was repainted across the whole width): a row is repainted across the
+  whole width only when a wide pair straddles the left or right edge of the
+  repainted rectangle — fv.video's row (another friend read) holds a
+  continuation cell at its first column or just right of its last — or when
+  two rectangles on the row meet; otherwise the rectangle alone gives the
+  full repaint's cells (outside it the screen already is the full repaint,
+  so a pair across its edge is in the new picture too, and a pair cut at a
+  view's own clip edge is cut the same way by both). After a view left
+  cells it covered (a move, a resize, a delete or hide, a view sent behind
+  others) the picture can change one cell beyond the rectangle (the pair
+  whose half the view had blanked shows whole again): there a side whose
+  edge has a blank beside it on a wide row is widened by one cell first and
+  the test runs on the new edge. The test reads the screen before anything
+  is written. A caller whose locale is not UTF-8 (the read indexes
+  characters) and a repaint nested inside a Draw band every such row as
+  before. Rows without wide cells cost nothing extra. Typing a CJK
+  character in a dialog over windows or a CJK list's page thus repaints its
+  rectangle, not the rows across the screen (the views beside it on those
+  rows are not painted again). A shadow strip whose first or last column
+  cuts a wide character is shaded even when views in front cover it (the
+  shade marks the character's other half outside the strip, which stays
+  visible): the covered-shadow skip applies to the other strips.
 * **Locked groups are still painted by an owner's repaint** (`lock desk;
   lock w1; unlock desk` draws w1 at desk's unlock and again at w1's): not
   painting them would let a view behind repaint over their area and leave
@@ -559,11 +585,35 @@ a delivery leaves: no handler ran, the event is unhandled (`message`: rc 1,
 listener leaves no Phase behind). A window switch among built-in windows thus walks the
 tree instead of dispatching it (a desktop with two windows, Git-bash:
 ~0.4–0.5 ms instead of ~0.8–1.1 ms per broadcast, four broadcasts per
-switch). A later built-in `HandleEvent` that reacts to a broadcast must be
-added to this rule (`fv.views._quiet`). Stage 2f: the units above this one
+switch). Stage 2f: the units above this one
 list their built-in group handlers that react to no broadcast and pass one
 on as TGroup's does in `__FV_VW_QGRP` (fv.app's TDesktop, TProgram and
 TApplication handlers): the walk goes into them as into TGroup's.
+
+**The broadcast table** (P3 stage 3a-2, design 10.3) is where these rules
+live: `__FV_VW_BCAST[BODY]="cmA cmB …"` names, for each built-in
+`HandleEvent` body (the plain function of the elision table), the
+broadcasts it reacts to (`''`: none). fv.views' rows:
+
+| body | reacts to |
+|---|---|
+| `fv.views._viewEvent` (TView), `fv.views._frameEvent` (TFrame), `fv.views._groupEvent` (TGroup) | none |
+| `fv.views._windowEvent` (TWindow) | `cmSelectWindowNum` |
+
+The dispatch skips, **without a call**, a subview whose handler is a body
+with a row that does not list the command (a group: when the walk finds its
+subtree quiet too, `Phase` set as a delivery sets it), and the walk counts
+such a leaf as quiet; a body without a row gets every broadcast its
+EventMask lets through, as before, and **a user override is always called**
+(also one of a class whose ancestor's body has a row; a subclass that
+inherits the body follows the row). A `__FV_VW_QGRP` entry counts as the row
+`''`. The table is merged on a reload (`+=`), like the elision table: the
+units above this one add the rows of their own bodies (P3's widgets: a list
+reacts to `cmScrollBarChanged cmScrollBarClicked`, a button to `cmDefault
+cmGrabDefault cmReleaseDefault cmCommandSetChanged`, …). The rows of
+fv.views give exactly the rules they replaced (the quiet-walk tests and the
+call budgets are unchanged). The command is matched as a word of the row; a
+caller's `nocasematch` can only make more handlers called, never fewer.
 
 **Click to focus** (TView's `HandleEvent`, D8): a mouse-down on a selectable
 view that is neither selected nor disabled focuses it (`fv.views.focus`) and
@@ -1065,6 +1115,26 @@ through writeLine (the two names checked, ~50 µs), so a one-row repaint (a
 list's FocusItem, the stand-in's kbDown drawPart) uses writeLine: Down is
 unchanged.
 
+**P3 stage 3a-2.** *The edge test* (wide rows repainted across the screen
+only when a pair straddles the rectangle's edge): a scene of CJK rows — a
+background, two list windows side by side (the right one in front) and a
+dialog in front with a one-row CJK "input line" — local same-process A/B
+against the old banding (Git-bash, laptop, median of 5 × 30; ratios only:
+CI decides): a PgDn of the back list's page 0.71–0.73, a Down (two
+drawParts) 0.72–0.73 (the window in front on those rows is not painted
+again), a typed character in the input line 0.87–0.91 (nothing in front of
+it: only the checked path and the bands' bookkeeping saved). *The broadcast
+table*: a Tab in the dialog scene (8 controls, 4 label-like leaves with a
+built-in body listening to broadcasts) 0.72 with the body's row than
+without (8 calls saved per Tab); fv.views' own rows change no count. The
+`fvviews` bench (ASCII scenes, `views-80`, 2 × 10 per side) is unchanged
+within its noise. *The marking of hidden pairs* (fv.video's `__FV_VS_WNEW`,
+after the critic round): one arithmetic test per write on fv.video's wide
+path and a walk over the flagged rows after a repaint; the ASCII paths are
+untouched. Same scene, same-process A/B against the marking before (the
+flag's line taken out of `_putw`; median of 5 × 30): a PgDn of either list's
+page 1.00–1.01, a Down and a typed character within the noise.
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -1075,7 +1145,8 @@ unchanged.
   fv.app — the same framework, versioned together; not for scripts): the
   elision tables `__FV_VW_IMPL` / `__FV_VW_FUNC` (a unit adds its classes'
   built-in bodies; a reload of this unit merges, so they survive), the
-  quiet-broadcast table `__FV_VW_QGRP` (merged likewise), calls of
+  quiet-broadcast table `__FV_VW_QGRP` and the broadcast table
+  `__FV_VW_BCAST` (P3; both merged likewise), calls of
   `fv.views._virt` (the elision entry), `fv.views._topView V` (topView into
   the caller's `__fvw_t`, no checks), `fv.views._viewEvent` (TView's
   HandleEvent body), reads of `__FV_VW_LIVE` (a live view), `__FV_VW_CRC` (a
@@ -1154,7 +1225,9 @@ terminal), `fvw_root` and the events scene (`fvw_tscene`: an application-like
 root with a TMyApp-like override, a desktop, two `TWindow`s with a list
 stand-in each that handles keys); for stage 2g the design's list stand-in
 `TTestList` (TView's default EventMask, one `writeLines` per Draw (D21 stage E; one `writeBuf` per row before), `drawPart`
-on kbDown, a new page on kbPgDn; `fvw_classes3`, `fvw_mklwin`). Each test file's stderr is captured:
+on kbDown, a new page on kbPgDn; `fvw_classes3`, `fvw_mklwin`); for P3 the
+dialog scene (`fvw_dscene`: the events scene plus a dialog-like gray window
+in front with N selectable one-row controls). Each test file's stderr is captured:
 anything on it fails one test.
 
 | file | what |
@@ -1175,8 +1248,10 @@ anything on it fails one test.
 | 014_Modal | execView (RESULT, inserted / removed, == a full repaint, sfModal and the top view while it runs; topView; the event record, Phase, Options, Current put back; EnterSelect), Valid refusals, endModal from a leaf, modal in modal, no HandleEvent for evNothing, the end of input (no Valid asked), the latch, the "save?" box at the end of input, a failing event source, a root's Execute (cmQuit), the owner-process rule in `$( )`, a dialog destroying itself, a modal cmClose (cmCancel posted), endModal without a modal view, mouseEvent (tracking, the mouse-up, the end of input), refusals; stage 2d: drags inside a modal view (cmResize's keyboard drag, a mouse drag by the frame), each step shown at once; a resize mid-modal is 2f (mid-drag: 017) |
 | 015_Frame | TFrame's constructor; FV's look inactive / active / dragging, `☼` / `↕`, a bare frame in a plain group; a wide and a long title; small sizes; 3 writes full, 3 border-only (both sides one `fillColumns`), no dispatch; the string cache; through fv.video's VT model: the terminal shows the buffer, border-only == a full repaint (a window overlapping the ring in front); the covered parts of the ring left out (4 pieces, no repaint of the window in front); the cache across ASCII mode (initScreen with FV_ASCII); a frame class overriding Draw; stage 2d, the frame's mouse: the close icon's press tracking (one top-row write per change, cmClose posted on a release on it, nothing off it or at the end of input, the posted event closing the window), the zoom icon, a double click, an inactive frame (no icons: drags), the grow corner, a frame class with its own Draw, quiet for broadcasts |
 | 016_Window | the constructor (FV's defaults, the frame from InitFrame, a bad number, the guard), an InitFrame override without a frame, GetTitle, the frame's title and number, the three palettes, cmClose (Valid no / yes, another window, without wfClose), cmSelectWindowNum through message, an unselectable window, Tab, unknown keys / commands; stage 2d: SizeLimits (MinWinSize, FV_MINWINSIZE_X/_Y), Zoom and back (ZoomRect, the zoom icon), a bad ZoomRect, cmZoom, CalcBounds (the ZoomRect follows an owner resize), cmResize |
-| 017_Drag | stage 2f: a resize the event source handled itself (`__FV_VW_RESIZES`, evNothing answered) ends a keyboard and a mouse drag (the step loop's read and the drain's); stage 2d (+ critic round: Shift+Enter / Shift+Esc end a drag, icon tracking in a subshell and with the window destroyed by the source): the keyboard drag through `cmResize` (arrows, Shift + arrows, Ctrl ± 8, Home / End / PgUp / PgDn, Enter, Esc, a grow-only window), the limits (a column / row inside, `dmLimitLoY`, `dmLimitAll`, MinWinSize and the owner's size), `sfDragging` (border-only frame redraws: 3 writes in, 3 out), the mouse drag by the frame's top row and grow corner, motion coalescing (the drain's timeout 0, the last move wins, a key dropped, the mouse-up kept), the end of input (keyboard as Esc, mouse where it is), a `cmResizeApp` ending a drag (clamped into the new extent, no undo), the event record put back, the owner-process rule in `$( )`, `dragView`'s refusals; the counts of one keyboard step, one mouse step and a zoom (logged) |
+| 017_Drag | stage 2f: a resize the event source handled itself (`__FV_VW_RESIZES`, evNothing answered) ends a keyboard and a mouse drag (the step loop's read and the drain's); stage 2d (+ critic round: Shift+Enter / Shift+Esc end a drag, icon tracking in a subshell and with the window destroyed by the source): the keyboard drag through `cmResize` (arrows, Shift + arrows, Ctrl ± 8, Home / End / PgUp / PgDn, Enter, Esc, a grow-only window), the limits (a column / row inside, `dmLimitLoY`, `dmLimitAll`, MinWinSize and the owner's size), `sfDragging` (border-only frame redraws: 3 writes in, 3 out), the mouse drag by the frame's top row and grow corner, motion coalescing (the drain's timeout 0, the last move wins, a key dropped, the mouse-up kept; P3 3a-2: the drain stops at an `evMouseAuto` as at `evNothing`), the end of input (keyboard as Esc, mouse where it is), a `cmResizeApp` ending a drag (clamped into the new extent, no undo), the event record put back, the owner-process rule in `$( )`, `dragView`'s refusals; the counts of one keyboard step, one mouse step and a zoom (logged) |
 | 018_Names | reserved names (also under nocasematch), `_newReserved`, the constructor guard (a leaf, a group with subviews, through subclass constructors), the dialog loop and the anti-pattern, a constructor that skipped `inherited`, `VERBOSE_KKLASS=quiet`; every rc-2 refusal: one debug line under the switch, none without |
 | 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals; D21: the answer split without a here-string (the first line, at blanks only, no globbing in a folder with files named like indices, the caller's `set -f` kept) |
 | 020_Caches | D21: each structure cache's drop (DEX at insert / delete, FRL at insert / delete / putInFrontOf, OEX at insert: each test fails with its drop removed) and what is read live (hide / show, a State or Options field written by hand, the root's sfExposed, a lock, a bounds change); drawPart's fast path (the painter's rc and RESULT, rows with leading zeros, a redefined painter, the rc 127 of an unset one); the union cover (two windows side by side: the background not drawn, the shadow under the front window not shaded; a gap, a hidden window, a frameless group: drawn; each == a full repaint); drawView and the order redraw's shadow strips cut to the owner's clip (the status line in front of the desktop not repainted) |
 | 021_Rows | D21 stage E: `writeLines` = one `writeLine` per index inside a drawPart (160 seeded random cases: narrow, Cyrillic, wide, emoji, combining and control text, empty rows, sparse arrays, missing / short / long / bad symbol strings; views past their owner and off the screen, negative X / Y, painted row ranges, rows with wide cells, ASCII mode, 40×12 and 200×50; rc and RESULT too); a Draw override with one writeLines == the per-row Draw; refusals rc 2 / RESULT `''` / nothing written (count, X / Y, outside a Draw, bad names, `__fv*`, `RESULT`, associative arrays: no key evaluated); a refused row (the others written), no rows (RESULT 0); under set -eu. 010's write counts follow the stand-in (one write per painted list); 011 and 012 call it too. P3 3a-1: `writeRows` = `fv.video._wrowsu` at the view's origin inside a drawPart (60 random cases), its refusals (count, X, W negative / not digits / empty, names, outside a Draw), a refused row, a wide pair cut at W |
+| 025_Quiet | P3 3a-2, the broadcast table: fv.views' rows (TView, TFrame, TGroup none; TWindow `cmSelectWindowNum`) give the replaced rules, a QGRP entry counts as `''`; the table against a full dispatch (the table emptied) on seeded random trees of plain views, frames, windows, groups, built-in bodies of the test (a leaf reacting to cmA cmB, a group reacting to cmC) with user listeners (some handle a broadcast), a user group and a user override of a built-in body interleaved — through `message` and through the group's `HandleEvent`: the same reactions in order, each seeing its owner's `Phase`, the same handler / rc, never more handler calls; adding a row and removing it; an override always called, a subclass inheriting the body following its row; the Phase stamp of a skipped quiet subgroup (its owner and the subgroup hold the Phase a full dispatch leaves); the dialog scene: a Tab reaches a listening label-like leaf with both focus broadcasts, never a built-in leaf whose row lacks them |
+| 026_WideEdge | P3 3a-2, the wide-row edge test: the rule on `fv.views._bands` (kept / banded / widened rectangles, two that meet, rows without wide cells, the C-locale and nested-Draw fallbacks); a static CJK scene under shadowed windows: every rectangle with its left edge at every column (widths 1 2 3 5 and to the edge) == a full repaint; a shadowed window and a plain leaf moved across CJK rows one column at a time, hide / show / reorders at every few columns, drawPart of each row with a window in front at every column, a frame border over CJK rows at every column: each == a full repaint; the narrowing (a drawPart on a CJK row no pair straddles leaves a window in front elsewhere on the row unpainted, no dispatch); seeded random CJK scenes (3 × 40 steps: moves, nudges, resizes, reorders, hide / show, drawView, drawPart, frame borders) == a full repaint after every step; drawPart through its checked path (a painter not seen, each row with a window in front at every column); the marking from fv.video's `__FV_VS_WNEW` (a row whose only pair a view in front hides by half at the first paint: a move uncovering it, a hide, the view sent behind a CJK leaf, the pair cut by the view's right edge) and seeded random scenes of one-pair rows with the views in front starting on a pair's half (4 × 30 steps, nothing marked by hand) == a full repaint; fv.video's VT model after moves over CJK rows |
