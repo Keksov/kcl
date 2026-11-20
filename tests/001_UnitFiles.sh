@@ -8,8 +8,10 @@
 #   * no hand-written re-source guard (`*_<UNIT>_SOURCED`, any prefix), no
 #     `<UNIT>_DIR` / `<unit>_DIR` assignment unless the row keeps a runtime copy
 #     (`rundir`, C19), no hard-coded `../../kklass` / `../kkore` path, no
-#     `$(cd ...)` / dirname fork, no `source` statement — dependencies come
-#     through `kk.uses NAME... || return` lines;
+#     `$(cd ...)` / dirname fork, no `source` statement (anywhere on a line,
+#     also `if ! source F` / `|| . F`) — dependencies come through
+#     `kk.uses NAME... || return` lines; a data file a unit reads is listed
+#     by its exact statement in KCLT_DATASRC (fv.keyboard's layout tables);
 #   * the helper namespaces: every `kk.namespace` is `kk.namespace X... || return`
 #     on the code lines right after the last kk.uses line (comments may sit in
 #     between); every `X.name()` / `function X.name` defined at file scope has an
@@ -49,6 +51,14 @@ kclt_code() {
     done < "$1"
 }
 
+# `source` / `.` as a command: at the line start or after ; & | ! ( or a
+# keyword (if ! source F, cond || . F)
+KCLT_SRC_RE='(^|[;&|!(]|(^|[[:space:]])(if|then|do|else|elif|while|until))[[:space:]]*(source|\.)[[:space:]]'
+# the data files units may source (not units: no kk.uses), by unit: the
+# exact text of the statement's start. fv.keyboard's generated layout tables
+# (P3 3L, tools/kbdlayout), sourced at the first need and again for the variants
+declare -A KCLT_DATASRC=([fv.keyboard]='source "$__FV_KB_DIR/fv.keyboard.layouts.sh"')
+
 files=() rows=" "
 declare -A KDEFS=()
 for row in "${KCL_UNITS[@]}"; do
@@ -75,7 +85,11 @@ for row in "${KCL_UNITS[@]}"; do
             if [[ " $KFL " != *" rundir "* && $t =~ (^|[^A-Za-z0-9_])(${U}|${KU})_DIR= ]]; then bad+=" ${BASH_REMATCH[2]}_DIR@${c%%:*}"; fi
             if [[ $t == *../../kklass* || $t == *../kkore* ]]; then bad+=" path@${c%%:*}"; fi
             if [[ $t == *'$(cd '* || $t =~ dirname[[:space:]]+\"?\$\{?BASH_SOURCE ]]; then bad+=" fork@${c%%:*}"; fi
-            if [[ $t =~ ^[[:space:]]*(source|\.)[[:space:]] ]]; then bad+=" source@${c%%:*}"; fi
+            # a source statement anywhere on a line (also after if / ! / || / &&;
+            # the header, lines 1-3, is checked above); a data file a unit reads
+            # is listed in KCLT_DATASRC, by its exact source text
+            if (( ${c%%:*} > 3 )) && [[ $t =~ $KCLT_SRC_RE ]] \
+               && [[ -z ${KCLT_DATASRC[$KU]-} || $t != *"${KCLT_DATASRC[$KU]}"* ]]; then bad+=" source@${c%%:*}"; fi
             # a unit name may be dotted (fv.keyboard, D7)
             if [[ $t =~ ^kk\.uses[[:space:]] && ! $t =~ ^kk\.uses(\ [A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*)+\ \|\|\ return$ \
                   && ! $t =~ ^kk\.uses\ --optional(\ [A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*)+\ \|\|\  ]]; then bad+=" uses-form@${c%%:*}"; fi

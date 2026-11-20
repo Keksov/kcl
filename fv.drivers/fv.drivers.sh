@@ -23,8 +23,9 @@ kk.unit fv.drivers || return $__kk_unit_rc
 # (a name: cmResizeApp), FV_EV_ID, FV_EV_INFO, FV_EV_MOUSE_X / _Y (0-based),
 # FV_EV_MOUSE_BUTTONS (held after the event: 1 left, 2 right, 4 middle),
 # FV_EV_MOUSE_MODS (1 Shift, 2 Alt, 4 Ctrl), FV_EV_MOUSE_DOUBLE,
-# FV_EV_MOUSE_TRIPLE, FV_EV_WHEEL (1 up, 2 down), FV_EV_EOF; RESULT =
-# FV_EV_WHAT. In: FV_IDLE_TIMEOUT, FV_DOUBLE_DELAY (0.44 s), FV_REPEAT_DELAY
+# FV_EV_MOUSE_TRIPLE, FV_EV_WHEEL (1 up, 2 down), FV_EV_EOF, FV_EV_BASE (a
+# key's base-layout key, fv.keyboard's FV_KEY_BASE; '' for every other
+# event); RESULT = FV_EV_WHAT. In: FV_IDLE_TIMEOUT, FV_DOUBLE_DELAY (0.44 s), FV_REPEAT_DELAY
 # (0.44 s), and fv.keyboard's FV_KEY_FD / FV_ESC_TIMEOUT.
 
 kk.uses fv.keyboard || return
@@ -37,7 +38,7 @@ fi
 
 declare -g FV_EV_WHAT=evNothing FV_EV_KEY='' FV_EV_CHAR='' FV_EV_COMMAND='' FV_EV_ID='' FV_EV_INFO=''
 declare -g FV_EV_MOUSE_X=0 FV_EV_MOUSE_Y=0 FV_EV_MOUSE_BUTTONS=0 FV_EV_MOUSE_MODS=0
-declare -g FV_EV_MOUSE_DOUBLE=0 FV_EV_MOUSE_TRIPLE=0 FV_EV_WHEEL=0 FV_EV_EOF=0
+declare -g FV_EV_MOUSE_DOUBLE=0 FV_EV_MOUSE_TRIPLE=0 FV_EV_WHEEL=0 FV_EV_EOF=0 FV_EV_BASE=''
 # HELD: buttons held (FV bits); DB/DX/DY/DT/LD: the last mouse-down's button
 # mask (wheel: 8 up, 16 down, as FPC's MouseButton4/5), cell, time (us) and
 # whether it was a double; NOW: the clock hook (tests); TO/TOU/DD/RD: the
@@ -45,12 +46,14 @@ declare -g FV_EV_MOUSE_DOUBLE=0 FV_EV_MOUSE_TRIPLE=0 FV_EV_WHEEL=0 FV_EV_EOF=0
 # (us), and their raw values; AP: the evMouseAuto period (us): TOU, at least
 # 10000 (0.01 s); AA/AT/LX/LY/LM: evMouseAuto armed (a button
 # held since a press), the time (us) the next one is due, the last mouse
-# event's cell and modifiers; PEND: the put event
+# event's cell and modifiers; PEND: the put event (PENDB its FV_EV_BASE, kept apart:
+# PEND keeps FV's 14 fields that fv.app and fv.menus read)
 declare -g __FV_DR_HELD=0 __FV_DR_DB=-1 __FV_DR_DX=-1 __FV_DR_DY=-1 __FV_DR_DT=0 __FV_DR_LD=0
 declare -g __FV_DR_NOW=${__FV_DR_NOW-}
 declare -g __FV_DR_TO=0.05 __FV_DR_TOU=50000 __FV_DR_TORAW='' __FV_DR_DD=440000 __FV_DR_DDRAW='' __FV_DR_AP=50000
 declare -g __FV_DR_RD=440000 __FV_DR_RDRAW='' __FV_DR_AA=0 __FV_DR_AT=0 __FV_DR_LX=0 __FV_DR_LY=0 __FV_DR_LM=0
 declare -ga __FV_DR_PEND=()
+declare -g __FV_DR_PENDB=''
 
 # fv.drivers._secs S — rc 0 when S is a number of seconds read -t takes as
 # written (digits, one optional dot, at most 6 decimals, 13 characters);
@@ -98,7 +101,7 @@ fv.drivers._knobs() {
 fv.drivers.clearEvent() {
     FV_EV_WHAT=evNothing FV_EV_KEY='' FV_EV_CHAR='' FV_EV_COMMAND='' FV_EV_ID='' FV_EV_INFO=''
     FV_EV_MOUSE_X=0 FV_EV_MOUSE_Y=0 FV_EV_MOUSE_BUTTONS=0 FV_EV_MOUSE_MODS=0
-    FV_EV_MOUSE_DOUBLE=0 FV_EV_MOUSE_TRIPLE=0 FV_EV_WHEEL=0 FV_EV_EOF=0 RESULT=''
+    FV_EV_MOUSE_DOUBLE=0 FV_EV_MOUSE_TRIPLE=0 FV_EV_WHEEL=0 FV_EV_EOF=0 FV_EV_BASE='' RESULT=''
 }
 
 # FV's `Pending := Event`: one slot, a second put overwrites, evNothing empties it
@@ -106,6 +109,7 @@ fv.drivers.putEvent() {
     __FV_DR_PEND=("$FV_EV_WHAT" "$FV_EV_KEY" "$FV_EV_CHAR" "$FV_EV_COMMAND" "$FV_EV_ID" "$FV_EV_INFO"
         "$FV_EV_MOUSE_X" "$FV_EV_MOUSE_Y" "$FV_EV_MOUSE_BUTTONS" "$FV_EV_MOUSE_MODS"
         "$FV_EV_MOUSE_DOUBLE" "$FV_EV_MOUSE_TRIPLE" "$FV_EV_WHEEL" "$FV_EV_EOF")
+    __FV_DR_PENDB=$FV_EV_BASE
     if [[ $FV_EV_WHAT == evNothing ]]; then __FV_DR_PEND=(); fi
     RESULT=''
 }
@@ -232,6 +236,7 @@ fv.drivers.getEvent() {
         FV_EV_MOUSE_X=${__FV_DR_PEND[6]} FV_EV_MOUSE_Y=${__FV_DR_PEND[7]} FV_EV_MOUSE_BUTTONS=${__FV_DR_PEND[8]}
         FV_EV_MOUSE_MODS=${__FV_DR_PEND[9]} FV_EV_MOUSE_DOUBLE=${__FV_DR_PEND[10]}
         FV_EV_MOUSE_TRIPLE=${__FV_DR_PEND[11]} FV_EV_WHEEL=${__FV_DR_PEND[12]} FV_EV_EOF=${__FV_DR_PEND[13]}
+        FV_EV_BASE=$__FV_DR_PENDB
         __FV_DR_PEND=() RESULT=$FV_EV_WHAT
         return 0
     fi
@@ -249,7 +254,7 @@ fv.drivers.getEvent() {
     fv.keyboard.getKeyEvent "$__fvd_t" || __fvd_rc=$?
     if (( __fvd_rc == 0 )); then
         if [[ $FV_KEY == kbMouse ]]; then fv.drivers._mouse
-        else FV_EV_WHAT=evKeyDown FV_EV_KEY=$FV_KEY FV_EV_CHAR=$FV_KEY_CHAR __FV_DR_AA=0; fi
+        else FV_EV_WHAT=evKeyDown FV_EV_KEY=$FV_KEY FV_EV_CHAR=$FV_KEY_CHAR FV_EV_BASE=$FV_KEY_BASE __FV_DR_AA=0; fi
     elif (( __fvd_rc == 1 && FV_KEY_EOF )); then
         FV_EV_EOF=1 RESULT=''
         return 1

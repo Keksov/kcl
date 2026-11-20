@@ -18,7 +18,8 @@ fvk_chk '中' kbChar '中' 'CJK, 3 bytes'
 fvk_chk '│' kbChar '│' 'box drawing, 3 bytes'
 fvk_chk $'\xf0\x9f\x98\x80' kbChar $'\xf0\x9f\x98\x80' 'emoji U+1F600, 4 bytes'
 fvk_chk $'\xf4\x8f\xbf\xbf' kbChar $'\xf4\x8f\xbf\xbf' 'U+10FFFF, 4 bytes'
-fvk_chk $'\eж' kbAltChar 'ж' 'Alt + Cyrillic'
+fvk_chk $'\eж' kbAltSemiCol 'ж' 'Alt + Cyrillic: the ; key of the Russian layout (the P3 3L tables)'
+fvk_chk $'\eé' kbAltChar 'é' 'Alt + a character in no default table'
 fvk_chk $'\e\xf0\x9f\x98\x80' kbAltChar $'\xf0\x9f\x98\x80' 'Alt + emoji'
 
 # the same characters decoded by a caller in the C locale (the unit pins its
@@ -31,7 +32,7 @@ got=$(
         printf '%s:%s:%s|' "$FV_KEY" "$FV_KEY_CHAR" "$FV_KEY_LEN"
     done
 )
-want="kbChar:ж:2|kbChar:€:3|kbChar:"$'\xf0\x9f\x98\x80'":4|kbAltChar:ж:3|"
+want="kbChar:ж:2|kbChar:€:3|kbChar:"$'\xf0\x9f\x98\x80'":4|kbAltSemiCol:ж:3|"
 if [[ $got == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got '$got'"; fi
 
 kt_test_start "a Cyrillic word with an emoji in one chunk decodes one character per key"

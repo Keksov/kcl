@@ -37,6 +37,7 @@ TRec.HandleEvent() {
     local -n o=${Owner}_data
     LOG+="$this/${o[Phase]}/$FV_EV_WHAT:$FV_EV_KEY$FV_EV_COMMAND;"
     if [[ " $CLEAR " == *" $this "* ]]; then fv.views.clearEvent "$this"; fi
+    if [[ -n ${SETBASE-} ]]; then FV_EV_BASE=$SETBASE; fi    # (a handler that changes FV_EV_BASE)
     if [[ -n ${KILL-} ]]; then local k=$KILL; KILL=''; "$k.delete"; fi
     if [[ -n ${DROP-} ]]; then local k=$DROP; DROP=''; fv.views.delete "$Owner" "$k"; fi
     false
@@ -204,14 +205,15 @@ b_data[EventMask]=$(( FV_EM_MOUSEDOWN | FV_EM_KEYDOWN | FV_EM_COMMAND ))
 if [[ $r1 == '0|b|b/phFocused/evBroadcast:cmPing;' && $r2 == '1||b/phFocused/evBroadcast:cmPing;' && $r3 == '1||' ]]; then kt_test_pass "ok"
 else kt_test_fail "handled [$r1] unhandled [$r2] nil [$r3]"; fi
 
-kt_test_start "message: the caller's whole event record is put back (FV builds a local Event)"
+kt_test_start "message: the caller's whole event record (FV_EV_BASE too) is put back (FV builds a local Event)"
 FV_EV_WHAT=evMouseDown FV_EV_KEY=k1 FV_EV_CHAR=c1 FV_EV_COMMAND=cm1 FV_EV_ID=i1 FV_EV_INFO=n1 FV_EV_MOUSE_X=7 FV_EV_MOUSE_Y=8
-FV_EV_MOUSE_BUTTONS=1 FV_EV_MOUSE_MODS=2 FV_EV_MOUSE_DOUBLE=1 FV_EV_MOUSE_TRIPLE=0 FV_EV_WHEEL=2 FV_EV_EOF=0
-before="$FV_EV_WHAT|$FV_EV_KEY|$FV_EV_CHAR|$FV_EV_COMMAND|$FV_EV_ID|$FV_EV_INFO|$FV_EV_MOUSE_X|$FV_EV_MOUSE_Y|$FV_EV_MOUSE_BUTTONS|$FV_EV_MOUSE_MODS|$FV_EV_MOUSE_DOUBLE|$FV_EV_MOUSE_TRIPLE|$FV_EV_WHEEL|$FV_EV_EOF"
-CLEAR='c'
+FV_EV_MOUSE_BUTTONS=1 FV_EV_MOUSE_MODS=2 FV_EV_MOUSE_DOUBLE=1 FV_EV_MOUSE_TRIPLE=0 FV_EV_WHEEL=2 FV_EV_EOF=0 FV_EV_BASE=q
+before="$FV_EV_WHAT|$FV_EV_KEY|$FV_EV_CHAR|$FV_EV_COMMAND|$FV_EV_ID|$FV_EV_INFO|$FV_EV_MOUSE_X|$FV_EV_MOUSE_Y|$FV_EV_MOUSE_BUTTONS|$FV_EV_MOUSE_MODS|$FV_EV_MOUSE_DOUBLE|$FV_EV_MOUSE_TRIPLE|$FV_EV_WHEEL|$FV_EV_EOF|$FV_EV_BASE"
+CLEAR='c' SETBASE=z
 LOG=''; fv.views.message g evCommand cmZap x
-CLEAR=''
-after="$FV_EV_WHAT|$FV_EV_KEY|$FV_EV_CHAR|$FV_EV_COMMAND|$FV_EV_ID|$FV_EV_INFO|$FV_EV_MOUSE_X|$FV_EV_MOUSE_Y|$FV_EV_MOUSE_BUTTONS|$FV_EV_MOUSE_MODS|$FV_EV_MOUSE_DOUBLE|$FV_EV_MOUSE_TRIPLE|$FV_EV_WHEEL|$FV_EV_EOF"
+CLEAR='' SETBASE=''
+after="$FV_EV_WHAT|$FV_EV_KEY|$FV_EV_CHAR|$FV_EV_COMMAND|$FV_EV_ID|$FV_EV_INFO|$FV_EV_MOUSE_X|$FV_EV_MOUSE_Y|$FV_EV_MOUSE_BUTTONS|$FV_EV_MOUSE_MODS|$FV_EV_MOUSE_DOUBLE|$FV_EV_MOUSE_TRIPLE|$FV_EV_WHEEL|$FV_EV_EOF|$FV_EV_BASE"
+FV_EV_BASE=''
 if [[ $after == "$before" && $LOG == 'c/phFocused/evCommand:cmZap;' && $RESULT == c ]]; then kt_test_pass "ok"; else kt_test_fail "before [$before] after [$after] log [$LOG]"; fi
 
 kt_test_start "refusals (rc 2, RESULT ''): message / clearEvent argument counts, a bad WHAT, not a view"

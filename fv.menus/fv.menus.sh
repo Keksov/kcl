@@ -460,7 +460,7 @@ fv.menus._track() {
     local __fvm_t=-1 __fvm_tt __fvm_q=0 __fvm_cmd='' __fvm_z=0
     local -a __fvm_es=("$FV_EV_WHAT" "$FV_EV_KEY" "$FV_EV_CHAR" "$FV_EV_COMMAND" "$FV_EV_ID" "$FV_EV_INFO"
         "$FV_EV_MOUSE_X" "$FV_EV_MOUSE_Y" "$FV_EV_MOUSE_BUTTONS" "$FV_EV_MOUSE_MODS"
-        "$FV_EV_MOUSE_DOUBLE" "$FV_EV_MOUSE_TRIPLE" "$FV_EV_WHEEL" "$FV_EV_EOF")
+        "$FV_EV_MOUSE_DOUBLE" "$FV_EV_MOUSE_TRIPLE" "$FV_EV_WHEEL" "$FV_EV_EOF" "${FV_EV_BASE-}")
     while :; do
         if [[ -z ${__FV_VW_LIVE[$1]-} ]]; then __fvm_t=-1; break; fi
         fv.views.makeLocal "$1" "$FV_EV_MOUSE_X" "$FV_EV_MOUSE_Y" || { __fvm_t=-1; break; }
@@ -476,7 +476,7 @@ fv.menus._track() {
     FV_EV_WHAT=${__fvm_es[0]} FV_EV_KEY=${__fvm_es[1]} FV_EV_CHAR=${__fvm_es[2]} FV_EV_COMMAND=${__fvm_es[3]}
     FV_EV_ID=${__fvm_es[4]} FV_EV_INFO=${__fvm_es[5]} FV_EV_MOUSE_X=${__fvm_es[6]} FV_EV_MOUSE_Y=${__fvm_es[7]}
     FV_EV_MOUSE_BUTTONS=${__fvm_es[8]} FV_EV_MOUSE_MODS=${__fvm_es[9]} FV_EV_MOUSE_DOUBLE=${__fvm_es[10]}
-    FV_EV_MOUSE_TRIPLE=${__fvm_es[11]} FV_EV_WHEEL=${__fvm_es[12]} FV_EV_EOF=${__fvm_es[13]}
+    FV_EV_MOUSE_TRIPLE=${__fvm_es[11]} FV_EV_WHEEL=${__fvm_es[12]} FV_EV_EOF=${__fvm_es[13]} FV_EV_BASE=${__fvm_es[14]-}
     if [[ -z ${__FV_VW_LIVE[$1]-} ]]; then FV_EV_WHAT=evNothing FV_EV_INFO=$1; return 0; fi
     if (( __fvm_t >= 0 && ! __fvm_z )); then __fvm_cmd=${__fvm_c[__fvm_t]}; fi
     if [[ -n $__fvm_cmd && -z ${__FV_VW_CMDOFF[$__fvm_cmd]-} ]]; then fv.menus._post "$1" "$__fvm_cmd"

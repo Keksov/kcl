@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 006_Malformed.sh - sequences that are not keys must end, consume only what
-# is theirs and leave the next key intact: an overlong CSI, a CSI / SS3 /
+# is theirs and leave the next key intact: an overlong CSI (read on to its
+# final byte, at most 256 bytes: P3 3L), a CSI / SS3 /
 # Linux-console sequence cut by the next ESC, a control byte or a high byte,
 # and mouse reports of both kinds consumed exactly — X10 bytes that look like
 # ESC, controls or UTF-8 leads included, so the decoder must count bytes, not
@@ -25,13 +26,13 @@ stream() {
 digits=''
 for (( i = 0; i < 40; i++ )); do digits+=1; done
 
-stream "an overlong CSI (40 parameter bytes) ends at 32: kbUnknown, the rest are keys" \
+stream "an overlong CSI (40 parameter bytes) is read on to its final byte: one kbUnknown, nothing of it becomes keys (P3 3L: long DA1 replies)" \
     $'\e['"$digits"$'A\e[B' \
-    "kbUnknown|kbChar:1|kbChar:1|kbChar:1|kbChar:1|kbChar:1|kbChar:1|kbChar:1|kbChar:A|kbDown"
+    "kbUnknown|kbDown"
 
-kt_test_start "the overlong CSI's FV_KEY_SEQ is ESC [ + 33 bytes (35 bytes, the cap)"
+kt_test_start "the overlong CSI's FV_KEY_SEQ is the whole sequence (ESC [ + 40 + the final byte: 43 bytes)"
 fv.keyboard.decode $'\e['"$digits"A
-if [[ $FV_KEY == kbUnknown && $FV_KEY_LEN == 35 ]]; then kt_test_pass "ok"; else kt_test_fail "$FV_KEY len=$FV_KEY_LEN"; fi
+if [[ $FV_KEY == kbUnknown && $FV_KEY_LEN == 43 ]]; then kt_test_pass "ok"; else kt_test_fail "$FV_KEY len=$FV_KEY_LEN"; fi
 
 kt_test_start "a 32-byte CSI is still read whole (an SGR report with long numbers)"
 fv.keyboard.decode $'\e[<0;1234567890123;123456789012345M'

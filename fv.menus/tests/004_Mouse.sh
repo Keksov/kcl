@@ -71,6 +71,15 @@ fvw_writes_off
 fvw_check "a press on the blank part: nothing drawn, nothing posted, handled, the record put back (X of the press)" \
     "0||evNothing st|60|$NORMAL" "$FVW_WRITES|$PEND|$FV_EV_WHAT $FV_EV_INFO|$FV_EV_MOUSE_X|$(fvm_st; printf '%s' "$REPLY")"
 
+# FV_EV_BASE (P3 3L) is part of the record put back: the inner loop's events clear it
+fvw_events "move 61 23" "up 61 23"
+__FV_DR_PEND=()
+fv.drivers.clearEvent
+FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=60 FV_EV_MOUSE_Y=23 FV_EV_MOUSE_BUTTONS=1 FV_EV_BASE=q
+fv.menus._track st
+fvw_check "the press tracking puts FV_EV_BASE back with the rest of the record" "q|60|evNothing" "$FV_EV_BASE|$FV_EV_MOUSE_X|$FV_EV_WHAT"
+FV_EV_BASE=''
+
 fv.views.disableCommands cmMenu
 press 15 23 "run snap" "up 15 23"
 fvw_check "a disabled item pressed: CSelDisabled (6), nothing posted on release" \

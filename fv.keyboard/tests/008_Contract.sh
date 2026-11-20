@@ -6,9 +6,9 @@
 #                      clean and keeps FV_KEY_FD; a failing call returns to
 #                      the caller from `if` / `||`;
 #   no stray names     loading and using the unit leaves only its documented
-#                      globals (FV_KEY*, __FV_KB_*, RESULT; KK_UNIT_DIR is the
-#                      loader's) and fv.keyboard.*
-#                      functions behind.
+#                      globals (FV_KEY*, __FV_KB_*, the layout tables'
+#                      __FV_KL_*, RESULT; KK_UNIT_DIR is the loader's) and
+#                      fv.keyboard.* functions behind.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvk_testlib.sh"
 fvk_init "$(basename "$0" .sh)" "$@"
@@ -77,7 +77,7 @@ echo end" 2>&1)"
 if [[ $out == $'none\nrc2\nend' ]]; then kt_test_pass "ok"; else kt_test_fail "out='$out'"; fi
 
 # --- no stray names ---------------------------------------------------------------
-kt_test_start "loading and using the unit leaves only FV_KEY*, __FV_KB_*, RESULT and fv.keyboard.* behind"
+kt_test_start "loading and using the unit (incl. the layout tables and their variants) leaves only FV_KEY*, __FV_KB_*, the tables' __FV_KL_*, RESULT and fv.keyboard.* behind"
 out="$(bash -c "
 export LC_ALL=C.UTF-8
 source '$KBOOL'
@@ -86,9 +86,11 @@ compgen -A function | LC_ALL=C sort > '$FVK_TMP/f0'
 source '$UNIT'
 exec 8<'$FVK_TMP/main.bin'
 FV_KEY_FD=8
-fv.keyboard.feed \$'\\e\\e[A'
+fv.keyboard.feed \$'\\e\\e[A\\e[?5u\\e[1072::102;3u'
 fv.keyboard.decode \$'\\e[M\\xc3\\xa9!' >/dev/null
 fv.keyboard.decode \$'\\xf0\\x9f\\x98\\x80' >/dev/null
+fv.keyboard.decode \$'\\e\\xd0\\xb6' >/dev/null
+FV_KBD_LAYOUT=bg_phonetic,nosuch fv.keyboard.layoutBase \$'\\xd1\\x84' >/dev/null
 while fv.keyboard.getKeyEvent 0; do :; done
 fv.keyboard.pollKeyEvent
 fv.keyboard.getKeyEvent bad
@@ -99,7 +101,7 @@ unset FV_KEY_FD
 compgen -v | LC_ALL=C sort > '$FVK_TMP/v1'
 compgen -A function | LC_ALL=C sort > '$FVK_TMP/f1'
 " 2>&1)"
-newv="$(comm -13 "$FVK_TMP/v0" "$FVK_TMP/v1" | grep -vE '^(FV_KEY|FV_KEY_CHAR|FV_KEY_SEQ|FV_KEY_LEN|FV_KEY_EOF|__FV_KB_[A-Z0-9]+|RESULT|KK_UNIT_DIR)$' | tr '\n' ' ')"
+newv="$(comm -13 "$FVK_TMP/v0" "$FVK_TMP/v1" | grep -vE '^(FV_KEY|FV_KEY_CHAR|FV_KEY_SEQ|FV_KEY_LEN|FV_KEY_EOF|FV_KEY_BASE|__FV_KB_[A-Z0-9]+|__FV_KL_[A-Z]+|RESULT|KK_UNIT_DIR)$' | tr '\n' ' ')"
 newf="$(comm -13 "$FVK_TMP/f0" "$FVK_TMP/f1" | grep -v '^fv\.keyboard\.' | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then
     kt_test_pass "ok"

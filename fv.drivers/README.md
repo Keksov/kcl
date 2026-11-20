@@ -62,6 +62,7 @@ fv.drivers.getEvent; do …; done < <(…)` when the loop needs an input of its 
 | `FV_EV_MOUSE_DOUBLE`, `FV_EV_MOUSE_TRIPLE` | 0/1 on `evMouseDown` (and `FV_EV_MOUSE_DOUBLE` on `evMouseWheel`) |
 | `FV_EV_WHEEL` | `mwUp` 1, `mwDown` 2 |
 | `FV_EV_EOF` | 1 after rc 1 |
+| `FV_EV_BASE` | `evKeyDown`: fv.keyboard's `FV_KEY_BASE`, the base-layout key (the US key at that position: `f` for Alt+F typed `а` in a Russian layout, from the kitty protocol or the layout tables; P3 3L); `''` for a key without one and for **every other event** (mouse, resize, `evNothing`, `evMouseAuto`, `clearEvent`); `putEvent` keeps it. A reply to fv.video's keyboard query is no event: the key after it is (fv.keyboard README, Layout-independent keys) |
 
 Inputs: `FV_IDLE_TIMEOUT` (seconds, default 0.05; also the auto-repeat's period, at least 0.01 s),
 `FV_REPEAT_DELAY` (seconds, default **0.44**, FV's RepeatDelay of 8 ticks:
@@ -184,7 +185,7 @@ The application layer is complete for P2: [`fv.views`](../fv.views/README.md),
 
 ## Tests
 
-`bash kcl/fv.drivers/tests/tests.sh` — 164 tests; all but `005` run without a
+`bash kcl/fv.drivers/tests/tests.sh` — 178 tests; all but `005` run without a
 terminal (bytes on a file or pipe fd, `FV_KEY_FD` set directly).
 
 | file | what |
@@ -198,6 +199,7 @@ terminal (bytes on a file or pipe fd, `FV_KEY_FD` set directly).
 | 007_Contract | `set -eu`, reload, never prints, no stray globals or functions |
 | 008_CallerState | the caller's nocasematch, locale and IFS |
 | 009_Auto | P3 3a-2, `evMouseAuto` through `__FV_DR_NOW` (idle reads stubbed): the delay (inclusive), the rate on its schedule (a late caller gets one), the last report's cell and modifiers, every ending condition (a release, a second button's release, a key, a buttonless move, an X10 release; a new press or a wheel with a button held restarts the delay; a drag or a wheel alone never arms it), the read cut to the time left, the period's floor of 0.01 s (a tiny `FV_IDLE_TIMEOUT`; a drain at one instant ends after one), the wall clock going back (a small step changes nothing, a big one: due one period from the new time, the read's timeout cut to it), `FV_REPEAT_DELAY` / `FV_IDLE_TIMEOUT` and a bad value, `initEvents` / `doneEvents`, FV's constants (fv.views' `FV_EM_MOUSEAUTO` = `$0008`), `fv.views.mouseEvent` without the bit skipping them, the real clock on a live pipe (the first not before 0.44 s) |
+| 010_Base | P3 3L, `FV_EV_BASE`: copied from `FV_KEY_BASE` (kitty reports, legacy ESC + non-ASCII through the tables), `''` without one, cleared by mouse / resize / `evNothing` / `evMouseAuto` / `clearEvent`, carried by `putEvent`; replies are no events (the key after them; a reply alone on a live pipe: `evNothing` at once, no block), the reply hook run once from `getEvent` |
 
 Run on Git-bash 5.3.15, MSYS2 5.3.9, Cygwin 5.2.21 and Debian (bash 5.1.16 and
 5.2.37) in the lab VM (2026-11-09); 005 SKIPs on Git-bash only. P3 stage 3a-2

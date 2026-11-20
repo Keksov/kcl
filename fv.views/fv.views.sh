@@ -3050,18 +3050,19 @@ fv.views._uncut() {
 # their own (message, execView) save the record and put it back: FV keeps a
 # local Event per loop. Phases and commands are names.
 
-# fv.views._evSave / _evRestore — the record into / from the caller's array
+# fv.views._evSave / _evRestore — the record (the 14 fields of FV's TEvent,
+# then FV_EV_BASE, the base-layout key: P3 3L) into / from the caller's array
 # __fvw_es
 fv.views._evSave() {
     __fvw_es=("$FV_EV_WHAT" "$FV_EV_KEY" "$FV_EV_CHAR" "$FV_EV_COMMAND" "$FV_EV_ID" "$FV_EV_INFO"
         "$FV_EV_MOUSE_X" "$FV_EV_MOUSE_Y" "$FV_EV_MOUSE_BUTTONS" "$FV_EV_MOUSE_MODS"
-        "$FV_EV_MOUSE_DOUBLE" "$FV_EV_MOUSE_TRIPLE" "$FV_EV_WHEEL" "$FV_EV_EOF")
+        "$FV_EV_MOUSE_DOUBLE" "$FV_EV_MOUSE_TRIPLE" "$FV_EV_WHEEL" "$FV_EV_EOF" "${FV_EV_BASE-}")
 }
 fv.views._evRestore() {
     FV_EV_WHAT=${__fvw_es[0]} FV_EV_KEY=${__fvw_es[1]} FV_EV_CHAR=${__fvw_es[2]} FV_EV_COMMAND=${__fvw_es[3]}
     FV_EV_ID=${__fvw_es[4]} FV_EV_INFO=${__fvw_es[5]} FV_EV_MOUSE_X=${__fvw_es[6]} FV_EV_MOUSE_Y=${__fvw_es[7]}
     FV_EV_MOUSE_BUTTONS=${__fvw_es[8]} FV_EV_MOUSE_MODS=${__fvw_es[9]} FV_EV_MOUSE_DOUBLE=${__fvw_es[10]}
-    FV_EV_MOUSE_TRIPLE=${__fvw_es[11]} FV_EV_WHEEL=${__fvw_es[12]} FV_EV_EOF=${__fvw_es[13]}
+    FV_EV_MOUSE_TRIPLE=${__fvw_es[11]} FV_EV_WHEEL=${__fvw_es[12]} FV_EV_EOF=${__fvw_es[13]} FV_EV_BASE=${__fvw_es[14]-}
 }
 
 # fv.views.clearEvent V — FV ClearEvent: the event is handled (FV_EV_WHAT =
@@ -3069,6 +3070,70 @@ fv.views._evRestore() {
 fv.views.clearEvent() {
     if (( $# != 1 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
     FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+
+# fv.views.hotKeyIs HOT [plain] [typed|base] — rc 0 when the current event
+# is the hot key HOT (FV's ~X~ letter; design P3 §14.4, FPC's menus order):
+# an Alt key (FV_EV_KEY kbAlt...) whose typed character (FV_EV_CHAR) equals
+# HOT without case, else whose base-layout key (FV_EV_BASE) does; with
+# `plain` also a typed character with no Alt / Ctrl (kbChar) that equals HOT
+# without case, else whose base key (FV_EV_BASE, else fv.keyboard.layoutBase)
+# does. The base key counts only for a typed character that is not ASCII: a
+# Latin layout's typed letter (AZERTY's a on the US q key) is never also the
+# US position. One key can still match two views when their titles are in
+# two scripts (~Ф~айл and ~A~bout: Russian Alt+Ф types ф on the US a key), so
+# a hot-key map asks in two passes, `typed` over every view first (only the
+# typed character compares), then `base` (only the base key) — the typed
+# match wins (§14.4); without either word both compare. Folding is ${c,,} in
+# a UTF-8 locale (fv.video._g for a non-ASCII compare from a non-UTF-8
+# caller). RESULT is left as it was; a word other than plain / typed / base,
+# one twice, or typed with base: rc 2
+fv.views.hotKeyIs() {
+    if [ "$FV_EV_WHAT" != evKeyDown ] || [[ -z ${1-} ]]; then return 1; fi
+    if (( $# > 1 )) && ! fv.views._hkArgs "${@:2}"; then return 2; fi
+    if [[ $1$FV_EV_CHAR == *[![:ascii:]]* && ${#__FV_VS_P}${#__FV_VS_B} != 11 ]]; then
+        fv.video._g fv.views._hotKeyIs "$@"
+        return
+    fi
+    fv.views._hotKeyIs "$@"
+}
+# hotKeyIs's words: plain, typed, base ([ ]: exact, whatever nocasematch
+# says), each at most once, typed and base not both
+fv.views._hkArgs() {
+    local __fvw_w __fvw_s=' '
+    for __fvw_w; do
+        if [ "$__fvw_w" != plain ] && [ "$__fvw_w" != typed ] && [ "$__fvw_w" != base ]; then
+            fv.views._bad hotKeyIs "'$__fvw_w' is not plain, typed or base"
+            return
+        fi
+        if [[ $__fvw_s == *" $__fvw_w "* ]] || { [ "$__fvw_w" != plain ] && [[ $__fvw_s == *' typed '* || $__fvw_s == *' base '* ]]; }; then
+            fv.views._bad hotKeyIs "'${*}': plain once, then typed or base once"
+            return
+        fi
+        __fvw_s+="$__fvw_w "
+    done
+}
+fv.views._hotKeyIs() {   # HOT [plain] [typed|base]
+    local __fvw_h=${1,,} __fvw_c=${FV_EV_CHAR,,} __fvw_r __fvw_s=1 __fvw_p='' __fvw_m=''
+    shift
+    for __fvw_r; do if [ "$__fvw_r" = plain ]; then __fvw_p=1; else __fvw_m=$__fvw_r; fi; done
+    case $FV_EV_KEY in
+        kbAlt*) ;;
+        kbChar) if [[ -z $__fvw_p || -z $__fvw_c ]]; then return 1; fi ;;
+        *) return 1 ;;
+    esac
+    # the typed character (not in the base pass)
+    if [ "$__fvw_m" != base ] && [[ -n $__fvw_c && $__fvw_c == "$__fvw_h" ]]; then return 0; fi
+    # the base key: not in the typed pass, never for an ASCII typed character
+    if [ "$__fvw_m" = typed ] || [[ -n $__fvw_c && $__fvw_c != *[![:ascii:]]* ]]; then return 1; fi
+    if [[ -n $FV_EV_BASE ]]; then [[ $FV_EV_BASE == "$__fvw_h" ]]; return; fi
+    if [[ $FV_EV_KEY != kbChar ]]; then return 1; fi
+    # (a plain character: the tables, loaded at the first such question;
+    # >/dev/null: in a subshell layoutBase would print its answer)
+    __fvw_r=${RESULT-}
+    if fv.keyboard.layoutBase "$FV_EV_CHAR" >/dev/null 2>&1 && [[ $RESULT == "$__fvw_h" ]]; then __fvw_s=0; fi
+    RESULT=$__fvw_r
+    return "$__fvw_s"
 }
 
 # TView.HandleEvent — FV: a mouse-down on a selectable view that is neither

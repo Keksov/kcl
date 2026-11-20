@@ -64,7 +64,10 @@ Internal state is `__FV_VI_*`.
   redirected.
 * **Raw mode:** `-echo -icanon -ixon min 1 time 0`; **`intr` is kept**, so
   Ctrl+C stays an interrupt that restores the terminal (and `kbCtrlC` never
-  arrives while the TUI runs); `susp`, `quit` and `lnext` are undefined, and so
+  arrives while the TUI runs — also under the kitty keyboard protocol, which
+  sends Ctrl+C as `CSI 99;5u` instead of 0x03: fv.keyboard's readers raise
+  SIGINT for that report while the TUI is on, [below](#the-keyboard-protocol-p3-3l));
+  `susp`, `quit` and `lnext` are undefined, and so
   are `dsusp`, `discard`, `status` and `swtch` where the platform's `stty -a`
   lists them (probed once per process), so Ctrl+Z, Ctrl+\ and Ctrl+V arrive as
   `kbCtrlZ`, `kbCtrlBackslash`, `kbCtrlV` and nothing stops the process. ICRNL
@@ -88,6 +91,42 @@ the ownership:
   `doneVideo` or its exit restores the terminal, and the parent is untouched.
 
 The owner is recorded as `$BASHPID` at init.
+
+## The keyboard protocol (P3 3L)
+
+Layout-independent hot keys (design P3 §14.4, D30): a terminal with the
+**kitty keyboard protocol** reports Alt / Ctrl chords with the base-layout key,
+so Alt+F is `kbAltF` whatever the layout ([fv.keyboard](../fv.keyboard/README.md#layout-independent-keys-p3-3l)).
+`FV_KBD_PROTO` (environment, read by `initVideo`):
+
+| value | `initVideo` sends (right after `?1049h`: the protocol keeps one flag stack per screen) | later |
+|---|---|---|
+| `auto` (default, also empty) | the query `CSI ? u` and DA1 `CSI c`; **nothing waits for a reply** (no timed read of the terminal: D13) | fv.keyboard decodes `CSI ? N u` as a reply, not a key, and runs `fv.video._kpush`: the push `CSI > 5 u` (flags 1 disambiguate + 4 alternate keys), once. A terminal without the protocol answers DA1 only: nothing is pushed, no unknown sequence goes to it |
+| `kitty` | the push `CSI > 5 u` at once | — |
+| `off` | nothing | — |
+| anything else | as `auto`, one debug line | |
+
+**Every exit path pops `CSI < u` only when pushed** — `doneVideo`, `exit`
+without it (the EXIT trap), INT / TERM / HUP — first in the restore, while the
+alternate screen is still on (a pop after `?1049l` would hit the main screen's
+stack). A reply that arrives late (after the restore) or is read in a subshell
+pushes nothing; a second reply pushes nothing more. The restore's drain drops a
+reply still on its way. Keys typed before the reply arrive in the legacy form
+and work through fv.keyboard's layout tables. `initVideo` resets fv.keyboard's
+reply state (`__FV_KB_KITTY`, `__FV_KB_DA1`), sets its hook
+`__FV_KB_ONKITTY` and `__FV_KB_ISIG=1`; the restore clears both (internal
+state shared by the two units, like `FV_KEY_FD`). Which terminals answer:
+fv.keyboard README (to be confirmed in a live check).
+
+**Ctrl+C stays the interrupt under the protocol.** With the flags pushed the
+terminal sends Ctrl+C as `CSI 99;5u`, no 0x03, so the tty raises no SIGINT.
+While `__FV_KB_ISIG` is 1, fv.keyboard's readers answer no key for that report
+and raise SIGINT with `kill -INT 0` — to the process group, as the tty sends
+it to the foreground process group for 0x03 — so the INT row of the exit
+table below applies unchanged (the pop, the restore, status 130); the reader
+process and its watchdog ignore INT as for a typed Ctrl+C. After the restore
+the report is the key `kbCtrlC`. The same holds with `FV_KBD_PROTO=off` or
+`kitty`.
 
 ## Exit paths and traps
 
@@ -968,7 +1007,7 @@ CJK character): the D31 speed stage 3v (design 10.15).
 
 ## Tests
 
-`bash kcl/fv.video/tests/tests.sh` — 516 tests. `initVideo` runs only under
+`bash kcl/fv.video/tests/tests.sh` — 531 tests. `initVideo` runs only under
 `script(1)`'s pty (the harness is `tests/fvv_pty.sh`, shared with
 fv.drivers), never on the terminal the tests were started from; without a
 util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
@@ -999,6 +1038,7 @@ util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
 | 019_P2 | the P2 additions (stage 2a): `writeBuf … H` (H 1 / omitted / `''` identical to P1, H 0, bad H rc 2 with nothing written (also before `initScreen`), the clip on every row, wide text over rows with wide cells, a marker per row, a huge H clamped, ASCII mode); `shadeRect` (characters kept, `V` / ATTR, screen and clip edges, negative and empty rectangles, a half-covered wide character shaded whole also outside the clip, side map and versions untouched, the damage, bad arguments, frames through the VT model incl. 16 colours, incremental = forced); `getRow` (display text, `REPLY`, read-only, bad Y, ASCII mode); `getClip` (after init / setClip / resetClip, a save-restore round trip); the default palette kept per process (a cached `initScreen` equals a fresh build at 256 and 16 colours, after `definePalette`, `setColorDepth`, an emptied 16-colour map, ASCII mode; values in the environment ignored); the fast argument check (every coordinate form: 1–7-digit integers incl. leading zeros and `-` pass with their value, the rest rc 2, in every write and `setClip`); a P2 scene under 12 caller setups; `PATH=''` |
 | 022_Clusters | P3 stage 3a-1: the wide fast path's table (every code point U+3000–U+FFFF it takes is one of the design's runs and class w in fv.unicode; Latin-1, Cyrillic, U+0800–2FFF, VS16 and 4-byte characters refused); `clusters` = the walk's cells (CL the cells' contents, CW their widths, an orphan's screen space dropped; RESULT; widths sum to strWidth; valid text joined back) over 300 seeded random texts (ASCII, Cyrillic, Greek, Latin-1, CJK, Hangul, kana, fullwidth, emoji, ZWJ, VS16, keycaps, flags, marks, controls, C1, invalid UTF-8), again with the 5.1 loops forced (`__FV_VS_AMP=0`) and with `patsub_replacement` off; ASCII mode (one cluster of one cell per UTF-8 sequence, TEXT's own bytes); the answers (empty, the fast path, a caller's local arrays, no screen) and the refusals (rc 2, the arrays untouched); a scene under 11 caller setups; `PATH=''` |
 | 023_Fresh | P3 stage 3a-1: `_text` with the wide fast path = the walk alone (400 random texts incl. the joins that must refuse it, the loop, the option off); `_wrows` on fresh pages = one `writeBuf` per row with the walk alone (160 seeded random pages of every kind of text, one invalid row among valid ones, controls incl. `\x1f`, refused rows, clips, X / Y off the edges, ASCII mode, 30×10 / 80×24 / 200×50; cells, symbols, side map, flags, versions, damage, rc, RESULT; the same page again from the cache), with the loops forced, with a nearly full text cache, 300 rows (two batches); the calls (a fresh Cyrillic / CJK page: one validity check, no `writeBuf`, no walk; cached: none; emoji: one walk per row); `_wrowsu` = a `writeBuf` clipped to [X, X+W) + blanks (a wide pair and a wide marker at the edge at every W −1..10, 160 random cases, refused symbols, the names rc 3, no screen rc 1); VT-model frames; every installed UTF-8 locale (also with `globasciiranges` off) against C.UTF-8; a scene under 12 caller setups (`patsub_replacement` off too); `PATH=''` |
+| 024_KbdProto | P3 3L, the keyboard protocol: `_kproto` per `FV_KBD_PROTO` value (auto / empty / kitty / off / a bad one + its debug line; `__FV_KB_ISIG` set for every value), `_kpush` on a fake state (once; nothing with the TUI off, in a subshell, without a fd). `script(1)`: auto without a reply (the query after `?1049h`, no push, no pop), auto + a kitty reply typed twice (one push after it, the pop before `?1049l`, the reply no key), a DA1 reply only (no push), kitty (push at once, no query), kitty + noalt, off (nothing), a bad value (as auto); the pop on `exit` without doneVideo (3), SIGTERM after a reply-driven push (143), Ctrl+C (130); a late reply after doneVideo and a push from a subshell push nothing, after doneVideo the report `CSI 99;5u` is the key `kbCtrlC`; Ctrl+C typed as that report under the push (no 0x03): SIGINT all the same, popped, restored, 130 |
 
 Run on Git-bash 5.3.15 (pty cases SKIP), MSYS2 5.3.9, Cygwin 5.2.21 and Debian
 (bash 5.1.16 and 5.2.37, util-linux script 2.41.5) in the lab VM (2026-11-09; the

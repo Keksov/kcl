@@ -25,7 +25,9 @@ kk.unit fv.video || return $__kk_unit_rc
 # off). FV_KEY_FD is set to FV_TTY_FD (or the reader's pipe, below) while on
 # and put back at done.
 #
-# Ctrl+C stays an interrupt (intr kept); susp, quit, lnext (and dsusp,
+# Ctrl+C stays an interrupt (intr kept; under the kitty keyboard protocol
+# fv.keyboard raises SIGINT for its Ctrl+C report: __FV_KB_ISIG, set at init
+# and cleared at the restore); susp, quit, lnext (and dsusp,
 # discard, status, swtch where stty knows them) are undefined, so Ctrl+Z and
 # Ctrl+\ arrive as keys. Nothing here ever prints to stdout: all terminal
 # output goes to FV_TTY_FD, so a TUI works inside x=$(...).
@@ -48,6 +50,12 @@ kk.unit fv.video || return $__kk_unit_rc
 # a pipe from the owner and stops the reader when that pipe ends or the owner
 # is gone (every __FV_VI_POLL s). FV_TTY_READER=0|1 forces it off / on
 # anywhere; empty = auto. Both end at the restore.
+#
+# The keyboard protocol (design P3 §14.4): initVideo asks whether the
+# terminal has the kitty keyboard protocol (FV_KBD_PROTO=auto, the default;
+# kitty = push at once; off = send nothing) and pushes its flags 1|4 when the
+# reply comes (fv.video._kpush, run by fv.keyboard as it decodes the reply);
+# the restore pops them on every exit path, only when pushed.
 
 # the width and cluster class of every code point (the screen buffer's walk)
 kk.uses fv.unicode || return
@@ -77,6 +85,9 @@ declare -g __FV_VI_SAVED=${__FV_VI_SAVED-} __FV_VI_KSET=${__FV_VI_KSET-} __FV_VI
 declare -g __FV_VI_XRAN=${__FV_VI_XRAN:-0} __FV_VI_PID=${__FV_VI_PID-}
 declare -g __FV_VI_RPID=${__FV_VI_RPID-} __FV_VI_RFD=${__FV_VI_RFD-} __FV_VI_POLL=${__FV_VI_POLL-0.5}
 declare -g __FV_VI_WPID=${__FV_VI_WPID-} __FV_VI_WFD=${__FV_VI_WFD-} __FV_VI_RMODE=${__FV_VI_RMODE:-0}
+# KPUSH: 1 = the kitty keyboard flags were pushed on this terminal (the
+# restore pops them; design P3 §14.4)
+declare -g __FV_VI_KPUSH=${__FV_VI_KPUSH:-0}
 declare -ga __FV_VI_UNDEF
 __FV_VI_UNDEF+=()
 declare -gA __FV_VI_TP=() __FV_VI_PREV=()
@@ -434,6 +445,11 @@ fv.video._rstop() {
 fv.video._restore() {
     if (( ! __FV_VI_ACT )) || [[ $__FV_VI_PID != "$BASHPID" ]]; then return 0; fi
     local IFS= __fvv_fd=$__FV_VI_FD __fvv_s=$'\e[0m\e[?7h\e[?25h' __fvv_live=0 __fvv_busy=0
+    # the kitty flags popped first, on the screen they were pushed on (the
+    # protocol keeps one stack per screen); the hook and the kitty Ctrl+C
+    # interrupt (__FV_KB_ISIG) go with the TUI
+    if (( __FV_VI_KPUSH )); then __fvv_s=$'\e[<u'$__fvv_s __FV_VI_KPUSH=0; fi
+    __FV_KB_ONKITTY='' __FV_KB_ISIG=0
     if (( __FV_VI_ALT )); then __fvv_s+=$'\e[?1049l'; fi
     __fvv_s+=$'\e[?1006l\e[?1003l\e[?1002l\e[?1000l'
     if [[ -z ${1-} ]]; then printf '%s' "$__fvv_s" 2>/dev/null >&$__fvv_fd || :; fi
@@ -553,6 +569,42 @@ fv.video._trap() {
     done
 }
 
+# The keyboard protocol (design P3 §14.4, D30): by FV_KBD_PROTO (auto when
+# empty), the caller's __fvv_x = what initVideo sends first (after the
+# alternate screen: the kitty protocol keeps one flag stack per screen).
+#   auto   the kitty query CSI ? u and DA1 CSI c; nothing waits for a reply
+#          (no timed read of the terminal, D13): fv.keyboard decodes the
+#          replies as no keys and runs the hook __FV_KB_ONKITTY set here,
+#          fv.video._kpush, on a kitty reply. A terminal without the
+#          protocol answers DA1 only: nothing is pushed
+#   kitty  the push CSI > 5 u (flags 1 disambiguate + 4 alternate keys) now
+#   off    nothing
+# fv.keyboard's reply state (__FV_KB_KITTY, __FV_KB_DA1) starts afresh, and
+# __FV_KB_ISIG=1: Ctrl+C reported as CSI 99;5u (no 0x03 byte under the
+# protocol, so no SIGINT from the tty) raises SIGINT in fv.keyboard's readers
+# as the tty does for 0x03: Ctrl+C stays the interrupt; the restore clears it.
+fv.video._kproto() {
+    __FV_VI_KPUSH=0 __FV_KB_KITTY=-1 __FV_KB_DA1=0 __FV_KB_ONKITTY='' __fvv_x='' __FV_KB_ISIG=1
+    case ${FV_KBD_PROTO:-auto} in
+        auto) __fvv_x=$'\e[?u\e[c' __FV_KB_ONKITTY=fv.video._kpush ;;
+        kitty) __fvv_x=$'\e[>5u' __FV_VI_KPUSH=1 ;;
+        off) ;;
+        *)
+            kk.debug "Error: fv.video.initVideo: FV_KBD_PROTO '$FV_KBD_PROTO' is not auto, kitty or off; using auto"
+            __fvv_x=$'\e[?u\e[c' __FV_KB_ONKITTY=fv.video._kpush ;;
+    esac
+}
+
+# fv.keyboard's hook on a kitty reply: the push CSI > 5 u, once, on the
+# terminal of a TUI that is on in this process (a late reply after the
+# restore, or one read in a subshell, pushes nothing)
+fv.video._kpush() {
+    if (( ! __FV_VI_ACT || __FV_VI_KPUSH )) || [[ $__FV_VI_PID != "$BASHPID" || -z $__FV_VI_FD ]]; then return 0; fi
+    local IFS=
+    __FV_VI_KPUSH=1
+    printf '%s' $'\e[>5u' 2>/dev/null >&$__FV_VI_FD || :
+}
+
 fv.video.initVideo() {
     local IFS= __fvv_alt=1 __fvv_fd='' __fvv_g='' __fvv_a='' __fvv_x __fvv_tty=${FV_TTY:-/dev/tty}
     if [ "${1-}" = noalt ]; then __fvv_alt=0                 # [ ]: exact, whatever nocasematch says
@@ -593,7 +645,8 @@ fv.video.initVideo() {
     fi
     fv.video._rstart
     # never DECKPAM (ESC =): keypad ESC O p..y would read as vt100 F5-F12
-    __fvv_x=$'\e[?25l\e[?7l\e[0m\e[H\e[2J'
+    fv.video._kproto
+    __fvv_x=$__fvv_x$'\e[?25l\e[?7l\e[0m\e[H\e[2J'
     if (( __fvv_alt )); then __fvv_x=$'\e[?1049h'$__fvv_x; fi
     printf '%s' "$__fvv_x" 2>/dev/null >&$__fvv_fd || :
     fv.video.updateSize
