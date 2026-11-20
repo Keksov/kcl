@@ -251,12 +251,26 @@
         "fv.views (TScrollBar, TListViewer)",
         "fv.dialogs",
         "fv.msgbox",
-        "fv.menus (TMenuBar/TMenuBox per O3)"
+        "fv.menus (TMenuBar/TMenuBox/TMenuPopup, D22)",
+        "fv.histlist"
       ],
-      "open_items": [
-        "O3"
-      ],
-      "status": "planned"
+      "open_items": [],
+      "decisions": "D22-D31 (PLAN.md section 1), 2026-11-20",
+      "status": "in progress",
+      "stages": [
+        {"id": "P3-0", "name": "Stage 0 design", "status": "done 2026-11-20", "result": "P3_DESIGN.md revision 2 (rev 1 by an Opus worker, critic H1-H2 M1-M11 L1-L10, rev 2 fixes every finding + research on layout-independent hot keys section 14 + THistory section 15); prototypes and probes in the supervisor scratchpad (proto_w.sh, proto_r2.sh, probe_p3.sh, probe_r2.sh, probe_keys.sh). Owner answers 2026-11-20: O3 menus full, bar on request, paste/OSC 52, friendly list colours, Marks, cursor shape, THistory, password + long checklist (D22-D29); Q7 option (c) layouts (D30); Q8 one target for every kind of list text -> stage 3v (D31). Owner 2026-11-20: perf measurements and optimizations through GitHub CI"},
+        {"id": "3a-1", "name": "fv.video: clusters, uniform rows, fresh narrow rows in _wrows, wide fast path (10.1 10.2 10.11 10.12)", "status": "planned"},
+        {"id": "3a-2", "name": "fv.views/fv.drivers: broadcast table, wide-row edge test, evMouseAuto (10.3 10.5 10.6)", "status": "planned"},
+        {"id": "3L", "name": "layout-independent hot keys, option (c) (10.14)", "status": "planned"},
+        {"id": "3b", "name": "lists: TScrollBar, TListViewer; same-run CI A/B fixes list targets", "status": "planned"},
+        {"id": "3v", "name": "fv.video speed (D31): CJK PgDn <= 8, F-1 <= 15 on CI", "status": "planned"},
+        {"id": "3c", "name": "fv.dialogs I + hot-key map", "status": "planned"},
+        {"id": "3d", "name": "TInputLine, password, clipboard, cursor shape, TListBox", "status": "planned"},
+        {"id": "3h", "name": "history: fv.histlist, THistory", "status": "planned"},
+        {"id": "3e", "name": "fv.msgbox", "status": "planned"},
+        {"id": "3f", "name": "menus", "status": "planned"},
+        {"id": "3g", "name": "budget, bench, docs", "status": "planned"}
+      ]
     },
     {
       "id": "P4",

@@ -42,6 +42,16 @@ Sources:
 | D19 | 2026-11-16 | **kklass friend contract** (P2 Q4, owner choice): the kklass book documents `${inst}_class`, `${inst}_data[F]` (reads and the allowed writes), `${CLASS}_class_method_owner` and the dispatcher names as friend tables (format, set -u behaviour), pinned by one kklass test; no helper functions, no runtime cost. |
 | D20 | 2026-11-18 | **P2 timing gate on Linux CI** (owner): measured on the GitHub CI Linux rows with the `fvviews` bench; first paint with cold palettes; Tab = the full F6 path (key, status line, cmNext); Windows rows tracked as ratios to Linux, not blocking. Supersedes D18's "Git-bash 80×24". |
 | D21 | 2026-11-18 | **Deep performance round before P3** (owner): the per-event path (read, routing, the app's HandleEvent override), flush splitting (R2) and fv.video's write path for big screens (R9). Design stage first, then implementation with a critic; numbers on CI. |
+| D22 | 2026-11-20 | **Menus in v1, full** (P3 Q1 = O3): TMenuBar + TMenuBox + submenus (+ TMenuPopup), F10 / Alt+letter, the status line shows the current item's hint. |
+| D23 | 2026-11-20 | **The menu bar only on request**: without a menu nothing changes (no top row); an application that wants one overrides `InitMenuBar` or calls `fv.menus.menuBar`, then row 0 is the bar. Documented deviation from FV (app.inc:958-964 always creates an empty bar). |
+| D24 | 2026-11-20 | **Paste and clipboard**: bracketed paste (one `cmPasteText` event) + an internal clipboard + copy to the system clipboard via OSC 52; the terminal key table in P3_DESIGN §4.5. |
+| D25 | 2026-11-20 | **Lists in a plain window get a friendly built-in default** (yellow on blue, focused row blue on grey); in a dialog CListViewer as FV. Documented deviation. |
+| D26 | 2026-11-20 | **A `Marks` field for multi-select** (an associative array the built-in Draw reads; no per-row IsSelected dispatch). |
+| D27 | 2026-11-20 | **Cursor shape by mode** (underline insert, block overwrite; `ESC [ 0 q` at exit restores the terminal's default shape, not a shape the shell set). |
+| D28 | 2026-11-20 | **Input history (FV THistory) in v1**: its own stage 3h, new unit fv.histlist. |
+| D29 | 2026-11-20 | **For P4, in P3**: password mode (a mask character in TInputLine) and long checklists through a list with `Marks`. |
+| D30 | 2026-11-20 | **Hot keys with any keyboard layout, option (c)** (P3 Q7): typed character first, then the base-layout key from the kitty keyboard protocol, then layout tables generated from xkeyboard-config (`FV_KBD_LAYOUT` / locale / per-script default); stage 3L. win32-input-mode only later, as an opt-in after a live check. |
+| D31 | 2026-11-20 | **One list speed target for every kind of text** (P3 Q8 = a): PgDn <= 8 ms CI Linux 80x24 on fresh pages for ASCII, Cyrillic and CJK names; the two-panel list scene's first paint (F-1) <= 15 ms CI with real lists; an extra fv.video speed stage 3v after 3b. All P3 timing on GitHub CI (perf branches, same-run A/B); laptop numbers are estimates only. |
 
 ## 2. What the measurements say
 
@@ -269,7 +279,12 @@ agent) goes into every brief.
   * TInputLine (editing, wide characters, scrolling, selection);
   * TCheckBoxes, TRadioButtons, TDialog.
 * **fv.msgbox**: `MessageBox` and `InputBox`.
-* **Menus:** TMenuBar/TMenuBox if O3 says v1.
+* **Menus:** TMenuBar/TMenuBox/TMenuPopup in v1 (D22), the bar only on request (D23).
+* **Also in P3** (D24-D31): bracketed paste + clipboard, Marks, cursor shape, THistory, password
+  mode, layout-independent hot keys, the fv.video speed stage 3v.
+* **Design**: [P3_DESIGN.md](P3_DESIGN.md) (revision 2). Stages, in order: 3a-1 fv.video ->
+  3a-2 fv.views/fv.drivers -> 3L layouts -> 3b lists -> 3v fv.video speed -> 3c dialogs I ->
+  3d input line -> 3h history -> 3e fv.msgbox -> 3f menus -> 3g budget, bench, docs.
 
 ### P4 — one-shot dialogs (face C)
 
@@ -338,7 +353,7 @@ Linux targets are set after the first native numbers.
 |---|---|---|---|
 | O1 | P0 | Esc timeout default | 0.02 s, override `FV_ESC_TIMEOUT` (0.1 over ssh) |
 | O2 | P4 | One-shot dialogs: whiptail/dialog-compatible flags (`--msgbox TEXT H W`) or own syntax? Also the command name | compatible subset: scripts can switch with one word |
-| O3 | P3 | TMenuBar/TMenuBox in v1? | yes if P2 lands within budget; the file manager needs them |
+| O3 | P3 | **DECIDED D22/D23: yes, full; the bar only on request** — TMenuBar/TMenuBox in v1? | (was: yes if P2 lands within budget) |
 | O4 | P1 | **DECIDED D11 (a)** — Not a UTF-8 locale | try `C.UTF-8` locally in the unit's functions; else ASCII mode with `?` for non-ASCII |
 | O5 | P5 | Protocol line format: words with shell quoting, `key=value`, or JSON lines | words with `%q` quoting: bash reads them with `read -a`, no parser needed |
 | O6 | P1 | **DECIDED D10: 256 colours from v1** — Colours: FV's 16-colour palette only, or 256/true colour too | (was: 16 in v1) |
