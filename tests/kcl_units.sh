@@ -108,6 +108,9 @@ KCL_UNITS=(
     # built-in bodies, broadcast rows and hot-key texts to fv.views' tables;
     # readonly: its FV_BF_* / FV_DP_* constants are assigned once per process)
     "fv.dialogs||readonly|"
+    # (fv.msgbox: FV's MsgBox, plain functions over fv.dialogs; readonly: its
+    # FV_MF_* constants are assigned once per process)
+    "fv.msgbox||readonly|"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),

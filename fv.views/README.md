@@ -1466,7 +1466,7 @@ ASCII 5.03).
 * **instance classes with FV field names**, and fields of other instances
   read and written directly under the kklass friend contract;
 * **friend entries for the fv.\* units above this one** (fv.menus,
-  fv.app, fv.dialogs — the same framework, versioned together; not for
+  fv.app, fv.dialogs, fv.msgbox — the same framework, versioned together; not for
   scripts; P3 3c adds the hot-key table `__FV_VW_HKS`, `fv.views._hk` and
   `fv.views._hkDirty`, and fv.dialogs calls the bodies it builds on — its
   README lists them): the
@@ -1479,7 +1479,7 @@ ASCII 5.03).
   HandleEvent body), reads of `__FV_VW_LIVE` (a live view), `__FV_VW_CRC` (a
   refused TView part's rc), `__FV_VW_ERRSYM`, the disabled-command set
   `__FV_VW_CMDOFF` and the event hooks `__FV_VW_PUTEVENT` / `__FV_VW_EOF`.
-  fv.menus' and fv.app's READMEs list what they use;
+  fv.menus', fv.app's and fv.msgbox's READMEs list what they use;
 * **loud refusals**: re-creating a live view, a reserved name and a
   constructor that skipped `inherited` print one `Error:` line on stderr (not
   only under `VERBOSE_KKLASS=debug`; `quiet` silences them) — a silent rc

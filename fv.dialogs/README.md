@@ -477,6 +477,12 @@ store's `__FV_HL_T<ID>` (read only). fv.video: `fv.video._g` (its
 locale guard), `fv.video.clusters`, `fv.video.setClipboard` and the read of
 `__FV_VS_PNA`, `__FV_VS_P`, `__FV_VS_B`, `__FV_VS_PB`.
 
+**Friend uses of this unit** (stage 3e): [fv.msgbox](../fv.msgbox/README.md)
+calls `fv.dialogs._ptCount` (the arguments a `printf` format takes: its
+FormatStr, as TParamText's) and `fv.dialogs._aname` (inputBox's VARNAME
+check, the rule of `getData`'s ARRAY); it builds its boxes from the public
+classes and `getText` / `setText`.
+
 ## Cost
 
 Exact counts (`tests/013_CallBudget.sh`, design §8.1's scene: an application
