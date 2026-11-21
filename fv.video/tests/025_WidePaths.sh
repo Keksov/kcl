@@ -477,8 +477,11 @@ CNT=()
 fv.video._wrows 41 1 NT NA; cnt putw wrw wrw5; r+=" | $REPLY"
 CNT=()
 fv.video._wrowsu 41 1 38 ET ES; cnt putw; r+=" | $REPLY"
+# (wfbl: 0 with the substitution; bash 5.1 / patsub_replacement off loops per row)
+WL=0
+if (( ! __FV_VS_AMP )) || [[ $BASHOPTS != *patsub_replacement* ]]; then WL=21; fi
 check "the calls: a fresh 21-row CJK page (_wrowsu), the same page cached, a narrow page beside it (_wrows), an emoji page (old path)" \
-    "wfb=1 wfbl=0 putw=0 wrx=1 wrcut=0 | putw=0 wrx=0 wrcut=0 | putw=0 wrw=21 wrw5=21 | putw=21" "$r"
+    "wfb=1 wfbl=$WL putw=0 wrx=1 wrcut=0 | putw=0 wrx=0 wrcut=0 | putw=0 wrw=21 wrw5=21 | putw=21" "$r"
 # the bash 5.1 loop (and patsub_replacement off): the batch takes _wfb's test
 # once and the loop per row, never over the rows joined (F1)
 FV_SCREEN_W=80 FV_SCREEN_H=24 fv.video.initScreen
