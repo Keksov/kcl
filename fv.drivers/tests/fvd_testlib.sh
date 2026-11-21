@@ -16,8 +16,11 @@
 #                        FV_KEY_FD = a live pipe that gets FIRST at once and
 #                        REST after GAP_US (the writer is recorded, reaped by
 #                        fvd_done and by INT/TERM traps; it ends by itself
-#                        after REST: no EXIT trap, ktest owns that one)
-#   fvd_now              REPLY = EPOCHREALTIME in microseconds
+#                        after REST: no EXIT trap, ktest owns that one);
+#                        the driver's state reset as fvd_feed does (a button
+#                        held by an earlier test would give an auto before
+#                        FIRST arrives on a slow runner)
+#   fvd_now             REPLY = EPOCHREALTIME in microseconds
 
 FVD_TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$FVD_TESTS_DIR/../../../ktests/ktest.sh"
@@ -89,5 +92,6 @@ fvd_writer() {
     FVD_PIDS+=("$!")
     FV_KEY_FD=$FVD_WFD
     fv.keyboard.flush
+    fv.drivers.doneEvents
 }
 fvd_done() { exec {FVD_WFD}<&-; FVD_WFD=''; fvd_reap; }
