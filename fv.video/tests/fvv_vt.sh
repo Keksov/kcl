@@ -10,8 +10,9 @@
 #   vt_feed STREAM   apply STREAM: CUP ESC[r;cH / ESC[H, CHA ESC[cG (default
 #                    1, clamped to the row), SGR ESC[...m (0, 1, 22, 30-37,
 #                    39, 40-47, 49, 90-97, 100-107, 38;5;N, 48;5;N),
-#                    ESC[?25h / l, ESC[2J, and text (autowrap off: past the
-#                    last column the last cell is overwritten);
+#                    ESC[?25h / l, DECSCUSR ESC[N SP q (VT_SHP), ESC[2J,
+#                    and text (autowrap off: past the last column the last
+#                    cell is overwritten);
 #                    rc 1 and VT_ERR on anything else
 #   Wide characters (P1c), from tables the TEST declares (never fv.unicode,
 #   so the model stays independent of the unit):
@@ -50,7 +51,7 @@
 #                    cursor visibility and, when visible, its position), for
 #                    comparing two grids
 
-VT_W=0 VT_H=0 VT_X=0 VT_Y=0 VT_VIS=G VT_FG=G VT_BG=G VT_B=G VT_ERR='' VT_OUT='' VT_RC=0 VT_N=0 VT_GRID=''
+VT_W=0 VT_H=0 VT_X=0 VT_Y=0 VT_VIS=G VT_SHP=G VT_FG=G VT_BG=G VT_B=G VT_ERR='' VT_OUT='' VT_RC=0 VT_N=0 VT_GRID=''
 declare -a VT_C=() VT_A=()
 declare -A VT_N16=() VT_WD=() VT_PICT=() VT_MOD=() VT_RI=() VT_DEV=()
 declare -a VT_DV=()
@@ -68,7 +69,7 @@ VT_LEV=(0 95 135 175 215 255)
 
 vt_init() {
     local i n=$(( $1 * $2 ))
-    VT_W=$1 VT_H=$2 VT_X=7 VT_Y=3 VT_VIS=G VT_FG=G VT_BG=G VT_B=G VT_ERR=''
+    VT_W=$1 VT_H=$2 VT_X=7 VT_Y=3 VT_VIS=G VT_SHP=G VT_FG=G VT_BG=G VT_B=G VT_ERR=''
     VT_C=() VT_A=() VT_DV=() VT_LC=-1
     for (( i = 0; i < n; i++ )); do VT_C[i]=% VT_A[i]=G/G/G; done
 }
@@ -123,6 +124,7 @@ vt_feed() {
                 s=${s:${#BASH_REMATCH[0]}}
             elif [[ $h == $'\e[?25h'* ]]; then VT_VIS=h s=${s:6}
             elif [[ $h == $'\e[?25l'* ]]; then VT_VIS=l s=${s:6}
+            elif [[ $h == $'\e['[0-6]' q'* ]]; then VT_SHP=${h:2:1} s=${s:5}
             elif [[ $h == $'\e[H'* ]]; then VT_X=0 VT_Y=0 s=${s:3} VT_LC=-1
             elif [[ $h == $'\e[2J'* ]]; then
                 for (( i = 0; i < VT_W * VT_H; i++ )); do VT_C[i]=' ' VT_A[i]="$VT_FG/$VT_BG/$VT_B"; done

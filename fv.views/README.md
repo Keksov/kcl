@@ -1102,11 +1102,13 @@ fv.views.insert "$FV_DESKTOP" files
   each, documented) and wins over `Marks`.
 * **Palette (D25)**: FV's CListViewer `26 26 27 28 29` when the owner's
   resolved palette reaches entry 29 (a dialog; no owner: the app palette);
-  in a plain window (8 entries) the window's scroller entries `6 6 7 6 6`
-  (yellow on blue, the focused row blue on grey) instead of FV's ErrorAttr.
-  There colours 2 and 4 are the same entry: **marks do not show in a plain
-  window's default palette** (a dialog shows them; a class answers any
-  palette).
+  in a plain window (8 entries) the window's entries `6 6 7 2 6` instead of
+  FV's ErrorAttr: rows yellow on blue (the scroller's 6), the focused row
+  blue on grey (7), **marked rows in the window's entry 2** (bright white
+  on blue in a blue window: the active frame's colour; owner 2026-11-21),
+  so marks show; the focused row keeps entry 7 even when marked (FV:
+  focus wins; an inactive list's focused row, colour 4 as in FV, shows in
+  entry 2 too). A class answers any palette.
 * **`FocusItem ITEM`** (virtual; FPC 2025): `Focused` := ITEM; the top item
   moved so that it shows (one column: ITEM becomes the top or the bottom row;
   several: its column the first or the last) through SetTopItem; drawn by

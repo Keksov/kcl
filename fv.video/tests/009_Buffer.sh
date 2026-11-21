@@ -169,7 +169,7 @@ vt_capture fv.video.updateScreen
 check "a hidden cursor: a move sends nothing" "''" "'$VT_OUT'"
 fv.video.setCursorType 2
 vt_capture fv.video.updateScreen
-check "shown: its position, then ?25h" "${E}[2;4H${E}[?25h" "$VT_OUT"
+check "shown: its shape (DECSCUSR, type 2 = block), its position, then ?25h" "${E}[2 q${E}[2;4H${E}[?25h" "$VT_OUT"
 vt_capture fv.video.updateScreen
 check "shown, unchanged, no text: nothing" "''" "'$VT_OUT'"
 fv.video.writeStr 0 0 'k' 0
@@ -180,7 +180,13 @@ vt_capture fv.video.updateScreen
 check "a position off the screen is clamped to the last cell" "${E}[2;6H" "$VT_OUT"
 fv.video.setCursorType 1
 vt_capture fv.video.updateScreen
-check "another visible type (1..3): no shape sequence, nothing sent" "''" "'$VT_OUT'"
+check "another visible type (1 = underline): its shape sent (P3 10.7), then the position" "${E}[4 q${E}[2;6H" "$VT_OUT"
+fv.video.setCursorType 3
+vt_capture fv.video.updateScreen
+check "type 3 (half block) is a block: its shape and the position" "${E}[2 q${E}[2;6H" "$VT_OUT"
+fv.video.setCursorType 2
+vt_capture fv.video.updateScreen
+check "type 2 after 3: the same shape, nothing sent" "''" "'$VT_OUT'"
 fv.video.setCursorType 0
 vt_capture fv.video.updateScreen
 check "hidden again: ?25l only" "${E}[?25l" "$VT_OUT"

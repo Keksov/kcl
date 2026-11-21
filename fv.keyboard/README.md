@@ -50,11 +50,12 @@ sequence, and a lone ESC costs one Esc timeout even through them.
 | `FV_KEY` | the key name; `kbNoKey` after rc 1. `RESULT` holds the same (`''` after rc 1/2) |
 | `FV_KEY_CHAR` | the character of `kbChar`, and of an Alt + printable key (`kbAltX` → `x` or `X`, `kbAltChar` → the character); else empty — also for `kbAltLftBrack`, and for `kbAltO` when it is `ESC O` (`ESC o` gives `o`). A CSI u report and a table-mapped legacy Alt key give the **typed** character (`kbAltF` → `а` with a Russian layout; the shifted key under Shift: `А`), Ctrl chords included (except Ctrl + M / J / I / H / `[`, which are `kbEnter` / `kbTab` / `kbBack` / `kbEsc` with no character, as from a legacy terminal) |
 | `FV_KEY_BASE` | the **base-layout key**: the US key at that position, one lower-case ASCII character (`f`, `x`, `1`, `;`), from a CSI u report (its base field, else its code when ASCII, else the tables) or from the layout tables for a legacy ESC + non-ASCII key; `''` when not known — every other key (plain typing, legacy Alt + ASCII, Ctrl codes, sequences) and after rc 1 |
-| `FV_KEY_SEQ` | the raw bytes of the key, ESC included (a mouse report whole) |
+| `FV_KEY_SEQ` | the raw bytes of the key, ESC included (a mouse report whole, a bracketed paste's frame whole) |
 | `FV_KEY_LEN` | the number of bytes consumed (a NUL byte counts 1 but cannot be held by `FV_KEY_SEQ`) |
 | `FV_KEY_EOF` | 1 when rc 1 came from end of file, else 0 |
 | `FV_KEY_FD` | *input*: the fd to read (default 0; [fv.video](../fv.video/README.md)`.initVideo` sets it to the terminal, or on Git-bash, MSYS2 and Cygwin to the pipe of its [reader process](../fv.video/README.md#the-reader-process-git-bash-msys2-cygwin), D13 — a pipe reads the same: NUL, the Esc timeout and the `read -t 0` fast path behave as on the terminal). Checked once per value: ≤ 4 digits and `/dev/fd/N` exists (bash stats it, fork-free). Closed later: bash prints its own read error and the reader answers rc 2 (`FV_KEY_EOF=0`) on every path. A **write-only** fd passes the check — no fork-free probe tells it apart (`read -t 0` reports it readable on Git-bash, MSYS2 and Cygwin) — and reading it makes bash print a read error; the reader answers rc 1 with `FV_KEY_EOF=1` |
 | `FV_ESC_TIMEOUT` | *input, environment*: how long each next byte of a started key is awaited, seconds; default **0.02** (plan item O1; 0.1 suits ssh). Not a positive number with at most 6 decimals → 0.02 (and a debug line) |
+| `FV_PASTE_MAX` | *input, environment*: the bytes a bracketed paste keeps (default **65536**); the rest is read and dropped with one debug line, an incomplete UTF-8 sequence at the cut dropped too. Not 1–9 digits → the default |
 | `FV_KBD_LAYOUT` | *input, environment*: the layouts that win in the tables, a comma list, first wins (`bg_phonetic,ru`; `bg_phonetic` = xkeyboard-config's `bg(phonetic)`, both spellings work). A named default layout brings its symbols too (`bg`: `ESC €` → `kbAltEqual`). A Latin layout (`us`, `de`, `fr(azerty)`) is skipped quietly, without loading the variants; another unknown name with one debug line. Read at each lookup: a change rebuilds the table from memory |
 
 The unit's internal state is `__FV_KB_*` (and the tables' `__FV_KL_*`, once
@@ -142,8 +143,24 @@ are `kbChar`).
   not used stay queued.
 * **CSI u and the replies** ([below](#layout-independent-keys-p3-3l)) are CSI
   sequences like any other: consumed exactly, a malformed one is `kbUnknown`
-  and leaves the next key intact. `CSI 200~` (bracketed paste, stage 3d) and
-  win32-input-mode's `CSI … _` (design option d, not taken) stay `kbUnknown`.
+  and leaves the next key intact. win32-input-mode's `CSI … _` (design
+  option d, not taken) stays `kbUnknown`.
+* **Bracketed paste** (P3 3d, design §4.5, 10.8; fv.video turns it on):
+  `ESC [ 200 ~ TEXT ESC [ 201 ~` is **one key, `kbPaste`**, TEXT in
+  `FV_KEY_CHAR` exactly as it came (newlines, CR, Tab, escape sequences
+  inside are text, never keys), `FV_KEY_SEQ` the frame; the next key comes
+  after it. The frame may come in pieces: what is queued is taken first,
+  then the fd is read up to the next ESC (and after an ESC that may begin the
+  end, the bytes the end still needs) — larger reads than one byte, never
+  past the frame's end — each read waiting at most 1 s for more
+  (`__FV_KB_PT`); a read that brings bytes goes on, one that brings none, the
+  end of input or decode's bytes ending inside the frame end it with the
+  text so far — what of the frame comes later is read as keys (its end
+  marker alone is `kbUnknown`). A NUL inside is dropped. Through a pipe (Git-bash, MSYS2,
+  Cygwin: D13's reader) bash reads a byte per system call: a 64 KiB paste
+  takes ~1.5 s there. fv.drivers makes `kbPaste` FV's `evCommand
+  cmPasteText`. An `ESC` in front of the frame is a lone `kbEsc`, then the
+  paste.
 
 ## Layout-independent keys (P3 3L)
 
@@ -415,6 +432,7 @@ files, pipes; `005` uses delayed writers with generous bounds):
 | 010_CsiU | the kitty protocol's reports: the design's Russian / Greek / Hebrew / Arabic Alt+F, Alt+Shift+F, Ctrl+F, Ctrl+Alt+F, Esc; a Latin layout (AZERTY); modified Enter / Tab / Backspace / Space / Esc, keypad, F13+, Super, a release, a text field; xterm's formatOtherKeys / modifyOtherKeys; exact consumption with trailing keys; malformed reports (kbUnknown, the next key intact, no hang); the 3L review: rxvt `CSI 1;2c` arrows, Alt + shifted punctuation (kbAltChar), Ctrl + M J I H [ (legacy names), a control-code shifted field, ESC + a report (nothing left over), kitty Ctrl+C raising SIGINT from every reader under `__FV_KB_ISIG` (in a job of its own, `set -m`) and not from decode / Ctrl+Alt+C / Ctrl+Shift+C / ISIG 0 |
 | 011_Replies | the kitty and DA1 replies are no keys on every entry point, their state, the hook (readers only, once per reply), a reply alone never blocks a poll or waits twice, replies between typed keys, malformed replies; long DA1 replies (33-37 parameter bytes: Windows Terminal, xterm 525) on every reader path incl. a split within the Esc timeout before and past the 32-byte cap, long non-replies consumed exactly, 256 bytes without a final byte |
 | 012_Layouts | the tables: the design's rows (ru, gr, il, ara, ua, ge, am, th, ir), the lazy load (never on plain typing, once, rebuilt from memory), `FV_KBD_LAYOUT` and the locale (incl. the Bulgarian phonetic example), `layoutBase`, a missing file, `set -eu`, fork-free, the data file's shape; the locale's POSIX precedence and `@latin`, symbols only for a named layout (`ESC § € № × “` kbAltChar by default), Greek `Σ` on S, Latin layout names skipped quietly without the variants (`us_rus` still loads) |
+| 014_Paste | P3 3d, bracketed paste: one `kbPaste` (LEN, SEQ), newline / CR / Tab / escape sequences as text, empty and UTF-8 pastes, decode of an unended frame, the queue (keys around it), a file fd (two in a row), the frame split between the queue and the fd (the end marker too), delayed writers (two pieces, the end marker split, an ESC inside), a frame whose end never comes (`__FV_KB_PT`), one that stalls past it (its tail as keys, F7), `FV_PASTE_MAX` (the cut, the debug line, a cut UTF-8 character, 70 000 bytes from a file, head and tail of a cut never forging the end: F6), a NUL inside, pollKeyEvent, an ESC in front, nocasematch and an IFS of digits |
 | 013_Generator | `tools/kbdlayout/tests/selftest.sh` with this runtime's awks |
 
 Run on Git-bash 5.3.15, MSYS2 5.3.9 and Cygwin 5.2.21 (2026-11-09; P3 3L

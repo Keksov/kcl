@@ -116,7 +116,7 @@ question **Q7**. Headless parser probes: `p3/out_keys_*.txt`.
 | D22 | **Menus in v1, full** (O3 closed): TMenuBar + TMenuBox + submenus (+ TMenuPopup), F10 / Alt+letter, the status line shows the current item's hint. | §7, stage 3f |
 | D23 | **The menu bar only on request.** Without a menu nothing changes: no top row; P2's tests, the bench scenes and the first-paint baselines stay as they are. An application that wants a menu overrides `InitMenuBar` (or calls the one-call helper `fv.menus.menuBar`, which describes the items) and then row 0 is the bar and the desktop starts at row 1. Documented deviation from FV, whose `TProgram.InitMenuBar` always creates an (empty) bar (app.inc:958-964). | §7.1, 10.10 |
 | D24 | **Paste and clipboard: bracketed paste + an internal clipboard + copy to the system clipboard via OSC 52.** Which keys the program uses and what each terminal does with them: §4.5. | §4.5, 10.8, 10.9 |
-| D25 | **Lists in a plain window get a friendly built-in default** (the window's scroller colours: yellow on blue, the focused row blue on grey); in a dialog CListViewer as FV. Documented deviation (FV shows ErrorAttr there). | §2.6 |
+| D25 | **Lists in a plain window get a friendly built-in default** (the window's scroller colours: yellow on blue, the focused row blue on grey); in a dialog CListViewer as FV. Documented deviation (FV shows ErrorAttr there). Marked rows: window entry 2, bright white on blue (owner 2026-11-21). | §2.6 |
 | D26 | **A `Marks` field for multi-select**: the name of an associative array the built-in Draw reads inline; no per-row `IsSelected` dispatch (an override still works and wins). | §5 |
 | D27 | **Cursor shape by mode**: underline while inserting, block while overwriting (DECSCUSR); at exit `ESC [ 0 q`, which restores **the terminal's default shape** for the session, not a shape the user's shell had set (no query exists that works everywhere). | §2.5, 10.7 |
 | D28 | **Input history (FV THistory) in v1**: the `▐↓▌` button after an input line, the history window with its list, `cmRecordHistory`, the per-id history store. Its own stage (3h). | §15, stage 3h |
@@ -393,7 +393,7 @@ A class that overrides `HandleEvent` is always called (the table only skips buil
 **A list in a plain window (D25).** FV's CListViewer points at entries 26–29, which a TWindow (8
 entries) does not have, so FV shows ErrorAttr there. The built-in `GetPalette` of TListViewer
 answers CListViewer when the owner's palette is long enough (a dialog) and the window's scroller
-entries `6 6 7 6 6` (FV's CScroller `6 7`, as THistoryViewer uses: yellow on blue, the focused
+entries `6 6 7 2 6` (FV's CScroller `6 7`, as THistoryViewer uses: yellow on blue, the focused
 row blue on grey in a blue window) otherwise. One test per owner kind; a subclass can answer
 anything. Documented deviation.
 
@@ -613,7 +613,8 @@ dialog activated from outside) draws it too.
   `FV_CLIPBOARD`. Ctrl+Ins copies the selection, Shift+Del cuts, Shift+Ins pastes it (FV maps
   Shift+Ins to `cmPaste`, dialogs.inc:1941-1957).
 * **System clipboard out (OSC 52)**: every copy and cut also sends `ESC ] 52 ; c ; BASE64 BEL`
-  through fv.video (`fv.video.setClipboard TEXT`, pure-bash base64; FPC's fvclip.inc does the
+  through fv.video (`fv.video.setClipboard TEXT`, pure-bash base64 of at most `FV_PASTE_MAX` bytes,
+  linear — 3dfix F3; FPC's fvclip.inc does the
   same). Windows Terminal, mintty, kitty, WezTerm, foot, iTerm2 and VS Code accept it (some ask
   once); xterm accepts it only with `allowWindowOps` / `disallowedWindowOps` changed (off by
   default); VTE (GNOME Terminal) ignores it; tmux passes it with `set-clipboard on`. A terminal

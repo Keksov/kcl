@@ -20,7 +20,8 @@ kk.unit fv.drivers || return $__kk_unit_rc
 #
 # Out: FV_EV_WHAT (evNothing evKeyDown evMouseDown evMouseUp evMouseMove
 # evMouseAuto evMouseWheel evCommand evBroadcast), FV_EV_KEY, FV_EV_CHAR, FV_EV_COMMAND
-# (a name: cmResizeApp), FV_EV_ID, FV_EV_INFO, FV_EV_MOUSE_X / _Y (0-based),
+# (a name: cmResizeApp; cmPasteText for a bracketed paste, the text in
+# FV_EV_INFO, P3 10.8), FV_EV_ID, FV_EV_INFO, FV_EV_MOUSE_X / _Y (0-based),
 # FV_EV_MOUSE_BUTTONS (held after the event: 1 left, 2 right, 4 middle),
 # FV_EV_MOUSE_MODS (1 Shift, 2 Alt, 4 Ctrl), FV_EV_MOUSE_DOUBLE,
 # FV_EV_MOUSE_TRIPLE, FV_EV_WHEEL (1 up, 2 down), FV_EV_EOF, FV_EV_BASE (a
@@ -173,6 +174,23 @@ fv.drivers._mouse() {
     if (( ! __FV_DR_HELD )); then __FV_DR_AA=0; fi
 }
 
+# fv.drivers._paste — fv.keyboard's kbPaste (a bracketed paste, design P3
+# §4.5, 10.8) -> FV's evCommand cmPasteText (FPC 2025, drivers.inc): the
+# text in FV_EV_INFO, its length in bytes in FV_EV_ID (FV's Id: the size,
+# whatever the caller's locale: F8); like a key it ends the auto-repeat (L2).
+# One event: a pasted newline is never kbEnter
+fv.drivers._paste() {
+    local __fvd_b=0
+    fv.drivers._blen 2>/dev/null
+    FV_EV_WHAT=evCommand FV_EV_COMMAND=cmPasteText FV_EV_INFO=$FV_KEY_CHAR FV_EV_ID=$__fvd_b __FV_DR_AA=0
+}
+# (the caller's __fvd_b = FV_KEY_CHAR's bytes; C locale in this scope, its
+# restore's warning for a caller LC_ALL the C library rejects silenced)
+fv.drivers._blen() {
+    local LC_ALL=C
+    __fvd_b=${#FV_KEY_CHAR}
+}
+
 # fv.drivers._now — the caller's __fvd_n = the clock (__FV_DR_NOW or
 # EPOCHREALTIME) in microseconds
 fv.drivers._now() {
@@ -254,6 +272,7 @@ fv.drivers.getEvent() {
     fv.keyboard.getKeyEvent "$__fvd_t" || __fvd_rc=$?
     if (( __fvd_rc == 0 )); then
         if [[ $FV_KEY == kbMouse ]]; then fv.drivers._mouse
+        elif [[ $FV_KEY == kbPaste ]]; then fv.drivers._paste
         else FV_EV_WHAT=evKeyDown FV_EV_KEY=$FV_KEY FV_EV_CHAR=$FV_KEY_CHAR FV_EV_BASE=$FV_KEY_BASE __FV_DR_AA=0; fi
     elif (( __fvd_rc == 1 && FV_KEY_EOF )); then
         FV_EV_EOF=1 RESULT=''

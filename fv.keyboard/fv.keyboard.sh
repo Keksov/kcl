@@ -24,7 +24,8 @@ kk.unit fv.keyboard || return $__kk_unit_rc
 # FV_KEY_LEN (bytes consumed), FV_KEY_EOF (1 = rc 1 came from end of file),
 # RESULT = FV_KEY. In: FV_KEY_FD (default 0), FV_ESC_TIMEOUT (seconds a
 # sequence's next byte is awaited, default 0.02), FV_KBD_LAYOUT (layouts that
-# win in the tables, a comma list).
+# win in the tables, a comma list), FV_PASTE_MAX (the bytes a bracketed
+# paste keeps, default 65536).
 #
 # Layout-independent keys (design P3 §14): the kitty keyboard protocol's
 # CSI u reports (flags 1|4) are decoded, the name from the typed key when it
@@ -37,10 +38,16 @@ kk.unit fv.keyboard || return $__kk_unit_rc
 # tables (fv.keyboard.layouts.sh, loaded at the first such key; script
 # letters by default, a named layout's symbols too).
 #
+# Bracketed paste (design P3 §4.5, 10.8; fv.video turns it on): the frame
+# ESC [ 200 ~ TEXT ESC [ 201 ~ is ONE key, kbPaste, TEXT in FV_KEY_CHAR
+# (fv.drivers makes it FV's evCommand cmPasteText), also when it comes in
+# pieces; a pasted newline is never kbEnter.
+#
 # Bytes, not characters: every entry point pins LC_ALL=C locally (kcl/README
 # 1.6) and clears a caller's nocasematch for the call, so `read -n1` takes one
 # byte and the patterns compare bytes exactly. Every read of the fd takes ONE
-# byte, so nothing is read ahead of the key being decoded; bytes read but not
+# byte (a bracketed paste reads its frame in larger pieces, never past its
+# end), so nothing is read ahead of the key being decoded; bytes read but not
 # used (a malformed sequence cut by the next ESC) stay queued for the next key.
 
 # the layout the locale names: the locale's character type decides as POSIX
@@ -76,6 +83,7 @@ declare -g FV_KEY_FD=${FV_KEY_FD:-0}
 declare -g __FV_KB_BUF='' __FV_KB_POS=0 __FV_KB_NULP=-1 __FV_KB_RPL=0
 declare -g __FV_KB_PK=0 __FV_KB_PKE=0 __FV_KB_PKN=0 __FV_KB_PKK='' __FV_KB_PKC='' __FV_KB_PKS='' __FV_KB_PKL=0 __FV_KB_PKB=''
 declare -g __FV_KB_T=0.02 __FV_KB_TRAW=''        # validated FV_ESC_TIMEOUT, its raw value
+declare -g __FV_KB_PT=${__FV_KB_PT:-1}           # a bracketed paste's wait per read (s)
 declare -g __FV_KB_FDOK=''                       # the FV_KEY_FD value last found open
 # the kitty protocol: KITTY the flags of the last kitty reply (-1 = none
 # seen), DA1 1 = a DA1 reply seen, ONKITTY a function a reader runs on each
@@ -401,6 +409,7 @@ fv.keyboard._csi() {
     if [[ $__fvk_p == *[uc] ]] && fv.keyboard._csix; then return 0; fi
     case $__fvk_p in
         '<'*[Mm]) FV_KEY=kbMouse; return 0 ;;
+        200~) fv.keyboard._paste; return 0 ;;                     # bracketed paste
         '27;'*';'*'~') if fv.keyboard._csix; then return 0; fi ;;   # modifyOtherKeys
         *';'*)                                   # xterm: 1;5A 15;2~ (one modifier)
             __fvk_a=${__fvk_p%%;*} __fvk_m=${__fvk_p#*;}
@@ -423,6 +432,72 @@ fv.keyboard._csi() {
             fi ;;
     esac
     FV_KEY=kbUnknown
+}
+
+# after CSI 200 ~ (bracketed paste, design P3 §4.5, 10.8): the text up to
+# CSI 201 ~ is one key, FV_KEY=kbPaste with the text in FV_KEY_CHAR (bytes as
+# they came; at most FV_PASTE_MAX bytes, default 65536: the rest is read and
+# dropped, one debug line, an incomplete UTF-8 sequence at the cut dropped
+# too). The frame may come in pieces: what is queued first, then (live
+# readers) the fd into the queue — up to the next ESC, and after an ESC that
+# may begin the end the bytes the end still needs — each read waiting at most
+# __FV_KB_PT s. A frame whose end does not come in time (a timeout, the end
+# of input, decode's bytes ending inside it) ends there with the text so far
+fv.keyboard._paste() {
+    local __fvk_s=$__fvk_i __fvk_e=$'\e[201~' __fvk_r __fvk_x __fvk_rc __fvk_m=65536 __fvk_n __fvk_l __fvk_d=0
+    if [[ -n ${FV_PASTE_MAX-} && $FV_PASTE_MAX != *[!0-9]* && ${#FV_PASTE_MAX} -le 9 ]]; then __fvk_m=$(( 10#$FV_PASTE_MAX )); fi
+    __fvk_r=${__FV_KB_BUF:__fvk_s}
+    while [[ $__fvk_r != *"$__fvk_e"* ]] && (( __fvk_live )); do
+        __fvk_x='' __fvk_rc=0 __fvk_n=0
+        for __fvk_l in 5 4 3 2 1; do
+            if [[ $__fvk_r == *"${__fvk_e:0:__fvk_l}" ]]; then __fvk_n=$(( 6 - __fvk_l )); break; fi
+        done
+        if (( __fvk_n )); then IFS= read -r -N "$__fvk_n" -t "$__FV_KB_PT" -u "$FV_KEY_FD" __fvk_x || __fvk_rc=$?
+        else
+            IFS= read -r -d $'\e' -t "$__FV_KB_PT" -u "$FV_KEY_FD" __fvk_x || __fvk_rc=$?
+            if (( ! __fvk_rc )); then __fvk_x+=$'\e'; fi
+        fi
+        __fvk_r+=$__fvk_x
+        # (past the cap: the head kept, plus the last bytes, which may begin the
+        # end, joined by byte 01, which the end does not hold: head and tail never
+        # forge it (F6); the cut to the cap below drops it)
+        if (( ${#__fvk_r} > __fvk_m + 64 )); then __fvk_r=${__fvk_r:0:__fvk_m}$'\x01'${__fvk_r: -6} __fvk_d=1; fi
+        # (a timeout that still brought bytes: the frame is still coming —
+        # a long paste through a pipe is read a byte per system call)
+        if (( __fvk_rc > 128 )) && [[ -n $__fvk_x ]]; then continue; fi
+        if (( __fvk_rc )); then break; fi
+    done
+    __FV_KB_BUF=${__FV_KB_BUF:0:__fvk_s}$__fvk_r
+    if [[ $__fvk_r == *"$__fvk_e"* ]]; then
+        __fvk_x=${__fvk_r%%"$__fvk_e"*}
+        __fvk_i=$(( __fvk_s + ${#__fvk_x} + 6 ))
+    else
+        __fvk_x=$__fvk_r __fvk_i=${#__FV_KB_BUF}
+    fi
+    if (( __FV_KB_NULP >= __fvk_s && __FV_KB_NULP < __fvk_i )); then __FV_KB_NULP=-1; fi
+    if (( __fvk_d || ${#__fvk_x} > __fvk_m )); then
+        kk.debug "fv.keyboard: a paste of more than $__fvk_m bytes cut to $__fvk_m (FV_PASTE_MAX)"
+        __fvk_x=${__fvk_x:0:__fvk_m}
+        fv.keyboard._pcut
+    fi
+    FV_KEY=kbPaste FV_KEY_CHAR=$__fvk_x
+}
+# (the caller's cut paste __fvk_x: an incomplete UTF-8 sequence at its end dropped)
+fv.keyboard._pcut() {
+    local __fvk_k=0 __fvk_c __fvk_n
+    while (( __fvk_k < 3 && ${#__fvk_x} > __fvk_k + 1 )); do
+        __fvk_c=${__fvk_x: -1-__fvk_k:1}
+        # shellcheck disable=SC2053  # the pattern is the point
+        if [[ $__fvk_c != $__FV_KB_U8 ]]; then break; fi
+        __fvk_k=$(( __fvk_k + 1 ))
+    done
+    if (( ! ${#__fvk_x} )); then return 0; fi
+    __fvk_c=${__fvk_x: -1-__fvk_k:1}
+    if [[ $__fvk_c == [$'\xc2'-$'\xdf'] ]]; then __fvk_n=1
+    elif [[ $__fvk_c == [$'\xe0'-$'\xef'] ]]; then __fvk_n=2
+    elif [[ $__fvk_c == [$'\xf0'-$'\xf4'] ]]; then __fvk_n=3
+    else return 0; fi
+    if (( __fvk_k < __fvk_n )); then __fvk_x=${__fvk_x:0:${#__fvk_x}-1-__fvk_k}; fi
 }
 
 # a CSI longer than _csi keeps (its 33 parameter bytes in the caller's
