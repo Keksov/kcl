@@ -128,6 +128,28 @@
 #                         Not drawn yet (the selects draw their frames;
 #                         drawView app paints it all)
 #   fvw_undscene          app.delete (as fvw_untscene)
+# P3 stage 3b (lists and scroll bars):
+#   fvw_events specs      also 'wheelup X Y', 'dwheel X Y' / 'dwheelup X Y'
+#                         (FV_EV_MOUSE_DOUBLE=1), 'ddown X Y' (a double
+#                         click's press), 'auto X Y' (evMouseAuto, button 1
+#                         held), 'space' (kbChar ' ')
+#   fvw_items ARRAY N [KIND]
+#                         the global indexed array ARRAY = N items: ascii
+#                         "item I" (default), cyr "Отчёт_I", cjk 4 CJK
+#                         characters + "_I"
+#   fvw_mklist NAME AX AY BX BY TITLE NUM ARRAY [NUMCOLS]
+#                         a TWindow NAME with a TListViewer NAMEl over its
+#                         interior (GrowMode gfGrowHiX + gfGrowHiY) and the
+#                         standard vertical bar (NAME__fvsb1) as its
+#                         VScrollBar, List = ARRAY, Range = its length;
+#                         inserted into nothing (the caller inserts NAME)
+#   fvw_lscene [W H] [N] [KIND]
+#                         the events scene side by side (fvw_tscene ... side)
+#                         with w2's leaf replaced by fvw_mklist's list (the
+#                         window w2, the list w2l, the bar w2__fvsb1) over
+#                         FVW_L1 (N items, default 100, KIND as fvw_items);
+#                         w2 the desk's Current; not drawn yet
+#   fvw_unlscene          app.delete
 #
 # Timing runs never use the shims.
 
@@ -348,6 +370,13 @@ fvw_getev() {
             up) FV_EV_WHAT=evMouseUp FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c ;;
             move) FV_EV_WHAT=evMouseMove FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_MOUSE_BUTTONS=1 ;;
             wheel) FV_EV_WHAT=evMouseWheel FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_WHEEL=2 ;;
+            # (P3 3b) the wheel up, double events, evMouseAuto, Space
+            wheelup) FV_EV_WHAT=evMouseWheel FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_WHEEL=1 ;;
+            dwheel) FV_EV_WHAT=evMouseWheel FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_WHEEL=2 FV_EV_MOUSE_DOUBLE=1 ;;
+            dwheelup) FV_EV_WHAT=evMouseWheel FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_WHEEL=1 FV_EV_MOUSE_DOUBLE=1 ;;
+            ddown) FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_MOUSE_BUTTONS=1 FV_EV_MOUSE_DOUBLE=1 ;;
+            auto) FV_EV_WHAT=evMouseAuto FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_MOUSE_BUTTONS=1 ;;
+            space) FV_EV_WHAT=evKeyDown FV_EV_KEY=kbChar FV_EV_CHAR=' ' ;;
         esac
         RESULT=$FV_EV_WHAT
         return 0
@@ -465,6 +494,48 @@ fvw_dscene() {
     FVW_DRAWS=() FVW_GOT='' FVW_ROW=()
 }
 fvw_undscene() { app.delete; }
+
+# ---- P3 stage 3b ----------------------------------------------------------------
+fvw_items() {
+    local -n __t_a=$1
+    local i k=${3:-ascii} c='报告文件数据项目系统管理用户设置网络服务图像音乐' l LC_ALL=${__FV_VS_LOC:-C.UTF-8}
+    __t_a=()
+    if (( $2 < 1 )); then return 0; fi
+    if [ "$k" = ascii ]; then eval "__t_a=(\"item \"{0..$(( $2 - 1 ))})"; return 0; fi
+    l=${#c}
+    for (( i = 0; i < $2; i++ )); do
+        if [ "$k" = cyr ]; then __t_a[i]="Отчёт_$i"
+        else __t_a[i]="${c:i%l:1}${c:i*7%l:1}${c:i*3%l:1}${c:i*5%l:1}_$i"; fi
+    done
+}
+fvw_mklist() {
+    local -n __t_a=$8
+    TWindow.new "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+    fv.views.standardScrollBar "$1" "$FV_SB_VERTICAL"
+    TListViewer.new "${1}l" 1 1 $(( $4 - $2 - 1 )) $(( $5 - $3 - 1 )) "${9:-1}" '' "$RESULT"
+    local -n __t_l=${1}l_data
+    __t_l[GrowMode]=$(( FV_GF_GROWHIX | FV_GF_GROWHIY )) __t_l[List]=$8
+    fv.views.listSetRange "${1}l" "${#__t_a[@]}"
+    fv.views.insert "$1" "${1}l"
+}
+fvw_lscene() {
+    local w=${1:-80} h=${2:-24}
+    fvw_screen "$w" "$h"
+    fvw_classes2
+    TTApp.new app 0 0 "$w" "$h"
+    TGroup.new desk 0 0 "$w" "$h"
+    TView.new bg 0 0 "$w" "$h"
+    fv.views.insert desk bg
+    fvw_mktwin w1 0 0 $(( w / 2 )) $(( h - 1 )) 'Files' 1
+    fvw_items FVW_L1 "${3:-100}" "${4:-ascii}"
+    fvw_mklist w2 $(( w / 2 )) 0 "$w" $(( h - 1 )) 'Panel two' 2 FVW_L1
+    fv.views.insert desk w1
+    fv.views.insert desk w2
+    fv.views.insert app desk
+    fvw_root app
+    FVW_DRAWS=() FVW_GOT='' FVW_ROW=()
+}
+fvw_unlscene() { app.delete; }
 
 # ---- stage 2g --------------------------------------------------------------------
 fvw_classes3() {

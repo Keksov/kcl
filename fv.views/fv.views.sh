@@ -28,7 +28,9 @@ kk.unit fv.views || return $__kk_unit_rc
 # (MinWinSize) / CalcBounds (ZoomRect), cmZoom / cmResize, dragView (FV
 # DragView: keyboard and mouse, motion coalescing, a resize ending a drag)
 # and the frame's mouse (the close / zoom icons, dragging by the top row and
-# the grow corner).
+# the grow corner). P3 stage 3b (design P3_DESIGN.md §1-§3, §5): TScrollBar
+# and TListViewer (FV views.inc, FPC 2025), standardScrollBar, ctrlToArrow,
+# the tracking loops (fv.views._track).
 #
 # Conventions of every plain function here:
 #   * the view name first; locals `__fvw_*`; fields read and written through
@@ -97,6 +99,16 @@ fi
 # (stage 2d) FV's MinWinSize, TWindow.SizeLimits' minimum: a typed constant
 # FV programs may change, so a plain global (not 0-9 digits: FV's 16 x 6)
 declare -g FV_MINWINSIZE_X=${FV_MINWINSIZE_X:-16} FV_MINWINSIZE_Y=${FV_MINWINSIZE_Y:-6}
+# (P3 stage 3b) TScrollBar's part codes (FV sbLeftArrow .. sbIndicator) and
+# StandardScrollBar's options (sbHorizontal, sbVertical, sbHandleKeyboard)
+if [[ -z ${FV_SB_VERTICAL+x} || ${FV_SB_VERTICAL@a} != *r* ]]; then
+    FV_SB_LEFTARROW=0 FV_SB_RIGHTARROW=1 FV_SB_PAGELEFT=2 FV_SB_PAGERIGHT=3 FV_SB_UPARROW=4
+    FV_SB_DOWNARROW=5 FV_SB_PAGEUP=6 FV_SB_PAGEDOWN=7 FV_SB_INDICATOR=8
+    FV_SB_HORIZONTAL=0 FV_SB_VERTICAL=1 FV_SB_HANDLEKEYBOARD=2
+    readonly FV_SB_LEFTARROW FV_SB_RIGHTARROW FV_SB_PAGELEFT FV_SB_PAGERIGHT FV_SB_UPARROW \
+        FV_SB_DOWNARROW FV_SB_PAGEUP FV_SB_PAGEDOWN FV_SB_INDICATOR \
+        FV_SB_HORIZONTAL FV_SB_VERTICAL FV_SB_HANDLEKEYBOARD
+fi
 
 # ---- state ------------------------------------------------------------------
 # Derived state keyed by the view name (design §1.2), kept across a reload:
@@ -252,6 +264,31 @@ declare -gA __FV_VW_BCAST
 __FV_VW_BCAST+=(
     [fv.views._viewEvent]='' [fv.views._frameEvent]='' [fv.views._groupEvent]=''
     [fv.views._windowEvent]='cmSelectWindowNum'
+    [fv.views._sbEvent]='' [fv.views._lvEvent]='cmScrollBarChanged cmScrollBarClicked'
+)
+# (P3 stage 3b) the lists and scroll bars:
+#   SB[b]    1 for a live TScrollBar (the list's bar fields are used only
+#            while they name one)
+#   LY[v]    FV's TListViewer.LastY (the SizeY its bar's steps were set for)
+#   QX       the list that moves its own vertical bar right now (P3-4, L7:
+#            only a list whose HandleEvent is the built-in): the
+#            cmScrollBarChanged broadcast of that bar (FV_EV_INFO its
+#            VScrollBar) skips it (fv.views._quiet, the
+#            dispatch), so nothing walks back to it; '' otherwise
+#   TRK      1 when a tracking loop's next read must end it (fv.views._track:
+#            a release or a key met while draining moves; cleared when a
+#            bar's or a list's tracking starts: a loop that returned early
+#            may have left it set)
+#   FOK[f]   a formatter function seen (its declare -F check, as PNT)
+#   AT[s]    symbol s repeated MAXW times (a row's attributes: a slice)
+#   C2A      FV's CtrlToArrow table (fv.views.ctrlToArrow)
+declare -gA __FV_VW_SB __FV_VW_LY __FV_VW_FOK __FV_VW_AT
+__FV_VW_SB+=() __FV_VW_LY+=() __FV_VW_FOK+=() __FV_VW_AT+=()
+declare -g __FV_VW_QX=${__FV_VW_QX-} __FV_VW_TRK=${__FV_VW_TRK-} __FV_VW_PAD=''
+printf -v __FV_VW_PAD '%*s' "$__FV_VW_MAXW" ''
+declare -gA __FV_VW_C2A=(
+    [kbCtrlS]=kbLeft [kbCtrlD]=kbRight [kbCtrlE]=kbUp [kbCtrlX]=kbDown [kbCtrlA]=kbHome [kbCtrlF]=kbEnd
+    [kbCtrlG]=kbDel [kbCtrlV]=kbIns [kbCtrlR]=kbPgUp [kbCtrlC]=kbPgDn [kbCtrlH]=kbBack
 )
 __FV_VW_IMPL+=(
     [TView.ChangeBounds]=fv.views._viewChangeBounds [TView.CalcBounds]=fv.views._viewCalcBounds
@@ -269,9 +306,17 @@ __FV_VW_IMPL+=(
     [TWindow.InitFrame]=fv.views._windowInitFrame [TWindow.Close]=fv.views._windowClose
     [TFrame.HandleEvent]=fv.views._frameEvent [TWindow.SizeLimits]=fv.views._windowSizeLimits
     [TWindow.CalcBounds]=fv.views._windowCalcBounds [TWindow.Zoom]=fv.views._windowZoom
+    [TScrollBar.Draw]=fv.views._sbDraw [TScrollBar.GetPalette]=fv.views._sbGetPalette
+    [TScrollBar.HandleEvent]=fv.views._sbEvent [TScrollBar.ScrollStep]=fv.views._sbScrollStep
+    [TScrollBar.ScrollDraw]=fv.views._sbScrollDraw
+    [TListViewer.Draw]=fv.views._lvDraw [TListViewer.GetPalette]=fv.views._lvGetPalette
+    [TListViewer.HandleEvent]=fv.views._lvEvent [TListViewer.SetState]=fv.views._lvSetState
+    [TListViewer.ChangeBounds]=fv.views._lvChangeBounds [TListViewer.FocusItem]=fv.views._lvFocusItem
+    [TListViewer.SelectItem]=fv.views._lvSelectItem [TListViewer.IsSelected]=fv.views._lvIsSelected
 )
 __FV_VW_FUNC+=(
     [GetPalette]=1 [GetHelpCtx]=1 [Valid]=1 [Execute]=1 [GetTitle]=1 [Hint]=1 [GetEvent]=1
+    [ScrollStep]=1 [IsSelected]=1
 )
 # The event-name -> EventMask bit lookup (used by the dispatch, stage 2c-3).
 declare -gA __FV_VW_EVBIT=(
@@ -475,6 +520,87 @@ TWindow.SizeLimits() { fv.views._windowSizeLimits "$this" "$@" || return; }
 TWindow.CalcBounds() { fv.views._windowCalcBounds "$this" "$@" || return; }
 TWindow.Zoom() { fv.views._windowZoom "$this" || return; }
 build TWindow
+
+# (P3 stage 3b) TScrollBar.new NAME AX AY BX BY — FV TScrollBar.Init(Bounds):
+# TView's, then EventMask + evMouseWheel, Value Min Max 0, PgStep ArStep 1,
+# Id 0 (no cmIdCommunicate); vertical when 1 wide (GrowMode gfGrowLoX +
+# gfGrowHiX + gfGrowHiY), else horizontal (gfGrowLoY + gfGrowHiX + gfGrowHiY).
+# The glyphs come from the screen's mode (design P3 §2.7). Set the numbers
+# with fv.views.scrollBarSet (FV SetParams / SetValue / SetRange / SetStep)
+class TScrollBar : TView
+    public
+        var Value
+        var Min
+        var Max
+        var PgStep
+        var ArStep
+        var Id
+        constructor Create
+        nofields override proc Draw
+        nofields override func GetPalette
+        nofields override proc HandleEvent
+        nofields func ScrollStep
+        nofields proc ScrollDraw
+end
+TScrollBar.Create() {
+    inherited
+    [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
+    fv.views._sbCreate "$this"
+}
+TScrollBar.Draw() { fv.views._sbDraw "$this" || return; }
+TScrollBar.GetPalette() { fv.views._sbGetPalette "$this" || return; }
+TScrollBar.HandleEvent() { fv.views._sbEvent "$this" "$@" || return; }
+TScrollBar.ScrollStep() { fv.views._sbScrollStep "$this" "$@" || return; }
+TScrollBar.ScrollDraw() { fv.views._sbScrollDraw "$this" || return; }
+build TScrollBar
+
+# (P3 stage 3b) TListViewer.new NAME AX AY BX BY [NUMCOLS [HSCROLLBAR
+# [VSCROLLBAR]]] — FV TListViewer.Init(Bounds, ANumCols, AHScrollBar,
+# AVScrollBar): TView's, then ofFirstClick + ofSelectable, EventMask +
+# evBroadcast + evMouseWheel, NUMCOLS columns (default 1), the bars ('' =
+# none; a horizontal one gets SetStep(SizeX div NumCols, 1)), TopItem
+# Focused Range 0. FV's abstract GetText is the data model of design P3 §5:
+# List = the name of an indexed array, Formatter = an optional plain
+# function `FMT INDEX WIDTH` -> RESULT, Marks = the name of an array whose
+# set entries (not '' or 0) show their items selected (D26). Refused before
+# anything is made (rc 2, one Error line; .delete the bare instance): a
+# NUMCOLS that is not 1..1024, a bar that is not a live TScrollBar
+class TListViewer : TView
+    public
+        var NumCols
+        var TopItem
+        var Focused
+        var Range
+        var HScrollBar
+        var VScrollBar
+        var List
+        var Formatter
+        var Marks
+        constructor Create
+        nofields override proc Draw
+        nofields override func GetPalette
+        nofields override proc HandleEvent
+        nofields override proc SetState
+        nofields override proc ChangeBounds
+        nofields proc FocusItem
+        nofields proc SelectItem
+        nofields func IsSelected
+end
+TListViewer.Create() {
+    fv.views._lvArgs "$this" "${@:5}" || return
+    inherited
+    [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
+    fv.views._lvCreate "$this" "${5:-1}" "${6-}" "${7-}"
+}
+TListViewer.Draw() { fv.views._lvDraw "$this" || return; }
+TListViewer.GetPalette() { fv.views._lvGetPalette "$this" || return; }
+TListViewer.HandleEvent() { fv.views._lvEvent "$this" "$@" || return; }
+TListViewer.SetState() { fv.views._lvSetState "$this" "$@" || return; }
+TListViewer.ChangeBounds() { fv.views._lvChangeBounds "$this" "$@" || return; }
+TListViewer.FocusItem() { fv.views._lvFocusItem "$this" "$@" || return; }
+TListViewer.SelectItem() { fv.views._lvSelectItem "$this" "$@" || return; }
+TListViewer.IsSelected() { fv.views._lvIsSelected "$this" "$@" || return; }
+build TListViewer
 
 # ---- the hooks ------------------------------------------------------------------
 # fv.views._changed WHY V G AX1 AY1 AX2 AY2 — the REDRAW HOOK. Called after
@@ -871,7 +997,7 @@ fv.views._free() {
     fi
     unset '__FV_VW_LIVE[$1]' '__FV_VW_AX[$1]' '__FV_VW_AY[$1]' \
         '__FV_VW_C1[$1]' '__FV_VW_C2[$1]' '__FV_VW_C3[$1]' '__FV_VW_C4[$1]' \
-        '__FV_VW_PAL[$1]' '__FV_VW_FRM[$1]' '__FV_VW_LK[$1]'
+        '__FV_VW_PAL[$1]' '__FV_VW_FRM[$1]' '__FV_VW_LK[$1]' '__FV_VW_SB[$1]' '__FV_VW_LY[$1]'
     # (the name may come back as a new view: nothing of this one's shape stays)
     fv.views._restruct
 }
@@ -1027,13 +1153,14 @@ fv.views._insert() {   # G V TARGET CALLER
     local __fvw_rr=${RESULT-} __fvw_sk=$__FV_VW_SKIP
     __FV_VW_LSU=$(( __FV_VW_LSU + 1 ))
     # FV InsertBefore: a group with sfActive passes it to V (V is drawn whole
-    # below, so nothing is drawn for that state change); FV: Show ->
-    # SetState(sfVisible) -> Owner^.ResetCurrent for a selectable V (V's own
-    # redraws held the same way: the old Current's are not)
+    # below, so nothing of V is drawn for that state change: SKIP; what the
+    # state change shows outside V is drawn, P3 3b: a list's scroll bar);
+    # FV: Show -> SetState(sfVisible) -> Owner^.ResetCurrent for a selectable
+    # V (V's own redraws held the same way: the old Current's are not)
     if (( ${__fvw_gd[State]:-0} & FV_SF_ACTIVE )); then
-        __FV_VW_NODRAW=$(( __FV_VW_NODRAW + 1 ))
+        __FV_VW_SKIP=$2
         fv.views._virt "$2" SetState "$FV_SF_ACTIVE" 1 || :
-        __FV_VW_NODRAW=$(( __FV_VW_NODRAW - 1 ))
+        __FV_VW_SKIP=$__fvw_sk
     fi
     if (( (${__fvw_d[State]:-0} & FV_SF_VISIBLE) && (${__fvw_d[Options]:-0} & FV_OF_SELECTABLE) )); then
         __FV_VW_SKIP=$2
@@ -3265,6 +3392,12 @@ fv.views._dispatch() {
         # (one simple command: the assignments run in order)
         __fvw_xf=${__fvw_xk}_class __fvw_xf="${!__fvw_xf-}_class_method_owner[HandleEvent]" __fvw_xf=${__FV_VW_IMPL[${!__fvw_xf-}.HandleEvent]-}
         if (( __fvw_xb == FV_EM_BROADCAST )); then
+            # (stage 3b, P3-4: the list moving its own vertical bar is not
+            # told back — that bar's cmScrollBarChanged only)
+            if [[ -n $__FV_VW_QX ]] && [ "$__fvw_xk" = "$__FV_VW_QX" ] && [ "$FV_EV_COMMAND" = cmScrollBarChanged ]; then
+                __fvw_xt="${__fvw_xk}_data[VScrollBar]"
+                if [ "$FV_EV_INFO" = "${!__fvw_xt-}" ]; then continue; fi
+            fi
             # (stage 3a-2, the broadcast table: a built-in handler whose row
             # does not list the command is skipped without a call — a leaf at
             # once, a built-in group when its subtree has no listener either:
@@ -3272,7 +3405,7 @@ fv.views._dispatch() {
             if [[ -n $__fvw_xf && -n ${__FV_VW_BCAST[$__fvw_xf]+x}${__FV_VW_QGRP[$__fvw_xf]-} ]] \
                && [[ " ${__FV_VW_BCAST[$__fvw_xf]-} " != *" $FV_EV_COMMAND "* ]]; then
                 if [[ -z ${__FV_VW_GRP[$__fvw_xk]-} ]]; then continue; fi
-                if fv.views._quiet "$__fvw_xk" "$FV_EV_COMMAND"; then __fvw_xg[Phase]=$2; continue; fi
+                if fv.views._quiet "$__fvw_xk" "$FV_EV_COMMAND" "$FV_EV_INFO"; then __fvw_xg[Phase]=$2; continue; fi
             fi
         # (TView's and TFrame's handlers react to a mouse-down only)
         elif { [ "$__fvw_xf" = fv.views._viewEvent ] || [ "$__fvw_xf" = fv.views._frameEvent ]; } && ! [ "$FV_EV_WHAT" = evMouseDown ]; then continue; fi
@@ -3290,7 +3423,8 @@ fv.views._dispatch() {
     return 0
 }
 
-# fv.views._quiet V COMMAND — rc 0 when the broadcast COMMAND delivered to V
+# fv.views._quiet V COMMAND INFO — rc 0 when the broadcast COMMAND (from
+# INFO, FV's InfoPtr) delivered to V
 # would reach no handler that reacts to it (stage 2c-p: the focus broadcasts
 # of a window switch cost a dispatch tree each). Stage 3a-2: the answer
 # comes from the broadcast table __FV_VW_BCAST. V's HandleEvent is a built-in
@@ -3303,11 +3437,11 @@ fv.views._dispatch() {
 # a handler the table skips): when the answer is 0 the walk sets those Phases
 # the same way (only then: a walk that ends "not quiet" leaves no trace), so
 # a skipped delivery leaves the same state. A built-in HandleEvent that
-# reacts to a broadcast lists it in its row. NESTED (internal): the inner
-# walk adds the groups to stamp to the outer call's __fvw_qp
+# reacts to a broadcast lists it in its row. NESTED (a 4th word, internal):
+# the inner walk adds the groups to stamp to the outer call's __fvw_qp
 fv.views._quiet() {
     local __fvw_f=${1}_class
-    if [[ -z ${3-} ]]; then local -a __fvw_qp=(); fi
+    if [[ -z ${4-} ]]; then local -a __fvw_qp=(); fi
     __fvw_f="${!__fvw_f-}_class_method_owner[HandleEvent]"
     __fvw_f=${__FV_VW_IMPL[${!__fvw_f-}.HandleEvent]-}
     # (the broadcast table: a user override, a built-in handler without a row
@@ -3325,6 +3459,12 @@ fv.views._quiet() {
         # (a leaf: quiet when its handler is built-in and its row does not
         # list COMMAND, as the dispatch skips it; a group is looked into)
         if [[ -z ${__FV_VW_GRP[$__fvw_k]-} ]]; then
+            # (stage 3b, P3-4: the list moving its own vertical bar counts as
+            # quiet for that bar's cmScrollBarChanged)
+            if [[ -n $__FV_VW_QX ]] && [ "$__fvw_k" = "$__FV_VW_QX" ] && [ "$2" = cmScrollBarChanged ]; then
+                __fvw_t="${__fvw_k}_data[VScrollBar]"
+                if [ "${3-}" = "${!__fvw_t-}" ]; then continue; fi
+            fi
             __fvw_t=${__fvw_k}_class
             __fvw_t="${!__fvw_t-}_class_method_owner[HandleEvent]"
             __fvw_t=${__FV_VW_IMPL[${!__fvw_t-}.HandleEvent]-}
@@ -3332,11 +3472,11 @@ fv.views._quiet() {
                && [[ " ${__FV_VW_BCAST[$__fvw_t]-} " != *" $2 "* ]]; then continue; fi
             return 1
         fi
-        fv.views._quiet "$__fvw_k" "$2" NESTED || return 1
+        fv.views._quiet "$__fvw_k" "$2" "${3-}" NESTED || return 1
         __fvw_p=1
     done
     if (( __fvw_p )); then __fvw_qp+=("$1"); fi
-    if [[ -z ${3-} ]]; then
+    if [[ -z ${4-} ]]; then
         for __fvw_k in "${__fvw_qp[@]}"; do printf -v "${__fvw_k}_data[Phase]" '%s' phFocused; done
     fi
     return 0
@@ -3358,13 +3498,13 @@ fv.views.message() {
     fi
     fv.views._message "$1" "$2" "$3" "${4-}"
 }
-fv.views._message() {   # V WHAT COMMAND INFO
+fv.views._message() {   # V WHAT COMMAND INFO [ID] (ID: FV NewMessage's, P3 3b)
     # (a broadcast that no handler would see: not delivered, nobody handles it)
-    if [ "$2" = evBroadcast ] && fv.views._quiet "$1" "$3"; then RESULT=''; return 1; fi
+    if [ "$2" = evBroadcast ] && fv.views._quiet "$1" "$3" "$4"; then RESULT=''; return 1; fi
     local -a __fvw_es
     local __fvw_a='' __fvw_s=1
     fv.views._evSave
-    FV_EV_WHAT=$2 FV_EV_KEY='' FV_EV_CHAR='' FV_EV_COMMAND=$3 FV_EV_ID='' FV_EV_INFO=$4
+    FV_EV_WHAT=$2 FV_EV_KEY='' FV_EV_CHAR='' FV_EV_COMMAND=$3 FV_EV_ID=${5-} FV_EV_INFO=$4
     FV_EV_MOUSE_X=0 FV_EV_MOUSE_Y=0 FV_EV_MOUSE_BUTTONS=0 FV_EV_MOUSE_MODS=0
     FV_EV_MOUSE_DOUBLE=0 FV_EV_MOUSE_TRIPLE=0 FV_EV_WHEEL=0 FV_EV_EOF=0
     fv.views._virt "$1" HandleEvent || :
@@ -4614,4 +4754,1052 @@ fv.views._frameTopRow() {
     local __fvw_fc
     fv.views._frameRows "$1"
     fv.video._wbf "$FV_DRAW_X" "$FV_DRAW_Y" "${__FV_VW_FT[$__fvw_fc]}" "${__FV_VW_FTA[$__fvw_fc]}" || :
+}
+
+# ==== TScrollBar, TListViewer (P3 stage 3b; design P3 §1, §2.2, §2.3, §2.7, §3.3, §5) ====
+
+# fv.views.ctrlToArrow KEY — FV CtrlToArrow: RESULT = the key a WordStar
+# Ctrl key stands for (Ctrl+S D E X A F G V R C H -> kbLeft kbRight kbUp
+# kbDown kbHome kbEnd kbDel kbIns kbPgUp kbPgDn kbBack), else KEY itself. One
+# table read (__FV_VW_C2A; the widgets read the table inline)
+fv.views.ctrlToArrow() {
+    if (( $# != 1 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    RESULT=${__FV_VW_C2A[${1:-kbNoKey}]-$1}
+}
+
+# fv.views._track V MASK — the tracking loops' FV MouseEvent(Event, Mask):
+# the next event whose bit is in MASK (rc 0, in FV_EV_*), what was drawn
+# shown first; the others are dropped. rc 1 ends the loop: a mouse-up (FV)
+# and, beyond FV, so that a lost release can never hold a loop (L2): a key
+# (put back with __FV_VW_PUTEVENT, the loop's owner gets it next; FV_EV_WHAT
+# evNothing), a resize the event source handled, the end of input (latched,
+# FV_EV_WHAT evNothing). A mouse move is coalesced with the moves already
+# waiting (fv.views._trackDrain, as dragView's R10). RESULT is kept
+fv.views._track() {
+    local __fvw_s __fvw_rz __fvw_r=${RESULT-}
+    if [[ -n $__FV_VW_TRK ]]; then __FV_VW_TRK=''; FV_EV_WHAT=evMouseUp; return 1; fi
+    while :; do
+        fv.views._showNow
+        if (( __FV_VW_EOF )); then FV_EV_WHAT=evNothing; RESULT=$__fvw_r; return 1; fi
+        __fvw_s=0 __fvw_rz=$__FV_VW_RESIZES
+        "$__FV_VW_GETEVENT" || __fvw_s=$?
+        RESULT=$__fvw_r
+        if (( __fvw_s )); then
+            if (( __fvw_s != 1 )); then kk.debug "Error: fv.views: the event source '$__FV_VW_GETEVENT' failed (rc $__fvw_s): taken for the end of input"; fi
+            __FV_VW_EOF=1 FV_EV_WHAT=evNothing
+            return 1
+        fi
+        if (( __FV_VW_RESIZES != __fvw_rz )) || [ "$FV_EV_WHAT" = evMouseUp ]; then return 1; fi
+        if [ "$FV_EV_WHAT" = evKeyDown ]; then "$__FV_VW_PUTEVENT" || :; FV_EV_WHAT=evNothing; return 1; fi
+        if (( ${__FV_VW_EVBIT[${FV_EV_WHAT:-evNothing}]-0} & $2 )); then
+            if [ "$FV_EV_WHAT" = evMouseMove ]; then fv.views._trackDrain; fi
+            return 0
+        fi
+    done
+}
+# fv.views._trackDrain — _track's coalescing: the events already waiting
+# ("$__FV_VW_GETEVENT" 0) are read; a move replaces the place; evNothing or
+# an evMouseAuto stops; a mouse-up, a key (put back) or a resize stops and
+# ends the NEXT _track (__FV_VW_TRK); the end of input stops (latched). The
+# record is then the last move (FV processes every move; the last one before
+# the release is the one that counts)
+fv.views._trackDrain() {
+    local __fvw_s __fvw_rz __fvw_mx=$FV_EV_MOUSE_X __fvw_my=$FV_EV_MOUSE_Y __fvw_mb=$FV_EV_MOUSE_BUTTONS __fvw_mm=$FV_EV_MOUSE_MODS
+    while :; do
+        __fvw_s=0 __fvw_rz=$__FV_VW_RESIZES
+        "$__FV_VW_GETEVENT" 0 || __fvw_s=$?
+        if (( __fvw_s )); then
+            if (( __fvw_s != 1 )); then kk.debug "Error: fv.views: the event source '$__FV_VW_GETEVENT' failed (rc $__fvw_s): taken for the end of input"; fi
+            __FV_VW_EOF=1
+            break
+        fi
+        if (( __FV_VW_RESIZES != __fvw_rz )) || [ "$FV_EV_WHAT" = evMouseUp ]; then __FV_VW_TRK=1; break; fi
+        if [ "$FV_EV_WHAT" = evMouseMove ]; then __fvw_mx=$FV_EV_MOUSE_X __fvw_my=$FV_EV_MOUSE_Y __fvw_mb=$FV_EV_MOUSE_BUTTONS __fvw_mm=$FV_EV_MOUSE_MODS
+        elif [ "$FV_EV_WHAT" = evKeyDown ]; then "$__FV_VW_PUTEVENT" || :; __FV_VW_TRK=1; break
+        elif [[ -z $FV_EV_WHAT ]] || [ "$FV_EV_WHAT" = evNothing ] || [ "$FV_EV_WHAT" = evMouseAuto ]; then break; fi
+    done
+    FV_EV_WHAT=evMouseMove FV_EV_MOUSE_X=$__fvw_mx FV_EV_MOUSE_Y=$__fvw_my FV_EV_MOUSE_BUTTONS=$__fvw_mb FV_EV_MOUSE_MODS=$__fvw_mm
+}
+
+# ---- TScrollBar (FV views.inc TScrollBar) ---------------------------------------
+
+fv.views._sbCreate() {   # B
+    local -n __fvw_bd=${1}_data
+    __fvw_bd[EventMask]=$(( ${__fvw_bd[EventMask]:-0} | FV_EM_MOUSEWHEEL ))
+    __fvw_bd[Value]=0 __fvw_bd[Min]=0 __fvw_bd[Max]=0 __fvw_bd[PgStep]=1 __fvw_bd[ArStep]=1 __fvw_bd[Id]=0
+    if (( ${__fvw_bd[SizeX]:-0} == 1 )); then __fvw_bd[GrowMode]=$(( FV_GF_GROWLOX | FV_GF_GROWHIX | FV_GF_GROWHIY ))
+    else __fvw_bd[GrowMode]=$(( FV_GF_GROWLOY | FV_GF_GROWHIX | FV_GF_GROWHIY )); fi
+    __FV_VW_SB[$1]=1
+}
+
+# TScrollBar.GetPalette (func) — FV CScrollBar: page area, arrows, indicator
+fv.views._sbGetPalette() { RESULT='4 5 5'; }
+
+# fv.views._sbPos B — the caller's __fvw_sp = FV GetPos (the indicator's
+# cell), __fvw_ss = GetSize (the length along the bar, at least 3)
+fv.views._sbPos() {
+    local -n __fvw_pd=${1}_data
+    local __fvw_r=$(( ${__fvw_pd[Max]:-0} - ${__fvw_pd[Min]:-0} ))
+    if (( ${__fvw_pd[SizeX]:-0} == 1 )); then __fvw_ss=${__fvw_pd[SizeY]:-0}; else __fvw_ss=${__fvw_pd[SizeX]:-0}; fi
+    if (( __fvw_ss < 3 )); then __fvw_ss=3; fi
+    if (( __fvw_r == 0 )); then __fvw_sp=1
+    else __fvw_sp=$(( ((${__fvw_pd[Value]:-0} - ${__fvw_pd[Min]:-0}) * (__fvw_ss - 3) + (__fvw_r >> 1)) / __fvw_r + 1 )); fi
+}
+
+# TScrollBar.Draw — FV DrawPos(GetPos): the arrows in colour 2, the page area
+# in colour 1 (▓ when Max = Min, else ▒ with the indicator ■ in colour 3);
+# ASCII mode ^ v / < > : # # (design P3 §2.7: FV's LowAscii keeps the CP437
+# shades, which fv.video's ASCII mode would show as ?). A vertical bar (1
+# wide) is one writeLines of one-cell rows — only the rows the paint may
+# change (the body is drawPart's painter too) — a horizontal one one
+# writeLine, on every row of a taller bar (FV writes past its buffer there)
+fv.views._sbDraw() {
+    if ! [ "${FV_DRAW_VIEW-}" = "$1" ]; then return 0; fi
+    local -n __fvw_bd=${1}_data
+    local __fvw_sp __fvw_ss __fvw_s __fvw_y __fvw_y2 __fvw_g0 __fvw_g1 __fvw_g2='▒' __fvw_g3='■' __fvw_e=$__FV_VW_ERRSYM
+    local __fvw_c1=${FV_DRAW_PAL:0:1} __fvw_c2=${FV_DRAW_PAL:1:1} __fvw_c3=${FV_DRAW_PAL:2:1}
+    local __fvw_n=$(( ${__fvw_bd[Max]:-0} == ${__fvw_bd[Min]:-0} ))
+    fv.views._sbPos "$1"
+    __fvw_s=$(( __fvw_ss - 1 ))
+    __fvw_c1=${__fvw_c1:-$__fvw_e} __fvw_c2=${__fvw_c2:-$__fvw_e} __fvw_c3=${__fvw_c3:-$__fvw_e}
+    if (( FV_VIDEO_ASCII )); then __fvw_g2=: __fvw_g3='#'; fi
+    if (( __fvw_n )); then if (( FV_VIDEO_ASCII )); then __fvw_g2='#'; else __fvw_g2='▓'; fi; fi
+    if (( ${__fvw_bd[SizeX]:-0} == 1 )); then
+        if (( FV_VIDEO_ASCII )); then __fvw_g0='^' __fvw_g1=v; else __fvw_g0='▲' __fvw_g1='▼'; fi
+        local -a _fvw_t=() _fvw_a=()
+        __fvw_y2=$FV_CLIP_Y2
+        if (( __fvw_y2 > ${__fvw_bd[SizeY]:-0} )); then __fvw_y2=${__fvw_bd[SizeY]:-0}; fi
+        for (( __fvw_y = FV_CLIP_Y1; __fvw_y < __fvw_y2; __fvw_y++ )); do
+            if (( __fvw_y == 0 )); then _fvw_t[0]=$__fvw_g0 _fvw_a[0]=$__fvw_c2
+            elif (( __fvw_y == __fvw_s )); then _fvw_t[__fvw_y]=$__fvw_g1 _fvw_a[__fvw_y]=$__fvw_c2
+            elif (( __fvw_y == __fvw_sp && ! __fvw_n )); then _fvw_t[__fvw_y]=$__fvw_g3 _fvw_a[__fvw_y]=$__fvw_c3
+            else _fvw_t[__fvw_y]=$__fvw_g2 _fvw_a[__fvw_y]=$__fvw_c1; fi
+        done
+        if (( ${#_fvw_t[@]} )); then fv.views.writeLines 0 0 _fvw_t _fvw_a || :; fi
+        return 0
+    fi
+    local __fvw_t __fvw_a __fvw_w=${__fvw_bd[SizeX]:-0}
+    if (( __fvw_w < 1 || ${__fvw_bd[SizeY]:-0} < 1 )); then return 0; fi
+    if (( FV_VIDEO_ASCII )); then __fvw_g0='<' __fvw_g1='>'; else __fvw_g0='◄' __fvw_g1='►'; fi
+    if [[ -z ${__FV_VW_AT[$__fvw_c1]+x} ]]; then __FV_VW_AT[$__fvw_c1]=${__FV_VW_PAD// /"$__fvw_c1"}; fi
+    # (the row is built and cut in ASCII stand-ins — 0 1 the arrows, blanks
+    # the area, 3 the indicator — and the glyphs put in last: a cut never
+    # meets a multi-byte glyph, so a caller in any locale gets the same row)
+    __fvw_t=0${__FV_VW_PAD:0:__fvw_s-1}1 __fvw_a=$__fvw_c2${__FV_VW_AT[$__fvw_c1]:0:__fvw_s-1}$__fvw_c2
+    if (( ! __fvw_n )); then __fvw_t=${__fvw_t:0:__fvw_sp}3${__fvw_t:__fvw_sp+1} __fvw_a=${__fvw_a:0:__fvw_sp}$__fvw_c3${__fvw_a:__fvw_sp+1}; fi
+    __fvw_t=${__fvw_t:0:__fvw_w}
+    __fvw_t=${__fvw_t// /"$__fvw_g2"} __fvw_t=${__fvw_t/0/"$__fvw_g0"}
+    __fvw_t=${__fvw_t/1/"$__fvw_g1"} __fvw_t=${__fvw_t/3/"$__fvw_g3"}
+    fv.views.writeLine 0 0 "${__fvw_bd[SizeY]}" "$__fvw_t" "${__fvw_a:0:__fvw_w}" || :
+}
+
+# TScrollBar.ScrollStep PART (func) — FV: ArStep for an arrow part (bit 1
+# clear), PgStep for a page part, negative for an up / left part (bit 0
+# clear). A PART that is not a number counts as 0
+fv.views._sbScrollStep() {
+    local -n __fvw_bd=${1}_data
+    local __fvw_p=${2-} __fvw_s
+    if [[ -z $__fvw_p || $__fvw_p == *[!0123456789]* || ${#__fvw_p} -gt 9 ]]; then __fvw_p=0; fi
+    if (( (10#$__fvw_p & 2) == 0 )); then __fvw_s=${__fvw_bd[ArStep]:-1}; else __fvw_s=${__fvw_bd[PgStep]:-1}; fi
+    if (( (10#$__fvw_p & 1) == 0 )); then RESULT=$(( -(__fvw_s) )); else RESULT=$(( __fvw_s )); fi
+}
+
+# TScrollBar.ScrollDraw — FV: Id <> 0 -> NewMessage(TopView, evCommand,
+# cmIdCommunicate, Id, Value, Self); then NewMessage(Owner, evBroadcast,
+# cmScrollBarChanged, Id, Value, Self). The record: FV_EV_ID = Id, FV_EV_INFO
+# = the bar (FV's InfoPtr); FV's Data, the value, is the bar's Value field
+# (synchronous messages: it holds exactly that value). A list moving its own
+# bar is not told back (__FV_VW_QX, P3-4)
+fv.views._sbScrollDraw() {
+    local -n __fvw_bd=${1}_data
+    local __fvw_i=${__fvw_bd[Id]:-0} __fvw_t __fvw_o=${__fvw_bd[Owner]-}
+    if [[ -n $__fvw_i && $__fvw_i != 0 ]]; then
+        fv.views._topView "$1"
+        if [[ -n $__fvw_t ]]; then fv.views._message "$__fvw_t" evCommand cmIdCommunicate "$1" "$__fvw_i" || :; fi
+    fi
+    if [[ -n $__fvw_o && -n ${__FV_VW_LIVE[$1]-} && -n ${__FV_VW_LIVE[$__fvw_o]-} ]]; then
+        fv.views._message "$__fvw_o" evBroadcast cmScrollBarChanged "$1" "$__fvw_i" || :
+    fi
+    return 0
+}
+# FV Clicked: NewMessage(Owner, evBroadcast, cmScrollBarClicked, Id, Value, Self)
+fv.views._sbClicked() {
+    local -n __fvw_bd=${1}_data
+    local __fvw_o=${__fvw_bd[Owner]-}
+    if [[ -n $__fvw_o && -n ${__FV_VW_LIVE[$__fvw_o]-} ]]; then fv.views._message "$__fvw_o" evBroadcast cmScrollBarClicked "$1" "${__fvw_bd[Id]:-0}" || :; fi
+    return 0
+}
+
+# fv.views._sbSet B VALUE MIN MAX PG AR (integers) — FV SetParams with P3-4's
+# redraw: MAX below MIN -> MIN, VALUE clamped into MIN .. MAX; when something
+# changed: a range change draws the bar whole, a value change only the
+# indicator's old and new cells (one drawPart over the rows from one to the
+# other; nothing when the indicator stays: FV draws the bar every time), then
+# ScrollDraw (virtual) when the value changed; PgStep / ArStep last (FV's
+# order: a cmScrollBarChanged handler sees the old steps)
+fv.views._sbSet() {
+    local -n __fvw_bd=${1}_data
+    local __fvw_v=$2 __fvw_n=$3 __fvw_x=$4 __fvw_ov=${__fvw_bd[Value]:-0} __fvw_sp __fvw_ss __fvw_op
+    if (( __fvw_x < __fvw_n )); then __fvw_x=$__fvw_n; fi
+    if (( __fvw_v < __fvw_n )); then __fvw_v=$__fvw_n; elif (( __fvw_v > __fvw_x )); then __fvw_v=$__fvw_x; fi
+    if (( __fvw_n != ${__fvw_bd[Min]:-0} || __fvw_x != ${__fvw_bd[Max]:-0} )); then
+        __fvw_bd[Min]=$__fvw_n __fvw_bd[Max]=$__fvw_x __fvw_bd[Value]=$__fvw_v
+        fv.views._drawView "$1"
+    elif (( __fvw_v != __fvw_ov )); then
+        fv.views._sbPos "$1"
+        __fvw_op=$__fvw_sp __fvw_bd[Value]=$__fvw_v
+        fv.views._sbPos "$1"
+        if (( __fvw_op != __fvw_sp )); then fv.views._sbThumb "$1"; fi
+    fi
+    if (( __fvw_v != __fvw_ov )); then fv.views._virt "$1" ScrollDraw || :; fi
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then __fvw_bd[PgStep]=$5 __fvw_bd[ArStep]=$6; fi
+}
+# fv.views._sbThumb B — _sbSet's indicator move (its __fvw_op, __fvw_sp): a
+# vertical bar repaints the rows from the old cell to the new one (one
+# drawPart with Draw's body as the painter), a horizontal one its row; a
+# Draw of yours: drawView
+fv.views._sbThumb() {
+    local __fvw_o=${1}_class __fvw_a=$__fvw_op __fvw_b=$__fvw_sp
+    __fvw_o="${!__fvw_o-}_class_method_owner[Draw]"
+    if ! [ "${__FV_VW_IMPL[${!__fvw_o-}.Draw]-}" = fv.views._sbDraw ]; then fv.views._drawView "$1"; return 0; fi
+    local -n __fvw_td=${1}_data
+    if (( ${__fvw_td[SizeX]:-0} != 1 )); then __fvw_a=0 __fvw_b=$(( ${__fvw_td[SizeY]:-1} - 1 ))
+    elif (( __fvw_a > __fvw_b )); then __fvw_a=$__fvw_sp __fvw_b=$__fvw_op; fi
+    fv.views.drawPart "$1" fv.views._sbDraw "$__fvw_a" "$(( __fvw_b + 1 ))" || :
+}
+
+# fv.views.scrollBarSet SB VALUE [MIN MAX [PG AR]] — FV SetParams (VALUE MIN
+# MAX PG AR), its SetValue (VALUE alone) and VALUE MIN MAX (the steps kept);
+# the FV forms by name: `SB setValue VALUE`, `SB setRange MIN MAX`, `SB
+# setStep PG AR`. The redraw of P3-4 and the cmScrollBarChanged broadcast
+# when the value changed (fv.views._sbSet). RESULT is kept; rc 2: not a
+# TScrollBar, not integers, a wrong count
+fv.views.scrollBarSet() {
+    if (( $# < 2 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._view "$1" scrollBarSet || return
+    if [[ -z ${__FV_VW_SB[$1]-} ]]; then fv.views._bad scrollBarSet "'$1' is not a TScrollBar"; return; fi
+    local -n __fvw_bd=${1}_data
+    local -a __fvw_v
+    local __fvw_r=${RESULT-} __fvw_a=${__fvw_bd[Value]:-0} __fvw_n=${__fvw_bd[Min]:-0} __fvw_x=${__fvw_bd[Max]:-0}
+    local __fvw_p=${__fvw_bd[PgStep]:-1} __fvw_q=${__fvw_bd[ArStep]:-1} __fvw_k=$#
+    if [ "$2" = setValue ] || [ "$2" = setRange ] || [ "$2" = setStep ]; then __fvw_k=x$2$#; fi
+    case $__fvw_k in
+        2) fv.views._ints "$2" && __fvw_a=${__fvw_v[0]} ;;
+        4) fv.views._ints "$2" "$3" "$4" && __fvw_a=${__fvw_v[0]} __fvw_n=${__fvw_v[1]} __fvw_x=${__fvw_v[2]} ;;
+        6) fv.views._ints "$2" "$3" "$4" "$5" "$6" && __fvw_a=${__fvw_v[0]} __fvw_n=${__fvw_v[1]} __fvw_x=${__fvw_v[2]} __fvw_p=${__fvw_v[3]} __fvw_q=${__fvw_v[4]} ;;
+        xsetValue3) fv.views._ints "$3" && __fvw_a=${__fvw_v[0]} ;;
+        xsetRange4) fv.views._ints "$3" "$4" && __fvw_n=${__fvw_v[0]} __fvw_x=${__fvw_v[1]} ;;
+        xsetStep4) fv.views._ints "$3" "$4" && __fvw_p=${__fvw_v[0]} __fvw_q=${__fvw_v[1]} ;;
+        *) fv.views._bad scrollBarSet 'SB VALUE [MIN MAX [PG AR]], SB setValue V, SB setRange MIN MAX or SB setStep PG AR'; return ;;
+    esac || { fv.views._bad scrollBarSet 'the numbers must be integers'; return; }
+    fv.views._sbSet "$1" "$__fvw_a" "$__fvw_n" "$__fvw_x" "$__fvw_p" "$__fvw_q"
+    RESULT=$__fvw_r
+}
+
+# TScrollBar.HandleEvent — FV: TView's (a mouse-down), then
+#   * evCommand cmIdCommunicate whose FV_EV_ID is Id, from another view: its
+#     value (the sender's Value field, or an integer FV_EV_INFO) set, handled;
+#   * evKeyDown while visible (a bar gets keys through ofPostProcess:
+#     FV_SB_HANDLEKEYBOARD): fv.views._sbKey;
+#   * evMouseWheel: Clicked, then Value -/+ ArStep (a double wheel event and
+#     ArStep 1: 6, FV), handled;
+#   * evMouseDown: fv.views._sbMouse
+fv.views._sbEvent() {
+    if [ "$FV_EV_WHAT" = evMouseDown ]; then
+        fv.views._viewEvent "$1"
+        if [ "$FV_EV_WHAT" = evMouseDown ]; then fv.views._sbMouse "$1"; fi
+    elif [ "$FV_EV_WHAT" = evKeyDown ]; then fv.views._sbKey "$1"
+    elif [ "$FV_EV_WHAT" = evMouseWheel ]; then fv.views._sbWheel "$1"
+    elif [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmIdCommunicate ]; then fv.views._sbIdc "$1"; fi
+    return 0
+}
+fv.views._sbIdc() {   # B (cmIdCommunicate)
+    local -n __fvw_bd=${1}_data
+    local -a __fvw_v
+    local __fvw_q=$FV_EV_INFO
+    if [ "$FV_EV_ID" != "${__fvw_bd[Id]:-0}" ] || [ "$FV_EV_INFO" = "$1" ]; then return 0; fi
+    if [[ -n $__fvw_q && -n ${__FV_VW_LIVE[$__fvw_q]-} ]]; then __fvw_q="${__fvw_q}_data[Value]" __fvw_q=${!__fvw_q-}; fi
+    fv.views._ints "$__fvw_q" || return 0
+    fv.views._sbSet "$1" "${__fvw_v[0]}" "${__fvw_bd[Min]:-0}" "${__fvw_bd[Max]:-0}" "${__fvw_bd[PgStep]:-1}" "${__fvw_bd[ArStep]:-1}"
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+# fv.views._sbKey B — FV's keys (through CtrlToArrow) of a visible bar: a
+# horizontal one (1 high) Left / Right (arrow), Ctrl+Left / Ctrl+Right
+# (page), Home / End (Min / Max); a vertical one Up / Down, PgUp / PgDn,
+# Ctrl+PgUp / Ctrl+PgDn (Min / Max). Clicked, then the value set (an arrow or
+# page part by ScrollStep, virtual), handled
+fv.views._sbKey() {
+    local -n __fvw_bd=${1}_data
+    if (( ! (${__fvw_bd[State]:-0} & FV_SF_VISIBLE) )); then return 0; fi
+    local __fvw_k=${__FV_VW_C2A[${FV_EV_KEY:-kbNoKey}]-$FV_EV_KEY} __fvw_p=$FV_SB_INDICATOR __fvw_i=${__fvw_bd[Value]:-0}
+    if (( ${__fvw_bd[SizeY]:-0} == 1 )); then
+        case $__fvw_k in
+            kbLeft) __fvw_p=$FV_SB_LEFTARROW ;; kbRight) __fvw_p=$FV_SB_RIGHTARROW ;;
+            kbCtrlLeft) __fvw_p=$FV_SB_PAGELEFT ;; kbCtrlRight) __fvw_p=$FV_SB_PAGERIGHT ;;
+            kbHome) __fvw_i=${__fvw_bd[Min]:-0} ;; kbEnd) __fvw_i=${__fvw_bd[Max]:-0} ;;
+            *) return 0 ;;
+        esac
+    else
+        case $__fvw_k in
+            kbUp) __fvw_p=$FV_SB_UPARROW ;; kbDown) __fvw_p=$FV_SB_DOWNARROW ;;
+            kbPgUp) __fvw_p=$FV_SB_PAGEUP ;; kbPgDn) __fvw_p=$FV_SB_PAGEDOWN ;;
+            kbCtrlPgUp) __fvw_i=${__fvw_bd[Min]:-0} ;; kbCtrlPgDn) __fvw_i=${__fvw_bd[Max]:-0} ;;
+            *) return 0 ;;
+        esac
+    fi
+    fv.views._sbClicked "$1"
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then
+        if (( __fvw_p != FV_SB_INDICATOR )); then
+            fv.views._virt "$1" ScrollStep "$__fvw_p" || RESULT=0
+            __fvw_i=$(( ${__fvw_bd[Value]:-0} + RESULT ))
+        fi
+        fv.views._sbSet "$1" "$__fvw_i" "${__fvw_bd[Min]:-0}" "${__fvw_bd[Max]:-0}" "${__fvw_bd[PgStep]:-1}" "${__fvw_bd[ArStep]:-1}"
+    fi
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+fv.views._sbWheel() {   # B (evMouseWheel)
+    local -n __fvw_bd=${1}_data
+    local __fvw_a=${__fvw_bd[ArStep]:-1}
+    fv.views._sbClicked "$1"
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+    if (( __fvw_a == 1 && ${FV_EV_MOUSE_DOUBLE:-0} == 1 )); then __fvw_a=6; fi
+    if (( FV_EV_WHEEL == 1 )); then __fvw_a=$(( -__fvw_a )); elif (( FV_EV_WHEEL != 2 )); then return 0; fi
+    fv.views._sbSet "$1" "$(( ${__fvw_bd[Value]:-0} + __fvw_a ))" "${__fvw_bd[Min]:-0}" "${__fvw_bd[Max]:-0}" "${__fvw_bd[PgStep]:-1}" "${__fvw_bd[ArStep]:-1}"
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+# fv.views._sbPart B — the caller's __fvw_m = FV GetPartCode for the mouse
+# (FV_EV_MOUSE_*): -1 outside the bar, else the part, with the indicator's
+# cell __fvw_p and the size __fvw_ss of the caller (FV takes both at the press)
+fv.views._sbPart() {
+    local -n __fvw_qd=${1}_data
+    local __fvw_x=$(( FV_EV_MOUSE_X - __FV_VW_AX[$1] )) __fvw_y=$(( FV_EV_MOUSE_Y - __FV_VW_AY[$1] )) __fvw_k
+    __fvw_m=-1
+    if (( __fvw_x < 0 || __fvw_y < 0 || __fvw_x >= ${__fvw_qd[SizeX]:-0} || __fvw_y >= ${__fvw_qd[SizeY]:-0} )); then return 0; fi
+    if (( ${__fvw_qd[SizeX]:-0} == 1 )); then __fvw_k=$__fvw_y; else __fvw_k=$__fvw_x; fi
+    if (( __fvw_k == __fvw_p )); then __fvw_m=$FV_SB_INDICATOR; return 0; fi
+    if (( __fvw_k < 1 )); then __fvw_m=$FV_SB_LEFTARROW
+    elif (( __fvw_k < __fvw_p )); then __fvw_m=$FV_SB_PAGELEFT
+    elif (( __fvw_k < __fvw_ss - 1 )); then __fvw_m=$FV_SB_PAGERIGHT
+    else __fvw_m=$FV_SB_RIGHTARROW; fi
+    if (( ${__fvw_qd[SizeX]:-0} == 1 )); then __fvw_m=$(( __fvw_m + 4 )); fi
+}
+# fv.views._sbMouse B — FV's mouse-down: Clicked; the part under the mouse
+# with the indicator's cell and the size taken at the press (FV): an arrow
+# or a page part steps (ScrollStep) at once and again on every evMouseAuto
+# while the mouse is on that part (FV P3-8: held, the first after
+# FV_REPEAT_DELAY), until the release, then Clicked; the indicator follows
+# the mouse (moves, coalesced) while it is inside the bar (outside: back to
+# where the value puts it) until the release, then Clicked when the value
+# changed. A key ends the tracking as a release does (fv.views._track).
+# Handled
+fv.views._sbMouse() {
+    local -n __fvw_bd=${1}_data
+    local __fvw_sp __fvw_ss __fvw_p __fvw_c __fvw_m __fvw_i __fvw_iv __fvw_tr=0 __fvw_x __fvw_y
+    fv.views._sbClicked "$1"
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+    # (a release an earlier loop's drain met and never used is not this one's)
+    __FV_VW_TRK=''
+    fv.views._sbPos "$1"
+    __fvw_p=$__fvw_sp
+    fv.views._sbPart "$1"
+    __fvw_c=$__fvw_m
+    if (( __fvw_c != FV_SB_INDICATOR )); then
+        while :; do
+            fv.views._sbPart "$1"
+            if (( __fvw_m == __fvw_c && __fvw_c >= 0 )); then
+                fv.views._virt "$1" ScrollStep "$__fvw_c" || RESULT=0
+                fv.views._sbSet "$1" "$(( ${__fvw_bd[Value]:-0} + RESULT ))" "${__fvw_bd[Min]:-0}" "${__fvw_bd[Max]:-0}" "${__fvw_bd[PgStep]:-1}" "${__fvw_bd[ArStep]:-1}"
+            fi
+            [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+            fv.views._track "$1" "$FV_EM_MOUSEAUTO" || break
+        done
+        fv.views._sbClicked "$1"
+    else
+        __fvw_iv=${__fvw_bd[Value]:-0}
+        while :; do
+            __fvw_x=$(( FV_EV_MOUSE_X - __FV_VW_AX[$1] )) __fvw_y=$(( FV_EV_MOUSE_Y - __FV_VW_AY[$1] ))
+            if (( __fvw_x >= 0 && __fvw_y >= 0 && __fvw_x < ${__fvw_bd[SizeX]:-0} && __fvw_y < ${__fvw_bd[SizeY]:-0} )); then
+                __fvw_tr=1
+                if (( ${__fvw_bd[SizeX]:-0} == 1 )); then __fvw_i=$__fvw_y; else __fvw_i=$__fvw_x; fi
+                if (( __fvw_i > __fvw_ss )); then __fvw_i=$__fvw_ss; fi
+            else
+                __fvw_tr=0
+                fv.views._sbPos "$1"
+                __fvw_i=$__fvw_sp
+            fi
+            if (( __fvw_i != __fvw_p )); then
+                fv.views._sbSet "$1" "$(( (__fvw_i * (${__fvw_bd[Max]:-0} - ${__fvw_bd[Min]:-0}) + (__fvw_ss >> 1)) / __fvw_ss + ${__fvw_bd[Min]:-0} ))" \
+                    "${__fvw_bd[Min]:-0}" "${__fvw_bd[Max]:-0}" "${__fvw_bd[PgStep]:-1}" "${__fvw_bd[ArStep]:-1}"
+                __fvw_p=$__fvw_i
+            fi
+            [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+            fv.views._track "$1" "$FV_EM_MOUSEMOVE" || break
+        done
+        if (( __fvw_tr )); then
+            fv.views._sbSet "$1" "$(( (__fvw_p * (${__fvw_bd[Max]:-0} - ${__fvw_bd[Min]:-0}) + (__fvw_ss >> 1)) / __fvw_ss + ${__fvw_bd[Min]:-0} ))" \
+                "${__fvw_bd[Min]:-0}" "${__fvw_bd[Max]:-0}" "${__fvw_bd[PgStep]:-1}" "${__fvw_bd[ArStep]:-1}"
+        fi
+        if [[ -n ${__FV_VW_LIVE[$1]-} ]] && (( __fvw_iv != ${__fvw_bd[Value]:-0} )); then fv.views._sbClicked "$1"; fi
+    fi
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+
+# fv.views.standardScrollBar W OPTIONS — FV TWindow.StandardScrollBar: a
+# TScrollBar on W's frame — FV_SB_VERTICAL in OPTIONS: the right column, rows
+# 1 .. SizeY-2; else the bottom row, columns 2 .. SizeX-3 — inserted into W,
+# with ofPostProcess for FV_SB_HANDLEKEYBOARD; RESULT = its name (reserved:
+# W__fvsbN, the first free N from 1). rc 2: W not a group, OPTIONS not an
+# integer, a wrong count
+fv.views.standardScrollBar() {
+    if (( $# != 2 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._group "$1" standardScrollBar || return
+    local -a __fvw_v
+    if ! fv.views._ints "$2"; then fv.views._bad standardScrollBar 'OPTIONS must be an integer (FV_SB_* bits)'; return; fi
+    local -n __fvw_wd=${1}_data
+    local __fvw_w=${__fvw_wd[SizeX]:-0} __fvw_h=${__fvw_wd[SizeY]:-0} __fvw_o=${__fvw_v[0]} __fvw_k=1 __fvw_n __fvw_s=0
+    while [[ -n ${__FV_VW_LIVE[${1}__fvsb$__fvw_k]-} ]]; do __fvw_k=$(( __fvw_k + 1 )); done
+    if (( __fvw_o & FV_SB_VERTICAL )); then
+        fv.views._newReserved "$1" "sb$__fvw_k" TScrollBar "$(( __fvw_w - 1 ))" 1 "$__fvw_w" "$(( __fvw_h - 1 ))" || __fvw_s=$?
+    else
+        fv.views._newReserved "$1" "sb$__fvw_k" TScrollBar 2 "$(( __fvw_h - 1 ))" "$(( __fvw_w - 2 ))" "$__fvw_h" || __fvw_s=$?
+    fi
+    __fvw_n=$RESULT
+    if (( __fvw_s )) || [[ -z ${__FV_VW_LIVE[$__fvw_n]-} ]]; then RESULT=''; return 2; fi
+    if (( __fvw_o & FV_SB_HANDLEKEYBOARD )); then
+        local -n __fvw_bd=${__fvw_n}_data
+        __fvw_bd[Options]=$(( ${__fvw_bd[Options]:-0} | FV_OF_POSTPROCESS ))
+    fi
+    fv.views.insert "$1" "$__fvw_n" || :
+    RESULT=$__fvw_n
+}
+
+# ---- TListViewer (FV views.inc TListViewer, FPC 2025; design P3 §2.2, §5) ---------
+
+# fv.views._lvArgs V [NUMCOLS [HSB [VSB]]] — the constructor's refusals,
+# before anything is made: rc 2 and one Error line
+fv.views._lvArgs() {
+    local __fvw_n=${2:-1} __fvw_b
+    if [[ $__fvw_n == *[!0123456789]* || ${#__fvw_n} -gt 4 ]] || (( 10#$__fvw_n < 1 || 10#$__fvw_n > __FV_VW_MAXW )); then
+        fv.views._err "TListViewer.Create: '$1': NUMCOLS must be 1..$__FV_VW_MAXW (got: $__fvw_n)"
+        __FV_VW_CRC=2
+        return 2
+    fi
+    for __fvw_b in "${3-}" "${4-}"; do
+        if [[ -n $__fvw_b && -z ${__FV_VW_SB[$__fvw_b]-} ]]; then
+            fv.views._err "TListViewer.Create: '$1': a scroll bar must be '' or a live TScrollBar (got: $__fvw_b)"
+            __FV_VW_CRC=2
+            return 2
+        fi
+    done
+}
+fv.views._lvCreate() {   # V NUMCOLS HSB VSB
+    local -n __fvw_ld=${1}_data
+    __fvw_ld[Options]=$(( ${__fvw_ld[Options]:-0} | FV_OF_FIRSTCLICK | FV_OF_SELECTABLE ))
+    __fvw_ld[EventMask]=$(( ${__fvw_ld[EventMask]:-0} | FV_EM_BROADCAST | FV_EM_MOUSEWHEEL ))
+    __fvw_ld[NumCols]=$(( 10#$2 )) __fvw_ld[TopItem]=0 __fvw_ld[Focused]=0 __fvw_ld[Range]=0
+    __fvw_ld[List]='' __fvw_ld[Formatter]='' __fvw_ld[Marks]=''
+    __FV_VW_LY[$1]=0
+    if [[ -n $3 ]]; then
+        local -n __fvw_hd=${3}_data
+        fv.views._sbSet "$3" "${__fvw_hd[Value]:-0}" "${__fvw_hd[Min]:-0}" "${__fvw_hd[Max]:-0}" "$(( ${__fvw_ld[SizeX]:-0} / __fvw_ld[NumCols] ))" 1
+    fi
+    __fvw_ld[HScrollBar]=$3 __fvw_ld[VScrollBar]=$4
+}
+# fv.views._list V CALLER — rc 0 for a live TListViewer (LY is set by its
+# constructor); else rc 2 (fv.views._bad / _view)
+fv.views._list() {
+    fv.views._view "$1" "$2" || return
+    if [[ -z ${__FV_VW_LY[$1]+x} ]]; then fv.views._bad "$2" "'$1' is not a TListViewer"; return; fi
+}
+# fv.views._lvName NAME — rc 0 when NAME may be List / Marks: an identifier
+# that does not start with _fv or __fv in any case (reserved: fv.views' own
+# globals and locals — the painters' arrays _fvw_t _fvw_a _fvw_r ... — which
+# a nameref to such a name would reach instead of the caller's array)
+fv.views._lvName() {
+    [[ -n $1 && $1 != *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_]* && $1 != [0123456789]* && $1 != _[fF][vV]* && $1 != __[fF][vV]* ]]
+}
+
+# TListViewer.GetPalette (func) — FV CListViewer 26 26 27 28 29 when the
+# owner's resolved palette reaches entry 29 (a dialog; no owner: the app
+# palette); in a plain window (8 entries) the window's scroller entries
+# 6 6 7 6 6 instead of FV's ErrorAttr (D25, a documented deviation)
+fv.views._lvGetPalette() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_o=${__fvw_ld[Owner]-}
+    if [[ -n $__fvw_o && -n ${__FV_VW_LIVE[$__fvw_o]-} ]]; then
+        if [[ -z ${__FV_VW_PAL[$__fvw_o]+x} ]]; then fv.views._pal "$__fvw_o"; fi
+        if (( ${#__FV_VW_PAL[$__fvw_o]} < 29 )); then RESULT='6 6 7 6 6'; return 0; fi
+    fi
+    RESULT='26 26 27 28 29'
+}
+
+# TListViewer.Draw — FV's rows (design P3 §2.2): item J*SizeY + I + TopItem
+# in column J of row I; ColWidth = SizeX div NumCols + 1; a column is a
+# blank, the item's text (FV GetText = List[i], or Formatter i ColWidth+Indent)
+# and the divider │ in colour 5 at its last cell (the last column's lies past
+# the row, as in FV); colour per FPC 2025's GetItemColor: the focused item of
+# a selected + active list (Range > 0) 3, a selected item below Range 4
+# (IsSelected: the focused one or a set Marks entry, D26), else 2. Only the
+# rows the paint may change (FV_CLIP_Y1 .. Y2: the body is drawPart's
+# painter too). Rows of printable ASCII: one writeLines (one row: writeLine);
+# any other text: one writeRows (cut by fv.video's cells, P3 10.2). Here the
+# common case (one column, no horizontal bar, the built-in IsSelected, List /
+# Marks plain identifiers); the rest: fv.views._lvDrawX
+fv.views._lvDraw() {
+    if ! [ "${FV_DRAW_VIEW-}" = "$1" ]; then return 0; fi
+    if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g fv.views._lvDraw "$1"; return; fi
+    local -n __fvw_ld=${1}_data
+    local __fvw_o=${1}_class __fvw_l=${__fvw_ld[List]-} __fvw_m=${__fvw_ld[Marks]-} __fvw_fm=${__fvw_ld[Formatter]-}
+    __fvw_o="${!__fvw_o-}_class_method_owner[IsSelected]"
+    if [[ ${__fvw_ld[NumCols]:-1} != 1 || -n ${__fvw_ld[HScrollBar]-} || $__fvw_l$__fvw_m == *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_]* \
+          || $__fvw_l == [0123456789_]* || $__fvw_m == [0123456789_]* ]] || ! [ "${__FV_VW_IMPL[${!__fvw_o-}.IsSelected]-}" = fv.views._lvIsSelected ]; then
+        fv.views._lvDrawX "$1"
+        return
+    fi
+    local __fvw_w=${__fvw_ld[SizeX]:-0} __fvw_t=${__fvw_ld[TopItem]:-0} __fvw_f=${__fvw_ld[Focused]:-0} __fvw_n=${__fvw_ld[Range]:-0}
+    local __fvw_y=$FV_CLIP_Y1 __fvw_y2=$FV_CLIP_Y2 __fvw_i __fvw_s __fvw_c __fvw_e=$__FV_VW_ERRSYM
+    local __fvw_c2=${FV_DRAW_PAL:1:1} __fvw_c3=${FV_DRAW_PAL:2:1} __fvw_c4=${FV_DRAW_PAL:3:1}
+    if (( __fvw_y2 > ${__fvw_ld[SizeY]:-0} )); then __fvw_y2=${__fvw_ld[SizeY]:-0}; fi
+    if (( __fvw_y >= __fvw_y2 || __fvw_w < 1 )); then return 0; fi
+    __fvw_c2=${__fvw_c2:-$__fvw_e} __fvw_c3=${__fvw_c3:-$__fvw_e} __fvw_c4=${__fvw_c4:-$__fvw_e}
+    # (the focused item: 3 in a selected + active list, else 4 — IsSelected)
+    if (( (${__fvw_ld[State]:-0} & (FV_SF_SELECTED | FV_SF_ACTIVE)) != (FV_SF_SELECTED | FV_SF_ACTIVE) )); then __fvw_c3=$__fvw_c4
+    elif (( __fvw_f >= __fvw_t + __fvw_y && __fvw_f < __fvw_t + __fvw_y2 && __fvw_f < __fvw_n )); then
+        __fvw_ld[CursorX]=1 __fvw_ld[CursorY]=$(( __fvw_f - __fvw_t ))
+    fi
+    for __fvw_c in "$__fvw_c2" "$__fvw_c3" "$__fvw_c4"; do
+        if [[ -z ${__FV_VW_AT[$__fvw_c]+x} ]]; then __FV_VW_AT[$__fvw_c]=${__FV_VW_PAD// /"$__fvw_c"}; fi
+    done
+    if [[ -n $__fvw_l ]]; then local -n __fvw_la=$__fvw_l; else local -a __fvw_la=(); fi
+    if [[ -n $__fvw_m ]]; then local -n __fvw_ma=$__fvw_m; else local -a __fvw_ma=(); fi
+    if [[ -n $__fvw_fm && -z ${__FV_VW_FOK[$__fvw_fm]-} ]]; then fv.views._lvFmt; fi
+    local -a _fvw_t=() _fvw_a=() _fvw_r=() _fvw_s=()
+    for (( ; __fvw_y < __fvw_y2; __fvw_y++ )); do
+        __fvw_i=$(( __fvw_t + __fvw_y ))
+        if (( __fvw_i < __fvw_n && __fvw_i >= 0 )); then
+            if [[ -n $__fvw_fm ]]; then "$__fvw_fm" "$__fvw_i" "$(( __fvw_w + 1 ))"; __fvw_s=" $RESULT"; else __fvw_s=" ${__fvw_la[$__fvw_i]-}"; fi
+            if (( __fvw_i == __fvw_f )); then __fvw_c=$__fvw_c3
+            elif [[ ${__fvw_ma[$__fvw_i]:-0} != 0 ]]; then __fvw_c=$__fvw_c4
+            else __fvw_c=$__fvw_c2; fi
+        else __fvw_s='' __fvw_c=$__fvw_c2; fi
+        _fvw_r[__fvw_y]=$__fvw_s _fvw_s[__fvw_y]=$__fvw_c
+        __fvw_s+=$__FV_VW_PAD
+        _fvw_t[__fvw_y]=${__fvw_s:0:__fvw_w} _fvw_a[__fvw_y]=${__FV_VW_AT[$__fvw_c]:0:__fvw_w}
+    done
+    # (the rows joined by a blank whatever the caller's IFS: a newline or a
+    # tab there would send every ASCII page down the writeRows path)
+    local IFS=' '
+    if [[ ${_fvw_r[*]} != $__FV_VS_PNA ]]; then
+        if (( __fvw_y2 - FV_CLIP_Y1 == 1 )); then fv.views.writeLine 0 "$FV_CLIP_Y1" 1 "${_fvw_t[FV_CLIP_Y1]}" "${_fvw_a[FV_CLIP_Y1]}" || :
+        else fv.views.writeLines 0 0 _fvw_t _fvw_a || :; fi
+    else
+        fv.views._lvWide "$__fvw_w"
+        fv.views.writeRows 0 0 "$__fvw_w" _fvw_r _fvw_s || :
+    fi
+}
+# fv.views._lvWide W — the caller's rows _fvw_r cut to 4 W characters (a
+# text far longer than the row costs fv.video's walk for nothing)
+fv.views._lvWide() {
+    local __fvw_k __fvw_x=$(( $1 * 4 ))
+    for __fvw_k in "${!_fvw_r[@]}"; do
+        if (( ${#_fvw_r[__fvw_k]} > __fvw_x )); then _fvw_r[__fvw_k]=${_fvw_r[__fvw_k]:0:__fvw_x}; fi
+    done
+}
+# fv.views._lvFmt — the caller's Formatter __fvw_fm checked once per name
+# (declare -F); not a function: '' (the items' own text), one debug line
+fv.views._lvFmt() {
+    if declare -F "$__fvw_fm" >/dev/null; then __FV_VW_FOK[$__fvw_fm]=1
+    else kk.debug "Error: fv.views: TListViewer.Draw: Formatter '$__fvw_fm' is not a function (ignored)"; __fvw_fm=''; fi
+}
+
+# fv.views._lvDrawX V — TListViewer.Draw's general case: NumCols columns, the
+# indent of a horizontal bar (FV: the text from character Indent on, Pascal's
+# Copy: 0 and 1 both from the first), IsSelected through the elision per item
+# when the class overrides it (a dispatch each, documented), List / Marks
+# names that are no identifier or reserved (_fv*, __fv*: fv.views._lvName):
+# none. Rows of printable ASCII: one writeLines (each row composed: blank +
+# text + divider per column); any other text: per column one writeRows of
+# its texts, and one writeLines per divider column
+fv.views._lvDrawX() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_l=${__fvw_ld[List]-} __fvw_m=${__fvw_ld[Marks]-} __fvw_fm=${__fvw_ld[Formatter]-} __fvw_b=${__fvw_ld[HScrollBar]-}
+    local __fvw_w=${__fvw_ld[SizeX]:-0} __fvw_h=${__fvw_ld[SizeY]:-0} __fvw_nc=${__fvw_ld[NumCols]:-1} __fvw_t=${__fvw_ld[TopItem]:-0}
+    local __fvw_f=${__fvw_ld[Focused]:-0} __fvw_n=${__fvw_ld[Range]:-0} __fvw_in=0 __fvw_sk=0 __fvw_isb=1 __fvw_act=0 __fvw_o=${1}_class
+    local __fvw_y __fvw_y2=$FV_CLIP_Y2 __fvw_j __fvw_i __fvw_x __fvw_k __fvw_s __fvw_c __fvw_cw __fvw_rt __fvw_ra __fvw_e=$__FV_VW_ERRSYM
+    local __fvw_c2=${FV_DRAW_PAL:1:1} __fvw_c3=${FV_DRAW_PAL:2:1} __fvw_c4=${FV_DRAW_PAL:3:1} __fvw_c5=${FV_DRAW_PAL:4:1}
+    if [[ $__fvw_nc == *[!0123456789]* || -z $__fvw_nc ]] || (( __fvw_nc < 1 )); then __fvw_nc=1; fi
+    if (( __fvw_y2 > __fvw_h )); then __fvw_y2=$__fvw_h; fi
+    if (( FV_CLIP_Y1 >= __fvw_y2 || __fvw_w < 1 )); then return 0; fi
+    __fvw_c2=${__fvw_c2:-$__fvw_e} __fvw_c3=${__fvw_c3:-$__fvw_e} __fvw_c4=${__fvw_c4:-$__fvw_e} __fvw_c5=${__fvw_c5:-$__fvw_e}
+    __fvw_cw=$(( __fvw_w / __fvw_nc + 1 ))
+    if [[ -n $__fvw_b && -n ${__FV_VW_SB[$__fvw_b]-} ]]; then
+        __fvw_in="${__fvw_b}_data[Value]" __fvw_in=${!__fvw_in:-0}
+        if (( __fvw_in > 1 )); then __fvw_sk=$(( __fvw_in - 1 )); fi
+    fi
+    __fvw_o="${!__fvw_o-}_class_method_owner[IsSelected]"
+    if ! [ "${__FV_VW_IMPL[${!__fvw_o-}.IsSelected]-}" = fv.views._lvIsSelected ]; then __fvw_isb=0; fi
+    if (( (${__fvw_ld[State]:-0} & (FV_SF_SELECTED | FV_SF_ACTIVE)) == (FV_SF_SELECTED | FV_SF_ACTIVE) && __fvw_n > 0 )); then __fvw_act=1; fi
+    if ! fv.views._lvName "$__fvw_l"; then __fvw_l=''; fi
+    if ! fv.views._lvName "$__fvw_m"; then __fvw_m=''; fi
+    if [[ -n $__fvw_l ]]; then local -n __fvw_la=$__fvw_l; else local -a __fvw_la=(); fi
+    if [[ -n $__fvw_m ]]; then local -n __fvw_ma=$__fvw_m; else local -a __fvw_ma=(); fi
+    if [[ -n $__fvw_fm && -z ${__FV_VW_FOK[$__fvw_fm]-} ]]; then fv.views._lvFmt; fi
+    for __fvw_c in "$__fvw_c2" "$__fvw_c3" "$__fvw_c4" "$__fvw_c5"; do
+        if [[ -z ${__FV_VW_AT[$__fvw_c]+x} ]]; then __FV_VW_AT[$__fvw_c]=${__FV_VW_PAD// /"$__fvw_c"}; fi
+    done
+    # per cell (row y, column j): _fvw_x[y*nc+j] text, _fvw_s[...] its symbol
+    local -a _fvw_x=() _fvw_s=() _fvw_t=() _fvw_a=() _fvw_r=() _fvw_q=()
+    for (( __fvw_y = FV_CLIP_Y1; __fvw_y < __fvw_y2; __fvw_y++ )); do
+        for (( __fvw_j = 0; __fvw_j < __fvw_nc; __fvw_j++ )); do
+            __fvw_x=$(( __fvw_j * __fvw_cw ))
+            if (( __fvw_x >= __fvw_w )); then break; fi
+            __fvw_i=$(( __fvw_j * __fvw_h + __fvw_y + __fvw_t ))
+            __fvw_s=''
+            if (( __fvw_i < __fvw_n && __fvw_i >= 0 )); then
+                if [[ -n $__fvw_fm ]]; then "$__fvw_fm" "$__fvw_i" "$(( __fvw_cw + __fvw_in ))"; __fvw_s=$RESULT; else __fvw_s=${__fvw_la[$__fvw_i]-}; fi
+                __fvw_s=${__fvw_s:__fvw_sk:__fvw_cw}
+            fi
+            if (( __fvw_act && __fvw_i == __fvw_f )); then
+                __fvw_c=$__fvw_c3 __fvw_ld[CursorX]=$(( __fvw_x + 1 )) __fvw_ld[CursorY]=$__fvw_y
+            elif (( __fvw_i < __fvw_n )) && { { (( __fvw_isb )) && { (( __fvw_i == __fvw_f )) || [[ ${__fvw_ma[$__fvw_i]:-0} != 0 ]]; }; } \
+                    || { (( ! __fvw_isb )) && fv.views._virt "$1" IsSelected "$__fvw_i"; }; }; then
+                __fvw_c=$__fvw_c4
+            else __fvw_c=$__fvw_c2; fi
+            if (( ! __fvw_isb )) && [[ -z ${__FV_VW_LIVE[$1]-} ]]; then return 0; fi
+            _fvw_x[__fvw_y * __fvw_nc + __fvw_j]=" $__fvw_s" _fvw_s[__fvw_y * __fvw_nc + __fvw_j]=$__fvw_c
+        done
+    done
+    local IFS=' '   # (the join's separator: a blank, as in fv.views._lvDraw)
+    if [[ ${_fvw_x[*]} != $__FV_VS_PNA ]]; then
+        # (each row composed: per column its blank + text cut to the column
+        # and the divider when it lies inside the row)
+        for (( __fvw_y = FV_CLIP_Y1; __fvw_y < __fvw_y2; __fvw_y++ )); do
+            __fvw_rt='' __fvw_ra=''
+            for (( __fvw_j = 0; __fvw_j < __fvw_nc; __fvw_j++ )); do
+                __fvw_x=$(( __fvw_j * __fvw_cw ))
+                if (( __fvw_x >= __fvw_w )); then break; fi
+                __fvw_k=$(( __fvw_cw - 1 ))
+                if (( __fvw_x + __fvw_k > __fvw_w )); then __fvw_k=$(( __fvw_w - __fvw_x )); fi
+                __fvw_s=${_fvw_x[__fvw_y * __fvw_nc + __fvw_j]}$__FV_VW_PAD __fvw_c=${_fvw_s[__fvw_y * __fvw_nc + __fvw_j]}
+                __fvw_rt+=${__fvw_s:0:__fvw_k} __fvw_ra+=${__FV_VW_AT[$__fvw_c]:0:__fvw_k}
+                if (( __fvw_x + __fvw_cw - 1 < __fvw_w )); then __fvw_rt+='│' __fvw_ra+=$__fvw_c5; fi
+            done
+            _fvw_t[__fvw_y]=$__fvw_rt _fvw_a[__fvw_y]=$__fvw_ra
+        done
+        fv.views.writeLines 0 0 _fvw_t _fvw_a || :
+        return 0
+    fi
+    for (( __fvw_j = 0; __fvw_j < __fvw_nc; __fvw_j++ )); do
+        __fvw_x=$(( __fvw_j * __fvw_cw ))
+        if (( __fvw_x >= __fvw_w )); then break; fi
+        __fvw_k=$(( __fvw_cw - 1 ))
+        if (( __fvw_x + __fvw_k > __fvw_w )); then __fvw_k=$(( __fvw_w - __fvw_x )); fi
+        _fvw_r=() _fvw_q=() _fvw_t=() _fvw_a=()
+        for (( __fvw_y = FV_CLIP_Y1; __fvw_y < __fvw_y2; __fvw_y++ )); do
+            _fvw_r[__fvw_y]=${_fvw_x[__fvw_y * __fvw_nc + __fvw_j]} _fvw_q[__fvw_y]=${_fvw_s[__fvw_y * __fvw_nc + __fvw_j]}
+            _fvw_t[__fvw_y]='│' _fvw_a[__fvw_y]=$__fvw_c5
+        done
+        fv.views.writeRows "$__fvw_x" 0 "$__fvw_k" _fvw_r _fvw_q || :
+        if (( __fvw_x + __fvw_cw - 1 < __fvw_w )); then fv.views.writeLines "$(( __fvw_x + __fvw_cw - 1 ))" 0 _fvw_t _fvw_a || :; fi
+    done
+}
+
+# TListViewer.IsSelected ITEM (func; rc 0 = yes) — FV: the focused item;
+# besides, D26: an item whose Marks entry is set (not '' or 0)
+fv.views._lvIsSelected() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_m=${__fvw_ld[Marks]-}
+    if [ "${2-}" = "${__fvw_ld[Focused]:-0}" ]; then return 0; fi
+    if [[ -z ${2-} || $2 == *[!0123456789]* || ${#2} -gt 9 ]] || ! fv.views._lvName "$__fvw_m"; then return 1; fi
+    local -n __fvw_ma=$__fvw_m
+    [[ ${__fvw_ma[$(( 10#$2 ))]:-0} != 0 ]]
+}
+
+# fv.views._lvRows V A B — rule 4: the rows that show the items A and B
+# (TopItem as it is) repainted with Draw's body as drawPart's painter — one
+# drawPart over both when they are the same row or neighbours, else one
+# each; an item out of the page draws nothing. A Draw of yours: drawView
+fv.views._lvRows() {
+    local -n __fvw_rd=${1}_data
+    local __fvw_t=${__fvw_rd[TopItem]:-0} __fvw_h=${__fvw_rd[SizeY]:-0} __fvw_c=${__fvw_rd[NumCols]:-1} __fvw_a=-1 __fvw_b=-1 __fvw_o=${1}_class
+    __fvw_o="${!__fvw_o-}_class_method_owner[Draw]"
+    if ! [ "${__FV_VW_IMPL[${!__fvw_o-}.Draw]-}" = fv.views._lvDraw ]; then fv.views._drawView "$1"; return 0; fi
+    if (( __fvw_h < 1 )); then return 0; fi
+    if (( $2 >= __fvw_t && $2 < __fvw_t + __fvw_h * __fvw_c )); then __fvw_a=$(( ($2 - __fvw_t) % __fvw_h )); fi
+    if (( $3 >= __fvw_t && $3 < __fvw_t + __fvw_h * __fvw_c )); then __fvw_b=$(( ($3 - __fvw_t) % __fvw_h )); fi
+    if (( __fvw_a < 0 )); then __fvw_a=$__fvw_b; elif (( __fvw_b < 0 )); then __fvw_b=$__fvw_a; fi
+    if (( __fvw_a < 0 )); then return 0; fi
+    if (( __fvw_a > __fvw_b )); then __fvw_c=$__fvw_a __fvw_a=$__fvw_b __fvw_b=$__fvw_c; fi
+    if (( __fvw_b - __fvw_a <= 1 )); then fv.views.drawPart "$1" fv.views._lvDraw "$__fvw_a" "$(( __fvw_b + 1 ))" || :; return 0; fi
+    fv.views.drawPart "$1" fv.views._lvDraw "$__fvw_a" "$(( __fvw_a + 1 ))" || :
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+    fv.views.drawPart "$1" fv.views._lvDraw "$__fvw_b" "$(( __fvw_b + 1 ))" || :
+}
+
+# TListViewer.FocusItem ITEM — FPC 2025: Focused := ITEM; the top item moved
+# so that it shows (one column: ITEM the top or the bottom row; several: its
+# column the first or the last) through SetTopItem; then drawn by rule 4:
+# TopItem kept -> only the rows of the old and the new focused item
+# (fv.views._lvRows: one drawPart for neighbours), moved -> the whole list
+fv.views._lvFocusItem() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_i=${2-} __fvw_o=${__fvw_ld[Focused]:-0} __fvw_t=${__fvw_ld[TopItem]:-0} __fvw_h=${__fvw_ld[SizeY]:-0} __fvw_c=${__fvw_ld[NumCols]:-1} __fvw_nt
+    if [[ -z ${__fvw_i#-} || ${__fvw_i#-} == *[!0123456789]* || ${#__fvw_i} -gt 10 ]]; then return 0; fi
+    if [[ $__fvw_i == -* ]]; then __fvw_i=$(( -10#${__fvw_i#-} )); else __fvw_i=$(( 10#$__fvw_i )); fi
+    if (( __fvw_h < 1 )); then __fvw_h=1; fi
+    __fvw_ld[Focused]=$__fvw_i __fvw_nt=$__fvw_t
+    if (( __fvw_i < __fvw_t )); then
+        if (( __fvw_c == 1 )); then __fvw_nt=$__fvw_i; else __fvw_nt=$(( __fvw_i - __fvw_i % __fvw_h )); fi
+    elif (( __fvw_i >= __fvw_t + __fvw_h * __fvw_c )); then
+        if (( __fvw_c == 1 )); then __fvw_nt=$(( __fvw_i - __fvw_h + 1 )); else __fvw_nt=$(( __fvw_i - __fvw_i % __fvw_h - __fvw_h * (__fvw_c - 1) )); fi
+    fi
+    if (( __fvw_nt != __fvw_t )); then fv.views._lvSetTop "$1" "$__fvw_nt"; fi
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+    if (( ${__fvw_ld[TopItem]:-0} != __fvw_t )); then fv.views._drawView "$1"; return 0; fi
+    fv.views._lvRows "$1" "$__fvw_o" "$__fvw_i"
+}
+# fv.views._lvFocusNum V I — FV FocusItemNum: I kept in 0 .. Range-1, then
+# FocusItem (virtual) unless the list is empty
+fv.views._lvFocusNum() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_i=$2 __fvw_n=${__fvw_ld[Range]:-0}
+    if (( __fvw_i < 0 )); then __fvw_i=0; elif (( __fvw_i >= __fvw_n && __fvw_n > 0 )); then __fvw_i=$(( __fvw_n - 1 )); fi
+    if (( __fvw_n != 0 )); then fv.views._virt "$1" FocusItem "$__fvw_i" || :; fi
+}
+
+# fv.views._lvSetTop V ITEM — FPC 2025 SetTopItem: the range set again when
+# SizeY changed since (its bar's steps follow), ITEM kept within the bar's Max
+# and 0 .. Range-1, TopItem := ITEM, the bar moved to it (fv.views._lvBar).
+# Nothing drawn
+fv.views._lvSetTop() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_i=$2 __fvw_b=${__fvw_ld[VScrollBar]-}
+    if (( ${__fvw_ld[SizeY]:-0} != ${__FV_VW_LY[$1]:-0} )); then fv.views._lvSetRange "$1" "${__fvw_ld[Range]:-0}"; fi
+    if [[ -n $__fvw_b && -z ${__FV_VW_SB[$__fvw_b]-} ]]; then __fvw_b=''; fi
+    if [[ -n $__fvw_b ]]; then
+        local -n __fvw_bd=${__fvw_b}_data
+        if (( __fvw_i > ${__fvw_bd[Max]:-0} )); then __fvw_i=${__fvw_bd[Max]:-0}; fi
+    fi
+    if (( __fvw_i >= ${__fvw_ld[Range]:-0} )); then __fvw_i=$(( ${__fvw_ld[Range]:-0} - 1 )); fi
+    if (( __fvw_i < 0 )); then __fvw_i=0; fi
+    __fvw_ld[TopItem]=$__fvw_i
+    if [[ -n $__fvw_b ]] && (( ${__fvw_bd[Value]:-0} != __fvw_i )); then
+        fv.views._lvBar "$1" "$__fvw_b" "$__fvw_i" "${__fvw_bd[Min]:-0}" "${__fvw_bd[Max]:-0}"
+    fi
+}
+# fv.views._lvBar V B VALUE MIN MAX — the list moves its own bar (P3-4, the
+# direct link): SetParams with the bar's steps; while it runs, the list is
+# left out of the bar's cmScrollBarChanged broadcast (__FV_VW_QX) — only when
+# the list's HandleEvent is the built-in one (L7: a HandleEvent of yours gets
+# FV's broadcast)
+fv.views._lvBar() {
+    local -n __fvw_bd=${2}_data
+    local __fvw_q=$__FV_VW_QX __fvw_o=${1}_class
+    __fvw_o="${!__fvw_o-}_class_method_owner[HandleEvent]"
+    if [ "${__FV_VW_IMPL[${!__fvw_o-}.HandleEvent]-}" = fv.views._lvEvent ]; then __FV_VW_QX=$1; fi
+    fv.views._sbSet "$2" "$3" "$4" "$5" "${__fvw_bd[PgStep]:-1}" "${__fvw_bd[ArStep]:-1}"
+    __FV_VW_QX=$__fvw_q
+}
+
+# fv.views._lvSetRange V N — FPC 2025 SetRange: Range := N; SizeY changed
+# since the last time -> the bar's steps (one column: SizeY-1 / 1, else
+# SizeY*NumCols / SizeY); Focused past N -> 0; with a bar: its Max = the
+# last top item that keeps the last item in view (several columns: the
+# last NumCols columns), TopItem kept within it, SetParams(TopItem, 0,
+# Max); without: TopItem within N (0 for an empty list, FV leaves -1).
+# Nothing drawn here
+fv.views._lvSetRange() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_n=$2 __fvw_h=${__fvw_ld[SizeY]:-0} __fvw_c=${__fvw_ld[NumCols]:-1} __fvw_b=${__fvw_ld[VScrollBar]-} __fvw_x
+    __fvw_ld[Range]=$__fvw_n
+    if [[ -n $__fvw_b && -z ${__FV_VW_SB[$__fvw_b]-} ]]; then __fvw_b=''; fi
+    if [[ -n $__fvw_b ]]; then local -n __fvw_bd=${__fvw_b}_data; fi
+    if [[ -n $__fvw_b ]] && (( __fvw_h != ${__FV_VW_LY[$1]:-0} )); then
+        if (( __fvw_c == 1 )); then __fvw_bd[PgStep]=$(( __fvw_h - 1 )) __fvw_bd[ArStep]=1
+        else __fvw_bd[PgStep]=$(( __fvw_h * __fvw_c )) __fvw_bd[ArStep]=$__fvw_h; fi
+    fi
+    __FV_VW_LY[$1]=$__fvw_h
+    if (( ${__fvw_ld[Focused]:-0} >= __fvw_n )); then __fvw_ld[Focused]=0; fi
+    if [[ -n $__fvw_b ]]; then
+        __fvw_x=$(( __fvw_n - __fvw_h ))
+        if (( __fvw_n - 1 < __fvw_x )); then __fvw_x=$(( __fvw_n - 1 )); fi
+        if (( __fvw_h > 0 && __fvw_c > 1 )); then
+            __fvw_x=$(( __fvw_n / __fvw_h * __fvw_h ))
+            if (( __fvw_x == __fvw_n )); then __fvw_x=$(( __fvw_x - __fvw_h )); fi
+            __fvw_x=$(( __fvw_x - (__fvw_c - 1) * __fvw_h ))
+        fi
+        if (( __fvw_x < 0 )); then __fvw_x=0; fi
+        if (( ${__fvw_ld[TopItem]:-0} > __fvw_x )); then __fvw_ld[TopItem]=$__fvw_x; fi
+        fv.views._lvBar "$1" "$__fvw_b" "${__fvw_ld[TopItem]:-0}" 0 "$__fvw_x"
+    elif (( ${__fvw_ld[TopItem]:-0} >= __fvw_n )); then
+        __fvw_x=$(( __fvw_n - 1 ))
+        if (( __fvw_x < 0 )); then __fvw_x=0; fi
+        __fvw_ld[TopItem]=$__fvw_x
+    fi
+}
+
+# TListViewer.SelectItem ITEM — FV: the cmListItemSelected broadcast to the
+# owner (FV_EV_INFO = the list); first, D26: with Marks set, ITEM's mark
+# toggled (1 / unset) and its row redrawn (rule 4) — unless the built-in
+# key handler (Space / Ins) asked for the item (its __fvw_lvsk = V:ITEM): its
+# FocusItem repaints that row next, once (__fvw_lvsk = 1 tells it)
+fv.views._lvSelectItem() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_m=${__fvw_ld[Marks]-} __fvw_i=${2-} __fvw_o=${__fvw_ld[Owner]-}
+    if [[ -n $__fvw_i && $__fvw_i != *[!0123456789]* && ${#__fvw_i} -le 9 ]] && fv.views._lvName "$__fvw_m"; then
+        local -n __fvw_ma=$__fvw_m
+        __fvw_i=$(( 10#$__fvw_i ))
+        if [[ ${__fvw_ma[$__fvw_i]:-0} != 0 ]]; then unset '__fvw_ma[$__fvw_i]'; else __fvw_ma[$__fvw_i]=1; fi
+        if [ "${__fvw_lvsk-}" = "$1:$__fvw_i" ]; then __fvw_lvsk=1; else fv.views._lvRows "$1" "$__fvw_i" "$__fvw_i"; fi
+    fi
+    if [[ -n $__fvw_o && -n ${__FV_VW_LIVE[$1]-} && -n ${__FV_VW_LIVE[$__fvw_o]-} ]]; then fv.views._message "$__fvw_o" evBroadcast cmListItemSelected "$1" || :; fi
+    return 0
+}
+
+# TListViewer.SetState BIT ENABLE — FV: TView's; then for sfSelected,
+# sfActive or sfVisible the list drawn — P3-12: only what changes (sfVisible
+# draws in TView's body; sfSelected / sfActive change only the focused row's
+# colour, redrawn when "selected and active" changed) — and its bars shown
+# when the list is active and visible, hidden otherwise (FV ShowSBar)
+fv.views._lvSetState() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_a=$(( (${__fvw_ld[State]:-0} & (FV_SF_SELECTED | FV_SF_ACTIVE)) == (FV_SF_SELECTED | FV_SF_ACTIVE) ))
+    fv.views._viewSetState "$@"
+    if (( ! ($2 & (FV_SF_SELECTED | FV_SF_ACTIVE | FV_SF_VISIBLE)) )) || [[ -z ${__FV_VW_LIVE[$1]-} ]]; then return 0; fi
+    if (( ($2 & (FV_SF_SELECTED | FV_SF_ACTIVE)) && ${__fvw_ld[Range]:-0} > 0 \
+          && __fvw_a != ((${__fvw_ld[State]:-0} & (FV_SF_SELECTED | FV_SF_ACTIVE)) == (FV_SF_SELECTED | FV_SF_ACTIVE)) )); then
+        fv.views._lvRows "$1" "${__fvw_ld[Focused]:-0}" "${__fvw_ld[Focused]:-0}"
+    fi
+    fv.views._lvShowBar "$1" "${__fvw_ld[HScrollBar]-}"
+    fv.views._lvShowBar "$1" "${__fvw_ld[VScrollBar]-}"
+    return 0
+}
+fv.views._lvShowBar() {   # V B (FV ShowSBar)
+    if [[ -z $2 || -z ${__FV_VW_SB[$2]-} || -z ${__FV_VW_LIVE[$1]-} ]]; then return 0; fi
+    local -n __fvw_sd=${1}_data __fvw_bd=${2}_data
+    if (( (${__fvw_sd[State]:-0} & (FV_SF_ACTIVE | FV_SF_VISIBLE)) == (FV_SF_ACTIVE | FV_SF_VISIBLE) )); then
+        if (( ! (${__fvw_bd[State]:-0} & FV_SF_VISIBLE) )); then fv.views._virt "$2" SetState "$FV_SF_VISIBLE" 1 || :; fi
+    elif (( ${__fvw_bd[State]:-0} & FV_SF_VISIBLE )); then fv.views._virt "$2" SetState "$FV_SF_VISIBLE" 0 || :; fi
+}
+
+# TListViewer.ChangeBounds AX AY BX BY — FV: TView's; then the bars' page
+# steps: a horizontal one SizeX div NumCols, a vertical one SizeY * NumCols
+fv.views._lvChangeBounds() {
+    fv.views._viewChangeBounds "$@"
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+    local -n __fvw_ld=${1}_data
+    local __fvw_b=${__fvw_ld[HScrollBar]-} __fvw_c=${__fvw_ld[NumCols]:-1}
+    if (( __fvw_c < 1 )); then __fvw_c=1; fi
+    if [[ -n $__fvw_b && -n ${__FV_VW_SB[$__fvw_b]-} ]]; then printf -v "${__fvw_b}_data[PgStep]" '%d' "$(( ${__fvw_ld[SizeX]:-0} / __fvw_c ))"; fi
+    __fvw_b=${__fvw_ld[VScrollBar]-}
+    if [[ -n $__fvw_b && -n ${__FV_VW_SB[$__fvw_b]-} ]]; then printf -v "${__fvw_b}_data[PgStep]" '%d' "$(( ${__fvw_ld[SizeY]:-0} * __fvw_c ))"; fi
+    return 0
+}
+
+# TListViewer.HandleEvent — FV: TView's (a mouse-down focuses the list; it
+# has ofFirstClick, so the click goes on), then keys (fv.views._lvKey), the
+# bars' broadcasts (fv.views._lvBcast), the wheel (fv.views._lvWheel), a
+# mouse-down (fv.views._lvMouse)
+fv.views._lvEvent() {
+    if [ "$FV_EV_WHAT" = evKeyDown ]; then fv.views._lvKey "$1"
+    elif [ "$FV_EV_WHAT" = evMouseDown ]; then
+        fv.views._viewEvent "$1"
+        if [ "$FV_EV_WHAT" = evMouseDown ] && [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views._lvMouse "$1"; fi
+    elif [ "$FV_EV_WHAT" = evBroadcast ]; then fv.views._lvBcast "$1"
+    elif [ "$FV_EV_WHAT" = evMouseWheel ]; then fv.views._lvWheel "$1"; fi
+    return 0
+}
+# fv.views._lvKey V — FV's keys (through CtrlToArrow): Space -> SelectItem
+# (Focused) (virtual); Up / Down by one, PgUp / PgDn by SizeY * NumCols,
+# Home / End, Left / Right by a column (NumCols > 1), Ctrl+PgUp / Ctrl+PgDn
+# the page's first / last item; Ins with Marks set (D29, an addition):
+# SelectItem(Focused) then down by one. The new item through FocusItemNum;
+# with the built-in FocusItem the marked row is painted once: SelectItem
+# leaves it to FocusItem (fv.views._lvSel; the old focused row is FocusItem's
+# to repaint).
+# handled. Other keys pass
+fv.views._lvKey() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_f=${__fvw_ld[Focused]:-0} __fvw_n=${__fvw_ld[Range]:-0} __fvw_h=${__fvw_ld[SizeY]:-0} __fvw_c=${__fvw_ld[NumCols]:-1} __fvw_i __fvw_lvsk=''
+    if [ "$FV_EV_KEY" = kbChar ] && [ "$FV_EV_CHAR" = ' ' ] && (( __fvw_f < __fvw_n )); then
+        fv.views._lvSel "$1"
+        __fvw_i=$__fvw_f
+    else
+        case ${__FV_VW_C2A[${FV_EV_KEY:-kbNoKey}]-$FV_EV_KEY} in
+            kbDown) __fvw_i=$(( __fvw_f + 1 )) ;;
+            kbUp) __fvw_i=$(( __fvw_f - 1 )) ;;
+            kbPgDn) __fvw_i=$(( __fvw_f + __fvw_h * __fvw_c )) ;;
+            kbPgUp) __fvw_i=$(( __fvw_f - __fvw_h * __fvw_c )) ;;
+            kbHome) __fvw_i=0 ;;
+            kbEnd) __fvw_i=$(( __fvw_n - 1 )) ;;
+            kbRight) if (( __fvw_c > 1 )); then __fvw_i=$(( __fvw_f + __fvw_h )); else return 0; fi ;;
+            kbLeft) if (( __fvw_c > 1 )); then __fvw_i=$(( __fvw_f - __fvw_h )); else return 0; fi ;;
+            kbCtrlPgDn) __fvw_i=$(( ${__fvw_ld[TopItem]:-0} + __fvw_h * __fvw_c - 1 )) ;;
+            kbCtrlPgUp) __fvw_i=${__fvw_ld[TopItem]:-0} ;;
+            kbIns)
+                if [[ -z ${__fvw_ld[Marks]-} ]] || (( __fvw_f >= __fvw_n )); then return 0; fi
+                fv.views._lvSel "$1"
+                __fvw_i=$(( __fvw_f + 1 )) ;;
+            *) return 0 ;;
+        esac
+    fi
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] && fv.views._lvFocusNum "$1" "$__fvw_i"
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+# fv.views._lvSel V — _lvKey's SelectItem(Focused) (virtual): with the
+# built-in FocusItem, _lvKey's __fvw_lvsk = V:Focused (the built-in SelectItem
+# then leaves the row's paint to FocusItem, which repaints the old focused
+# row); a handler that moved the focus meanwhile: the row painted here
+fv.views._lvSel() {
+    local __fvw_o=${1}_class
+    __fvw_o="${!__fvw_o-}_class_method_owner[FocusItem]"
+    if [ "${__FV_VW_IMPL[${!__fvw_o-}.FocusItem]-}" = fv.views._lvFocusItem ]; then __fvw_lvsk=$1:$__fvw_f; fi
+    fv.views._virt "$1" SelectItem "$__fvw_f" || :
+    if [ "$__fvw_lvsk" = 1 ] && [[ -n ${__FV_VW_LIVE[$1]-} ]] && (( ${__fvw_ld[Focused]:-0} != __fvw_f )); then fv.views._lvRows "$1" "$__fvw_f" "$__fvw_f"; fi
+    __fvw_lvsk=''
+}
+# fv.views._lvBcast V — FV (a selectable list): cmScrollBarClicked from one
+# of its bars -> Select; cmScrollBarChanged from its vertical bar -> ScrollTo
+# the bar's value (fv.views._lvScroll), from its horizontal bar -> drawn.
+# Not handled (FV)
+fv.views._lvBcast() {
+    local -n __fvw_ld=${1}_data
+    if (( ! (${__fvw_ld[Options]:-0} & FV_OF_SELECTABLE) )) || [[ -z $FV_EV_INFO ]]; then return 0; fi
+    if [ "$FV_EV_COMMAND" = cmScrollBarClicked ]; then
+        if [ "$FV_EV_INFO" = "${__fvw_ld[HScrollBar]-}" ] || [ "$FV_EV_INFO" = "${__fvw_ld[VScrollBar]-}" ]; then fv.views._select "$1"; fi
+    elif [ "$FV_EV_COMMAND" = cmScrollBarChanged ]; then
+        if [ "$FV_EV_INFO" = "${__fvw_ld[VScrollBar]-}" ]; then
+            if [[ -n ${__FV_VW_SB[$FV_EV_INFO]-} ]]; then
+                local -n __fvw_bd=${FV_EV_INFO}_data
+                fv.views._lvScroll "$1" "${__fvw_bd[Value]:-0}"
+            fi
+        elif [ "$FV_EV_INFO" = "${__fvw_ld[HScrollBar]-}" ]; then fv.views._drawView "$1"; fi
+    fi
+    return 0
+}
+# fv.views._lvScroll V REQ — FV ScrollTo: SetTopItem(REQ), drawn (when
+# TopItem changed: P3-12)
+fv.views._lvScroll() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_t=${__fvw_ld[TopItem]:-0}
+    fv.views._lvSetTop "$1" "$2"
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]] && (( ${__fvw_ld[TopItem]:-0} != __fvw_t )); then fv.views._drawView "$1"; fi
+}
+# fv.views._lvWheel V — FV: the top item down (FV_EV_WHEEL 2) / up (1) by a
+# column (SizeY) with several columns, else by 1 (a double wheel event: 4);
+# handled
+fv.views._lvWheel() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_d=1
+    if (( ${__fvw_ld[NumCols]:-1} > 1 )); then __fvw_d=${__fvw_ld[SizeY]:-1}; elif (( ${FV_EV_MOUSE_DOUBLE:-0} == 1 )); then __fvw_d=4; fi
+    if (( FV_EV_WHEEL == 1 )); then __fvw_d=$(( -__fvw_d )); elif (( FV_EV_WHEEL != 2 )); then return 0; fi
+    fv.views._lvScroll "$1" "$(( ${__fvw_ld[TopItem]:-0} + __fvw_d ))"
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+# fv.views._lvMouse V — FV's mouse-down: the item under the mouse (row +
+# SizeY * column + TopItem) focused (FocusItemNum), then while the button is
+# held (moves coalesced, evMouseAuto: fv.views._track) the item under the
+# mouse; outside the list every 4th evMouseAuto (FV MouseAutosToSkip) moves
+# the focus one item (several columns: a column left / right, or to the
+# column's first / last row). A double click's press (FV_EV_MOUSE_DOUBLE:
+# FPC's release never has Double) is not tracked (FPC trunk: `If NOT
+# Event.Double Then Repeat ... Until`): the item under it is focused and
+# selected at once (SelectItem, virtual), the moves and the release left for
+# the event loop. A key ends the tracking (fv.views._track); handled
+fv.views._lvMouse() {
+    local -n __fvw_ld=${1}_data
+    local __fvw_h=${__fvw_ld[SizeY]:-0} __fvw_c=${__fvw_ld[NumCols]:-1} __fvw_w=${__fvw_ld[SizeX]:-0} __fvw_cw __fvw_oi=${__fvw_ld[Focused]:-0}
+    local __fvw_ni __fvw_ct=0 __fvw_x __fvw_y __fvw_d=${FV_EV_MOUSE_DOUBLE:-0} __fvw_f
+    if (( __fvw_c < 1 )); then __fvw_c=1; fi
+    if (( __fvw_h < 1 )); then __fvw_h=1; fi
+    __fvw_cw=$(( __fvw_w / __fvw_c + 1 ))
+    __fvw_x=$(( FV_EV_MOUSE_X - __FV_VW_AX[$1] )) __fvw_y=$(( FV_EV_MOUSE_Y - __FV_VW_AY[$1] ))
+    if (( __fvw_x >= 0 && __fvw_y >= 0 && __fvw_x < __fvw_w && __fvw_y < __fvw_h )); then __fvw_ni=$(( __fvw_y + __fvw_h * (__fvw_x / __fvw_cw) + ${__fvw_ld[TopItem]:-0} ))
+    else __fvw_ni=$__fvw_oi; fi
+    # (a release an earlier loop's drain met and never used is not this one's;
+    # FV: after a double click's press no tracking, the item under it at once)
+    __FV_VW_TRK=''
+    while (( __fvw_d != 1 )); do
+        if (( __fvw_ni != __fvw_oi )); then
+            fv.views._lvFocusNum "$1" "$__fvw_ni"
+            [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+            __fvw_oi=${__fvw_ld[Focused]:-0}
+        fi
+        __fvw_x=$(( FV_EV_MOUSE_X - __FV_VW_AX[$1] )) __fvw_y=$(( FV_EV_MOUSE_Y - __FV_VW_AY[$1] ))
+        if (( __fvw_x >= 0 && __fvw_y >= 0 && __fvw_x < __fvw_w && __fvw_y < __fvw_h )); then
+            __fvw_ni=$(( __fvw_y + __fvw_h * (__fvw_x / __fvw_cw) + ${__fvw_ld[TopItem]:-0} ))
+        else
+            if [ "$FV_EV_WHAT" = evMouseAuto ]; then __fvw_ct=$(( __fvw_ct + 1 )); fi
+            if (( __fvw_ct == 4 )); then
+                __fvw_ct=0 __fvw_f=${__fvw_ld[Focused]:-0}
+                if (( __fvw_c == 1 )); then
+                    if (( __fvw_y < 0 )); then __fvw_ni=$(( __fvw_f - 1 )); fi
+                    if (( __fvw_y >= __fvw_h )); then __fvw_ni=$(( __fvw_f + 1 )); fi
+                else
+                    if (( __fvw_x < 0 )); then __fvw_ni=$(( __fvw_f - __fvw_h )); fi
+                    if (( __fvw_x >= __fvw_w )); then __fvw_ni=$(( __fvw_f + __fvw_h )); fi
+                    if (( __fvw_y < 0 )); then __fvw_ni=$(( __fvw_f - __fvw_f % __fvw_h )); fi
+                    if (( __fvw_y > __fvw_h )); then __fvw_ni=$(( __fvw_f - __fvw_f % __fvw_h + __fvw_h - 1 )); fi
+                fi
+            fi
+        fi
+        fv.views._track "$1" "$(( FV_EM_MOUSEMOVE | FV_EM_MOUSEAUTO ))" || break
+    done
+    if (( __fvw_oi != __fvw_ni )); then fv.views._lvFocusNum "$1" "$__fvw_ni"; fi
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]] && (( __fvw_d == 1 && ${__fvw_ld[Range]:-0} > ${__fvw_ld[Focused]:-0} )); then
+        fv.views._virt "$1" SelectItem "${__fvw_ld[Focused]:-0}" || :
+    fi
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+
+# ---- the list's plain API -----------------------------------------------------
+# Each keeps RESULT; rc 2 for a view that is not a TListViewer, a number that
+# is not an integer, a wrong count.
+
+# fv.views.listFocusItem LV I — FV FocusItemNum: I kept in 0 .. Range-1,
+# then FocusItem (virtual; the built-in moves TopItem to show it and draws
+# by rule 4) unless the list is empty
+fv.views.listFocusItem() {
+    if (( $# != 2 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._list "$1" listFocusItem || return
+    local -a __fvw_v
+    local __fvw_r=${RESULT-}
+    if ! fv.views._ints "$2"; then fv.views._bad listFocusItem 'I must be an integer'; return; fi
+    fv.views._lvFocusNum "$1" "${__fvw_v[0]}"
+    RESULT=$__fvw_r
+}
+# fv.views.listSetRange LV N — FV SetRange (the items are List[0 .. N-1] or
+# the formatter's), then the list drawn: after the caller changed its data
+# (N >= 0)
+fv.views.listSetRange() {
+    if (( $# != 2 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._list "$1" listSetRange || return
+    local -a __fvw_v
+    local __fvw_r=${RESULT-}
+    if ! fv.views._ints "$2" || (( __fvw_v[0] < 0 )); then fv.views._bad listSetRange 'N must be an integer >= 0'; return; fi
+    fv.views._lvSetRange "$1" "${__fvw_v[0]}"
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views._drawView "$1"; fi
+    RESULT=$__fvw_r
+}
+# fv.views.listSetTopItem LV I — FV SetTopItem + DrawView (ScrollTo): the
+# list drawn when its top item changed
+fv.views.listSetTopItem() {
+    if (( $# != 2 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._list "$1" listSetTopItem || return
+    local -a __fvw_v
+    local __fvw_r=${RESULT-}
+    if ! fv.views._ints "$2"; then fv.views._bad listSetTopItem 'I must be an integer'; return; fi
+    fv.views._lvScroll "$1" "${__fvw_v[0]}"
+    RESULT=$__fvw_r
+}
+# fv.views.listDrawItem LV I — item I's row redrawn when it is on the page
+# (rule 4: after the caller changed its text or its mark)
+fv.views.listDrawItem() {
+    if (( $# != 2 )); then fv.views._bad "${FUNCNAME#fv.views.}" 'wrong argument count'; return; fi
+    fv.views._list "$1" listDrawItem || return
+    local -a __fvw_v
+    local __fvw_r=${RESULT-}
+    if ! fv.views._ints "$2"; then fv.views._bad listDrawItem 'I must be an integer'; return; fi
+    fv.views._lvRows "$1" "${__fvw_v[0]}" "${__fvw_v[0]}"
+    RESULT=$__fvw_r
 }

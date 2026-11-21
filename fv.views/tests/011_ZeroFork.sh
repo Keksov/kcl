@@ -12,7 +12,7 @@
 #     source ending at the end of input, mouseEvent, endModal, cmClose)
 #     and stage 2d's (cmZoom twice, a keyboard drag by cmResize, a mouse
 #     drag by the frame's top row with the drain, the close icon, dragView)
-#     —
+#     — and (P3 3b) scroll bars and lists;
 #     works and prints no "command not found";
 #   * the static scan (fv.video's 006 scanner): no $( ), backtick, process
 #     substitution, pipe, ( ) subshell, & or coproc on any code line of
@@ -114,6 +114,48 @@ fv.views._newReserved w1 frame TView 0 0 1 1; r+=\"|\$RESULT\"
 u.delete; v.delete; x__fvy.delete; desk.delete
 printf '%s' \"\$r\"" 2>&1)
 want='00u|0 0 4 1|25 11 55 26|3|ybrt]════|121122222|tw,evNothing,cmZoom,43:7:2,cmCancel,0:46,1,cmQuit,closed|100,30,11 3 41 14,12 5 42 16,cmClose,0|guard1|res2|w1__fvframe'
+if [[ $out == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [$want]"; fi
+
+kt_test_start "PATH='' (P3 3b): scroll bars and lists — standardScrollBar, scrollBarSet, keys, the wheel, a click with a drag and auto-repeat, the bar's mouse, Marks, a formatter, multi-column, CJK rows (writeRows), ctrlToArrow"
+out=$("$BASH" -c "
+export LC_ALL=C.UTF-8
+source '$FVW_TESTS_DIR/../fv.views.sh'
+exec {o}>/dev/null; FV_VIDEO_OUT_FD=\$o FV_SCREEN_W=80 FV_SCREEN_H=24; fv.video.initScreen
+TGroup.new root 0 0 80 24; TView.new bg 0 0 80 24; fv.views.insert root bg
+root_data[State]=\$(( root_data[State] | FV_SF_EXPOSED | FV_SF_SELECTED | FV_SF_MODAL ))
+fv.views.setState root \"\$FV_SF_FOCUSED\" 1
+PATH=''
+r=''
+TWindow.new w 0 0 40 23 L 1; fv.views.standardScrollBar w \"\$FV_SB_VERTICAL\"; sb=\$RESULT
+TListViewer.new l 1 1 39 22 1 '' \"\$sb\"; r+=\$?
+A=(); for (( i = 0; i < 300; i++ )); do A[i]=\"n\$i\"; done
+declare -A M=([3]=1)
+l_data[List]=A l_data[Marks]=M; fv.views.listSetRange l 300; fv.views.insert w l; fv.views.insert root w
+fv.views.drawView root
+q=()
+ge() {
+    if (( ! \${#q[@]} )); then FV_EV_WHAT=evNothing; return 1; fi
+    local s=\${q[0]}; q=(\"\${q[@]:1}\")
+    fv.drivers.clearEvent
+    FV_EV_WHAT=\${s%%:*} s=\${s#*:}; FV_EV_MOUSE_X=\${s%%:*} FV_EV_MOUSE_Y=\${s#*:} FV_EV_MOUSE_BUTTONS=1
+}
+__FV_VW_GETEVENT=ge
+k() { fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=\$1 FV_EV_CHAR=\${2-}; fv.views._virt root HandleEvent; }
+m() { local w=\$1 x=\$2 y=\$3; shift 3; q=(\"\$@\"); fv.drivers.clearEvent; FV_EV_WHAT=\$w FV_EV_MOUSE_X=\$x FV_EV_MOUSE_Y=\$y FV_EV_WHEEL=2 FV_EV_MOUSE_BUTTONS=1; fv.views._virt root HandleEvent; __FV_VW_EOF=0; }
+k kbDown; k kbPgDn; k kbCtrlX; k kbChar ' '; k kbIns; k kbEnd; k kbHome; k kbCtrlPgDn; r+=\",\${l_data[Focused]}:\${l_data[TopItem]}\"
+m evMouseWheel 10 5; m evMouseDown 10 3 evMouseMove:10:8 evMouseAuto:10:24 evMouseAuto:10:24 evMouseUp:10:24
+r+=\",\${l_data[Focused]}:\${l_data[TopItem]}\"
+m evMouseDown 39 21 evMouseAuto:39:21 evMouseUp:39:21; m evMouseDown 39 2 evMouseMove:39:12 evMouseUp:39:12
+r+=\",\${l_data[TopItem]}\"
+fv.views.scrollBarSet \"\$sb\" setValue 5; fv.views.listSetTopItem l 7; fv.views.listFocusItem l 9; fv.views.listDrawItem l 9
+f() { RESULT=\"F\$1\"; }; l_data[Formatter]=f; fv.views.drawView l; l_data[Formatter]=''
+TWindow.new w2 40 0 80 23 C 2; TListViewer.new l2 1 1 39 22 3; fv.views.insert w2 l2; fv.views.insert root w2
+B=(报告文件_1 数据项目_2 系统管理_3); l2_data[List]=B; fv.views.listSetRange l2 3
+TListViewer.new l3 1 1 39 22; C=(报告 文件); l3_data[List]=C; fv.views.listSetRange l3 2
+fv.views.delete w2 l2; fv.views.insert w2 l3; fv.views.drawView root
+fv.views.ctrlToArrow kbCtrlE; r+=\",\$RESULT\"
+printf '%s' \"\$r\"" 2>&1)
+want='0,20:0,8:1,146,kbUp'
 if [[ $out == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [$want]"; fi
 
 kt_test_start "the scanner flags a fork construct in a sample line and passes the safe ones"

@@ -19,7 +19,9 @@ window zoom, `dragView` (keyboard and mouse) and the frame's mouse (2d); the
 final call budget and the `fvviews` bench (2g, "Cost" below). The
 application (`TProgram` / `TApplication`, `Run`, the real event source) is
 [`fv.app`](../fv.app/README.md) (stage 2f), which uses the hooks below; the
-status line is [`fv.menus`](../fv.menus/README.md).
+status line is [`fv.menus`](../fv.menus/README.md). **P3 stage 3b** adds FV's
+`TScrollBar` and `TListViewer`, `fv.views.standardScrollBar` and
+`fv.views.ctrlToArrow` ("Lists and scroll bars" below).
 
 ## Quick start
 
@@ -100,6 +102,8 @@ TMyDlg.Create() { inherited; fv.views.isView "$this" || return 1; Title=$5; }
 | `TGroup : TView` | + `Current Phase EndState LockFlag` |
 | `TFrame : TView` | + `FrameMode` |
 | `TWindow : TGroup` | + `Flags Title Number Palette Frame ZoomRect` (`ZoomRect` = `"AX AY BX BY"`) |
+| `TScrollBar : TView` | + `Value Min Max PgStep ArStep Id` (P3 3b; `Id` 0 = no `cmIdCommunicate`) |
+| `TListViewer : TView` | + `NumCols TopItem Focused Range HScrollBar VScrollBar List Formatter Marks` (P3 3b; the bars are view names, `List` / `Marks` array names, `Formatter` a function name) |
 
 * `CLASS.new NAME AX AY BX BY` is FV's `Init(R)` with `R.Assign(AX, AY, BX, BY)`:
   corners, B exclusive (D1). The width is capped at FV's `MaxViewWidth`
@@ -157,6 +161,7 @@ FV values, readonly, named by upper-casing FV's identifier behind a prefix:
 | TFrame `FrameMode` | `FV_FM_CLOSECLICKED` ($1), `FV_FM_ZOOMCLICKED` ($2) |
 | FV's `MinWinSize` | `FV_MINWINSIZE_X` (16), `FV_MINWINSIZE_Y` (6): TWindow's `SizeLimits` minimum. Not readonly (FV's typed constant, which programs change); a value that is not 1–9 plain digits counts as 16 / 6 |
 | `EventMask` | `FV_EM_MOUSEDOWN MOUSEUP MOUSEMOVE MOUSEAUTO KEYDOWN MOUSEWHEEL COMMAND BROADCAST MOUSE KEYBOARD MESSAGE` (FPC drivers.inc values; `FV_EM_`, not `FV_EV_`: those are [fv.drivers' event](../fv.drivers/README.md#the-event)) |
+| TScrollBar parts / StandardScrollBar options (P3 3b) | `FV_SB_LEFTARROW RIGHTARROW PAGELEFT PAGERIGHT UPARROW DOWNARROW PAGEUP PAGEDOWN INDICATOR` (0 … 8), `FV_SB_HORIZONTAL` (0), `FV_SB_VERTICAL` (1), `FV_SB_HANDLEKEYBOARD` (2) |
 
 Phases and commands are names (`phFocused`, `cmClose`), not numbers.
 
@@ -187,6 +192,12 @@ Phases and commands are names (`phFocused`, `cmClose`), not numbers.
 | `TWindow` | `CalcBounds DX DY` | proc | FV (FPC 2026): TView's on the `ZoomRect` (kept as the new `ZoomRect`), then TView's on the bounds (the answer) |
 | `TWindow` | `Zoom` | proc | FV: below its `SizeLimits` maximum → `ZoomRect` = the bounds, then `locate` to `0 0 MAX_X MAX_Y`; at the maximum → `locate` to `ZoomRect` |
 | `TFrame` | `HandleEvent` | proc | the mouse on the frame: the close / zoom icons, dragging the owner ("TWindow" below) |
+| `TScrollBar` | `Draw GetPalette HandleEvent` | | FV's look (CScrollBar `4 5 5`), keys / wheel / mouse, `cmIdCommunicate` ("Lists and scroll bars") |
+| `TScrollBar` | `ScrollStep PART` | func | `±ArStep` / `±PgStep` by the part (FV) |
+| `TScrollBar` | `ScrollDraw` | proc | `cmIdCommunicate` (an `Id`) and `cmScrollBarChanged` (FV) |
+| `TListViewer` | `Draw GetPalette HandleEvent SetState ChangeBounds` | | the rows, D25's palette, keys / wheel / mouse / the bars' broadcasts, ShowSBar, the bars' steps ("Lists and scroll bars") |
+| `TListViewer` | `FocusItem ITEM`, `SelectItem ITEM` | proc | FPC 2025's (rule 4), `cmListItemSelected` (+ `Marks`) |
+| `TListViewer` | `IsSelected ITEM` | func | rc 0 for the focused item or a set `Marks` entry; asked per drawn item only when a class overrides it |
 
 FV's procedures with `var` parameters answer in globals, because a proc
 leaves `RESULT` alone (below): `FV_RECT_AX FV_RECT_AY FV_RECT_BX FV_RECT_BY`
@@ -902,6 +913,214 @@ The framework's own drags (FV's `DragWindow`): `cmResize` in
 `DragMode` is `dmLimitLoY`: a window cannot be dragged above its owner's
 top edge.
 
+## Lists and scroll bars (P3 stage 3b)
+
+FV's `TScrollBar` and `TListViewer` (views.inc, FPC 2025) and
+`TWindow.StandardScrollBar`; design [P3_DESIGN.md](../docs/dev/fv/P3_DESIGN.md)
+§1–§3, §5 (P3-3, P3-4, D25, D26). `TListBox` (FV dialogs.inc) comes with
+fv.dialogs (stage 3d).
+
+```bash
+TWindow.new files 0 0 40 23 'Files' 1
+fv.views.standardScrollBar files "$FV_SB_VERTICAL"; bar=$RESULT   # files__fvsb1 on the right frame column
+TListViewer.new list 1 1 39 22 1 '' "$bar"     # Init(R, ANumCols, AHScrollBar, AVScrollBar)
+NAMES=(a.txt b.txt c.txt)
+declare -A MARKED=()
+list_data[List]=NAMES list_data[Marks]=MARKED  # Marks: optional (D26)
+fv.views.listSetRange list "${#NAMES[@]}"      # FV SetRange: the bar's range follows
+fv.views.insert files list
+fv.views.insert "$FV_DESKTOP" files
+```
+
+### TScrollBar
+
+* `TScrollBar.new NAME AX AY BX BY` — vertical when 1 wide, else
+  horizontal (FV); `Value Min Max` 0, `PgStep ArStep` 1, `Id` 0, `EventMask`
+  + `evMouseWheel`, `GrowMode` `gfGrowLoX + gfGrowHiX + gfGrowHiY` (vertical)
+  / `gfGrowLoY + gfGrowHiX + gfGrowHiY`.
+* **The look** (FV `DrawPos`): the arrows `▲ ▼` / `◄ ►` in palette colour 2,
+  the page area `▒` in colour 1 with the indicator `■` in colour 3 at FV's
+  `GetPos` (`((Value−Min)·(Size−3) + Range div 2) div Range + 1`), `▓` and no
+  indicator when `Max = Min`; CScrollBar `4 5 5`. **ASCII mode** (the
+  screen's, `FV_VIDEO_ASCII`): `^ v` / `< >`, the area `:`, the indicator and
+  `Max = Min` `#` (design §2.7: FV's LowAscii keeps the CP437 shades, which
+  fv.video's ASCII mode would show as `?`). A vertical bar is one
+  `writeLines` of one-cell rows, a horizontal one one `writeLine` (repeated on
+  every row of a taller bar, where FV writes past its buffer).
+* **`fv.views.scrollBarSet SB VALUE [MIN MAX [PG AR]]`** — FV `SetParams`
+  (five numbers), `SetValue` (VALUE alone), VALUE MIN MAX (the steps kept);
+  FV's forms by name: `SB setValue V`, `SB setRange MIN MAX`, `SB setStep PG
+  AR`. MAX below MIN → MIN, VALUE clamped into MIN … MAX. **P3-4, the redraw
+  of a changed picture only**: a value change that leaves the indicator's
+  cell draws nothing, a moved indicator one `drawPart` over the rows from the
+  old cell to the new one (one write), a range change the whole bar (FV
+  draws the bar on every change). Then, when the value changed, the virtual
+  `ScrollDraw`; the steps are set last (FV's order). RESULT kept; rc 2: not a
+  TScrollBar, not integers, another count.
+* **`ScrollDraw`** (virtual; FV): `Id` ≠ 0 → `cmIdCommunicate` (an
+  `evCommand`) to the top view; then the broadcast `cmScrollBarChanged` to
+  the owner. The record: `FV_EV_ID` = `Id`, `FV_EV_INFO` = the bar (FV's
+  `InfoPtr`); FV's `Data`, the value, is **the sender's `Value` field**
+  (messages are synchronous: it holds exactly that value). A bar receiving
+  `cmIdCommunicate` with its `Id` from another view takes the sender's `Value`
+  (or `FV_EV_INFO` itself when it is an integer). `cmScrollBarClicked` (FV
+  `Clicked`) goes to the owner on a key, the wheel and the mouse.
+* **`ScrollStep PART`** (virtual func; FV): `ArStep` for an arrow part,
+  `PgStep` for a page part, negative for an up / left part
+  (`FV_SB_LEFTARROW` … `FV_SB_INDICATOR` = FV's `sbLeftArrow` … `sbIndicator`).
+* **Keys** (a bar gets them through `ofPostProcess`: `FV_SB_HANDLEKEYBOARD`)
+  while visible, through FV's `CtrlToArrow`: a horizontal bar (1 high) Left
+  / Right, Ctrl+Left / Ctrl+Right (page), Home / End (Min / Max); a vertical
+  one Up / Down, PgUp / PgDn, Ctrl+PgUp / Ctrl+PgDn (Min / Max).
+* **The wheel**: `Value ∓ ArStep` (a double wheel event, `FV_EV_MOUSE_DOUBLE`:
+  6 when `ArStep` is 1, FV).
+* **The mouse** (FV): the part under the press — an arrow or a page part
+  steps at once and again on every `evMouseAuto` while the mouse stays on
+  that part (fv.drivers' auto-repeat: the first after `FV_REPEAT_DELAY`, then
+  one per idle timeout; FV takes the indicator's cell and the size at the
+  press), the indicator follows the mouse while it is inside the bar
+  (`Value = (I·(Max−Min) + Size div 2) div Size + Min`), until the release.
+* **`fv.views.standardScrollBar W OPTIONS`** — FV
+  `TWindow.StandardScrollBar`: `FV_SB_VERTICAL` in OPTIONS → the right frame
+  column, rows 1 … SizeY−2; else the bottom row, columns 2 … SizeX−3;
+  `FV_SB_HANDLEKEYBOARD` → `ofPostProcess`; inserted; RESULT = its name
+  (reserved, `W__fvsbN`, the first free N from 1). rc 2: W not a group,
+  OPTIONS not an integer.
+
+### TListViewer
+
+* `TListViewer.new NAME AX AY BX BY [NUMCOLS [HSCROLLBAR [VSCROLLBAR]]]` — FV
+  `Init(Bounds, ANumCols, AHScrollBar, AVScrollBar)`: `ofFirstClick +
+  ofSelectable`, `EventMask` + `evBroadcast + evMouseWheel`, `NumCols`
+  (default 1), the bars (`''` = none; a horizontal one gets `SetStep(SizeX div
+  NumCols, 1)`), `TopItem Focused Range` 0. **Refused before anything is
+  made** (rc 2, one `Error:` line; `.delete` the bare instance): `NUMCOLS`
+  not 1 … 1024, a bar that is not a live `TScrollBar`.
+* **The data (design §5)** — FV's abstract `GetText` is not a virtual here
+  (rule 2: no call per row): `List` = the name of an indexed array (item i =
+  `${List[i]}`), `Formatter` = an optional plain function `FMT INDEX WIDTH`
+  answering the row text in `RESULT` (FV's `GetText(Item, MaxLen)`, MaxLen =
+  ColWidth + the horizontal bar's indent; one call per visible row; a name
+  that is no function: the items' own text, one debug line). **`Marks`** (D26)
+  = the name of an array (associative or indexed) whose entry for an item,
+  set and neither `''` nor `0`, shows it selected; the built-in Draw reads it
+  inline (no call). **Reserved names**: `List` / `Marks` must be identifiers
+  that do not start with `_fv` or `__fv` (any case: fv.views' own globals and
+  the painters' local arrays `_fvw_t`, `_fvw_r`, ..., which the array lookup
+  would reach instead of yours); such a name counts as none (no items, no
+  marks). `Range` = what `fv.views.listSetRange` set (sparse
+  arrays: not supported). After changing the data: `listSetRange` (redraws),
+  `fv.views.listDrawItem LV I` for one row, or `drawView`.
+* **Draw** (FV's rows, rule 4): item `J·SizeY + I + TopItem` in column J of
+  row I; `ColWidth = SizeX div NumCols + 1`; a column is a blank, the item's
+  text cut / padded to the column and the divider `│` in colour 5 at its last
+  cell (the last column's divider lies past the row, as in FV); FPC 2025's
+  `GetItemColor`: the focused item of a selected + active list (Range > 0) in
+  3, a selected item below Range in 4 (`IsSelected`: the focused one or a
+  set `Marks` entry), else 2. FV's `SetCursor` on the focused item is kept as
+  `CursorX` / `CursorY` (the cursor stays hidden: no `sfCursorVis`). Rows of
+  printable ASCII: **one `writeLines`** per paint (one row: `writeLine`); a
+  paint whose rows hold any other character: **one `writeRows`** (fv.video
+  cuts by its own cells: wide characters, ASCII mode's `?`); several columns
+  with such rows: one `writeRows` per column and one `writeLines` per divider
+  column. An `IsSelected` override is asked once per drawn item (a dispatch
+  each, documented) and wins over `Marks`.
+* **Palette (D25)**: FV's CListViewer `26 26 27 28 29` when the owner's
+  resolved palette reaches entry 29 (a dialog; no owner: the app palette);
+  in a plain window (8 entries) the window's scroller entries `6 6 7 6 6`
+  (yellow on blue, the focused row blue on grey) instead of FV's ErrorAttr.
+  There colours 2 and 4 are the same entry: **marks do not show in a plain
+  window's default palette** (a dialog shows them; a class answers any
+  palette).
+* **`FocusItem ITEM`** (virtual; FPC 2025): `Focused` := ITEM; the top item
+  moved so that it shows (one column: ITEM becomes the top or the bottom row;
+  several: its column the first or the last) through SetTopItem; drawn by
+  **rule 4**: when `TopItem` stays, only the rows of the old and the new
+  focused item — **one `drawPart` over both when they are the same row or
+  neighbours** (a Down inside the page: one write), else one each; when it
+  moved, the whole list. A Draw of yours: `drawView`.
+  `fv.views.listFocusItem LV I` = FV's `FocusItemNum` (I kept in 0 …
+  Range−1; nothing for an empty list).
+* **SetTopItem / SetRange** (FPC 2025, internal; the public forms draw):
+  `fv.views.listSetTopItem LV I` (FV `ScrollTo`: I kept within the bar's
+  `Max` and 0 … Range−1; drawn when the top item changed),
+  `fv.views.listSetRange LV N` (Range := N; Focused past N → 0; the bar's
+  steps when SizeY changed since (one column `SizeY−1` / 1, several
+  `SizeY·NumCols` / `SizeY`); its `Max` = the last top item that keeps the
+  last item in view — several columns: the last `NumCols` columns, FV — and
+  `TopItem` within it; without a bar TopItem within N, 0 for an empty list).
+* **The direct link (P3-4, L7)**: a list moving its own bar is not told back
+  — while it sets the bar, the bar's `cmScrollBarChanged` skips it (the
+  dispatch and the quiet walk, `__FV_VW_QX`; that broadcast only — its
+  `FV_EV_INFO` the list's `VScrollBar`: its horizontal bar moved meanwhile
+  still reaches it): nothing walks back to it, and
+  a broadcast nobody else listens to is not delivered at all. Only while the
+  list's `HandleEvent` is the built-in one: a list class with its own
+  `HandleEvent` gets FV's broadcast (and the built-in, through `inherited`,
+  ScrollTo's its own value: no redraw, the top item did not change). The bar
+  moved by anything else (its keys, its mouse, `scrollBarSet`) reaches the
+  list as in FV: `ScrollTo(Value)`; `cmScrollBarClicked` from one of its bars
+  selects the list.
+* **`SelectItem ITEM`** (virtual): FV's `cmListItemSelected` broadcast to the
+  owner (`FV_EV_INFO` = the list); first, with `Marks` set, ITEM's mark
+  toggled (1 / unset) and its row redrawn. **`IsSelected ITEM`** (virtual
+  func, rc 0 = yes): the focused item, or a set `Marks` entry.
+* **Keys** (FV, through `CtrlToArrow`, `fv.views.ctrlToArrow KEY` → RESULT:
+  Ctrl+S D E X A F G V R C H = Left Right Up Down Home End Del Ins PgUp PgDn
+  Back): Space → `SelectItem(Focused)`; Up / Down; PgUp / PgDn by `SizeY ·
+  NumCols`; Home / End; Left / Right by a column (`NumCols > 1`); Ctrl+PgUp /
+  Ctrl+PgDn the page's first / last item; **Ins with `Marks` set** (D29, the
+  file-manager habit, an addition): SelectItem(Focused) and down by one.
+  With `Marks` and the built-in FocusItem, Space / Ins paint the marked row
+  once: the built-in SelectItem leaves it to the FocusItem that follows (a
+  handler of `cmListItemSelected` that moves the focus: the row is painted
+  right after SelectItem instead).
+* **The wheel**: `TopItem` ± 1 (a double wheel event ± 4; several columns ± a
+  column, FV); nothing drawn when it did not move.
+* **The mouse** (FV): the press focuses the item under it (`row + SizeY ·
+  (X div ColWidth) + TopItem`, kept in Range); while the button is held the
+  item under the mouse; outside the list every 4th `evMouseAuto` (FV
+  `MouseAutosToSkip`) moves the focus one item (several columns: a column
+  left / right, the column's first / last row). **A double click's press**
+  is not tracked (FPC trunk: `If NOT Event.Double Then Repeat … Until`): the
+  item under it is focused and selected at once (SelectItem), the moves and
+  the release that follow are left for the event loop. The press's double
+  flag decides (FPC's release carries none).
+* **SetState** (FV): for `sfSelected`, `sfActive` or `sfVisible` the list's
+  picture and **ShowSBar**: its bars shown while the list is active and
+  visible, hidden otherwise (an inactive panel shows no bar; a deleted list
+  hides its bar, FV). P3-12: `sfVisible` draws in TView's body; `sfSelected`
+  / `sfActive` change only the focused row's colour, which alone is redrawn
+  when "selected and active" changed (FV draws the whole list).
+* **ChangeBounds** (FV): TView's, then the bars' page steps (`SizeX div
+  NumCols`, `SizeY · NumCols`); the next SetTopItem sets the range again
+  (FV's `LastY`).
+
+**The tracking loops** (the bar's arrows, page parts and indicator, the
+list's drag) read with FV's `MouseEvent` rule (`fv.views._track`): the
+events in their mask (moves, `evMouseAuto`), until the release; moves already
+waiting are coalesced (the last one counts, as `dragView`'s R10); **a key
+ends the tracking as a release does and is put back** for the loop that
+runs (`__FV_VW_PUTEVENT`), so a lost release never holds the loop (L2; FV
+drops keys there and waits for a release); a resize the event source
+handled and the end of input end it too. A loop that returns early (its view
+destroyed while it runs) leaves nothing behind for the next one.
+
+**Deviations from FV** (stage 3b): P3-4 (a bar draws only a changed picture;
+a list moving its own bar is not told back); rule 4 and P3-12 (FocusItem and
+SetState draw only the changed rows); `List` / `Formatter` / `Marks` for
+`GetText` (rule 2; `Marks` D26); D25's palette in a plain window; Ins with
+`Marks`; FV's `Data` of `cmIdCommunicate` read from the sender's `Value`; the
+tracking loops end at a key (put back) and coalesce moves; `TopItem` 0 for
+an empty list without a bar (FV −1);
+the focused item of an active list is colour 3 without asking an
+`IsSelected` override (FV asks and ignores the answer); a horizontal bar
+taller than one row repeats its row; `insert` into an active group draws what
+the inserted view's `sfActive` shows outside it (a list's bar), not the view
+itself (drawn whole right after). Non-ASCII rows go through `writeRows`
+(narrow ones too: the design keeps `writeLines` for them; measured +0.7 ms
+per fresh Cyrillic page here, design 3v's ground).
+
 ## Cost
 
 Measured in the test lib's scenes, 80 × 24, frames to `/dev/null`, median of
@@ -1136,6 +1355,26 @@ untouched. Same scene, same-process A/B against the marking before (the
 flag's line taken out of `_putw`; median of 5 × 30): a PgDn of either list's
 page 1.00–1.01, a Down and a typed character within the noise.
 
+**P3 stage 3b (lists).** The counts (exact; `fvviews` cases `views-list-80`
+/ `-200`, tests 010 / 023): every list action costs **2 dispatches** (the
+application's own override + `inherited`: the list, its bar and the link
+between them none) — Down inside the page 1 write, a scroll by Down at the
+bottom 1, PgDn 1 (2 when the bar's indicator moves), the wheel 1, a click 2
+(press + its row pair), End / Home 2 (the list and the bar's indicator) —
+the same with 21 or 42 rows and 1 000 or 60 000 items; a whole list draw is
+one `writeLines` (ASCII, whatever the caller's IFS) or one `writeRows`
+(other text); Space / Ins with `Marks` 1 write (the marked row painted
+once). The two-panel scene's first paint with real lists at 80 × 24
+(`views-paint-80`: F-1's size, D31 — `p2.80x24.paint` with the stand-ins
+is the number it is held against) and at 200 × 50 (`views-paint`): 0
+dispatches, 10 writes each (one bar drawn: ShowSBar). The times are the CI's
+(the same-run A/B of design §8.2 and stage 3v); the laptop's rough figures
+(Git-bash, 80 × 24, N 4, one process): list Down 6.3 ms against the
+stand-in's 8.4, a fresh-page PgDn 14.6 against 13.4 (ASCII), 21.2
+(Cyrillic), 33.6 (CJK). A fresh Cyrillic page drawn by `writeRows` costs
+~0.7 ms more than by `writeLines` (probe, 30 pages: 7.26 / 6.59 ms against
+ASCII 5.03).
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -1185,7 +1424,8 @@ page 1.00–1.01, a Down and a typed character within the noise.
   source is `evNothing`; an `unlockScreenUpdate` without its lock inside a
   modal handler is ignored (one debug line); `insert` into an active
   group sets `sfActive` on the view without drawing it twice (FV draws it,
-  then redraws it active); `fv.views.delete` of the Current view resets
+  then redraws it active; P3 3b: what that state change shows outside the
+  view — a list's scroll bar — is drawn); `fv.views.delete` of the Current view resets
   `Current` while the view is still in the group but hidden (FV's order), so
   its `cmReleasedFocus` reaches the owner; `mouseEvent` returns its event in
   `FV_EV_*` (FV's var parameter; the design's "inner loops save and restore
@@ -1206,6 +1446,8 @@ page 1.00–1.01, a Down and a typed character within the noise.
   `FV_MINWINSIZE_X/_Y`; after a drag that grew a window, interior cells no
   view covers keep the dragging colour of the frame's body (border-only
   frames, above: the same background, nothing visible).
+* from Free Vision, P3 stage 3b: "Lists and scroll bars" above (its
+  deviations paragraph).
 
 Known kklass limits met by the tests (not this unit's): building a class or
 calling `.new` under an `IFS` holding digits or letters fails (with letters
@@ -1228,12 +1470,16 @@ stand-in each that handles keys); for stage 2g the design's list stand-in
 `TTestList` (TView's default EventMask, one `writeLines` per Draw (D21 stage E; one `writeBuf` per row before), `drawPart`
 on kbDown, a new page on kbPgDn; `fvw_classes3`, `fvw_mklwin`); for P3 the
 dialog scene (`fvw_dscene`: the events scene plus a dialog-like gray window
-in front with N selectable one-row controls). Each test file's stderr is captured:
+in front with N selectable one-row controls); for P3 3b the list scene
+(`fvw_lscene`: the events scene side by side with a `TListViewer` and its
+standard bar in the right window, `fvw_mklist`, `fvw_items` for ASCII /
+Cyrillic / CJK names) and the scripted events `wheelup`, `dwheel`,
+`ddown`, `auto`, `space`. Each test file's stderr is captured:
 anything on it fails one test.
 
 | file | what |
 |---|---|
-| 001_Contract | `bash -n`; the public API of stages 2c-1 to 2d exists; loads, re-loads and the main path (drawing and the events included: a window, focus, message, commands, the cursor, a modal view at the end of input) under `set -eu`; `kk.unit --forget` + re-source keeps the live tree; failing calls return under `set -e`; nothing on stdout; no stray globals or functions; the test lib itself (both counters keep rc and RESULT and unwrap, the buffer reader, `fvw_budget`) |
+| 001_Contract | `bash -n`; the public API of stages 2c-1 to 2d and P3 3b exists; loads, re-loads and the main path (drawing and the events included: a window, focus, message, commands, the cursor, a modal view at the end of input) under `set -eu`; `kk.unit --forget` + re-source keeps the live tree; failing calls return under `set -e`; nothing on stdout; no stray globals or functions; the test lib itself (both counters keep rc and RESULT and unwrap, the buffer reader, `fvw_budget`) |
 | 002_Tree | insert / insertBefore / delete / makeFirst / putInFrontOf, the navigation (rings and nil), Owner, Current per FV `ResetCurrent`, the sfSelected bits, refusals (rc, RESULT, unchanged tree), a cycle, `V.delete` of a group, names differing in case under nocasematch, the hook's calls |
 | 003_Geometry | the constructors' corners and defaults, MaxViewWidth, getBounds / getExtent, the cache and the clip, centring, locate / moveTo / growTo with SizeLimits, an owner resize by every GrowMode flag (gfGrowRel, the S = D guard), CalcBounds / SizeLimits answers, makeLocal / makeGlobal / mouseInView, GetHelpCtx, bad numbers; a group moved and resized at once (each subview's old rect in its redraw hook), a CalcBounds override that sets nothing, a subview destroyed during the resize |
 | 004_Draw | the writers in local coordinates (palette index → symbol, ErrorAttr outside, `writeLine`'s repeat count), their answers and refusals (outside a Draw, bad arguments); the context and `FV_CLIP_*` inside a Draw; the owner's clip; the caller's clip and RESULT kept; a `drawView` nested inside a Draw (the outer context and clip intact); TView.Draw; a group override that decorates after `inherited Draw`; nothing drawn when hidden / in a hidden group / without an exposed root; `V.Draw` outside the painter; `getColor`; `drawPart` (clipped rows, the front view over them, no dispatch, rc, refusals); `redraw`'s forced frame, also deferred while held; re-entrancy (a Draw redrawing a view behind it with drawView + drawPart: once, no recursion, == a full repaint, also after a move; a list redrawing scroll bars beside and behind it); a Draw ending non-zero under `set -e` (insert, drawView, moveTo, unlock); drawPart on a group refused |
@@ -1242,10 +1488,10 @@ anything on it fails one test.
 | 007_Events | the phases (pre / focused / post, the Phase each handler sees), positional events (the front-most visible view, hidden skipped, a disabled one swallows), broadcasts, the EventMask skip without a call (dispatch counts; built-in views 0), disabled views, the stop at evNothing, views removed / destroyed meanwhile, unknown names, click to focus and ofFirstClick, a nested group's Current, message (the handler, rc, the caller's record restored), RESULT kept, a handler's rc under `set -e`, refusals |
 | 008_Focus | the chain's bits, select of a covered window (== a full repaint, its list drawn once), the focus broadcasts in FV's order, sfActive propagation (a frame border = 3 writes, no leaf redraw), side by side (borders + shadow only), Tab in a window (arrows too; unselectable / disabled skipped), focusNext / selectNext, focus with an ofValidate Current, click to focus through the chain, resetCursor (position, shape, outside, covered, unfocused), a SetState override, hide / show / sfShadow, delete of the focused window, insert into an active group, select of a front window that is not Current, refusals; quiet broadcasts (stage 2c-p: no dispatch, the Phase a delivery sets, a listening leaf breaks the quiet and hears what it heard, the dispatch's skips in the walk; a walk that ends not quiet leaves no Phase behind); stage 2f: a built-in group handler of another unit is quiet only when listed in `__FV_VW_QGRP` |
 | 009_Commands | FV's default set at load (and across a re-source), enable / disable / commandEnabled, the changed flag, getCommands / setCommands, the window commands by Flags, execView restoring the set, refusals |
-| 010_CallBudget | stage 2g, the design's §3.1 scene built from fv.views' classes (a TMyApp-like root with `inherited`, a desktop, two 40 × 23 `TWindow`s side by side with a `TTestList` stand-in each, and the overlap scene) through TGroup's Execute with the scripted event source: the dispatch budgets with §3.2's limits (Down 6, PgDn 8, Tab side by side 8, Tab overlapping 10, click 8, repaint 6) and the writes, logged; a 42-row stand-in costs the dispatches of a 21-row one, action by action, and the same writes (D21 stage E: the stand-in draws with one writeLines, one write per painted list); the drawing shape (a full frame 3 writes, a window's shadow 2 shade calls, a border-only redraw 3 writes)
-| 011_ZeroFork | the three stages (drawing included: frames, shadows, locks, drawPart with every writer; stage 2c-3: a TWindow, the focus chain, message, a key through the dispatch, commands, the cursor, a modal view with a scripted event source, mouseEvent, endModal, cmClose; stage 2d: cmZoom, a keyboard drag, a mouse drag with the drain, the close icon, dragView) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
-| 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes); a second scene (stage 2c-3: windows whose names differ only in case, the focus chain, select, message, Tab, a click, commands, the cursor, two modal views, cmZoom and back, a keyboard and a mouse drag, the close icon, cmClose) under the same setups (`inherited` replaced by the built-in body under the IFS of letters, a kklass limit) |
-| 013_Elision | every built-in virtual of the three stages (incl. `Draw`, `GetPalette` of TView / TGroup / TFrame) overridden with `inherited`: dispatch counts (0 / 2), results, user fields named like locals; the RESULT / rc rule both ways (also failing bodies, under `set -e`); overrides inside the painter; `kk.class --forget` + redefinition; a scene under `set -eu`, nocasematch and odd IFS; the unsupported func shapes (`return 0`, a failing last command) pinned as kklass behaves today; stage 2c-3: HandleEvent / SetState / Valid / Execute / EndModal of TView / TGroup and TWindow's HandleEvent / SetState / GetPalette / GetTitle / InitFrame / Close overridden with `inherited` (0 / 2 dispatches, the RESULT rule, through the dispatch, a select and execView); stage 2d: TFrame's HandleEvent and TWindow's SizeLimits / CalcBounds / Zoom (0 / 2, CalcBounds 6; through locate, cmZoom, an owner resize, a click on the close icon) |
+| 010_CallBudget | stage 2g, the design's §3.1 scene built from fv.views' classes (a TMyApp-like root with `inherited`, a desktop, two 40 × 23 `TWindow`s side by side with a `TTestList` stand-in each, and the overlap scene) through TGroup's Execute with the scripted event source: the dispatch budgets with §3.2's limits (Down 6, PgDn 8, Tab side by side 8, Tab overlapping 10, click 8, repaint 6) and the writes, logged; a 42-row stand-in costs the dispatches of a 21-row one, action by action, and the same writes (D21 stage E: the stand-in draws with one writeLines, one write per painted list); the drawing shape (a full frame 3 writes, a window's shadow 2 shade calls, a border-only redraw 3 writes); P3 3b: the list actions (Down, Down at the bottom, PgDn, the wheel, a click, End, Home) with §8.1's limits (dispatches and writes, logged) at 21 / 42 rows and 1 000 / 60 000 items: the same dispatches everywhere, each scene == a full repaint
+| 011_ZeroFork | the three stages (drawing included: frames, shadows, locks, drawPart with every writer; stage 2c-3: a TWindow, the focus chain, message, a key through the dispatch, commands, the cursor, a modal view with a scripted event source, mouseEvent, endModal, cmClose; stage 2d: cmZoom, a keyboard drag, a mouse drag with the drain, the close icon, dragView; P3 3b: a list with its standard bar — keys, Space / Ins with Marks, the wheel, a click with a drag and evMouseAuto, the bar's arrow and indicator, the plain API, a formatter, multi-column and CJK rows, ctrlToArrow) with `PATH=''`; the static scan of `fv.views.sh` (no fork construct) |
+| 012_CallerState | one scene (tree, geometry, and the drawing: a frame with a Cyrillic title cut to its room, a shadowed window, locks, the border-only redraw, drawPart, screen cells read back) under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; the constructor guard in the scene (not under the IFS of letters, where kklass's `.new` itself crashes); a second scene (stage 2c-3: windows whose names differ only in case, the focus chain, select, message, Tab, a click, commands, the cursor, two modal views, cmZoom and back, a keyboard and a mouse drag, the close icon, cmClose) under the same setups (`inherited` replaced by the built-in body under the IFS of letters, a kklass limit); a third scene (P3 3b: a Cyrillic list with Marks and its bar, a horizontal bar moved by scrollBarSet (its glyphs from a C-locale caller), a 2-column CJK list: keys, the wheel, a drag, the bar's arrow with an auto, the plain API, a window switch, cells read back) under the same setups |
+| 013_Elision | every built-in virtual of the three stages (incl. `Draw`, `GetPalette` of TView / TGroup / TFrame) overridden with `inherited`: dispatch counts (0 / 2), results, user fields named like locals; the RESULT / rc rule both ways (also failing bodies, under `set -e`); overrides inside the painter; `kk.class --forget` + redefinition; a scene under `set -eu`, nocasematch and odd IFS; the unsupported func shapes (`return 0`, a failing last command) pinned as kklass behaves today; stage 2c-3: HandleEvent / SetState / Valid / Execute / EndModal of TView / TGroup and TWindow's HandleEvent / SetState / GetPalette / GetTitle / InitFrame / Close overridden with `inherited` (0 / 2 dispatches, the RESULT rule, through the dispatch, a select and execView); stage 2d: TFrame's HandleEvent and TWindow's SizeLimits / CalcBounds / Zoom (0 / 2, CalcBounds 6; through locate, cmZoom, an owner resize, a click on the close icon); P3 3b: TScrollBar's GetPalette / ScrollStep / ScrollDraw and TListViewer's GetPalette / HandleEvent / SetState / ChangeBounds / FocusItem / SelectItem / IsSelected (0 / 2; the RESULT rule, IsSelected by rc; through a key and a double click: the overrides of the list and of the bar it moves, the bar's broadcast reaching the list's HandleEvent override) |
 | 014_Modal | execView (RESULT, inserted / removed, == a full repaint, sfModal and the top view while it runs; topView; the event record, Phase, Options, Current put back; EnterSelect), Valid refusals, endModal from a leaf, modal in modal, no HandleEvent for evNothing, the end of input (no Valid asked), the latch, the "save?" box at the end of input, a failing event source, a root's Execute (cmQuit), the owner-process rule in `$( )`, a dialog destroying itself, a modal cmClose (cmCancel posted), endModal without a modal view, mouseEvent (tracking, the mouse-up, the end of input), refusals; stage 2d: drags inside a modal view (cmResize's keyboard drag, a mouse drag by the frame), each step shown at once; a resize mid-modal is 2f (mid-drag: 017) |
 | 015_Frame | TFrame's constructor; FV's look inactive / active / dragging, `☼` / `↕`, a bare frame in a plain group; a wide and a long title; small sizes; 3 writes full, 3 border-only (both sides one `fillColumns`), no dispatch; the string cache; through fv.video's VT model: the terminal shows the buffer, border-only == a full repaint (a window overlapping the ring in front); the covered parts of the ring left out (4 pieces, no repaint of the window in front); the cache across ASCII mode (initScreen with FV_ASCII); a frame class overriding Draw; stage 2d, the frame's mouse: the close icon's press tracking (one top-row write per change, cmClose posted on a release on it, nothing off it or at the end of input, the posted event closing the window), the zoom icon, a double click, an inactive frame (no icons: drags), the grow corner, a frame class with its own Draw, quiet for broadcasts |
 | 016_Window | the constructor (FV's defaults, the frame from InitFrame, a bad number, the guard), an InitFrame override without a frame, GetTitle, the frame's title and number, the three palettes, cmClose (Valid no / yes, another window, without wfClose), cmSelectWindowNum through message, an unselectable window, Tab, unknown keys / commands; stage 2d: SizeLimits (MinWinSize, FV_MINWINSIZE_X/_Y), Zoom and back (ZoomRect, the zoom icon), a bad ZoomRect, cmZoom, CalcBounds (the ZoomRect follows an owner resize), cmResize |
@@ -1254,6 +1500,10 @@ anything on it fails one test.
 | 019_Palette | the app palette = CAppColor's 127 bytes through fv.video's default table; the resolution chain (root, `''`, TFrame in blue / cyan / gray windows), ErrorAttr; the cache (one GetPalette dispatch per view, RESULT kept), `resetPalette` V / all, delete / insert into another owner; refusals; D21: the answer split without a here-string (the first line, at blanks only, no globbing in a folder with files named like indices, the caller's `set -f` kept) |
 | 020_Caches | D21: each structure cache's drop (DEX at insert / delete, FRL at insert / delete / putInFrontOf, OEX at insert: each test fails with its drop removed) and what is read live (hide / show, a State or Options field written by hand, the root's sfExposed, a lock, a bounds change); drawPart's fast path (the painter's rc and RESULT, rows with leading zeros, a redefined painter, the rc 127 of an unset one); the union cover (two windows side by side: the background not drawn, the shadow under the front window not shaded; a gap, a hidden window, a frameless group: drawn; each == a full repaint); drawView and the order redraw's shadow strips cut to the owner's clip (the status line in front of the desktop not repainted) |
 | 021_Rows | D21 stage E: `writeLines` = one `writeLine` per index inside a drawPart (160 seeded random cases: narrow, Cyrillic, wide, emoji, combining and control text, empty rows, sparse arrays, missing / short / long / bad symbol strings; views past their owner and off the screen, negative X / Y, painted row ranges, rows with wide cells, ASCII mode, 40×12 and 200×50; rc and RESULT too); a Draw override with one writeLines == the per-row Draw; refusals rc 2 / RESULT `''` / nothing written (count, X / Y, outside a Draw, bad names, `__fv*`, `RESULT`, associative arrays: no key evaluated); a refused row (the others written), no rows (RESULT 0); under set -eu. 010's write counts follow the stand-in (one write per painted list); 011 and 012 call it too. P3 3a-1: `writeRows` = `fv.video._wrowsu` at the view's origin inside a drawPart (60 random cases), its refusals (count, X, W negative / not digits / empty, names, outside a Draw), a refused row, a wide pair cut at W |
-| 025_Quiet | P3 3a-2, the broadcast table: fv.views' rows (TView, TFrame, TGroup none; TWindow `cmSelectWindowNum`) give the replaced rules, a QGRP entry counts as `''`; the table against a full dispatch (the table emptied) on seeded random trees of plain views, frames, windows, groups, built-in bodies of the test (a leaf reacting to cmA cmB, a group reacting to cmC) with user listeners (some handle a broadcast), a user group and a user override of a built-in body interleaved — through `message` and through the group's `HandleEvent`: the same reactions in order, each seeing its owner's `Phase`, the same handler / rc, never more handler calls; adding a row and removing it; an override always called, a subclass inheriting the body following its row; the Phase stamp of a skipped quiet subgroup (its owner and the subgroup hold the Phase a full dispatch leaves); the dialog scene: a Tab reaches a listening label-like leaf with both focus broadcasts, never a built-in leaf whose row lacks them |
+| 022_ScrollBar | P3 3b, TScrollBar: construction (fields, GrowMode by orientation, the wheel bit); FV's look (`▲ ▓ ▼` / `◄ ►` at Max = Min, the indicator at FV's GetPos for every value of 0..100 on a 10-row and a 20-wide bar, short bars) in CScrollBar's colours; `scrollBarSet` in every form, the clamping, the refusals, RESULT kept; P3-4 (indicator kept: 0 writes, moved: 1, a range change: 1; == a full repaint); `cmScrollBarChanged` on a value change only (INFO, ID, the old PgStep seen), `cmIdCommunicate` between two bars with one Id (the sender ignores its own, an integer INFO); the keys of both orientations with WordStar, a hidden bar, `ctrlToArrow`'s table; the wheel (double: 6); the mouse on the arrows and page parts, `evMouseAuto` on / off the part, the indicator dragged in / out, a lost release ended by a key (put back), move coalescing; 0 dispatches for the built-ins; ScrollStep / ScrollDraw overrides (2 per use); `standardScrollBar`; a C-locale caller (and ASCII mode) gets the same cells |
+| 023_ListViewer | P3 3b, TListViewer: construction and its refusals (NUMCOLS, a bar that is not a TScrollBar) before anything is made; the first paint (rows, colours, the bar) == a full repaint; D25's palettes (plain window / dialog); the keys incl. Ctrl+PgUp / Ctrl+PgDn and WordStar, each == a full repaint; rule 4 (Down: 1 write, 2 dispatches; PgDn: 1 write); Space / Ins with and without Marks, `cmListItemSelected`; Marks in colour 4 under a dialog palette, an IsSelected override asked per drawn row (7 dispatches) winning over Marks; `listSetRange` / `listSetTopItem` / `listFocusItem` / `listDrawItem` and their refusals; ShowSBar on a window switch (the focused row only redrawn); the direct link (one list paint per PgDn, another listener told); L7 (a HandleEvent override gets the broadcast); the Formatter (21 calls, MaxLen 39; a bad name); ChangeBounds (the bar's steps, LastY); multi-column (layout, dividers in colour 5, Left / Right / PgDn / End, the bar's Max); fresh Cyrillic and CJK pages == a full repaint; 60 000 items (End / Home: 2 dispatches, 2 writes); reserved `List` / `Marks` names (`_fv*`, `__fv*`); an ASCII page through `writeLines` under IFS newline / tab / empty; Space / Ins with Marks: the marked row painted once (one write each), a handler moving the focus by hand: still painted; the direct link skips only the list's own vertical bar (its horizontal bar moved meanwhile reaches it) |
+| 024_ListMouse | P3 3b: the wheel on the list (± 1, double ± 4, nothing drawn at the top) and on its bar (the list follows); clicks (an item, past the last item, an inactive window: the first click only selects it); a double click (SelectItem, Marks); a double click's press then a drag (no tracking, FPC trunk: the item under the press, the drag left unread); a drag (coalesced), past the edges with every 4th evMouseAuto; a lost release ended by a key; a loop that returned early (its bar destroyed by a listener) leaves the next drag alone; the bar's arrows / auto / page / indicator scroll the list; the dispatches (2 per event + the listener's); multi-column clicks; auto-repeat end to end through fv.drivers with `__FV_DR_NOW` (a press on the bar's arrow read from a file: steps at the press, at 0.44 s and 0.49 s) |
+| 025_Quiet | P3 3a-2, the broadcast table: fv.views' rows (TView, TFrame, TGroup none; TWindow `cmSelectWindowNum`) give the replaced rules, a QGRP entry counts as `''`; the table against a full dispatch (the table emptied) on seeded random trees of plain views, frames, windows, groups, built-in bodies of the test (a leaf reacting to cmA cmB, a group reacting to cmC) with user listeners (some handle a broadcast), a user group and a user override of a built-in body interleaved — through `message` and through the group's `HandleEvent`: the same reactions in order, each seeing its owner's `Phase`, the same handler / rc, never more handler calls; adding a row and removing it; an override always called, a subclass inheriting the body following its row; the Phase stamp of a skipped quiet subgroup (its owner and the subgroup hold the Phase a full dispatch leaves); the dialog scene: a Tab reaches a listening label-like leaf with both focus broadcasts, never a built-in leaf whose row lacks them; P3 3b: the TScrollBar / TListViewer rows; a list moving its own bar: the broadcast not delivered to it (nor at all without another listener; the window quiet for it then — for that bar only), another listener told, the bar moved by its own mouse reaching the list |
 | 026_WideEdge | P3 3a-2, the wide-row edge test: the rule on `fv.views._bands` (kept / banded / widened rectangles, two that meet, rows without wide cells, the C-locale and nested-Draw fallbacks); a static CJK scene under shadowed windows: every rectangle with its left edge at every column (widths 1 2 3 5 and to the edge) == a full repaint; a shadowed window and a plain leaf moved across CJK rows one column at a time, hide / show / reorders at every few columns, drawPart of each row with a window in front at every column, a frame border over CJK rows at every column: each == a full repaint; the narrowing (a drawPart on a CJK row no pair straddles leaves a window in front elsewhere on the row unpainted, no dispatch); seeded random CJK scenes (3 × 40 steps: moves, nudges, resizes, reorders, hide / show, drawView, drawPart, frame borders) == a full repaint after every step; drawPart through its checked path (a painter not seen, each row with a window in front at every column); the marking from fv.video's `__FV_VS_WNEW` (a row whose only pair a view in front hides by half at the first paint: a move uncovering it, a hide, the view sent behind a CJK leaf, the pair cut by the view's right edge) and seeded random scenes of one-pair rows with the views in front starting on a pair's half (4 × 30 steps, nothing marked by hand) == a full repaint; fv.video's VT model after moves over CJK rows |
+| 027_Ascii | P3 3b in ASCII mode (`FV_ASCII=1`): the bar's glyph table (`^ : # v`, `< : # >`, `#` at Max = Min), Cyrillic list rows one `?` per character (== fv.video's own cells for the text), PgDn over fresh pages / Down / End / Home and a panel switch (the frame's `|` where the bar hid) == a full repaint, multi-column CJK rows with fv.video's `|` divider |
 | 028_HotKey | P3 3L, `hotKeyIs`: Alt with the typed character (legacy `ESC f` / `ESC F`, a Cyrillic hot letter on its own key) and with the base key (Russian, Greek, Hebrew, Arabic Alt+F; Alt+X; the `;` key), AZERTY's typed letter only (never the US position), Alt + a character in no table; plain only with `plain` (ASCII, the tables for a legacy non-ASCII character, a report's base, AZERTY, a character in no table); never for Ctrl chords, Alt + F1, other events, an empty HOT; a C-locale caller (Cyrillic folded, `RESULT` kept), nocasematch, a bad word (also `PLAIN` under nocasematch, a word twice, `typed` with `base`); the two passes (`typed` / `base`) on mixed-script titles, AZERTY in the base pass, plain + base through the tables; end to end through fv.drivers (legacy and kitty bytes) |

@@ -19,7 +19,7 @@
 # (kklass's own `.new` is not part of this unit; under an IFS of letters it
 # crashes bash, a kklass finding), the calls run after it; the guard part
 # needs `.new` and is skipped (and left out of the comparison) under the
-# IFS of letters only.
+# IFS of letters only. A third scene (P3 3b): lists and scroll bars.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -267,5 +267,93 @@ for setup in 'shopt -s nocasematch' 'shopt -s failglob' 'shopt -s nullglob' 'set
     before=${OUT%%#*} after=${OUT##*#}
     if [[ $got == "$ref2" && $before == "$after" ]]; then kt_test_pass "ok"
     else kt_test_fail "output [$got] vs [$ref2]; state before [$before] after [$after]"; fi
+done
+
+# ---- P3 stage 3b: lists and scroll bars ----------------------------------------
+# root3 > bg3, Lw (a list Ll of Cyrillic names with Marks, its bar Lsb and a
+# horizontal bar Lhb on its bottom frame row, moved by scrollBarSet: its
+# glyphs cut from a C-locale caller must be the same cells)
+# and lw (a 2-column list ll of CJK and ASCII names): keys (arrows, PgDn,
+# WordStar, Space, Ins, End, Home), the wheel, a click with a drag, the
+# bar's arrow under the mouse, scrollBarSet / listSetTopItem /
+# listFocusItem / listDrawItem, a window switch (ShowSBar), Right in the
+# columns, screen cells read back. Made before the setup, run after it
+MAKE3='
+exec {FVO}>/dev/null; FV_VIDEO_OUT_FD=$FVO FV_SCREEN_W=60 FV_SCREEN_H=16; fv.video.initScreen
+TGroup.new root3 0 0 60 16; TView.new bg3 0 0 60 16
+TWindow.new Lw 0 0 30 15 "Ж list" 1; TScrollBar.new Lsb 29 1 30 14
+TListViewer.new Ll 1 1 29 14 1 "" Lsb; TScrollBar.new Lhb 2 14 28 15
+TWindow.new lw 30 0 60 15 "cols" 2; TListViewer.new ll 1 1 29 14 2
+LA=(); for (( i = 0; i < 80; i++ )); do LA[i]="Файл_$i"; done
+LB=(报告_1 数据_2 系统_3 abc_4 def_5)
+declare -A LM=([2]=1)
+cut3() { local LC_ALL=C.UTF-8; fv.video.getRow "$1"; r+="${RESULT:$2:$3}|${REPLY:$2:$3}$4"; }
+'
+SCENE3='
+r=""
+Ll_data[List]=LA Ll_data[Marks]=LM ll_data[List]=LB
+fv.views.insert Lw Lsb; fv.views.insert Lw Ll; fv.views.insert Lw Lhb; fv.views.insert lw ll; fv.views.scrollBarSet Lhb 3 0 10
+fv.views.insert root3 bg3; fv.views.insert root3 Lw; fv.views.insert root3 lw
+root3_data[State]=$(( root3_data[State] | FV_SF_EXPOSED | FV_SF_SELECTED | FV_SF_MODAL ))
+fv.views.setState root3 "$FV_SF_FOCUSED" 1
+fv.views.listSetRange Ll 80; fv.views.listSetRange ll 5
+fv.views.drawView root3
+fv.views.select Lw
+k3() { local k; for k; do fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=$k FV_EV_CHAR=""; if [ "$k" = sp ]; then FV_EV_KEY=kbChar FV_EV_CHAR=" "; fi; fv.views._virt root3 HandleEvent; done; r+="${Ll_data[Focused]}:${Ll_data[TopItem]}:${Lsb_data[Value]};"; }
+k3 kbDown kbPgDn; k3 kbCtrlX sp kbIns; k3 kbEnd; k3 kbHome kbDown kbDown
+r+="m=${!LM[*]};"
+m3() { local w=$1 x=$2 y=$3; shift 3; fvw_events "$@"; fv.drivers.clearEvent; FV_EV_WHAT=$w FV_EV_MOUSE_X=$x FV_EV_MOUSE_Y=$y FV_EV_WHEEL=2 FV_EV_MOUSE_BUTTONS=1; fv.views._virt root3 HandleEvent; __FV_VW_EOF=0 __FV_VW_GETEVENT=fv.drivers.getEvent; }
+m3 evMouseWheel 5 5; m3 evMouseDown 5 3 "move 5 6" "up 5 6"; m3 evMouseDown 29 13 "auto 29 13" "up 29 13"
+r+="${Ll_data[Focused]}:${Ll_data[TopItem]}:${Lsb_data[Value]};"
+fv.views.scrollBarSet Lsb 5; fv.views.listSetTopItem Ll 9; fv.views.listFocusItem Ll 11; fv.views.listDrawItem Ll 11; fv.views.scrollBarSet Lhb 7
+r+="${Ll_data[Focused]}:${Ll_data[TopItem]}:${Lsb_data[Value]};"
+fv.views.select lw
+r+="v=$(( Lsb_data[State] & FV_SF_VISIBLE ));"
+fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=kbRight; fv.views._virt root3 HandleEvent; r+="c=${ll_data[Focused]};"
+cut3 1 0 30 ,
+cut3 3 0 30 ,
+cut3 14 0 30 ,
+cut3 1 30 30 ""
+printf "%s" "$r"
+'
+run3() {   # SETUP -> OUT
+    OUT=$("$BASH" -c "unset LC_ALL LC_CTYPE LANG; export LC_ALL=C.UTF-8
+$EVFN
+source '$UNIT'
+$MAKE3
+$1
+$STATE
+printf '#'
+$SCENE3
+printf '#'
+$STATE" 2>&1)
+}
+
+run3 ''
+ref3=${OUT#*#} ref3=${ref3%#*}
+kt_test_start "lists scene (P3 3b), reference run: as expected"
+# keys: Down + PgDn (13 rows) 14 at the bottom row; Ctrl+X 15, Space marks
+# 15, Ins unmarks it and moves to 16; End 79 (Max 80-13 = 67); Home, Down x2;
+# the wheel, a click on row 2 dragged to row 5 (top 1), the bar's down arrow
+# + one auto (+2); the API; the window switch hides Ll's bar; Right in the
+# 2-column list clamps to its 5 items; Ll's rows 9 and 11 (inactive: the
+# focus in colour 4 = 2 in a plain window), Lhb (value 7 of 0..10: the
+# indicator on cell 17), ll's first row (CJK, divider)
+want='14:2:2;16:4:4;79:67:67;2:0:0;m=2;6:3:3;11:9:9;v=0;c=4;'
+want+='│ Файл_9                     │|8CCCCCCCCCCCCCCCCCCCCCCCCCCCC8,│ Файл_11                    │|8CCCCCCCCCCCCCCCCCCCCCCCCCCCC8,'
+want+='└─◄▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒■▒▒▒▒▒▒▒►─┘|88BBBBBBBBBBBBBBBBBBBBBBBBBB88,'
+want+='║ 报告_1       │             ║|9CCCCCCCCCCCCCCCCCCCCCCCCCCCC9'
+if [[ $ref3 == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$ref3] want [$want]"; fi
+
+for setup in 'shopt -s nocasematch' 'shopt -s failglob' 'shopt -s nullglob' 'set -f' 'shopt -s extglob' \
+    'shopt -u globasciiranges' "IFS='0123456789 '" "IFS='-'" "IFS='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_.'" 'IFS=' \
+    'set -eu -o pipefail' 'export LC_ALL=C' \
+    "shopt -s nocasematch failglob nullglob extglob; shopt -u globasciiranges; set -f -eu; IFS='-0123456789Ww'; export LC_ALL=C"; do
+    kt_test_start "lists scene: same output and the state kept: $setup"
+    run3 "$setup"
+    got=${OUT#*#} got=${got%#*}
+    before=${OUT%%#*} after=${OUT##*#}
+    if [[ $got == "$ref3" && $before == "$after" ]]; then kt_test_pass "ok"
+    else kt_test_fail "output [$got] vs [$ref3]; state before [$before] after [$after]"; fi
 done
 kt_test_log "012_CallerState.sh completed"

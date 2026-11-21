@@ -294,4 +294,39 @@ want='dlgc2 0 dlab<cmReleasedFocus@phFocused;dlab<cmReceivedFocus@phFocused;'
 kt_test_log "# calls dialog-tab $n"
 if [[ $r == "$want" ]]; then kt_test_pass "ok ($n dispatches)"; else kt_test_fail "got [$r] want [$want]"; fi
 
+# ---- P3 stage 3b: the list's row and the direct list -> bar link (P3-4, L7) -------------
+kt_test_start "3b rows: TScrollBar none, TListViewer cmScrollBarChanged cmScrollBarClicked"
+r="[${__FV_VW_BCAST[fv.views._sbEvent]-x}][${__FV_VW_BCAST[fv.views._lvEvent]-x}]"
+if [[ $r == '[][cmScrollBarChanged cmScrollBarClicked]' ]]; then kt_test_pass "ok"; else kt_test_fail "got [$r]"; fi
+
+kt_test_start "3b: a list moving its own bar: the bar's cmScrollBarChanged is not delivered when the list is its only listener (no walk, no dispatch), and the window is quiet for it then (for that bar only)"
+fvw_lscene 80 24
+fv.views.drawView app
+QX_N=0
+src=$(declare -f fv.views._lvBcast)
+eval "__q_${src}"
+fv.views._lvBcast() { QX_N=$(( QX_N + 1 )); __q_fv.views._lvBcast "$@"; }
+fvw_count_on; FVW_CALLS=0
+fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=kbPgDn; fv.views._virt app HandleEvent
+n=$FVW_CALLS
+fvw_count_off
+fv.views._quiet w2 cmScrollBarChanged; a=$?
+__FV_VW_QX=w2l; fv.views._quiet w2 cmScrollBarChanged w2__fvsb1; b=$?
+# (exact: only the list's own vertical bar; another bar's broadcast still reaches it)
+fv.views._quiet w2 cmScrollBarChanged w2__fvsbX; b+=$?; __FV_VW_QX=''
+fv.views._quiet w2 cmScrollBarClicked; c=$?
+if [[ $QX_N == 0 && $n == 2 && "$a$b$c" == 1011 && ${w2l_data[TopItem]} == "${w2__fvsb1_data[Value]}" ]]; then kt_test_pass "ok"; else kt_test_fail "list told $QX_N times, $n dispatches, quiet $a$b$c"; fi
+
+kt_test_start "3b: another listener in the window gets the broadcast, the list still does not; the bar moved by its own mouse reaches the list (FV)"
+TQL.new qlis 0 0 1 1; listen qlis; fv.views.insert w2 qlis
+QLOG='' QX_N=0
+fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=kbPgDn; fv.views._virt app HandleEvent
+a="$QX_N $QLOG"
+QLOG='' QX_N=0
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseWheel FV_EV_MOUSE_X=79 FV_EV_MOUSE_Y=10 FV_EV_WHEEL=2; fv.views._virt app HandleEvent
+b="$QX_N" t=${w2l_data[TopItem]} v=${w2__fvsb1_data[Value]}
+eval "$src"
+fvw_unlscene
+if [[ $a == '0 qlis<cmScrollBarChanged@phFocused;' && $b == 2 && $t == "$v" && $t == 23 ]]; then kt_test_pass "ok"; else kt_test_fail "[$a] [$b] top $t bar $v"; fi
+
 kt_test_log "025_Quiet.sh completed"

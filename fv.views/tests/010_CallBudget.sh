@@ -22,7 +22,9 @@
 #     per row, so the writes grew by 21 per painted stand-in);
 #   * the drawing shape (write counter): a full frame draw <= 3 writes, a
 #     window's shadow <= 2 shade calls, a border-only frame redraw <= 4
-#     writes.
+#     writes;
+#   * (P3 3b) the list actions with their §8.1 limits, row and item
+#     independence (21 / 42 rows, 1 000 / 60 000 items).
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -152,5 +154,50 @@ fvw_writes_off; fvw_count_off
 kt_test_log "# writes border-only ${a% *} / ${b% *}"
 if (( ${a% *} <= 4 && ${b% *} <= 4 && ${a#* } == 0 && ${b#* } == 0 )) && fvw_full app; then kt_test_pass "in [$a] out [$b]"; else kt_test_fail "in [$a] out [$b] diff [$FVW_DIFF]"; fi
 app.delete
+
+# ---- P3 stage 3b: the list actions (design P3 §8.1) ----------------------------
+# The list scene (fvw_lscene): w2 holds a TListViewer with its standard bar
+# over N items; every action through the root's Execute. Limits (dispatches /
+# writes): Down 6 / 2, Down at the bottom (a scroll) 6 / 3, PgDn 8 / 3, the
+# wheel 6 / 3, a click 8 / 2, End 6 / 3. Row and item independence: the same
+# dispatches with 21 and 42 rows, 1 000 and 60 000 items
+declare -A LC=() LW=()
+lact() {   # KEY LABEL LIMIT LIMITW SPEC...
+    local k=$1 label=$2 limit=$3 lw=$4
+    shift 4
+    fvw_budgetw "list $label ($k)" "$limit" run "$@"
+    LC[$k|$label]=$FVW_LASTC LW[$k|$label]=$FVW_LASTW
+    kt_test_start "list $label ($k): at most $lw writes"
+    if (( FVW_LASTW <= lw )); then kt_test_pass "$FVW_LASTW writes"; else kt_test_fail "$FVW_LASTW writes > $lw"; fi
+}
+lactions() {   # H ITEMS
+    local k="$(( $1 - 3 )) rows, $2 items" y=$(( $1 / 2 ))
+    fvw_lscene 80 "$1" "$2"
+    fv.views.drawView app
+    lact "$k" "Down" 6 2 'key kbDown'
+    run 'key kbCtrlPgDn'
+    lact "$k" "Down at the bottom" 6 3 'key kbDown'
+    lact "$k" "PgDn" 8 3 'key kbPgDn'
+    lact "$k" "wheel" 6 3 "wheel 50 $y"
+    lact "$k" "click" 8 2 "down 50 $y" "up 50 $y"
+    lact "$k" "End" 6 3 'key kbEnd'
+    lact "$k" "Home" 6 3 'key kbHome'
+    kt_test_start "list scene ($k) after the actions: == a full repaint"
+    if fvw_full app; then kt_test_pass "ok"; else kt_test_fail "$FVW_DIFF"; fi
+    fvw_unlscene
+}
+lactions 24 1000
+lactions 24 60000
+lactions 45 1000
+lactions 45 60000
+kt_test_start "list row and item independence: every action costs the same dispatches with 21 / 42 rows and 1 000 / 60 000 items"
+bad='' ref=''
+for l in "Down" "Down at the bottom" "PgDn" "wheel" "click" "End" "Home"; do
+    ref=${LC[21 rows, 1000 items|$l]-x}
+    for k in "21 rows, 60000 items" "42 rows, 1000 items" "42 rows, 60000 items"; do
+        [[ ${LC[$k|$l]-y} == "$ref" ]] || bad+=" [$l: $ref vs $k ${LC[$k|$l]-none}]"
+    done
+done
+if [[ -z $bad && ${#LC[@]} == 28 ]]; then kt_test_pass "ok"; else kt_test_fail "$bad (${#LC[@]} counts)"; fi
 
 kt_test_log "010_CallBudget.sh completed"

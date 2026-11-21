@@ -695,4 +695,104 @@ fvw_noevents
 want="10 2 30 8|0 0 60 20|10 2 50 16|SLSLSLSLZMSLSLSLZMSLSLSL|CB(0 2)SLSLSL|FHE(evMouseDown)|cmClose|65"
 if [[ $r == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$r] want [$want]"; fi
 zr.delete; zw.delete; zk.delete
+
+# ---- P3 stage 3b: TScrollBar, TListViewer --------------------------------------
+class TUsb : TScrollBar
+    public
+        var log
+        override proc Draw
+        override func GetPalette
+        override proc HandleEvent
+        override func ScrollStep
+        override proc ScrollDraw
+end
+TUsb.Draw() { log+="D"; RESULT=clobbered; inherited Draw; }
+TUsb.GetPalette() { inherited GetPalette; RESULT="u$RESULT"; }
+TUsb.HandleEvent() { log+="H"; RESULT=clobbered; inherited HandleEvent "$@"; }
+TUsb.ScrollStep() { inherited ScrollStep "$@"; RESULT=$(( RESULT * 2 )); }
+TUsb.ScrollDraw() { log+="S"; RESULT=clobbered; inherited ScrollDraw; }
+build TUsb
+class TKsb : TScrollBar
+    public
+        var k
+end
+build TKsb
+class TUlv : TListViewer
+    public
+        var log
+        override proc Draw
+        override func GetPalette
+        override proc HandleEvent
+        override proc SetState
+        override proc ChangeBounds
+        override proc FocusItem
+        override proc SelectItem
+        override func IsSelected
+end
+TUlv.Draw() { log+="D"; RESULT=clobbered; inherited Draw; }
+TUlv.GetPalette() { inherited GetPalette; RESULT="u$RESULT"; }
+TUlv.HandleEvent() { log+="H"; RESULT=clobbered; inherited HandleEvent "$@"; }
+TUlv.SetState() { log+="T"; RESULT=clobbered; inherited SetState "$@"; }
+TUlv.ChangeBounds() { log+="C"; RESULT=clobbered; inherited ChangeBounds "$@"; }
+TUlv.FocusItem() { log+="F$1"; RESULT=clobbered; inherited FocusItem "$@"; }
+TUlv.SelectItem() { log+="S$1"; RESULT=clobbered; inherited SelectItem "$@"; }
+TUlv.IsSelected() { RESULT=clobbered; inherited IsSelected "$@"; }
+build TUlv
+class TKlv : TListViewer
+    public
+        var k
+end
+build TKlv
+TScrollBar.new bsb 0 0 1 10; TKsb.new ksb 0 0 1 10; TUsb.new usb 0 0 1 10
+TListViewer.new blv 0 0 20 10; TKlv.new klv 0 0 20 10; TUlv.new ulv 0 0 20 10
+EA=(a b c d e f g h i j k l m)
+for vw in blv klv ulv; do printf -v "${vw}_data[List]" '%s' EA; fv.views.listSetRange "$vw" 13; done
+
+kt_test_start "3b: 0 dispatches for the built-ins (TScrollBar, TListViewer, subclasses that inherit), 2 for each override + inherited"
+out=''
+for m in 'GetPalette' 'ScrollStep 5' 'ScrollDraw'; do
+    for vw in bsb ksb usb; do count fv.views._virt "$vw" $m; out+=$REPLY; done
+done
+out+=' '
+FV_EV_WHAT=evBroadcast FV_EV_COMMAND=cmX
+for m in 'GetPalette' 'HandleEvent' "SetState $FV_SF_CURSORVIS 1" 'ChangeBounds 0 0 20 10' 'FocusItem 3' 'SelectItem 2' 'IsSelected 3'; do
+    for vw in blv klv ulv; do count fv.views._virt "$vw" $m; out+=$REPLY; done
+done
+want='002002002 002002002002002002002'
+if [[ $out == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [$want]"; fi
+
+kt_test_start "3b: the RESULT rule: Draw, HandleEvent, SetState, ChangeBounds, FocusItem, SelectItem, ScrollDraw (procs) leave the caller's RESULT on both paths; GetPalette, ScrollStep answer; IsSelected answers by rc"
+r=''
+for vw in bsb usb; do RESULT=keep; fv.views._virt "$vw" ScrollDraw; r+="$RESULT,"; done
+for vw in bsb usb; do RESULT=keep; fv.views._virt "$vw" ScrollStep 7; r+="$RESULT,"; done
+for vw in bsb usb; do RESULT=keep; fv.views._virt "$vw" GetPalette; r+="$RESULT,"; done
+for m in "SetState $FV_SF_CURSORINS 1" 'ChangeBounds 0 0 20 10' 'FocusItem 4' 'SelectItem 1' 'HandleEvent'; do
+    for vw in blv ulv; do RESULT=keep; fv.views._virt "$vw" $m; r+="$RESULT,"; done
+done
+for vw in blv ulv; do RESULT=keep; fv.views._virt "$vw" IsSelected 4; r+="$?:$RESULT,"; done
+for vw in blv ulv; do RESULT=keep; fv.views._virt "$vw" IsSelected 5; r+="$?:$RESULT,"; done
+want='keep,keep,1,2,4 5 5,u4 5 5,keep,keep,keep,keep,keep,keep,keep,keep,keep,keep,0:keep,0:clobbered,1:keep,1:keep,'
+if [[ $r == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$r] want [$want]"; fi
+
+kt_test_start "3b: through the framework: a key to a user list runs its HandleEvent, FocusItem and Draw overrides (drawView for a user Draw); the bar it moves: its Draw and ScrollDraw overrides, whose broadcast reaches the user HandleEvent (L7); a double click: SelectItem and its broadcast"
+fvw_screen 40 12
+TGroup.new eg3 0 0 40 12; TView.new eb3 0 0 40 12
+fv.views.locate usb 30 0 31 10
+fv.views.insert eg3 eb3; fv.views.insert eg3 usb; fv.views.insert eg3 ulv
+fvw_root eg3
+ulv_data[VScrollBar]=usb
+fv.views.listSetRange ulv 13
+fv.views.drawView eg3
+ulv_data[log]='' usb_data[log]=''
+fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=kbEnd; fv.views._virt eg3 HandleEvent
+r="${ulv_data[log]}|${usb_data[log]}|${ulv_data[TopItem]}"
+ulv_data[log]=''
+fvw_events 'up 5 4'
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=5 FV_EV_MOUSE_Y=4 FV_EV_MOUSE_DOUBLE=1; fv.views._virt eg3 HandleEvent
+fvw_noevents
+r+=",${ulv_data[log]}"
+want='HF12HD|DS|3,HF7DS7H'
+if [[ $r == "$want" ]] && fvw_full eg3; then kt_test_pass "ok"; else kt_test_fail "got [$r] want [$want] $FVW_DIFF"; fi
+eg3.delete
+bsb.delete; ksb.delete; blv.delete; klv.delete
 kt_test_log "013_Elision.sh completed"
