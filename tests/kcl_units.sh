@@ -102,6 +102,10 @@ KCL_UNITS=(
     # (fv.app: TBackground / TDesktop / TProgram / TApplication on fv.views
     # and fv.menus; it adds its built-in bodies to fv.views' elision tables)
     "fv.app|||"
+    # (fv.dialogs: TDialog and the dialog controls on fv.views; it adds its
+    # built-in bodies, broadcast rows and hot-key texts to fv.views' tables;
+    # readonly: its FV_BF_* / FV_DP_* constants are assigned once per process)
+    "fv.dialogs||readonly|"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),

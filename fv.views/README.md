@@ -21,7 +21,9 @@ application (`TProgram` / `TApplication`, `Run`, the real event source) is
 [`fv.app`](../fv.app/README.md) (stage 2f), which uses the hooks below; the
 status line is [`fv.menus`](../fv.menus/README.md). **P3 stage 3b** adds FV's
 `TScrollBar` and `TListViewer`, `fv.views.standardScrollBar` and
-`fv.views.ctrlToArrow` ("Lists and scroll bars" below).
+`fv.views.ctrlToArrow` ("Lists and scroll bars" below). **P3 stage 3c** adds
+the **hot-key map** of the pre / post-process scan ("The hot-key map" below)
+for [fv.dialogs](../fv.dialogs/README.md)' buttons, labels and clusters.
 
 ## Quick start
 
@@ -625,6 +627,79 @@ cmGrabDefault cmReleaseDefault cmCommandSetChanged`, …). The rows of
 fv.views give exactly the rules they replaced (the quiet-walk tests and the
 call budgets are unchanged). The command is matched as a word of the row; a
 caller's `nocasematch` can only make more handlers called, never fewer.
+
+**The hot-key map** (P3 stage 3c, design §3.1, 10.3b). A focused event
+(`evKeyDown`, `evCommand`) goes to every subview with `ofPreProcess` and
+`ofPostProcess` (FV); a dialog's labels, buttons and clusters all have both,
+and their built-in handlers react there to nothing but their hot keys. So
+each group keeps a map, hot letter → the subviews that declared it, and the
+pre / post scan calls such a **mapped** view only when the key names it or
+the view is focused; every other pre / post view (a class of yours, a
+built-in with other pre / post work: the status line, a scroll bar with
+`sfHandleKeyboard`) is called as before, **in FV's Z order** — the scan walks
+the group's list as it is and skips the mapped views the key does not name
+(one string test each); the owner's `Phase` is set before every call, as
+before, and a phase whose only views were skipped still leaves the `Phase`
+a full scan would (`phPreProcess` / `phPostProcess` when an enabled view was
+skipped there; a disabled one the full scan never reaches either).
+
+* A unit registers, per built-in `HandleEvent` body with hot-key-only pre /
+  post work, where its hot texts live: `__FV_VW_HKS[BODY]` = the suffix of a
+  variable after the view's name, `_data[Title]` (one text) or `_items[@]`
+  (an array, a text per element); merged on a reload like the elision
+  table. fv.dialogs registers TButton (`Title`), TLabel (`Text`) and
+  TCluster (`_items`). A view whose class overrides `HandleEvent` is never
+  mapped. An array body may also register an **item test**,
+  `__FV_VW_HKE[BODY]=FN` (`FN V I`: rc 0 when V's text I can react;
+  fv.dialogs: TCluster's EnableMask bit, `fv.dialogs._clOn`).
+* The keys: FV's `HotKey` of each text (the character after the first `~`),
+  folded, any script (`f`, `ф`). A key names views only when it is an
+  `evKeyDown` of an Alt key (pre and post phase) or a plain character
+  (`kbChar`: the post phase only — a plain hot letter counts in
+  `phPostProcess`, FV). As `hotKeyIs` (design §14.4: typed over every view
+  first, then base): the typed character first — the views mapped with it
+  **that can react**, pass `typed` — else, for a typed character that is
+  not ASCII, the base-layout key (`FV_EV_BASE`; a plain character: the
+  layout tables), pass `base`. A view can react when it is not disabled, is
+  focused or has the option of a phase the key counts in (`ofPreProcess` /
+  `ofPostProcess` for an Alt key, `ofPostProcess` for a plain letter), and,
+  with an item test, its first text with the letter passes it: a disabled
+  `~Ф~айл`, or a check box whose `~Ф~` item is off, leaves Russian Alt+ф to
+  `~A~bout`. The widgets ask `hotKeyIs` in the same pass (the friend entry
+  `fv.views._hk HOT PLAIN VIEW`), so a typed match wins over a base match
+  across views (`~Ф~айл` and `~A~bout`: Russian Alt+ф opens Файл) — the one
+  designed difference from a full scan, which takes whichever of the two
+  comes first in Z order. The pass lives in a **local** of each
+  `TGroup.HandleEvent` (`__FV_VW_HKP`): a nested group with pre / post work,
+  or a modal loop run from a handler, decides its own and the outer group
+  gets its own back on return; when the owner dispatching the key decided
+  `typed`, a subgroup keeps `typed` (no base pass there: a typed match
+  anywhere in the tree wins over a subgroup's base match). A view the map
+  does not know (a subclass that overrides `HandleEvent` and calls the body
+  with `inherited`) asks in the `typed` pass too (no base match while a
+  typed one exists), but without a pass otherwise: the map could not see
+  its typed letter, so it compares both, as in a full scan. A typed-named
+  view whose text was written directly since the map was made (its letter
+  maybe gone) rebuilds the map before the pass is decided, as the stamp
+  does for a skipped view.
+* **The focus moved during the key**: the post list is made with the
+  focus the key came with; when a view of the pre / focused phase moves the
+  focus to a mapped view the scan left out, that view joins the post list
+  in its Z place (a focused button takes Space there, as in a full scan).
+* **Kept current**: the map is a structure cache, built at a group's first
+  focused event and dropped with the others (`fv.views._restruct`: an insert,
+  a delete, a destruction) and by `fv.views._hkDirty` (fv.dialogs' setters
+  `setTitle`, `setLabel`, `setItems`). A direct write of a text
+  (`btn_data[Title]=…`) is caught by a stamp: before the scan skips a mapped
+  view it compares the view's text with the text it was mapped from, and a
+  difference rebuilds the map for that key. "Set texts with the setters; a
+  direct write costs one rebuild on the next key."
+* `025_Quiet` compares the map with a full scan (the table emptied) on seeded
+  random groups with user pre / post views interleaved: the same reactions,
+  each with the `Phase` it saw and the `Phase` left after each event, never
+  more widget calls; fv.dialogs' `018_HotKeyMap` does it with the real
+  widgets for the cases above (a typed letter that cannot react, nested
+  groups, the focus moved, the `Phase`, direct writes of `_items` / `Text`).
 
 **Click to focus** (TView's `HandleEvent`, D8): a mouse-down on a selectable
 view that is neither selected nor disabled focuses it (`fv.views.focus`) and
@@ -1382,7 +1457,10 @@ ASCII 5.03).
 * **instance classes with FV field names**, and fields of other instances
   read and written directly under the kklass friend contract;
 * **friend entries for the fv.\* units above this one** (fv.menus,
-  fv.app — the same framework, versioned together; not for scripts): the
+  fv.app, fv.dialogs — the same framework, versioned together; not for
+  scripts; P3 3c adds the hot-key table `__FV_VW_HKS`, `fv.views._hk` and
+  `fv.views._hkDirty`, and fv.dialogs calls the bodies it builds on — its
+  README lists them): the
   elision tables `__FV_VW_IMPL` / `__FV_VW_FUNC` (a unit adds its classes'
   built-in bodies; a reload of this unit merges, so they survive), the
   quiet-broadcast table `__FV_VW_QGRP` and the broadcast table
@@ -1454,6 +1532,17 @@ calling `.new` under an `IFS` holding digits or letters fails (with letters
 `.new` crashes bash), and `inherited` fails under an `IFS` holding letters.
 The tests set such an `IFS` after the classes and instances exist.
 
+An `IFS` holding `\x01` (bash's internal quoting byte) is not supported: bash
+drops parts of `"${@:N}"` under it and misreads `[[ ]]` tests and array
+expansions, which the tree and painter code use throughout (an insert
+already fails). This holds for fv.views and fv.dialogs alike (an open item,
+for a pass of its own). P3 3c took `"${@:N}"` out of `drawPart` (without
+painter arguments) and `hotKeyIs`, where it cost nothing; the elision entry
+`fv.views._virt` keeps it (a shift there cost 1–5 µs on the hottest path for
+an `IFS` that is unsupported anyway), as do `drawPart` with painter
+arguments, `TListViewer.Create` and `fv.views._newReserved`. fv.video runs under
+its own guard since 3v.
+
 ## Tests
 
 `bash kcl/fv.views/tests/tests.sh` — headless (no terminal, no `initVideo`).
@@ -1503,7 +1592,7 @@ anything on it fails one test.
 | 022_ScrollBar | P3 3b, TScrollBar: construction (fields, GrowMode by orientation, the wheel bit); FV's look (`▲ ▓ ▼` / `◄ ►` at Max = Min, the indicator at FV's GetPos for every value of 0..100 on a 10-row and a 20-wide bar, short bars) in CScrollBar's colours; `scrollBarSet` in every form, the clamping, the refusals, RESULT kept; P3-4 (indicator kept: 0 writes, moved: 1, a range change: 1; == a full repaint); `cmScrollBarChanged` on a value change only (INFO, ID, the old PgStep seen), `cmIdCommunicate` between two bars with one Id (the sender ignores its own, an integer INFO); the keys of both orientations with WordStar, a hidden bar, `ctrlToArrow`'s table; the wheel (double: 6); the mouse on the arrows and page parts, `evMouseAuto` on / off the part, the indicator dragged in / out, a lost release ended by a key (put back), move coalescing; 0 dispatches for the built-ins; ScrollStep / ScrollDraw overrides (2 per use); `standardScrollBar`; a C-locale caller (and ASCII mode) gets the same cells |
 | 023_ListViewer | P3 3b, TListViewer: construction and its refusals (NUMCOLS, a bar that is not a TScrollBar) before anything is made; the first paint (rows, colours, the bar) == a full repaint; D25's palettes (plain window / dialog); the keys incl. Ctrl+PgUp / Ctrl+PgDn and WordStar, each == a full repaint; rule 4 (Down: 1 write, 2 dispatches; PgDn: 1 write); Space / Ins with and without Marks, `cmListItemSelected`; Marks in colour 4 under a dialog palette, an IsSelected override asked per drawn row (7 dispatches) winning over Marks; `listSetRange` / `listSetTopItem` / `listFocusItem` / `listDrawItem` and their refusals; ShowSBar on a window switch (the focused row only redrawn); the direct link (one list paint per PgDn, another listener told); L7 (a HandleEvent override gets the broadcast); the Formatter (21 calls, MaxLen 39; a bad name); ChangeBounds (the bar's steps, LastY); multi-column (layout, dividers in colour 5, Left / Right / PgDn / End, the bar's Max); fresh Cyrillic and CJK pages == a full repaint; 60 000 items (End / Home: 2 dispatches, 2 writes); reserved `List` / `Marks` names (`_fv*`, `__fv*`); an ASCII page through `writeLines` under IFS newline / tab / empty; Space / Ins with Marks: the marked row painted once (one write each), a handler moving the focus by hand: still painted; the direct link skips only the list's own vertical bar (its horizontal bar moved meanwhile reaches it) |
 | 024_ListMouse | P3 3b: the wheel on the list (± 1, double ± 4, nothing drawn at the top) and on its bar (the list follows); clicks (an item, past the last item, an inactive window: the first click only selects it); a double click (SelectItem, Marks); a double click's press then a drag (no tracking, FPC trunk: the item under the press, the drag left unread); a drag (coalesced), past the edges with every 4th evMouseAuto; a lost release ended by a key; a loop that returned early (its bar destroyed by a listener) leaves the next drag alone; the bar's arrows / auto / page / indicator scroll the list; the dispatches (2 per event + the listener's); multi-column clicks; auto-repeat end to end through fv.drivers with `__FV_DR_NOW` (a press on the bar's arrow read from a file: steps at the press, at 0.44 s and 0.49 s) |
-| 025_Quiet | P3 3a-2, the broadcast table: fv.views' rows (TView, TFrame, TGroup none; TWindow `cmSelectWindowNum`) give the replaced rules, a QGRP entry counts as `''`; the table against a full dispatch (the table emptied) on seeded random trees of plain views, frames, windows, groups, built-in bodies of the test (a leaf reacting to cmA cmB, a group reacting to cmC) with user listeners (some handle a broadcast), a user group and a user override of a built-in body interleaved — through `message` and through the group's `HandleEvent`: the same reactions in order, each seeing its owner's `Phase`, the same handler / rc, never more handler calls; adding a row and removing it; an override always called, a subclass inheriting the body following its row; the Phase stamp of a skipped quiet subgroup (its owner and the subgroup hold the Phase a full dispatch leaves); the dialog scene: a Tab reaches a listening label-like leaf with both focus broadcasts, never a built-in leaf whose row lacks them; P3 3b: the TScrollBar / TListViewer rows; a list moving its own bar: the broadcast not delivered to it (nor at all without another listener; the window quiet for it then — for that bar only), another listener told, the bar moved by its own mouse reaching the list |
+| 025_Quiet | P3 3a-2, the broadcast table: fv.views' rows (TView, TFrame, TGroup none; TWindow `cmSelectWindowNum`) give the replaced rules, a QGRP entry counts as `''`; the table against a full dispatch (the table emptied) on seeded random trees of plain views, frames, windows, groups, built-in bodies of the test (a leaf reacting to cmA cmB, a group reacting to cmC) with user listeners (some handle a broadcast), a user group and a user override of a built-in body interleaved — through `message` and through the group's `HandleEvent`: the same reactions in order, each seeing its owner's `Phase`, the same handler / rc, never more handler calls; adding a row and removing it; an override always called, a subclass inheriting the body following its row; the Phase stamp of a skipped quiet subgroup (its owner and the subgroup hold the Phase a full dispatch leaves); the dialog scene: a Tab reaches a listening label-like leaf with both focus broadcasts, never a built-in leaf whose row lacks them; P3 3b: the TScrollBar / TListViewer rows; a list moving its own bar: the broadcast not delivered to it (nor at all without another listener; the window quiet for it then — for that bar only), another listener told, the bar moved by its own mouse reaching the list; P3 3c, the hot-key map: 40 seeded random groups of hot-key bodies of the test (a Title, an _items array), user pre / post views, a focused and a disabled widget, Alt / plain / base keys, Enter, a command, a direct Title write and a focus change mid-way: the same reactions with their Phases as a full scan, fewer widget calls |
 | 026_WideEdge | P3 3a-2, the wide-row edge test: the rule on `fv.views._bands` (kept / banded / widened rectangles, two that meet, rows without wide cells, the C-locale and nested-Draw fallbacks); a static CJK scene under shadowed windows: every rectangle with its left edge at every column (widths 1 2 3 5 and to the edge) == a full repaint; a shadowed window and a plain leaf moved across CJK rows one column at a time, hide / show / reorders at every few columns, drawPart of each row with a window in front at every column, a frame border over CJK rows at every column: each == a full repaint; the narrowing (a drawPart on a CJK row no pair straddles leaves a window in front elsewhere on the row unpainted, no dispatch); seeded random CJK scenes (3 × 40 steps: moves, nudges, resizes, reorders, hide / show, drawView, drawPart, frame borders) == a full repaint after every step; drawPart through its checked path (a painter not seen, each row with a window in front at every column); the marking from fv.video's `__FV_VS_WNEW` (a row whose only pair a view in front hides by half at the first paint: a move uncovering it, a hide, the view sent behind a CJK leaf, the pair cut by the view's right edge) and seeded random scenes of one-pair rows with the views in front starting on a pair's half (4 × 30 steps, nothing marked by hand) == a full repaint; fv.video's VT model after moves over CJK rows |
 | 027_Ascii | P3 3b in ASCII mode (`FV_ASCII=1`): the bar's glyph table (`^ : # v`, `< : # >`, `#` at Max = Min), Cyrillic list rows one `?` per character (== fv.video's own cells for the text), PgDn over fresh pages / Down / End / Home and a panel switch (the frame's `|` where the bar hid) == a full repaint, multi-column CJK rows with fv.video's `|` divider |
 | 028_HotKey | P3 3L, `hotKeyIs`: Alt with the typed character (legacy `ESC f` / `ESC F`, a Cyrillic hot letter on its own key) and with the base key (Russian, Greek, Hebrew, Arabic Alt+F; Alt+X; the `;` key), AZERTY's typed letter only (never the US position), Alt + a character in no table; plain only with `plain` (ASCII, the tables for a legacy non-ASCII character, a report's base, AZERTY, a character in no table); never for Ctrl chords, Alt + F1, other events, an empty HOT; a C-locale caller (Cyrillic folded, `RESULT` kept), nocasematch, a bad word (also `PLAIN` under nocasematch, a word twice, `typed` with `base`); the two passes (`typed` / `base`) on mixed-script titles, AZERTY in the base pass, plain + base through the tables; end to end through fv.drivers (legacy and kitty bytes) |

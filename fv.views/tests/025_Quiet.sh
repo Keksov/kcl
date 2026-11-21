@@ -23,7 +23,15 @@
 #     inherits the body follows the body's row;
 #   * the dialog scene (fvw_dscene): a Tab between the controls reaches a
 #     listening label-like leaf with both focus broadcasts and never a
-#     built-in leaf whose row lacks them.
+#     built-in leaf whose row lacks them;
+#   * P3 3c, the hot-key map (10.3b): seeded random groups of built-in
+#     bodies of this test with hot-key-only pre / post work (one Title, or
+#     an _items array: __FV_VW_HKS), user pre / post views interleaved in Z
+#     order, a focused widget and a disabled one, random Alt / plain / base
+#     keys, Enter, a command, a direct Title write (h0 is a THB on purpose)
+#     and a focus change mid-way: the map gives the same reactions, with the
+#     owner's Phase each saw and the Phase left after each event, as a full
+#     scan (the table emptied), never more widget calls.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -328,5 +336,152 @@ b="$QX_N" t=${w2l_data[TopItem]} v=${w2__fvsb1_data[Value]}
 eval "$src"
 fvw_unlscene
 if [[ $a == '0 qlis<cmScrollBarChanged@phFocused;' && $b == 2 && $t == "$v" && $t == 23 ]]; then kt_test_pass "ok"; else kt_test_fail "[$a] [$b] top $t bar $v"; fi
+
+
+# ---- P3 stage 3c: the hot-key map (design §3.1, 10.3b) ----------------------------
+kt_test_section "025: the hot-key map (P3 10.3b)"
+# a built-in body of this test with hot-key-only pre / post work, like
+# fv.dialogs' TButton (one text: Title) and TCluster (an array: _items): Alt
+# + a hot letter in any phase, the plain letter in phPostProcess, Space /
+# Enter while focused; registered in __FV_VW_IMPL and __FV_VW_HKS. Each call
+# is counted per view; a reaction is noted with the owner's Phase
+declare -A HKN=()
+HKLOG=''
+fvh_note() {
+    local -n __h_d=${1}_data
+    local -n __h_o=${__h_d[Owner]}_data
+    HKLOG+="$1$2:${__h_o[Phase]}:$FV_EV_KEY$FV_EV_CHAR;"
+}
+fvh_event() {
+    HKN[$1]=$(( ${HKN[$1]:-0} + 1 ))
+    [ "$FV_EV_WHAT" = evKeyDown ] || return 0
+    local -n __h_d=${1}_data
+    local -n __h_o=${__h_d[Owner]}_data
+    local p=0 t c
+    local -a tt=()
+    if [ "${__h_o[Phase]}" = phPostProcess ]; then p=1; fi
+    if [[ -n ${__h_d[Title]+x} ]]; then tt=("${__h_d[Title]}"); else local -n __h_i=${1}_items; tt=("${__h_i[@]}"); fi
+    for t in "${tt[@]}"; do
+        c=${t#*'~'}; [ "$c" = "$t" ] && continue; c=${c:0:1}
+        if fv.views._hk "$c" "$p" "$1"; then fvh_note "$1" "!$c"; fv.views.clearEvent "$1"; return 0; fi
+    done
+    if (( ${__h_d[State]:-0} & FV_SF_FOCUSED )) && [ "$FV_EV_KEY" = kbEnter ]; then fvh_note "$1" '!enter'; fv.views.clearEvent "$1"; fi
+}
+class THB : TView
+    public
+        var Title
+        nofields override proc HandleEvent
+end
+THB.HandleEvent() { fvh_eventB "$this" "$@" || return; }
+build THB
+class THM : TView
+    public
+        nofields override proc HandleEvent
+end
+THM.HandleEvent() { fvh_eventM "$this" "$@" || return; }
+build THM
+fvh_eventB() { fvh_event "$@"; }
+fvh_eventM() { fvh_event "$@"; }
+__FV_VW_IMPL[THB.HandleEvent]=fvh_eventB __FV_VW_IMPL[THM.HandleEvent]=fvh_eventM
+# a user view with pre / post work: notes every key; handles kbF5 (one of them)
+declare -A HU_EAT=()
+class THU : TView
+    public
+        override proc HandleEvent
+end
+THU.HandleEvent() {
+    if [ "$FV_EV_WHAT" = evKeyDown ]; then
+        fvh_note "$this" '<'
+        if [ "${HU_EAT[$this]-}" = "$FV_EV_KEY" ]; then fv.views.clearEvent "$this"; fi
+    fi
+}
+build THU
+hk_on() {
+    if (( $1 )); then __FV_VW_HKS[fvh_eventB]='_data[Title]' __FV_VW_HKS[fvh_eventM]='_items[@]'
+    else unset '__FV_VW_HKS[fvh_eventB]' '__FV_VW_HKS[fvh_eventM]'; fi
+    fv.views._hkDirty
+}
+# the letters: Latin titles from LAT, Cyrillic ones from CYR (never typed
+# with a base key; as plain letters their layout bases, s and z, are no
+# title's: ы is on the US s key, я on z), Cyrillic keys with a base key from
+# CYK (no title has them): so a typed match and a base match never compete
+# (where they do, the map lets the typed one win by design: fv.dialogs'
+# 018 tests the passes)
+LAT=(a b c d e) CYR=(ы я) CYK=(ж э)
+hmk() {   # N random views into hr
+    local i k v t
+    for (( i = 0; i < $1; i++ )); do
+        # (h0 a THB on purpose: the direct Title write at event 6 always lands)
+        v=h$i k=$(( RANDOM % 6 ))
+        if (( i == 0 )); then k=0; fi
+        case $k in
+            0|1) THB.new "$v" 0 0 3 1
+                 if (( RANDOM % 4 )); then t=${LAT[RANDOM % 5]}; else t=${CYR[RANDOM % 2]}; fi
+                 printf -v "${v}_data[Title]" '%s' "x~$t~y" ;;
+            2) THM.new "$v" 0 0 3 1; declare -ga "${v}_items=(\"~${LAT[RANDOM % 5]}~1\" \"~${LAT[RANDOM % 5]}~2\" \"z\")" ;;
+            3|4) THU.new "$v" 0 0 3 1; (( RANDOM % 4 )) || HU_EAT[$v]=kbF5 ;;
+            5) TView.new "$v" 0 0 3 1 ;;
+        esac
+        local -n __h_n=${v}_data
+        case $k in
+            0|1|2) __h_n[Options]=$(( FV_OF_SELECTABLE | FV_OF_PREPROCESS | FV_OF_POSTPROCESS )) ;;
+            3|4) __h_n[Options]=$(( (RANDOM % 3 + 1) << 4 )) ;;
+            5) __h_n[Options]=$FV_OF_SELECTABLE ;;
+        esac
+        if (( k == 2 )) && (( RANDOM % 5 == 0 )); then __h_n[State]=$(( __h_n[State] | FV_SF_DISABLED )); fi
+        unset -n __h_n
+        fv.views.insert hr "$v"
+    done
+}
+# hkeys: one random event into FV_EV_*
+hkey() {
+    local r=$(( RANDOM % 9 ))
+    fv.drivers.clearEvent
+    FV_EV_WHAT=evKeyDown FV_EV_BASE=''
+    case $r in
+        0|1) FV_EV_CHAR=${LAT[RANDOM % 5]} FV_EV_KEY=kbAlt${FV_EV_CHAR^^} ;;
+        2) FV_EV_CHAR=${LAT[RANDOM % 5]} FV_EV_KEY=kbChar ;;
+        3) FV_EV_CHAR=${CYR[RANDOM % 2]} FV_EV_KEY=kbAltQ FV_EV_BASE=q ;;
+        4) FV_EV_CHAR=${CYK[RANDOM % 2]} FV_EV_BASE=${LAT[RANDOM % 5]} FV_EV_KEY=kbAlt${FV_EV_BASE^^} ;;
+        5) FV_EV_CHAR=${CYR[RANDOM % 2]} FV_EV_KEY=kbChar ;;
+        6) FV_EV_KEY=kbF5 ;;
+        7) FV_EV_KEY=kbEnter ;;
+        8) FV_EV_WHAT=evCommand FV_EV_COMMAND=cmZz ;;
+    esac
+}
+# hplay SEED MAP -> REPLY = the log of 12 events (the reactions, the outcome);
+# HCALLS = the built-in bodies' calls. A direct Title write mid-way, and a
+# focus change
+hplay() {
+    local e out='' t
+    RANDOM=$1 HKN=() HU_EAT=()
+    hk_on "$2"
+    TGroup.new hr 0 0 60 20
+    hmk $(( 4 + RANDOM % 6 ))
+    hr_data[State]=$(( hr_data[State] | FV_SF_SELECTED | FV_SF_MODAL ))
+    fv.views.setState hr "$FV_SF_FOCUSED" 1
+    for (( e = 0; e < 12; e++ )); do
+        if (( e == 6 )); then h0_data[Title]="~${LAT[RANDOM % 5]}~w"; fi
+        if (( e == 8 )); then fv.views.focusNext hr 0 || :; fi
+        HKLOG=''
+        hkey
+        fv.views._virt hr HandleEvent
+        out+="[$e $FV_EV_WHAT ${hr_data[Phase]-} $HKLOG]"
+    done
+    REPLY=$out HCALLS=0
+    for t in "${HKN[@]}"; do HCALLS=$(( HCALLS + t )); done
+    hr.delete
+    fv.drivers.clearEvent
+}
+kt_test_start "the map == a full scan: 40 seeded random groups, 12 events each (Alt / plain / base keys, user pre / post views interleaved, a focused widget, a disabled one, a direct Title write): the same reactions with their Phases, never more widget calls"
+bad='' saved=0
+for (( s = 1; s <= 40; s++ )); do
+    hplay "$s" 1; a=$REPLY ca=$HCALLS
+    hplay "$s" 0; b=$REPLY cb=$HCALLS
+    if [[ $a != "$b" ]] || (( ca > cb )); then bad+=" seed $s: map [$a] calls $ca vs full [$b] calls $cb;"; fi
+    saved=$(( saved + cb - ca ))
+done
+hk_on 0
+if [[ -z $bad ]] && (( saved > 0 )); then kt_test_pass "$saved widget calls saved"; else kt_test_fail "${bad:0:2000} saved $saved"; fi
 
 kt_test_log "025_Quiet.sh completed"

@@ -30,7 +30,8 @@ kk.unit fv.views || return $__kk_unit_rc
 # and the frame's mouse (the close / zoom icons, dragging by the top row and
 # the grow corner). P3 stage 3b (design P3_DESIGN.md §1-§3, §5): TScrollBar
 # and TListViewer (FV views.inc, FPC 2025), standardScrollBar, ctrlToArrow,
-# the tracking loops (fv.views._track).
+# the tracking loops (fv.views._track). P3 stage 3c: the hot-key map of the
+# pre / post scan (fv.views._hkLists, design §3.1, 10.3b).
 #
 # Conventions of every plain function here:
 #   * the view name first; locals `__fvw_*`; fields read and written through
@@ -285,6 +286,43 @@ __FV_VW_BCAST+=(
 declare -gA __FV_VW_SB __FV_VW_LY __FV_VW_FOK __FV_VW_AT
 __FV_VW_SB+=() __FV_VW_LY+=() __FV_VW_FOK+=() __FV_VW_AT+=()
 declare -g __FV_VW_QX=${__FV_VW_QX-} __FV_VW_TRK=${__FV_VW_TRK-} __FV_VW_PAD=''
+# (P3 stage 3c) the HOT-KEY MAP (design §3.1, 10.3b): the pre / post scan of
+# a focused event skips, without a call, a view whose built-in handler only
+# reacts to its hot keys there (fv.dialogs' TButton, TLabel, TCluster) when
+# the key names none of them and the view is not focused.
+#   HKS[BODY]  the units above register, per built-in HandleEvent body with
+#              hot-key-only pre / post work, where its hot texts live: the
+#              suffix of a variable after the view's name — `_data[Title]`
+#              (one text) or `_items[@]` (an array, one text per element).
+#              Merged on a reload, like IMPL
+#   HOT[G:K]   the map: K = a folded hot letter (FV's ~K~, any script), the
+#              value " v1  v2 " = the views of group G with that hot letter
+#   HKG[G]     1 when G's map is built and holds a view, 0 built and empty
+#   HKR[v]     a mapped view's text reference (the full variable name) and
+#   HKT[v]     the stamp it was mapped from (the text; an array's elements
+#              @Q-quoted): a skipped view whose text differs (a direct write
+#              of the field) makes the map rebuilt on that key
+#   HKE[BODY]  optional, registered like HKS for an array body: the item
+#              test `FN V I` (rc 0 = V's text I can react: TCluster's
+#              EnableMask bit), asked before a typed match counts
+#   HKI[v:K]   the index of v's first text with the hot letter K, and
+#   HKF[v]     v's item test (its body's HKE), for a body with one
+#   HKP        the pass of the key being dispatched (typed / base / ''), so
+#              the widgets' fv.views._hk asks fv.views.hotKeyIs in the same
+#              pass the map decided (a typed match wins over a base match).
+#              Each TGroup.HandleEvent holds its own as a LOCAL of
+#              fv.views._groupEvent (a nested group's dispatch, a modal loop
+#              inside a handler, gets its own; bash's dynamic scope gives
+#              the outer one back on return); the global stays ''. Only a
+#              mapped view asks in it (another one asks without a pass)
+#   HKN        (a LOCAL too) the group whose dispatch runs: a subgroup it
+#              dispatches to keeps its pass typed (asks no base key) when
+#              that owner decided typed — a typed match anywhere wins
+# The map is a structure cache: dropped with OEX by fv.views._restruct (an
+# insert, a delete, a destruction) and by fv.views._hkDirty (the setters).
+declare -gA __FV_VW_HKS __FV_VW_HOT __FV_VW_HKG __FV_VW_HKR __FV_VW_HKT __FV_VW_HKE __FV_VW_HKI __FV_VW_HKF
+__FV_VW_HKS+=() __FV_VW_HOT+=() __FV_VW_HKG+=() __FV_VW_HKR+=() __FV_VW_HKT+=() __FV_VW_HKE+=() __FV_VW_HKI+=() __FV_VW_HKF+=()
+declare -g __FV_VW_HKP='' __FV_VW_HKN=''
 printf -v __FV_VW_PAD '%*s' "$__FV_VW_MAXW" ''
 declare -gA __FV_VW_C2A=(
     [kbCtrlS]=kbLeft [kbCtrlD]=kbRight [kbCtrlE]=kbUp [kbCtrlX]=kbDown [kbCtrlA]=kbHome [kbCtrlF]=kbEnd
@@ -768,6 +806,8 @@ fv.views._virt() {
     local __fvw_c=${1}_class __fvw_f __fvw_r=${RESULT-} __fvw_s=0
     # (one simple command: the assignments run in order)
     __fvw_f="${!__fvw_c-}_class_method_owner[$2]" __fvw_f=${__FV_VW_IMPL[${!__fvw_f-}.$2]-}
+    # ("${@:3}" on the hottest path: a caller IFS holding \x01, bash's
+    # internal quoting byte, garbles that expansion — unsupported, README)
     if [[ -z $__fvw_f ]]; then "$1.$2" "${@:3}"; return; fi
     "$__fvw_f" "$1" "${@:3}" || __fvw_s=$?
     if [[ -z ${__FV_VW_FUNC[$2]-} ]] || (( __fvw_s )); then RESULT=$__fvw_r; fi
@@ -854,7 +894,7 @@ fv.views._idx() {
 # reordered, every Owner the same) drops only what depends on the order
 fv.views._restruct() {
     __FV_VW_FRL=()
-    if [[ -z ${1-} ]]; then __FV_VW_DEX=() __FV_VW_OEX=(); fi
+    if [[ -z ${1-} ]]; then __FV_VW_DEX=() __FV_VW_OEX=() __FV_VW_HOT=() __FV_VW_HKG=() __FV_VW_HKR=() __FV_VW_HKT=() __FV_VW_HKI=() __FV_VW_HKF=(); fi
 }
 
 # fv.views._calc V [ONLY] — the absolute origin and clip of V and its
@@ -2268,7 +2308,7 @@ fv.views.drawPart() {
     FV_CLIP_X1=$(( __fvw_1 - FV_DRAW_X )) FV_CLIP_Y1=$(( __fvw_2 - FV_DRAW_Y )) FV_CLIP_X2=$(( __fvw_3 - FV_DRAW_X )) FV_CLIP_Y2=$(( __fvw_4 - FV_DRAW_Y ))
     __FV_VW_P1=$__fvw_1 __FV_VW_P2=$__fvw_2 __FV_VW_P3=$__fvw_3 __FV_VW_P4=$__fvw_4
     fv.video._clipf "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4"
-    "$2" "$1" "${@:5}" || __fvw_s=$?
+    if (( $# > 4 )); then "$2" "$1" "${@:5}" || __fvw_s=$?; else "$2" "$1" || __fvw_s=$?; fi
     unset '__FV_VW_INDRAW[$1]'
     FV_DRAW_VIEW=$__fvw_sv FV_DRAW_X=$__fvw_sx FV_DRAW_Y=$__fvw_sy FV_DRAW_PAL=$__fvw_sp
     FV_CLIP_X1=$__fvw_c1 FV_CLIP_Y1=$__fvw_c2 FV_CLIP_X2=$__fvw_c3 FV_CLIP_Y2=$__fvw_c4
@@ -2323,7 +2363,7 @@ fv.views._drawPartX() {
         __FV_VW_P1=$__fvw_1 __FV_VW_P2=$__fvw_2 __FV_VW_P3=$__fvw_3 __FV_VW_P4=$__fvw_4
         fv.video._clipf "$__fvw_1" "$__fvw_2" "$__fvw_3" "$__fvw_4"
         __fvw_e=0
-        "$2" "$1" "${@:5}" || __fvw_e=$?
+        if (( $# > 4 )); then "$2" "$1" "${@:5}" || __fvw_e=$?; else "$2" "$1" || __fvw_e=$?; fi
         if (( __fvw_e )); then __fvw_s=$__fvw_e; fi
     done
     unset '__FV_VW_INDRAW[$1]'
@@ -3217,7 +3257,13 @@ fv.views.clearEvent() {
 # one twice, or typed with base: rc 2
 fv.views.hotKeyIs() {
     if [ "$FV_EV_WHAT" != evKeyDown ] || [[ -z ${1-} ]]; then return 1; fi
-    if (( $# > 1 )) && ! fv.views._hkArgs "${@:2}"; then return 2; fi
+    if (( $# > 1 )); then
+        # (shift, not "${@:2}": that expansion loses parts under an IFS holding \x01)
+        local __fvw_hh=$1
+        shift
+        fv.views._hkArgs "$@" || return 2
+        set -- "$__fvw_hh" "$@"
+    fi
     if [[ $1$FV_EV_CHAR == *[![:ascii:]]* && ${#__FV_VS_P}${#__FV_VS_B} != 11 ]]; then
         fv.video._g fv.views._hotKeyIs "$@"
         return
@@ -3302,30 +3348,52 @@ fv.views._groupEvent() {
         # one pass over the list as it is now (back to front): the views
         # with ofPreProcess / ofPostProcess (most groups have none)
         local -a __fvw_k1=() __fvw_k2=()
+        # (P3 3c, the hot-key map: __fvw_hp the key's pass, its LOCAL copy
+        # __FV_VW_HKP the widgets read (a nested dispatch sets its own and
+        # gets the outer one back on return); __fvw_hi typed when the owner
+        # dispatching this key decided typed (HKN its name: a typed match
+        # anywhere in the tree wins, a subgroup asks no base key then);
+        # __fvw_hc '+' and the Current the lists were made with, '' without
+        # the map; __fvw_q1 / __fvw_q2 the map left out an enabled view in
+        # the pre / post phase (1 / " v1  v2 "): G's Phase is set as a full
+        # scan leaves it)
+        local __fvw_hi=''
+        if [ "$__FV_VW_HKP" = typed ] && [ "${__fvw_gd[Owner]-}" = "$__FV_VW_HKN" ]; then __fvw_hi=typed; fi
+        local __fvw_hp=$__fvw_hi __fvw_hc='' __fvw_q1='' __fvw_q2='' __FV_VW_HKP=$__fvw_hi __FV_VW_HKN=$1
         # (D21: one test over the live Options of all subviews first: __FV_VW_OEX)
         if [[ -z ${__FV_VW_OEX[$1]+x} ]]; then fv.views._oexpr "$1"; fi
         if (( ${__FV_VW_OEX[$1]} )); then
-            for __fvw_k in "${__fvw_gl[@]}"; do
-                __fvw_t="${__fvw_k}_data[Options]"
-                __fvw_t=${!__fvw_t:-0}
-                if (( __fvw_t & FV_OF_PREPROCESS )); then __fvw_k1+=("$__fvw_k"); fi
-                if (( __fvw_t & FV_OF_POSTPROCESS )); then __fvw_k2+=("$__fvw_k"); fi
-            done
+            # (P3 3c: through the hot-key map when the group has one)
+            if [[ -z ${__FV_VW_HKG[$1]-} ]]; then fv.views._hkBuild "$1"; fi
+            if (( __FV_VW_HKG[$1] )); then fv.views._hkLists "$1"; __fvw_hc=+${__fvw_gd[Current]-}
+            else
+                for __fvw_k in "${__fvw_gl[@]}"; do
+                    __fvw_t="${__fvw_k}_data[Options]"
+                    __fvw_t=${!__fvw_t:-0}
+                    if (( __fvw_t & FV_OF_PREPROCESS )); then __fvw_k1+=("$__fvw_k"); fi
+                    if (( __fvw_t & FV_OF_POSTPROCESS )); then __fvw_k2+=("$__fvw_k"); fi
+                done
+            fi
         fi
         if (( ${#__fvw_k1[@]} )); then
-            __fvw_ks=("${__fvw_k1[@]}")
+            __fvw_ks=("${__fvw_k1[@]}") __FV_VW_HKP=$__fvw_hp
             fv.views._dispatch "$1" phPreProcess "$FV_OF_PREPROCESS" || return 0
         fi
         [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+        if [[ -n $__fvw_q1 ]]; then __fvw_gd[Phase]=phPreProcess; fi
         __fvw_k=${__fvw_gd[Current]-}
         if [[ -n $__fvw_k ]]; then
-            __fvw_ks=("$__fvw_k")
+            __fvw_ks=("$__fvw_k") __FV_VW_HKP=$__fvw_hp
             fv.views._dispatch "$1" phFocused 0 || return 0
         fi
+        # (the focus moved meanwhile: a view the map left out of the post
+        # list may be focused now)
+        if [[ -n $__fvw_q2 ]] && ! [ "$__fvw_hc" = "+${__fvw_gd[Current]-}" ]; then fv.views._hkRefocus; fi
         if (( ${#__fvw_k2[@]} )); then
-            __fvw_ks=("${__fvw_k2[@]}")
+            __fvw_ks=("${__fvw_k2[@]}") __FV_VW_HKP=$__fvw_hp
             fv.views._dispatch "$1" phPostProcess "$FV_OF_POSTPROCESS" || return 0
         fi
+        if [[ -n $__fvw_q2 && -n ${__FV_VW_LIVE[$1]-} ]]; then __fvw_gd[Phase]=phPostProcess; fi
     elif (( __fvw_b & FV_EM_MOUSE )); then
         fv.views._groupMouse "$1"
     else
@@ -3343,6 +3411,226 @@ fv.views._oexpr() {
     local __fvw_k __fvw_e=''
     for __fvw_k in "${__fvw_ol[@]}"; do __fvw_e+="${__fvw_k}_data[Options] | "; done
     __FV_VW_OEX[$1]="($__fvw_e 0) & $(( FV_OF_PREPROCESS | FV_OF_POSTPROCESS ))"
+}
+
+# ---- the hot-key map (P3 stage 3c, design §3.1, 10.3b; the state block: HKS) ----
+# fv.views._hkLists G [1] — TGroup.HandleEvent's pre / post lists (its locals
+# __fvw_gl, __fvw_k1, __fvw_k2, __fvw_hp, __fvw_q1, __fvw_q2) through G's
+# hot-key map, in FV's Z order: every view with ofPreProcess / ofPostProcess
+# as before, except that a MAPPED view (its handler a body of HKS) that is
+# not focused is taken only when the key names it (the pre phase: Alt keys;
+# the post phase: Alt keys and plain letters) — its built-in handler reacts
+# to nothing else there. An enabled view left out is noted (__fvw_q1 = 1 for
+# the pre phase, __fvw_q2 += " v " for the post one): the caller sets G's
+# Phase as the full scan's call would have, and a view focused meanwhile
+# joins the post list (fv.views._hkRefocus). Before a mapped view is skipped
+# its text is compared with the stamp it was mapped from: a direct field
+# write rebuilds the map once and the lists start again (the 1: no second
+# rebuild)
+fv.views._hkLists() {
+    local __fvw_k __fvw_t __fvw_r __fvw_s __fvw_e __fvw_n1 __fvw_n2 __fvw_hs='' IFS=' '
+    fv.views._hkNames "$1"
+    # (a typed-named view whose text changed since the map: rebuilt once)
+    if [[ -n $__fvw_hs && -z ${2-} ]]; then
+        fv.views._hkDirty
+        fv.views._hkBuild "$1"
+        fv.views._hkLists "$1" 1
+        return 0
+    fi
+    for __fvw_k in "${__fvw_gl[@]}"; do
+        __fvw_t="${__fvw_k}_data[Options]"
+        __fvw_t=${!__fvw_t:-0}
+        if (( ! (__fvw_t & (FV_OF_PREPROCESS | FV_OF_POSTPROCESS)) )); then continue; fi
+        __fvw_r=${__FV_VW_HKR[$__fvw_k]-}
+        if [[ -n $__fvw_r ]]; then
+            __fvw_e="${__fvw_k}_data[State]"
+            __fvw_e=${!__fvw_e:-0}
+            if (( ! (__fvw_e & FV_SF_FOCUSED) )); then
+                # (named: the case-sensitive test, whatever nocasematch says)
+                if [ "${__fvw_n2#*" $__fvw_k "}" = "$__fvw_n2" ]; then
+                    if [[ $__fvw_r == *'[@]' ]]; then __fvw_s=${!__fvw_r@Q}; else __fvw_s=${!__fvw_r-}; fi
+                    if [ "$__fvw_s" = "${__FV_VW_HKT[$__fvw_k]-}" ] || [[ -n ${2-} ]]; then
+                        if (( ! (__fvw_e & FV_SF_DISABLED) )); then
+                            if (( __fvw_t & FV_OF_PREPROCESS )); then __fvw_q1=1; fi
+                            if (( __fvw_t & FV_OF_POSTPROCESS )); then __fvw_q2+=" $__fvw_k "; fi
+                        fi
+                        continue
+                    fi
+                    __fvw_k1=() __fvw_k2=() __fvw_q1='' __fvw_q2=''
+                    fv.views._hkDirty
+                    fv.views._hkBuild "$1"
+                    fv.views._hkLists "$1" 1
+                    return 0
+                fi
+                if (( __fvw_t & FV_OF_PREPROCESS )); then
+                    if ! [ "${__fvw_n1#*" $__fvw_k "}" = "$__fvw_n1" ]; then __fvw_k1+=("$__fvw_k")
+                    elif (( ! (__fvw_e & FV_SF_DISABLED) )); then __fvw_q1=1; fi
+                fi
+                if (( __fvw_t & FV_OF_POSTPROCESS )); then __fvw_k2+=("$__fvw_k"); fi
+                continue
+            fi
+        fi
+        if (( __fvw_t & FV_OF_PREPROCESS )); then __fvw_k1+=("$__fvw_k"); fi
+        if (( __fvw_t & FV_OF_POSTPROCESS )); then __fvw_k2+=("$__fvw_k"); fi
+    done
+}
+# fv.views._hkRefocus — (TGroup.HandleEvent's locals; rare) G's Current
+# changed during the pre / focused phase: when the new Current is a view the
+# map left out of the post list (__fvw_q2) it is focused now, and the full
+# scan would call it there (a focused widget reacts to Space / Enter /
+# arrows): it joins __fvw_k2 in G's order
+fv.views._hkRefocus() {
+    local __fvw_c=${__fvw_gd[Current]-} __fvw_v __fvw_o=' '
+    if [[ -z $__fvw_c ]] || [ "${__fvw_q2#*" $__fvw_c "}" = "$__fvw_q2" ]; then return 0; fi
+    for __fvw_v in "${__fvw_k2[@]}"; do __fvw_o+="$__fvw_v "; done
+    __fvw_k2=()
+    for __fvw_v in "${__fvw_gl[@]}"; do
+        if [ "$__fvw_v" = "$__fvw_c" ] || ! [ "${__fvw_o#*" $__fvw_v "}" = "$__fvw_o" ]; then __fvw_k2+=("$__fvw_v"); fi
+    done
+}
+# fv.views._hkNames G — the caller's __fvw_n1 / __fvw_n2 (the views of G the
+# key names for the pre / the post phase: " v1  v2 ") and __fvw_hp (the pass):
+# only an evKeyDown of an Alt key or a plain character (kbChar) names views.
+# As fv.views.hotKeyIs (design §14.4: typed over every view first, then
+# base), the typed character (folded) first — the views mapped with it that
+# can react (fv.views._hkLive): pass typed —, else, for a typed character
+# that is not ASCII (or none), the base-layout key (FV_EV_BASE; a plain
+# character: the layout tables, fv.keyboard.layoutBase): pass base. Plain
+# characters name views for the post phase only (FV: a plain hot letter
+# counts in phPostProcess; a focused view is called anyway). In a subgroup
+# whose owner decided typed (the caller's __fvw_hi) there is no base pass
+fv.views._hkNames() {
+    __fvw_n1='' __fvw_n2='' __fvw_hp=$__fvw_hi
+    if [ "$FV_EV_WHAT" != evKeyDown ]; then return 0; fi
+    if [[ $FV_EV_KEY != kbAlt* && $FV_EV_KEY != kbChar ]]; then return 0; fi
+    if [[ $FV_EV_CHAR == *[![:ascii:]]* && ${#__FV_VS_P}${#__FV_VS_B} != 11 ]]; then fv.video._g fv.views._hkNamesX "$1"; return 0; fi
+    fv.views._hkNamesX "$1"
+}
+fv.views._hkNamesX() {
+    local __fvw_c=${FV_EV_CHAR,,} __fvw_b __fvw_n='' __fvw_r
+    if [[ -n $__fvw_c ]]; then __fvw_n=${__FV_VW_HOT["$1:$__fvw_c"]-}; fi
+    if [[ -n $__fvw_n ]]; then fv.views._hkLive "$__fvw_c"; fi
+    if [[ -n $__fvw_n ]]; then __fvw_hp=typed
+    elif [[ -z $__fvw_hi ]] && [[ -z $__fvw_c || $__fvw_c == *[![:ascii:]]* ]]; then
+        __fvw_b=${FV_EV_BASE-}
+        if [[ -z $__fvw_b && -n $__fvw_c ]] && [ "$FV_EV_KEY" = kbChar ]; then
+            # (>/dev/null: in a subshell layoutBase would print its answer)
+            __fvw_r=${RESULT-}
+            if fv.keyboard.layoutBase "$FV_EV_CHAR" >/dev/null 2>&1; then __fvw_b=$RESULT; fi
+            RESULT=$__fvw_r
+        fi
+        if [[ -n $__fvw_b ]]; then
+            __fvw_n=${__FV_VW_HOT["$1:${__fvw_b,,}"]-}
+            if [[ -n $__fvw_n ]]; then __fvw_hp=base; fi
+        fi
+    fi
+    __fvw_n2=$__fvw_n
+    if [ "$FV_EV_KEY" != kbChar ]; then __fvw_n1=$__fvw_n; fi
+}
+# fv.views._hkLive K — the caller's __fvw_n (the views mapped with the typed
+# letter K) cut to the views that can react to it (a disabled view never
+# matches): not disabled; focused or with an option of a phase the key
+# counts in (an Alt key: ofPreProcess or ofPostProcess; a plain character:
+# ofPostProcess); for a body with an item test (HKE), its first text with K
+# enabled (TCluster: that item's EnableMask bit). An empty answer sends the
+# key to the base pass
+fv.views._hkLive() {
+    local __fvw_v __fvw_o='' __fvw_x __fvw_m=$(( FV_OF_PREPROCESS | FV_OF_POSTPROCESS )) IFS=' '
+    if [ "$FV_EV_KEY" = kbChar ]; then __fvw_m=$FV_OF_POSTPROCESS; fi
+    # (the names are kklass identifiers: no glob character to expand)
+    for __fvw_v in $__fvw_n; do
+        __fvw_x="${__fvw_v}_data[State]"
+        __fvw_x=${!__fvw_x:-0}
+        if (( __fvw_x & FV_SF_DISABLED )); then continue; fi
+        if (( ! (__fvw_x & FV_SF_FOCUSED) )); then
+            __fvw_x="${__fvw_v}_data[Options]"
+            if (( ! (${!__fvw_x:-0} & __fvw_m) )); then continue; fi
+        fi
+        __fvw_x=${__FV_VW_HKI["$__fvw_v:$1"]-}
+        if [[ -n $__fvw_x ]] && ! "${__FV_VW_HKF[$__fvw_v]-:}" "$__fvw_v" "$__fvw_x"; then continue; fi
+        # (its text as mapped: a direct write since then may have taken the
+        # letter away — the caller rebuilds the map: __fvw_hs)
+        __fvw_x=${__FV_VW_HKR[$__fvw_v]-}
+        if [[ -n $__fvw_x ]]; then
+            if [[ $__fvw_x == *'[@]' ]]; then __fvw_x=${!__fvw_x@Q}; else __fvw_x=${!__fvw_x-}; fi
+            if ! [ "$__fvw_x" = "${__FV_VW_HKT[$__fvw_v]-}" ]; then __fvw_hs=1; continue; fi
+        fi
+        __fvw_o+=" $__fvw_v "
+    done
+    __fvw_n=$__fvw_o
+}
+# fv.views._hkBuild G — G's map: every subview whose class's HandleEvent is a
+# body registered in HKS (a class that overrides HandleEvent is never mapped)
+fv.views._hkBuild() {
+    local -n __fvw_hl=${1}_views
+    local __fvw_k __fvw_f __fvw_r IFS=' '
+    __FV_VW_HKG[$1]=0
+    for __fvw_k in "${__fvw_hl[@]}"; do
+        # (one simple command: the assignments run in order)
+        __fvw_f=${__fvw_k}_class __fvw_f="${!__fvw_f-}_class_method_owner[HandleEvent]" __fvw_f=${__FV_VW_IMPL[${!__fvw_f-}.HandleEvent]-}
+        __fvw_r=${__FV_VW_HKS[${__fvw_f:-.}]-}
+        if [[ -z $__fvw_r ]]; then continue; fi
+        fv.views._hkView "$1" "$__fvw_k" "$__fvw_k$__fvw_r" "$__fvw_f"
+        __FV_VW_HKG[$1]=1
+    done
+}
+# fv.views._hkView G V REF BODY — V's hot letters into G's map (FV HotKey:
+# the character after the first `~` of each text, folded), its stamp kept;
+# for a BODY with an item test (HKE) the index of V's first text with each
+# letter (HKI) and the test (HKF)
+fv.views._hkView() {
+    local __fvw_s __fvw_x __fvw_l __fvw_e=${__FV_VW_HKE[${4:-.}]-} __fvw_i=-1
+    local -a __fvw_tx
+    if [[ $3 == *'[@]' ]]; then
+        local -n __fvw_ha=${3%'[@]'}
+        __fvw_tx=("${__fvw_ha[@]}") __fvw_s=${!3@Q}
+    else
+        __fvw_s=${!3-}
+        __fvw_tx=("$__fvw_s")
+    fi
+    __FV_VW_HKR[$2]=$3 __FV_VW_HKT[$2]=$__fvw_s
+    if [[ -n $__fvw_e ]]; then __FV_VW_HKF[$2]=$__fvw_e; fi
+    for __fvw_x in "${__fvw_tx[@]}"; do
+        __fvw_i=$(( __fvw_i + 1 ))
+        __fvw_l=${__fvw_x#*'~'}
+        if [ "$__fvw_l" = "$__fvw_x" ] || [[ -z $__fvw_l ]]; then continue; fi
+        if [[ $__fvw_l == [![:ascii:]]* && ${#__FV_VS_P}${#__FV_VS_B} != 11 ]]; then fv.video._g fv.views._hkLetter "$__fvw_l"
+        else __fvw_l=${__fvw_l:0:1} __fvw_l=${__fvw_l,,}; fi
+        __fvw_x=${__FV_VW_HOT["$1:$__fvw_l"]-}
+        if [ "${__fvw_x#*" $2 "}" = "$__fvw_x" ]; then
+            __FV_VW_HOT["$1:$__fvw_l"]+=" $2 "
+            if [[ -n $__fvw_e ]]; then __FV_VW_HKI["$2:$__fvw_l"]=$__fvw_i; fi
+        fi
+    done
+}
+# (the first character, folded, in fv.video's UTF-8 locale: _hkView's __fvw_l)
+fv.views._hkLetter() { __fvw_l=${1:0:1} __fvw_l=${__fvw_l,,}; }
+# fv.views._hkDirty [G] — every hot-key map dropped (rebuilt at the next key
+# of each group): the setters' entry (fv.dialogs.setTitle, setLabel,
+# setItems). G is accepted for the callers' sake: one table holds all maps,
+# and dropping it whole is cheaper than finding one group's keys. RESULT kept
+fv.views._hkDirty() {
+    __FV_VW_HOT=() __FV_VW_HKG=() __FV_VW_HKR=() __FV_VW_HKT=() __FV_VW_HKI=() __FV_VW_HKF=()
+}
+# fv.views._hk HOT PLAIN [VIEW] — the widgets' hot-key test (a friend entry
+# for fv.dialogs): fv.views.hotKeyIs HOT [plain] in the pass the hot-key map
+# decided for this key (HKP: the innermost TGroup.HandleEvent's) when VIEW is
+# a mapped view (or not given). A view the map does not know (a class that
+# overrides HandleEvent and calls the body with `inherited`) asks in the
+# typed pass too (a typed match somewhere wins: no base match anywhere), but
+# without a pass otherwise: the map could not see its typed letter, so it
+# compares both, as in a full scan. PLAIN 1 allows the plain letter (the
+# caller's phase rule). RESULT kept
+fv.views._hk() {
+    if [ "$FV_EV_WHAT" != evKeyDown ] || [[ -z ${1-} ]]; then return 1; fi
+    local -a __fvw_ha=("$1")
+    if [ "${2-}" = 1 ]; then __fvw_ha+=(plain); fi
+    if [[ -n $__FV_VW_HKP ]] && [[ -z ${3-} || -n ${__FV_VW_HKR[$3]-} || $__FV_VW_HKP == typed ]]; then __fvw_ha+=("$__FV_VW_HKP"); fi
+    if [[ $1$FV_EV_CHAR == *[![:ascii:]]* && ${#__FV_VS_P}${#__FV_VS_B} != 11 ]]; then
+        fv.video._g fv.views._hotKeyIs "${__fvw_ha[@]}"
+        return
+    fi
+    fv.views._hotKeyIs "${__fvw_ha[@]}"
 }
 
 # fv.views._groupMouse G — TGroup.HandleEvent's positional event (its
