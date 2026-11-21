@@ -1,21 +1,22 @@
 # kcl/fv.dialogs — the dialogs of the fv.* text UI
 
 Layer L3 of the `fv.*` text UI ([plan](../docs/dev/fv/PLAN.md), design
-[P3_DESIGN.md](../docs/dev/fv/P3_DESIGN.md) §1–§5). Free Vision's
+[P3_DESIGN.md](../docs/dev/fv/P3_DESIGN.md) §1–§5, §15). Free Vision's
 `Dialogs` unit (FV `dialogs.inc`, FPC 2025) as [kklass](../../kklass/README.md)
 classes on [fv.views](../fv.views/README.md)' `TView` / `TWindow`, with FV's
 field names and fv.views' virtual elision: every built-in virtual runs as a
 plain function unless a class of yours overrides it.
 
-**Status: P3 stage 3d** — `TDialog`, `TButton`, `TStaticText`, `TParamText`,
+**Status: P3 stage 3h** — `TDialog`, `TButton`, `TStaticText`, `TParamText`,
 `TLabel`, `TCluster`, `TCheckBoxes`, `TRadioButtons` (3c), `TInputLine` (the
 text as clusters, FV's keys, selection, scrolling, the mouse, overwrite,
 password mode, the clipboard keys and bracketed paste) and `TListBox` (3d),
-the data transfer, the setters and FV's `NewButton` / `NewLabel`; hot keys
-through fv.views' hot-key map (any keyboard layout, design §14).
-`THistory` / `THistoryViewer` / `THistoryWindow` come with 3h.
+`THistory` / `THistoryViewer` / `THistoryWindow` (3h: the input history over
+[fv.histlist](../fv.histlist/README.md), D28), the data transfer, the
+setters and FV's `NewButton` / `NewLabel`; hot keys through fv.views'
+hot-key map (any keyboard layout, design §14).
 
-The unit loads `kklass_pascal` and `fv.views`.
+The unit loads `kklass_pascal`, `fv.views` and `fv.histlist`.
 
 ## Quick start
 
@@ -59,6 +60,9 @@ fv.views' owner-process rule.
 | `TCheckBoxes`, `TRadioButtons : TCluster` | TCluster's | as TCluster |
 | `TInputLine : TView` | `MaxLen CurPos FirstPos SelStart SelEnd PasswordChar Validator` (+ the text's clusters in `NAME_cl`, their cells in `NAME_cw`) | `TInputLine.new NAME AX AY BX BY MAXLEN` |
 | `TListBox : TListViewer` | TListViewer's (`List Formatter Marks` …) | `TListBox.new NAME AX AY BX BY [NUMCOLS [SCROLLBAR]]` |
+| `THistory : TView` | `Link HistoryId` | `THistory.new NAME AX AY BX BY LINK HISTORYID` (FV `Init(R, ALink, AHistoryId)`) |
+| `THistoryViewer : TListViewer` | `HistoryId` (+ TListViewer's; its items in `NAME_hist`) | `THistoryViewer.new NAME AX AY BX BY HSCROLLBAR VSCROLLBAR HISTORYID` |
+| `THistoryWindow : TWindow` | `Viewer` (+ TWindow's) | `THistoryWindow.new NAME AX AY BX BY HISTORYID` |
 
 * Corners, B exclusive, as every fv.views constructor (D1). FV's `NewSItem`
   chain is the items written flat after the bounds.
@@ -67,8 +71,11 @@ fv.views' owner-process rule.
   a `TButton` without a TITLE and a COMMAND, a COMMAND that is not a command
   name (letters, digits, `_`), FLAGS that are not digits; a `TParamText`
   PARAMCOUNT that is not digits; a `TInputLine` without MAXLEN or with
-  MAXLEN not digits. fv.views' own refusals (a live name, a reserved name,
-  bounds, TListViewer's NUMCOLS and bar) apply too.
+  MAXLEN not digits; a `THistory` without exactly LINK and HISTORYID, a LINK
+  that is not an identifier (or `''`), a HISTORYID that is not 0–255; a
+  `THistoryWindow` / `THistoryViewer` HISTORYID that is not 0–255. fv.views'
+  own refusals (a live name, a reserved name, bounds, TListViewer's NUMCOLS
+  and bar) apply too.
 * Constants (readonly): `FV_BF_NORMAL DEFAULT LEFTJUST BROADCAST GRABFOCUS`
   (0 1 2 4 8, FV `bf*`), `FV_DP_BLUEDIALOG CYANDIALOG GRAYDIALOG` (0 1 2).
 * Defaults (FV's Init): **TDialog** `GrowMode` 0, `Flags` `wfMove + wfClose`,
@@ -81,7 +88,10 @@ fv.views' owner-process rule.
   `$FFFFFFFF`, `Value` and `Id` 0; **TInputLine** `sfCursorVis`,
   `ofSelectable + ofFirstClick`, an empty text, all positions 0, the cursor
   at cell 1; **TListBox** TListViewer's with no horizontal bar, `Range` 0
-  (FV `SetRange(0)`).
+  (FV `SetRange(0)`); **THistory** `ofPostProcess`, `EventMask` +
+  `evBroadcast` (not selectable); **THistoryWindow** no title, no number,
+  `Flags` `wfClose`, the viewer selected; **THistoryViewer** one column, the
+  range the list's count, item 1 focused with two strings or more.
 
 ### Virtual methods
 
@@ -113,6 +123,16 @@ fv.views' owner-process rule.
 | `TInputLine` | `SetState BIT ENABLE` | proc | TView's; `sfSelected` (or `sfActive` while selected) → FV `SelectAll(ENABLE)`; `sfFocused` → drawn; P3-12: the select-then-focus sequence draws once |
 | `TInputLine` | `Valid CMD` | func (rc) | TView's; with a `Validator` function, a text and the line enabled: `cmValid` / `cmCancel` valid, any other command asks `FN TEXT` (rc 0 = valid); a "no" selects the line (FV `Select`) |
 | `TListBox` | `HandleEvent`, `Draw`, … | | TListViewer's (fv.views: keys, mouse, Marks) |
+| `THistory` | `Draw` | proc | `▐v▌` (FV `#222'~v~'#221`): the `v` in colour 2, the rest in colour 1; ASCII mode `[v]`; a wider view's other cells blank; one `writeLine` |
+| `THistory` | `HandleEvent` | proc | "The input history" below |
+| `THistory` | `GetPalette` | func | CHistory `22 23` |
+| `THistory` | `InitHistoryWindow AX AY BX BY` | func | a `THistoryWindow` over the bounds with `HistoryId` (the reserved name `NAME__fvhwN`), its `HelpCtx` the link's; `RESULT` = its name (`''`: nothing opens) |
+| `THistory` | `RecordHistory TEXT` | proc | `fv.histlist.historyAdd HistoryId TEXT`; nothing while the link is in password mode (D29) |
+| `THistoryWindow` | `GetPalette` | func | CHistoryWindow `19 19 21 24 25 19 20` |
+| `THistoryWindow` | `GetSelection` | func | the viewer's focused item: its `List` element (or its `Formatter`'s answer); `''` without a viewer |
+| `THistoryWindow` | `InitViewer HISTORYID` | proc | the horizontal and the vertical bar (`fv.views.standardScrollBar`, `sbHandleKeyboard`), then the viewer over the window's inside (`NAME__fvviewer`) on them, inserted; `Viewer` := its name |
+| `THistoryViewer` | `GetPalette` | func | CHistoryViewer `6 6 7 6 6` |
+| `THistoryViewer` | `HandleEvent` | proc | a double click or Enter → `EndModal(cmOK)`, Esc or the command `cmCancel` → `EndModal(cmCancel)` (handled); anything else TListViewer's |
 | data-bearing views | `DataSize` (func), `GetData ARRAY INDEX`, `SetData ARRAY INDEX` (procs) | | "Data" below |
 
 A class of yours overrides any of them and calls the built-in with
@@ -191,10 +211,51 @@ functions below.
   double click (SelectItem → `cmListItemSelected`); with `Marks` (a long
   checklist, D29) Space toggles the focused item's mark and Ins toggles and
   moves down.
+* **THistory**: "The input history" below.
 * The broadcast table rows (fv.views' `__FV_VW_BCAST`): TButton `cmDefault
   cmGrabDefault cmReleaseDefault cmCommandSetChanged`, TLabel
-  `cmReceivedFocus cmReleasedFocus`, TDialog `cmSelectWindowNum`, TCluster
-  and TInputLine none.
+  `cmReceivedFocus cmReleasedFocus`, TDialog `cmSelectWindowNum`, THistory
+  `cmReleasedFocus cmRecordHistory`, THistoryViewer TListViewer's
+  (`cmScrollBarChanged cmScrollBarClicked`), TCluster and TInputLine none.
+
+## The input history
+
+FV's `THistory` (dialogs.inc 3740-3990, design P3 §15, D28) over the store of
+[fv.histlist](../fv.histlist/README.md) (per process, newest first, a
+repeated string moves to the front, 64 KiB for all lists):
+
+```bash
+TInputLine.new find 14 2 56 3 255
+THistory.new hfind 56 2 59 3 find 1        # after the line; list 1 of fv.histlist
+fv.views.insert dlg find; fv.views.insert dlg hfind
+```
+
+* **Open**: Down (or Ctrl+X, FV's `CtrlToArrow`) while the link is focused,
+  or a click on the view: the link is focused (a refusal — its owner's
+  `Valid` — handles the event and opens nothing), its text recorded, and
+  `InitHistoryWindow` makes the window over FV's rect: the link's bounds one
+  cell wider on each side, from the row above it to 7 rows below it, cut to
+  the owner's extent, then one row shorter (dialogs.inc 3955-3964). The
+  owner runs it modal (`fv.views.execView`); the viewer starts on item 1
+  (item 0 is the text just recorded), item 0 when there is one string.
+* **Inside**: TListViewer's keys and mouse (Up / Down, PgUp / PgDn, Home /
+  End, the wheel, a click); Enter or a double click → `cmOK`, Esc, the
+  `cmCancel` command or the window's close icon → `cmCancel`.
+* **cmOK**: the line's text := `GetSelection`, through TInputLine's own
+  `setText` path (control characters dropped, cut to `MaxLen` clusters, so
+  wide characters and joined clusters stay whole), all of it selected, drawn.
+  Then (every answer) the window, its frame, bars and viewer are destroyed.
+* **Recording** (FV): on `cmReleasedFocus` from the link (Tab away, the
+  dialog closing with the line focused) and on `cmRecordHistory`, which
+  `TButton.Press` broadcasts to its owner first — so pressing OK records
+  every history line of the dialog. `''` is never recorded (FV). **A line in
+  password mode is never recorded** (D29): its text does not even reach
+  `RecordHistory`.
+* **The hot-key map** (fv.views README): THistory is mapped by its `Link`
+  (no hot letter) and named by the keys `kbDown` / `kbCtrlX` (fv.views'
+  `__FV_VW_HKK`): the pre / post scan calls its built-in handler for those
+  two keys only — a key nobody takes costs nothing more (`013`'s typing
+  budgets hold with a history view in the dialog).
 
 ## The input line
 
@@ -373,7 +434,18 @@ rebuild of the hot-key map at the next key (its stamp check).
   list); `SetData` keeps the item in the range (FV focuses it as given);
   FV's `Insert`, `DeleteItem`, `FreeItem` … are the caller's array
   operations followed by `fv.views.listSetRange`.
-* Not yet: history (3h); FV's `ShowMarkers`, `TMultiCheckBoxes`, validators.
+* **The history** (3h): `THistoryViewer`'s items are a copy of its list taken
+  when it is made (`NAME_hist`, its `List`) — FV's `GetText` reads the store
+  on every row, which cannot change while the window runs modal (an override
+  that records into the same list from inside it sees the copy); `GetText`
+  is not a virtual of the viewer (fv.views' TListViewer model: `List` /
+  `Formatter`), `GetSelection` reads `List` (or asks `Formatter`);
+  `HistoryWidth` (the horizontal bar's range) counts characters, as the
+  viewer's indent does; `LINK` is a view name checked at use (a name that is
+  not a live TInputLine acts as FV's nil link); the window's name is
+  reserved (`NAME__fvhwN`); a password line is never recorded (FV has no
+  password mode); FV's `Load` / `Store` (streams) are not ported.
+* Not yet: FV's `ShowMarkers`, `TMultiCheckBoxes`, validators.
 
 ## Contract (kcl README §1)
 
@@ -396,10 +468,12 @@ unsupported IFS case).
 `__FV_VW_GRP`, `__FV_VW_CRC`, `__FV_VW_ERRSYM`, `__FV_VW_PAD`, `__FV_VW_MAXW`,
 `__FV_VW_C2A`, `__FV_VW_CMDOFF`, the hooks `__FV_VW_PUTEVENT` and
 `__FV_VW_TRK`; entries in `__FV_VW_IMPL`, `__FV_VW_FUNC`, `__FV_VW_BCAST`,
-`__FV_VW_HKS` and `__FV_VW_HKE`; calls of `fv.views._virt`, `_message`, `_viewEvent`,
+`__FV_VW_HKS`, `__FV_VW_HKE` and `__FV_VW_HKK`; calls of `fv.views._virt`, `_message`, `_viewEvent`,
 `_viewSetState`, `_windowEvent`, `_windowCalcBounds`, `_groupValid`,
 `_topView`, `_track`, `_hk`, `_hkDirty`, `_done`, `_newReserved`, `_ints`,
-and for TListBox `_lvSetRange`, `_lvFocusNum`. fv.video: `fv.video._g` (its
+`_focus`, and for TListBox / THistoryViewer `_lvSetRange`, `_lvFocusNum`,
+`_lvEvent`, `_lvName`. fv.histlist: THistoryViewer copies its list from the
+store's `__FV_HL_T<ID>` (read only). fv.video: `fv.video._g` (its
 locale guard), `fv.video.clusters`, `fv.video.setClipboard` and the read of
 `__FV_VS_PNA`, `__FV_VS_P`, `__FV_VS_B`, `__FV_VS_PB`.
 
@@ -420,10 +494,13 @@ the same in the `fvviews` bench, `views-dialog-80`):
 | the dialog's full draw (`drawView`) | 0 (2) | 13 (24) |
 | typing a character into an input line (ASCII, Cyrillic, CJK; Backspace; into a scrolled 70-character line) | 0 (2) | 1 (2) |
 | Shift+Left in a scrolled line | 0 (2) | 1 (2) |
+| (3h) the typing rows above with a `THistory` after the line | the same | the same |
+| (3h) the history window opened by Down on the line (10 strings) and closed by Esc | 10 (14) | 19 (26) |
 
 The dispatches of an open + close are the application's override and
 `inherited` for F2 and the windows' list stand-ins redrawn when the dialog
-leaves; the end-to-end ones are the constructors (`.new` and `inherited`).
+leaves; the end-to-end ones and the history window's are the constructors
+(`.new` and `inherited`: the window, its frame, two bars and the viewer).
 The times are the CI bench's (design §8.3: the same-run A/B decides the
 dialog targets).
 
@@ -448,11 +525,13 @@ the scene, the modal run (`fvg_run`) and the scripted `char` / `alt` keys.
 | 010_ListBox | the constructor, newList (formatter, replacement, `''`, the alias, refusals), DataSize / GetData / SetData and through a dialog, the long checklist (Space / Ins marks over 10 000 items, `cmListItemSelected`, colour 4) |
 | 011_Data | dataSize, getData / setData order and redraw, a non-number, a view of yours with DataSize 2 behind the frame, a subgroup, TParamText; refusals |
 | 012_Focus | Tab / Shift+Tab order (each == a full repaint), arrows on buttons and clusters, a disabled button skipped; user pre / post views interleaved with the widgets (the Phase each sees, a hot key handled in pre stops them); the focus broadcasts (default look, Light) |
-| 013_CallBudget | design §8.1's budgets (the table above), each logged; == a full repaint after open + close and after the end-to-end dialog; the dialog's draw == a full repaint (3d: typing ASCII / Cyrillic / CJK, Backspace, a scrolled line, Shift+Left) |
+| 013_CallBudget | design §8.1's budgets (the table above), each logged; == a full repaint after open + close and after the end-to-end dialog; the dialog's draw == a full repaint (3d: typing ASCII / Cyrillic / CJK, Backspace, a scrolled line, Shift+Left; 3h: the same with a THistory after the line, the history window open + close) |
 | 014_ZeroFork | the whole path with `PATH=''`; the static scan of `fv.dialogs.sh` (3d: an input line and a list box through every path) |
 | 015_CallerState | one dialog scene under every caller setup: the same output, the state kept (3d: an input line — drawn with a non-ASCII `PasswordChar` too — and a list box in the scene) |
 | 016_Elision | a dialog of subclasses overriding every virtual with `inherited` == the built-in dialog (result, data, picture); 0 dispatches of the built-ins; an overridden HandleEvent never skipped by the map; the func answers and the rc answers through overrides (3d: TInputLine / TListBox subclasses overriding every virtual) |
 | 017_Palette | every widget's palette through CGrayDialog / CBlueDialog / CCyanDialog == CAppColor's entries (3d: CInputLine, CListViewer in a dialog) |
 | 018_HotKeyMap | the hot-key map with the real widgets, each scene == a full scan and the expected reaction: a typed letter on a disabled button, a masked cluster item or a button without pre / post options next to a base match (the base view reacts), an enabled typed match winning (the designed difference); nested groups with pre / post in both orders (the inner pass does not leak; an outer typed match wins over an inner base match); a subclass overriding HandleEvent (asks in the typed pass, else without one: the differential's seed 54 and 76 shapes); a typed letter written away directly (the map rebuilt before the pass); the focus moved to a button during the key (pressed in the post phase); the Phase a full scan leaves; direct writes of a cluster's `_items` element and a label's `Text` while unfocused |
+| 019_History | (3h) THistory / THistoryViewer / THistoryWindow: the constructors and their refusals; the look `▐v▌` and its colours, a wider view, ASCII `[v]`, the palettes through CHistoryWindow; Down on the focused line (the text recorded, FV's rect, modal, item 1), Esc / the close icon (the text kept, the window destroyed, == a full repaint), Down Down Enter (the chosen text, all selected, drawn), Ctrl+X, a click and a double click on a row, a click on the view, Down on an unfocused line (nothing), one string (item 0); CJK / emoji texts cut to MaxLen clusters; the rect at the owner's edges; recording on Tab, on OK by the mouse and by Enter (both lines), Esc (only the focused line), never in password mode; the hot-key map calls THistory for kbDown / kbCtrlX only |
 | 021_Ascii | ASCII mode: no shadow characters, the pressed look, marks, a Cyrillic label and a CJK static text one `?` per character, cluster columns from those cells; each == a full repaint (3d: an input line: one cell per non-ASCII character, FirstPos by those cells) |
 | 022_Clipboard | Ctrl+Ins (FV_CLIPBOARD + the OSC 52 bytes), Shift+Del, Shift+Ins / cmPaste, cmPasteText (control characters dropped, over a selection, overwrite, MaxLen, non-ASCII == fv.video's split), a paste in a modal dialog never pressing the default button, password mode refusing copy and cut, an unselected line taking nothing; a 20 000-character paste / `setText` (Cyrillic, mixed CJK / ZWJ / flags) into `MaxLen` 255 / 253: its first clusters, under 1 s (F1) |
+| 023_HistoryState | (3h) the history path with `PATH=''` (the reference answers); the same scene under IFS default / `\x1f` / empty, nocasematch, extglob, a C locale, set -u and all at once (answers and state kept; the windows made under the setup); 100 open / close cycles leave no view, array or function and no table grows; a subclass overriding every virtual with `inherited` == the built-in; overrides of `InitHistoryWindow` (a window class of yours) and `RecordHistory` used |

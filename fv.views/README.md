@@ -652,6 +652,13 @@ skipped there; a disabled one the full scan never reaches either).
   mapped. An array body may also register an **item test**,
   `__FV_VW_HKE[BODY]=FN` (`FN V I`: rc 0 when V's text I can react;
   fv.dialogs: TCluster's EnableMask bit, `fv.dialogs._clOn`).
+* (P3 3h) A body that reacts in the pre / post phase to named keys rather
+  than to a hot letter registers them: `__FV_VW_HKK[BODY]='kbA kbB'` (key
+  names, `FV_EV_KEY`; merged on a reload like HKS). The map holds them as
+  `HOT[G:#KEY]`: such a key (any `evKeyDown` that is not an Alt key or
+  `kbChar`) names those views in both phases, no pass. fv.dialogs' THistory
+  registers `kbDown kbCtrlX` with `HKS` `_data[Link]` (no hot letter): its
+  handler is called for those two keys only.
 * The keys: FV's `HotKey` of each text (the character after the first `~`),
   folded, any script (`f`, `ф`). A key names views only when it is an
   `evKeyDown` of an Alt key (pre and post phase) or a plain character

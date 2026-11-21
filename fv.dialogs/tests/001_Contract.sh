@@ -18,7 +18,7 @@ fvg_init "$(basename "$0" .sh)" "$@"
 UNIT="$(cd "$FVG_TESTS_DIR/.." && pwd)/fv.dialogs.sh"
 KBOOL="$(cd "$FVG_TESTS_DIR/../../.." && pwd)/kbool.sh"
 TMP=$FVW_TMP
-CLASSES='TDialog TButton TStaticText TParamText TLabel TCluster TCheckBoxes TRadioButtons TInputLine TListBox'
+CLASSES='TDialog TButton TStaticText TParamText TLabel TCluster TCheckBoxes TRadioButtons TInputLine TListBox THistoryViewer THistoryWindow THistory'
 
 kt_test_section "001: the kcl contract"
 
@@ -42,6 +42,10 @@ for m in Draw Mark Press MovedTo SetData; do [ "${TRadioButtons_class_method_own
 for m in Draw HandleEvent GetPalette SetState Valid DataSize GetData SetData SelectAll; do [ "${TInputLine_class_method_owner[$m]-}" = TInputLine ] || miss+=" TInputLine.$m"; done
 for m in DataSize GetData SetData NewList; do [ "${TListBox_class_method_owner[$m]-}" = TListBox ] || miss+=" TListBox.$m"; done
 [ "${TListBox_class_method_owner[HandleEvent]-}" = TListViewer ] || miss+=' TListBox.HandleEvent(TListViewer)'
+for m in Draw HandleEvent GetPalette InitHistoryWindow RecordHistory; do [ "${THistory_class_method_owner[$m]-}" = THistory ] || miss+=" THistory.$m"; done
+for m in GetPalette HandleEvent; do [ "${THistoryViewer_class_method_owner[$m]-}" = THistoryViewer ] || miss+=" THistoryViewer.$m"; done
+for m in GetPalette GetSelection InitViewer; do [ "${THistoryWindow_class_method_owner[$m]-}" = THistoryWindow ] || miss+=" THistoryWindow.$m"; done
+declare -F fv.histlist.historyAdd >/dev/null || miss+=' fv.histlist(kk.uses)'
 for v in FV_BF_NORMAL FV_BF_DEFAULT FV_BF_LEFTJUST FV_BF_BROADCAST FV_BF_GRABFOCUS FV_DP_BLUEDIALOG FV_DP_CYANDIALOG FV_DP_GRAYDIALOG; do
     [[ ${!v@a} == *r* ]] || miss+=" $v(readonly)"
 done
@@ -61,7 +65,8 @@ for c in $CLASSES; do
     unset -n __o
 done
 t="${__FV_VW_FUNC[GetText]-}${__FV_VW_FUNC[Mark]-}${__FV_VW_FUNC[DataSize]-}|${__FV_VW_BCAST[fv.dialogs._btnEvent]-}|${__FV_VW_BCAST[fv.dialogs._lblEvent]-}|${__FV_VW_HKS[fv.dialogs._btnEvent]-}${__FV_VW_HKS[fv.dialogs._lblEvent]-}${__FV_VW_HKS[fv.dialogs._clEvent]-}|${__FV_VW_HKE[fv.dialogs._clEvent]-}|${__FV_VW_BCAST[fv.dialogs._ilEvent]+set}"
-if [[ -z $bad && $t == '111|cmDefault cmGrabDefault cmReleaseDefault cmCommandSetChanged|cmReceivedFocus cmReleasedFocus|_data[Title]_data[Text]_items[@]|fv.dialogs._clOn|set' ]]; then kt_test_pass ok
+t+="|${__FV_VW_FUNC[GetSelection]-}${__FV_VW_FUNC[InitHistoryWindow]-}|${__FV_VW_BCAST[fv.dialogs._hiEvent]-}|${__FV_VW_BCAST[fv.dialogs._hvEvent]-}|${__FV_VW_HKS[fv.dialogs._hiEvent]-}|${__FV_VW_HKK[fv.dialogs._hiEvent]-}"
+if [[ -z $bad && $t == '111|cmDefault cmGrabDefault cmReleaseDefault cmCommandSetChanged|cmReceivedFocus cmReleasedFocus|_data[Title]_data[Text]_items[@]|fv.dialogs._clOn|set|11|cmReleasedFocus cmRecordHistory|cmScrollBarChanged cmScrollBarClicked|_data[Link]|kbDown kbCtrlX' ]]; then kt_test_pass ok
 else kt_test_fail "missing:$bad tables [$t]"; fi
 
 expect_clean() {
@@ -174,7 +179,8 @@ unset q D v L
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
-cl='TDialog|TButton|TStaticText|TParamText|TLabel|TCluster|TCheckBoxes|TRadioButtons|TInputLine|TListBox'
-newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE "^(__FV_DG_[A-Z]+|($cl)_[A-Za-z_]+|RESULT|REPLY|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft|FVO|__FV_(VW|VS|VI|DR|KB|MS|UN)_[A-Za-z0-9_]+|FV_[A-Z0-9_]+)\$" | tr '\n' ' ')"
-newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE "^((fv\\.dialogs|$cl)\\..*|__kk[cm]\\.($cl)(\\..*)?|ge)\$" | tr '\n' ' ')"
+cl='TDialog|TButton|TStaticText|TParamText|TLabel|TCluster|TCheckBoxes|TRadioButtons|TInputLine|TListBox|THistoryViewer|THistoryWindow|THistory'
+# (fv.histlist: loaded by fv.dialogs' kk.uses line — its __FV_HL_* and fv.histlist.*)
+newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE "^(__FV_DG_[A-Z]+|($cl)_[A-Za-z_]+|RESULT|REPLY|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft|FVO|__FV_(VW|VS|VI|DR|KB|MS|UN|HL)_[A-Za-z0-9_]+|FV_[A-Z0-9_]+)\$" | tr '\n' ' ')"
+newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE "^((fv\\.dialogs|fv\\.histlist|$cl)\\..*|__kk[cm]\\.($cl)(\\..*)?|ge)\$" | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass "ok"; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi

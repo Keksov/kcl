@@ -1416,7 +1416,7 @@ later opt-in once a live check shows what Cygwin-family programs see in Windows 
 * **THistory** (FV dialogs.inc:3873-3990): a 3-cell view after the input line (`▐v▌`, CHistory),
   `ofPostProcess`, broadcasts. **Down** on its focused link (through `CtrlToArrow`) or a click
   on it: focus the link, `RecordHistory` (the link's text), open a **THistoryWindow** (a TWindow
-  with a THistoryViewer and its bar; CHistoryWindow) placed as FV: one cell left and right of the
+  with a THistoryViewer and its two bars as FV InitViewer; CHistoryWindow) placed as FV: one cell left and right of the
   link, 7 rows down, cut to the owner (dialogs.inc:3955-3964), executed by the owner (`execView`,
   modal); the viewer starts on item 1 (item 0 is the text just recorded, dialogs.inc:3760-3761);
   Enter / double click → `cmOK`, Esc → `cmCancel` (3801-3814); on `cmOK` the line gets the

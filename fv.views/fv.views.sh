@@ -307,6 +307,11 @@ declare -g __FV_VW_QX=${__FV_VW_QX-} __FV_VW_TRK=${__FV_VW_TRK-} __FV_VW_PAD=''
 #              EnableMask bit), asked before a typed match counts
 #   HKI[v:K]   the index of v's first text with the hot letter K, and
 #   HKF[v]     v's item test (its body's HKE), for a body with one
+#   HKK[BODY]  optional (P3 3h), registered like HKS: the key names
+#              (FV_EV_KEY, not Alt keys or kbChar) that name a view of that
+#              body although it has no hot letter — fv.dialogs' THistory,
+#              opened by kbDown / kbCtrlX while its link is focused; the map
+#              holds them as HOT[G:#KEY] (merged on a reload, like HKS)
 #   HKP        the pass of the key being dispatched (typed / base / ''), so
 #              the widgets' fv.views._hk asks fv.views.hotKeyIs in the same
 #              pass the map decided (a typed match wins over a base match).
@@ -320,8 +325,8 @@ declare -g __FV_VW_QX=${__FV_VW_QX-} __FV_VW_TRK=${__FV_VW_TRK-} __FV_VW_PAD=''
 #              that owner decided typed — a typed match anywhere wins
 # The map is a structure cache: dropped with OEX by fv.views._restruct (an
 # insert, a delete, a destruction) and by fv.views._hkDirty (the setters).
-declare -gA __FV_VW_HKS __FV_VW_HOT __FV_VW_HKG __FV_VW_HKR __FV_VW_HKT __FV_VW_HKE __FV_VW_HKI __FV_VW_HKF
-__FV_VW_HKS+=() __FV_VW_HOT+=() __FV_VW_HKG+=() __FV_VW_HKR+=() __FV_VW_HKT+=() __FV_VW_HKE+=() __FV_VW_HKI+=() __FV_VW_HKF+=()
+declare -gA __FV_VW_HKS __FV_VW_HOT __FV_VW_HKG __FV_VW_HKR __FV_VW_HKT __FV_VW_HKE __FV_VW_HKI __FV_VW_HKF __FV_VW_HKK
+__FV_VW_HKS+=() __FV_VW_HOT+=() __FV_VW_HKG+=() __FV_VW_HKR+=() __FV_VW_HKT+=() __FV_VW_HKE+=() __FV_VW_HKI+=() __FV_VW_HKF+=() __FV_VW_HKK+=()
 declare -g __FV_VW_HKP='' __FV_VW_HKN=''
 printf -v __FV_VW_PAD '%*s' "$__FV_VW_MAXW" ''
 declare -gA __FV_VW_C2A=(
@@ -3498,11 +3503,16 @@ fv.views._hkRefocus() {
 # character: the layout tables, fv.keyboard.layoutBase): pass base. Plain
 # characters name views for the post phase only (FV: a plain hot letter
 # counts in phPostProcess; a focused view is called anyway). In a subgroup
-# whose owner decided typed (the caller's __fvw_hi) there is no base pass
+# whose owner decided typed (the caller's __fvw_hi) there is no base pass.
+# (P3 3h) Any other key names the views mapped with it by HKK (HOT[G:#KEY],
+# both phases, no pass): THistory for kbDown / kbCtrlX
 fv.views._hkNames() {
     __fvw_n1='' __fvw_n2='' __fvw_hp=$__fvw_hi
     if [ "$FV_EV_WHAT" != evKeyDown ]; then return 0; fi
-    if [[ $FV_EV_KEY != kbAlt* && $FV_EV_KEY != kbChar ]]; then return 0; fi
+    if [[ $FV_EV_KEY != kbAlt* && $FV_EV_KEY != kbChar ]]; then
+        __fvw_n2=${__FV_VW_HOT["$1:#${FV_EV_KEY-}"]-} __fvw_n1=${__FV_VW_HOT["$1:#${FV_EV_KEY-}"]-}
+        return 0
+    fi
     if [[ $FV_EV_CHAR == *[![:ascii:]]* && ${#__FV_VS_P}${#__FV_VS_B} != 11 ]]; then fv.video._g fv.views._hkNamesX "$1"; return 0; fi
     fv.views._hkNamesX "$1"
 }
@@ -3602,6 +3612,12 @@ fv.views._hkView() {
             if [[ -n $__fvw_e ]]; then __FV_VW_HKI["$2:$__fvw_l"]=$__fvw_i; fi
         fi
     done
+    # (P3 3h: the keys that name V without a hot letter, HOT[G:#KEY])
+    if [[ -n ${__FV_VW_HKK[${4:-.}]-} ]]; then
+        local IFS=' '
+        # (key names: no glob character to expand)
+        for __fvw_x in ${__FV_VW_HKK[$4]}; do __FV_VW_HOT["$1:#$__fvw_x"]+=" $2 "; done
+    fi
 }
 # (the first character, folded, in fv.video's UTF-8 locale: _hkView's __fvw_l)
 fv.views._hkLetter() { __fvw_l=${1:0:1} __fvw_l=${__fvw_l,,}; }

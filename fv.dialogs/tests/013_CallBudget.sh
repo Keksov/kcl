@@ -13,7 +13,13 @@
 #     limit 30 / 26;
 #   * the dialog's full draw (drawView): limit 2 / 24;
 #   * a hot key (Alt+K) pressing OK, Space on a check box (one write), a
-#     radio move (one write); each scene == a full repaint.
+#     radio move (one write); each scene == a full repaint;
+#   * (3d) typing into an input line; (3h) the same with a THistory after
+#     the line (the hot-key map calls it for kbDown / kbCtrlX only: the
+#     typing budgets unchanged), and the history window opened by Down on
+#     the line and closed by Esc (10 strings; the window, its frame, two
+#     bars and the viewer made and destroyed: 10 dispatches, the
+#     constructors, and 19 writes measured): limit 14 / 26.
 # The counts are logged ("# calls" / "# writes"); deltas are taken against a
 # run with only the closing key, so the loop's own reads cancel out.
 
@@ -111,6 +117,10 @@ fv.views.delete desk dlg
 # Current (its text selected as the dialog opens: FV's SelectAll on focus)
 TInputLine.new tin 3 8 40 9 255
 fv.views.insert dlg tin
+# (P3 3h) its history view: the typing budgets below hold with it
+THistory.new thi 40 8 43 9 tin 1
+fv.views.insert dlg thi
+for i in {1..10}; do fv.histlist.historyAdd 1 "search text $i"; done
 fv.views.select tin
 budget dlg.type 2 2 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'char a' 'key kbCtrlF4'
 budget dlg.type-cyr 2 2 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'char ж' 'key kbCtrlF4'
@@ -120,6 +130,8 @@ fv.dialogs.setText tin "$(printf 'w%.0s' {1..70})"
 budget dlg.type-scrolled 2 2 'key kbF2' 'key kbEnd' 'key kbCtrlF4' -- 'key kbF2' 'key kbEnd' 'char a' 'key kbCtrlF4'
 fv.dialogs.setText tin "$(printf 'w%.0s' {1..70})"
 budget dlg.shift-left 2 2 'key kbF2' 'key kbEnd' 'key kbCtrlF4' -- 'key kbF2' 'key kbEnd' 'key kbShiftLeft' 'key kbCtrlF4'
+fv.dialogs.setText tin 'search text 3'
+budget dlg.history-open-close 14 26 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'key kbDown' 'key kbEsc' 'key kbCtrlF4'
 kt_test_start "after the typing: == a full repaint"
 fv.views.insert desk dlg; fv.views.select dlg
 if fvw_full app; then kt_test_pass ok; else kt_test_fail "$FVW_DIFF"; fi

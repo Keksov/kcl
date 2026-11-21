@@ -9,8 +9,9 @@ kk.unit fv.dialogs || return $__kk_unit_rc
 # over the GetData / SetData / DataSize virtuals), the setters and FV's TDialog
 # helpers; stage 3d TInputLine (clusters, FV's keys, selection, scrolling,
 # the mouse, overwrite, password mode, the clipboard keys and bracketed
-# paste) and TListBox. THistory comes with 3h.
-# Design: kcl/docs/dev/fv/P3_DESIGN.md (§1, §2.1, §2.4-§2.7, §3, §4, §5);
+# paste) and TListBox; stage 3h THistory, THistoryViewer and THistoryWindow
+# (the input history over fv.histlist, D28).
+# Design: kcl/docs/dev/fv/P3_DESIGN.md (§1, §2.1, §2.4-§2.7, §3, §4, §5, §15);
 # API and deviations: README.md.
 #
 # Conventions (as fv.views'): locals `__fvg_*` (fv.drivers has __fvd_), the
@@ -30,13 +31,15 @@ kk.unit fv.dialogs || return $__kk_unit_rc
 # __FV_VW_ERRSYM, __FV_VW_PAD, __FV_VW_MAXW, __FV_VW_C2A, the disabled-command
 # set __FV_VW_CMDOFF, the hooks __FV_VW_PUTEVENT and __FV_VW_TRK; entries added
 # to __FV_VW_IMPL, __FV_VW_FUNC, the broadcast table __FV_VW_BCAST and the
-# hot-key tables __FV_VW_HKS / __FV_VW_HKE (the cluster's item test); calls of
-# fv.views._virt, _message, _viewEvent,
-# _viewSetState, _windowEvent, _windowCalcBounds, _groupValid, _topView,
-# _track, _hk, _hkDirty, _newReserved and (TListBox) _lvSetRange,
-# _lvFocusNum. fv.video: _g (its guard), clusters, setClipboard.
+# hot-key tables __FV_VW_HKS / __FV_VW_HKE (the cluster's item test) /
+# __FV_VW_HKK (THistory's keys); calls of fv.views._virt, _message,
+# _viewEvent, _viewSetState, _windowEvent, _windowCalcBounds, _groupValid,
+# _topView, _track, _hk, _hkDirty, _newReserved, _focus and (TListBox,
+# THistoryViewer) _lvSetRange, _lvFocusNum, _lvEvent. fv.video: _g (its
+# guard), clusters, setClipboard. fv.histlist (stage 3h): THistoryViewer
+# copies a list's strings from its store __FV_HL_T<ID> (read only).
 
-kk.uses kklass_pascal fv.views || return
+kk.uses kklass_pascal fv.views fv.histlist || return
 
 # ---- constants (FV values; readonly once per process) -------------------------
 # TButton Flags (FV bf*), TDialog Palette (FV dp*)
@@ -364,6 +367,98 @@ TListBox.SetData() { fv.dialogs._lbSetData "$this" "$@" || return; }
 TListBox.NewList() { fv.dialogs.newList "$this" "$@" || return; }
 build TListBox
 
+# (P3 stage 3h) THistoryViewer.new NAME AX AY BX BY HSCROLLBAR VSCROLLBAR
+# HISTORYID — FV THistoryViewer.Init(Bounds, AHScrollBar, AVScrollBar,
+# AHistoryId): TListViewer's (one column, the bars), HistoryId, the range the
+# list's count, item 1 focused when there are two or more (item 0 is the text
+# just recorded), the horizontal bar's range 1 .. the widest string - SizeX
+# + 3. Its items: a copy of list HISTORYID's strings in ${NAME}_hist (List;
+# FV's GetText reads the store, which cannot change while the window runs
+# modal). Enter / a double click -> EndModal(cmOK), Esc / cmCancel ->
+# EndModal(cmCancel). Refused before anything is made (rc 2, one Error
+# line): HISTORYID not 0-255 (the bars: TListViewer's refusal)
+class THistoryViewer : TListViewer
+    public
+        var HistoryId
+        constructor Create
+        nofields destructor Done
+        nofields override func GetPalette
+        nofields override proc HandleEvent
+end
+THistoryViewer.Create() {
+    fv.dialogs._hvArgs "$this" "$@" || return
+    set -- "$1" "$2" "$3" "$4" 1 "${5-}" "${6-}" "$7"
+    inherited
+    [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
+    fv.dialogs._hvCreate "$this" "$8"
+}
+THistoryViewer.Done() { fv.dialogs._free "$this"; fv.views._done "$this"; }
+THistoryViewer.GetPalette() { fv.dialogs._hvGetPalette "$this" || return; }
+THistoryViewer.HandleEvent() { fv.dialogs._hvEvent "$this" "$@" || return; }
+build THistoryViewer
+
+# (P3 stage 3h) THistoryWindow.new NAME AX AY BX BY HISTORYID — FV
+# THistoryWindow.Init(Bounds, HistoryId): TWindow's (no title, wnNoNumber),
+# Flags wfClose, InitViewer (virtual), SelectNext(False) (the viewer
+# selected). Viewer = the viewer's name. Refused before anything is made
+# (rc 2, one Error line): HISTORYID not 0-255
+class THistoryWindow : TWindow
+    public
+        var Viewer
+        constructor Create
+        nofields override func GetPalette
+        nofields func GetSelection
+        nofields proc InitViewer
+end
+THistoryWindow.Create() {
+    fv.dialogs._hwArgs "$this" "$@" || return
+    local __fvg_hid=$5
+    set -- "$1" "$2" "$3" "$4" '' "$FV_WN_NONUMBER"
+    inherited
+    [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
+    fv.dialogs._hwCreate "$this" "$__fvg_hid"
+}
+THistoryWindow.GetPalette() { fv.dialogs._hwGetPalette "$this" || return; }
+THistoryWindow.GetSelection() { fv.dialogs._hwGetSelection "$this" || return; }
+THistoryWindow.InitViewer() { fv.dialogs._hwInitViewer "$this" "$@" || return; }
+build THistoryWindow
+
+# (P3 stage 3h) THistory.new NAME AX AY BX BY LINK HISTORYID — FV
+# THistory.Init(Bounds, ALink, AHistoryId): TView's, then ofPostProcess,
+# EventMask + evBroadcast; LINK = the input line it belongs to ('' or a name
+# that is not a live TInputLine when used: FV's nil link, the view does
+# nothing), HISTORYID the fv.histlist list (0-255). Down on the focused link
+# (or Ctrl+X: FV CtrlToArrow) or a click on the view opens the history
+# window; cmReleasedFocus from the link and cmRecordHistory (TButton's Press)
+# record the link's text (never in password mode, D29). Refused before
+# anything is made (rc 2, one Error line): a wrong count, LINK not an
+# identifier, HISTORYID not 0-255
+class THistory : TView
+    public
+        var Link
+        var HistoryId
+        constructor Create
+        nofields destructor Done
+        nofields override proc Draw
+        nofields override proc HandleEvent
+        nofields override func GetPalette
+        nofields func InitHistoryWindow
+        nofields proc RecordHistory
+end
+THistory.Create() {
+    fv.dialogs._hiArgs "$this" "$@" || return
+    inherited
+    [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
+    fv.dialogs._hiCreate "$this" "$5" "$6"
+}
+THistory.Done() { fv.dialogs._free "$this"; fv.views._done "$this"; }
+THistory.Draw() { fv.dialogs._hiDraw "$this" || return; }
+THistory.HandleEvent() { fv.dialogs._hiEvent "$this" "$@" || return; }
+THistory.GetPalette() { fv.dialogs._hiGetPalette "$this" || return; }
+THistory.InitHistoryWindow() { fv.dialogs._hiInitWindow "$this" "$@" || return; }
+THistory.RecordHistory() { fv.dialogs._hiRecord "$this" "$@" || return; }
+build THistory
+
 # fv.dialogs._register — the built-in bodies into fv.views' elision table,
 # the broadcast reactions into its broadcast table (design §1.5) and the
 # hot-key texts into its hot-key table (§3.1); fv.views merges the tables on
@@ -418,12 +513,29 @@ fv.dialogs._register() {
     __FV_VW_IMPL[TListBox.DataSize]=fv.dialogs._lbDataSize
     __FV_VW_IMPL[TListBox.GetData]=fv.dialogs._lbGetData
     __FV_VW_IMPL[TListBox.SetData]=fv.dialogs._lbSetData
+    __FV_VW_IMPL[THistoryViewer.GetPalette]=fv.dialogs._hvGetPalette
+    __FV_VW_IMPL[THistoryViewer.HandleEvent]=fv.dialogs._hvEvent
+    __FV_VW_IMPL[THistoryWindow.GetPalette]=fv.dialogs._hwGetPalette
+    __FV_VW_IMPL[THistoryWindow.GetSelection]=fv.dialogs._hwGetSelection
+    __FV_VW_IMPL[THistoryWindow.InitViewer]=fv.dialogs._hwInitViewer
+    __FV_VW_IMPL[THistory.Draw]=fv.dialogs._hiDraw
+    __FV_VW_IMPL[THistory.HandleEvent]=fv.dialogs._hiEvent
+    __FV_VW_IMPL[THistory.GetPalette]=fv.dialogs._hiGetPalette
+    __FV_VW_IMPL[THistory.InitHistoryWindow]=fv.dialogs._hiInitWindow
+    __FV_VW_IMPL[THistory.RecordHistory]=fv.dialogs._hiRecord
     __FV_VW_FUNC[GetText]=1 __FV_VW_FUNC[Mark]=1 __FV_VW_FUNC[DataSize]=1
+    __FV_VW_FUNC[GetSelection]=1 __FV_VW_FUNC[InitHistoryWindow]=1
     __FV_VW_BCAST[fv.dialogs._dlgEvent]='cmSelectWindowNum'
     __FV_VW_BCAST[fv.dialogs._btnEvent]='cmDefault cmGrabDefault cmReleaseDefault cmCommandSetChanged'
     __FV_VW_BCAST[fv.dialogs._lblEvent]='cmReceivedFocus cmReleasedFocus'
     __FV_VW_BCAST[fv.dialogs._clEvent]=''
     __FV_VW_BCAST[fv.dialogs._ilEvent]=''
+    __FV_VW_BCAST[fv.dialogs._hiEvent]='cmReleasedFocus cmRecordHistory'
+    __FV_VW_BCAST[fv.dialogs._hvEvent]='cmScrollBarChanged cmScrollBarClicked'
+    # (THistory: mapped by its Link — no hot letter — and named by the keys
+    # that can open it, so the map calls it for nothing else: HKK)
+    __FV_VW_HKS[fv.dialogs._hiEvent]='_data[Link]'
+    __FV_VW_HKK[fv.dialogs._hiEvent]='kbDown kbCtrlX'
     __FV_VW_HKS[fv.dialogs._btnEvent]='_data[Title]'
     __FV_VW_HKS[fv.dialogs._lblEvent]='_data[Text]'
     __FV_VW_HKS[fv.dialogs._clEvent]='_items[@]'
@@ -483,6 +595,7 @@ fv.dialogs._free() {
     done
     if [ "${__FV_DG_KIND[$1]-}" = cl ]; then unset "${1}_items" "${1}_cpl" "${1}_cpp" "${1}_cpw" "${1}_chot"; fi
     if [ "${__FV_DG_KIND[$1]-}" = il ]; then unset "${1}_cl" "${1}_cw"; fi
+    if [ "${__FV_DG_KIND[$1]-}" = hv ]; then unset "${1}_hist"; fi
     unset '__FV_DG_CK[$1]' '__FV_DG_CN[$1]' '__FV_DG_KIND[$1]' '__FV_DG_PK[$1]' '__FV_DG_PN[$1]' '__FV_DG_IW[$1]' '__FV_DG_IO[$1]'
     return 0
 }
@@ -2393,6 +2506,290 @@ fv.dialogs.newList() {
     if (( __fvg_n > 0 )) && [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views._virt "$1" FocusItem 0 || :; fi
     if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views.drawView "$1" || :; fi
     RESULT=$__fvg_rr
+}
+
+# ---- THistory, THistoryViewer, THistoryWindow (FV dialogs.inc; design P3 §15) -----
+# fv.dialogs._hid ID — rc 0 for a history id: 0-255, plain digits
+fv.dialogs._hid() {
+    [[ -n $1 && $1 != *[!0123456789]* && ${#1} -le 3 ]] && (( 10#$1 <= 255 ))
+}
+# fv.dialogs._hiArgs H AX AY BX BY LINK HISTORYID — the refusals
+fv.dialogs._hiArgs() {
+    if (( $# != 7 )) || ! fv.dialogs._hid "$7" || [[ $6 == *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_]* ]]; then
+        local __fvg_v=$1 IFS=' '
+        shift
+        fv.dialogs._err "THistory.Create: '$__fvg_v': the arguments are AX AY BX BY LINK HISTORYID (LINK an input line's name or ''; HISTORYID 0-255) (got: $*)"
+        __FV_VW_CRC=2
+        return 2
+    fi
+}
+fv.dialogs._hiCreate() {   # H LINK HISTORYID
+    local -n __fvg_d=${1}_data
+    fv.dialogs._free "$1"
+    if [[ -z ${__FV_VW_IMPL[THistory.Draw]-} ]]; then fv.dialogs._register; fi
+    __fvg_d[Options]=$(( ${__fvg_d[Options]:-0} | FV_OF_POSTPROCESS ))
+    __fvg_d[EventMask]=$(( ${__fvg_d[EventMask]:-0} | FV_EM_BROADCAST ))
+    __fvg_d[Link]=$2 __fvg_d[HistoryId]=$(( 10#$3 ))
+    __FV_DG_KIND[$1]=hi
+}
+# THistory.GetPalette (func) — FV CHistory 22 23
+fv.dialogs._hiGetPalette() { RESULT='22 23'; }
+# THistory.Draw — FV's `▐v▌` (#222'~v~'#221): the v in colour 2, the rest in
+# colour 1; ASCII mode `[v]` (design §2.7); a wider view's other cells blank
+# in colour 1 ("Draw must cover its rect"), every row alike (FV WriteLine
+# over Size.Y): one writeLine. No slice of the glyphs (a C-locale caller)
+fv.dialogs._hiDraw() {
+    if ! [ "${FV_DRAW_VIEW-}" = "$1" ]; then return 0; fi
+    local -n __fvg_d=${1}_data
+    local __fvg_sx=${__fvg_d[SizeX]:-0} __fvg_sy=${__fvg_d[SizeY]:-0} __fvg_lo=${FV_DRAW_PAL:0:1} __fvg_hi=${FV_DRAW_PAL:1:1}
+    local __fvg_t='▐' __fvg_z='▌' __fvg_a __fvg_rp
+    if (( __fvg_sx < 1 || __fvg_sy < 1 )); then return 0; fi
+    __fvg_lo=${__fvg_lo:-$__FV_VW_ERRSYM} __fvg_hi=${__fvg_hi:-$__FV_VW_ERRSYM} __fvg_a=$__fvg_lo
+    if [ "${FV_VIDEO_ASCII:-0}" = 1 ]; then __fvg_t='[' __fvg_z=']'; fi
+    if (( __fvg_sx >= 2 )); then __fvg_t+=v __fvg_a+=$__fvg_hi; fi
+    if (( __fvg_sx >= 3 )); then
+        fv.dialogs._rep "$__fvg_lo" "$(( __fvg_sx - 2 ))"
+        __fvg_t+=$__fvg_z${__FV_VW_PAD:0:__fvg_sx-3} __fvg_a+=$__fvg_rp
+    fi
+    fv.views.writeLine 0 0 "$__fvg_sy" "$__fvg_t" "$__fvg_a" || :
+}
+# fv.dialogs._hiLink — the caller's __fvg_l = its view's (__fvg_d) Link when
+# that is a live TInputLine, else '' (FV's nil link)
+fv.dialogs._hiLink() {
+    __fvg_l=${__fvg_d[Link]-}
+    if [[ -z $__fvg_l || -z ${__FV_VW_LIVE[$__fvg_l]-} ]] || ! [ "${__FV_DG_KIND[$__fvg_l]-}" = il ]; then __fvg_l=''; fi
+}
+# fv.dialogs._ilText V — the caller's __fvg_t = input line V's text
+fv.dialogs._ilText() {
+    local -n __fvg_tc=${1}_cl
+    local IFS=
+    __fvg_t="${__fvg_tc[*]}"
+}
+# THistory.HandleEvent — FV (dialogs.inc:3966-3990): without a live input line
+# as Link nothing; evBroadcast cmRecordHistory, or cmReleasedFocus from the
+# link: its text recorded (fv.dialogs._hiRec); evKeyDown Down (through
+# CtrlToArrow) while the link is focused, or evMouseDown (TView's first):
+# the history window (fv.dialogs._hiOpen). The pre / post scan reaches it
+# for kbDown / kbCtrlX only (the hot-key map: HKK)
+fv.dialogs._hiEvent() {
+    local -n __fvg_d=${1}_data
+    local __fvg_l
+    if [ "$FV_EV_WHAT" = evBroadcast ]; then
+        if [ "$FV_EV_COMMAND" = cmRecordHistory ] || { [ "$FV_EV_COMMAND" = cmReleasedFocus ] && [[ -n $FV_EV_INFO ]] && [ "$FV_EV_INFO" = "${__fvg_d[Link]-}" ]; }; then
+            fv.dialogs._hiRec "$1"
+        fi
+    elif [ "$FV_EV_WHAT" = evKeyDown ]; then
+        if ! [ "${__FV_VW_C2A[${FV_EV_KEY:-kbNoKey}]-$FV_EV_KEY}" = kbDown ]; then return 0; fi
+        fv.dialogs._hiLink
+        [[ -n $__fvg_l ]] || return 0
+        local -n __fvg_ld=${__fvg_l}_data
+        if (( ${__fvg_ld[State]:-0} & FV_SF_FOCUSED )); then fv.dialogs._hiOpen "$1"; fi
+    elif [ "$FV_EV_WHAT" = evMouseDown ]; then
+        fv.views._viewEvent "$1"
+        if [ "$FV_EV_WHAT" = evMouseDown ] && [[ -n ${__FV_VW_LIVE[$1]-} ]]; then
+            fv.dialogs._hiLink
+            if [[ -n $__fvg_l ]]; then fv.dialogs._hiOpen "$1"; fi
+        fi
+    fi
+    return 0
+}
+# fv.dialogs._hiRec H — the link's text to RecordHistory (virtual); a link
+# in password mode is never recorded (D29: its text does not reach the
+# virtual either)
+fv.dialogs._hiRec() {
+    local __fvg_l __fvg_t
+    fv.dialogs._hiLink
+    [[ -n $__fvg_l ]] || return 0
+    local -n __fvg_ld=${__fvg_l}_data
+    if [[ -n ${__fvg_ld[PasswordChar]-} ]]; then return 0; fi
+    fv.dialogs._ilText "$__fvg_l"
+    fv.views._virt "$1" RecordHistory "$__fvg_t" || :
+}
+# THistory.RecordHistory TEXT — FV: HistoryAdd(HistoryId, TEXT)
+# (fv.histlist); nothing while the link is in password mode (D29). RESULT kept
+fv.dialogs._hiRecord() {
+    local -n __fvg_d=${1}_data
+    local __fvg_l __fvg_rr=${RESULT-}
+    fv.dialogs._hiLink
+    if [[ -n $__fvg_l ]]; then
+        local -n __fvg_ld=${__fvg_l}_data
+        if [[ -n ${__fvg_ld[PasswordChar]-} ]]; then return 0; fi
+    fi
+    fv.histlist.historyAdd "${__fvg_d[HistoryId]:-0}" "${2-}" || :
+    RESULT=$__fvg_rr
+}
+# fv.dialogs._hiOpen H — FV THistory.HandleEvent's open: the link focused
+# (refused: the event handled, nothing more); its text recorded (not in
+# password mode); the window's rect FV's (dialogs.inc:3955-3964: the link's
+# bounds one cell wider on each side, from the row above it to 7 rows below
+# it, cut to the owner's extent, then one row shorter); InitHistoryWindow
+# (virtual) makes the window, the owner runs it modal (execView); on cmOK the
+# line's text := GetSelection (virtual) through TInputLine's own path (control
+# characters dropped, cut to MaxLen clusters), SelectAll, drawn
+# (fv.dialogs._ilSet); the window destroyed; the event handled
+fv.dialogs._hiOpen() {
+    local -n __fvg_d=${1}_data
+    local __fvg_l __fvg_t __fvg_o=${__fvg_d[Owner]-} __fvg_w __fvg_c __fvg_ax __fvg_ay __fvg_bx __fvg_by
+    fv.dialogs._hiLink
+    if [[ -z $__fvg_l || -z $__fvg_o || -z ${__FV_VW_LIVE[$__fvg_o]-} ]]; then return 0; fi
+    if ! fv.views._focus "$__fvg_l" || [[ -z ${__FV_VW_LIVE[$1]-} || -z ${__FV_VW_LIVE[$__fvg_l]-} ]]; then fv.dialogs._clear "$1"; return 0; fi
+    fv.dialogs._hiRec "$1"
+    if [[ -z ${__FV_VW_LIVE[$1]-} || -z ${__FV_VW_LIVE[$__fvg_l]-} || -z ${__FV_VW_LIVE[$__fvg_o]-} ]]; then fv.dialogs._clear "$1"; return 0; fi
+    local -n __fvg_ld=${__fvg_l}_data __fvg_od=${__fvg_o}_data
+    __fvg_ax=$(( ${__fvg_ld[OriginX]:-0} - 1 )) __fvg_ay=$(( ${__fvg_ld[OriginY]:-0} - 1 ))
+    __fvg_bx=$(( ${__fvg_ld[OriginX]:-0} + ${__fvg_ld[SizeX]:-0} + 1 )) __fvg_by=$(( ${__fvg_ld[OriginY]:-0} + ${__fvg_ld[SizeY]:-0} + 7 ))
+    if (( __fvg_ax < 0 )); then __fvg_ax=0; fi
+    if (( __fvg_ay < 0 )); then __fvg_ay=0; fi
+    if (( __fvg_bx > ${__fvg_od[SizeX]:-0} )); then __fvg_bx=${__fvg_od[SizeX]:-0}; fi
+    if (( __fvg_by > ${__fvg_od[SizeY]:-0} )); then __fvg_by=${__fvg_od[SizeY]:-0}; fi
+    __fvg_by=$(( __fvg_by - 1 ))
+    RESULT=''
+    fv.views._virt "$1" InitHistoryWindow "$__fvg_ax" "$__fvg_ay" "$__fvg_bx" "$__fvg_by" || RESULT=''
+    __fvg_w=${RESULT-}
+    if [[ -n $__fvg_w && -n ${__FV_VW_LIVE[$__fvg_w]-} ]]; then
+        RESULT=cmCancel
+        fv.views.execView "$__fvg_o" "$__fvg_w" || RESULT=cmCancel
+        __fvg_c=$RESULT
+        if [ "$__fvg_c" = cmOK ] && [[ -n ${__FV_VW_LIVE[$__fvg_w]-} && -n ${__FV_VW_LIVE[$__fvg_l]-} ]]; then
+            RESULT=''
+            fv.views._virt "$__fvg_w" GetSelection || RESULT=''
+            fv.dialogs._ilSet "$__fvg_l" "${RESULT-}"
+        fi
+        if [[ -n ${__FV_VW_LIVE[$__fvg_w]-} ]] && declare -F "$__fvg_w.delete" >/dev/null; then "$__fvg_w.delete"; fi
+    fi
+    fv.dialogs._clear "$1"
+}
+# THistory.InitHistoryWindow AX AY BX BY (func) — FV: a THistoryWindow over
+# the bounds with HistoryId (the reserved name H__fvhwN, the first N from 1
+# that is free), its HelpCtx the link's; RESULT = its name ('' when refused)
+fv.dialogs._hiInitWindow() {
+    local -n __fvg_d=${1}_data
+    local __fvg_l __fvg_k=1 __fvg_w
+    while [[ -n ${__FV_VW_LIVE[${1}__fvhw$__fvg_k]-} ]]; do __fvg_k=$(( __fvg_k + 1 )); done
+    if ! fv.views._newReserved "$1" "hw$__fvg_k" THistoryWindow "$2" "$3" "$4" "$5" "${__fvg_d[HistoryId]:-0}" \
+       || [[ -z ${__FV_VW_LIVE[${1}__fvhw$__fvg_k]-} ]]; then RESULT=''; return 0; fi
+    __fvg_w=${1}__fvhw$__fvg_k
+    fv.dialogs._hiLink
+    if [[ -n $__fvg_l ]]; then
+        local -n __fvg_ld=${__fvg_l}_data __fvg_wd=${__fvg_w}_data
+        __fvg_wd[HelpCtx]=${__fvg_ld[HelpCtx]-$FV_HC_NOCONTEXT}
+    fi
+    RESULT=$__fvg_w
+}
+
+# fv.dialogs._hwArgs W AX AY BX BY HISTORYID — the refusal
+fv.dialogs._hwArgs() {
+    if (( $# != 6 )) || ! fv.dialogs._hid "$6"; then
+        local __fvg_v=$1 IFS=' '
+        shift
+        fv.dialogs._err "THistoryWindow.Create: '$__fvg_v': the arguments are AX AY BX BY HISTORYID (0-255) (got: $*)"
+        __FV_VW_CRC=2
+        return 2
+    fi
+}
+fv.dialogs._hwCreate() {   # W HISTORYID
+    local -n __fvg_d=${1}_data
+    fv.dialogs._free "$1"
+    if [[ -z ${__FV_VW_IMPL[THistoryWindow.GetPalette]-} ]]; then fv.dialogs._register; fi
+    __fvg_d[Flags]=$FV_WF_CLOSE __fvg_d[Viewer]=''
+    __FV_DG_KIND[$1]=hw
+    fv.views.resetPalette "$1" || :
+    fv.views._virt "$1" InitViewer "$(( 10#$2 ))" || :
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views.selectNext "$1" 0 || :; fi
+}
+# THistoryWindow.GetPalette (func) — FV CHistoryWindow 19 19 21 24 25 19 20
+fv.dialogs._hwGetPalette() { RESULT='19 19 21 24 25 19 20'; }
+# THistoryWindow.InitViewer HISTORYID — FV: the horizontal and the vertical
+# bar (fv.views.standardScrollBar with sbHandleKeyboard), then the viewer
+# over the window's inside (the reserved name W__fvviewer) on them,
+# inserted; Viewer = its name. RESULT kept
+fv.dialogs._hwInitViewer() {
+    local -n __fvg_d=${1}_data
+    local __fvg_h='' __fvg_v='' __fvg_rr=${RESULT-}
+    if fv.views.standardScrollBar "$1" "$(( FV_SB_HORIZONTAL | FV_SB_HANDLEKEYBOARD ))"; then __fvg_h=$RESULT; fi
+    if fv.views.standardScrollBar "$1" "$(( FV_SB_VERTICAL | FV_SB_HANDLEKEYBOARD ))"; then __fvg_v=$RESULT; fi
+    if fv.views._newReserved "$1" viewer THistoryViewer 1 1 "$(( ${__fvg_d[SizeX]:-0} - 1 ))" "$(( ${__fvg_d[SizeY]:-0} - 1 ))" "$__fvg_h" "$__fvg_v" "${2:-0}" \
+       && [[ -n ${__FV_VW_LIVE[${1}__fvviewer]-} ]]; then
+        __fvg_d[Viewer]=${1}__fvviewer
+        fv.views.insert "$1" "${1}__fvviewer" || :
+    fi
+    RESULT=$__fvg_rr
+}
+# THistoryWindow.GetSelection (func) — FV: the viewer's text of its focused
+# item (its List element, or its Formatter's answer); '' without a viewer
+fv.dialogs._hwGetSelection() {
+    local -n __fvg_d=${1}_data
+    local __fvg_v=${__fvg_d[Viewer]-} __fvg_n __fvg_f
+    RESULT=''
+    if [[ -z $__fvg_v || -z ${__FV_VW_LIVE[$__fvg_v]-} ]]; then return 0; fi
+    local -n __fvg_vd=${__fvg_v}_data
+    __fvg_n=${__fvg_vd[List]-} __fvg_f=${__fvg_vd[Focused]:-0}
+    if (( __fvg_f < 0 || __fvg_f >= ${__fvg_vd[Range]:-0} )); then return 0; fi
+    if [[ -n ${__fvg_vd[Formatter]-} ]] && declare -F "${__fvg_vd[Formatter]}" >/dev/null; then
+        "${__fvg_vd[Formatter]}" "$__fvg_f" 255 || RESULT=''
+    elif fv.views._lvName "$__fvg_n"; then
+        local -n __fvg_va=$__fvg_n
+        RESULT=${__fvg_va[__fvg_f]-}
+    fi
+}
+
+# fv.dialogs._hvArgs V AX AY BX BY HSB VSB HISTORYID — the refusal
+fv.dialogs._hvArgs() {
+    if (( $# != 8 )) || ! fv.dialogs._hid "$8"; then
+        local __fvg_v=$1 IFS=' '
+        shift
+        fv.dialogs._err "THistoryViewer.Create: '$__fvg_v': the arguments are AX AY BX BY HSCROLLBAR VSCROLLBAR HISTORYID (0-255) (got: $*)"
+        __FV_VW_CRC=2
+        return 2
+    fi
+}
+fv.dialogs._hvCreate() {   # V HISTORYID
+    local -n __fvg_d=${1}_data
+    local __fvg_b __fvg_hw=0
+    fv.dialogs._free "$1"
+    if [[ -z ${__FV_VW_IMPL[THistoryViewer.HandleEvent]-} ]]; then fv.dialogs._register; fi
+    __fvg_d[HistoryId]=$(( 10#$2 ))
+    __FV_DG_KIND[$1]=hv
+    # (the list's strings, newest first: a copy is the viewer's List)
+    local -n __fvg_hs=__FV_HL_T${__fvg_d[HistoryId]}
+    declare -ga "${1}_hist=()"
+    local -n __fvg_hl=${1}_hist
+    if [[ -n ${__fvg_hs[0]+x} ]]; then __fvg_hl=("${__fvg_hs[@]}"); fi
+    __fvg_d[List]=${1}_hist
+    fv.views._lvSetRange "$1" "${#__fvg_hl[@]}"
+    if (( ${#__fvg_hl[@]} > 1 )); then fv.views._virt "$1" FocusItem 1 || :; fi
+    __fvg_b=${__fvg_d[HScrollBar]-}
+    if [[ -n $__fvg_b && -n ${__FV_VW_SB[$__fvg_b]-} && -n ${__FV_VW_LIVE[$1]-} ]]; then
+        if fv.dialogs._guard; then fv.video._g fv.dialogs._hvWidth "$1"; else fv.dialogs._hvWidth "$1"; fi
+        fv.views.scrollBarSet "$__fvg_b" setRange 1 "$(( __fvg_hw - ${__fvg_d[SizeX]:-0} + 3 ))" || :
+    fi
+}
+# (FV HistoryWidth: the caller's __fvg_hw = the longest string's characters,
+# as the viewer's Draw counts them for the horizontal bar's indent)
+fv.dialogs._hvWidth() {
+    local -n __fvg_wl=${1}_hist
+    local __fvg_s
+    __fvg_hw=0
+    for __fvg_s in "${__fvg_wl[@]}"; do
+        if (( ${#__fvg_s} > __fvg_hw )); then __fvg_hw=${#__fvg_s}; fi
+    done
+}
+# THistoryViewer.GetPalette (func) — FV CHistoryViewer 6 6 7 6 6
+fv.dialogs._hvGetPalette() { RESULT='6 6 7 6 6'; }
+# THistoryViewer.HandleEvent — FV: a double click or Enter -> EndModal(cmOK),
+# Esc or the command cmCancel -> EndModal(cmCancel) (each handled); anything
+# else TListViewer's
+fv.dialogs._hvEvent() {
+    if { [ "$FV_EV_WHAT" = evMouseDown ] && [ "${FV_EV_MOUSE_DOUBLE:-0}" = 1 ]; } || { [ "$FV_EV_WHAT" = evKeyDown ] && [ "$FV_EV_KEY" = kbEnter ]; }; then
+        fv.views._virt "$1" EndModal cmOK || :
+        fv.dialogs._clear "$1"
+    elif { [ "$FV_EV_WHAT" = evKeyDown ] && [ "$FV_EV_KEY" = kbEsc ]; } || { [ "$FV_EV_WHAT" = evCommand ] && [ "$FV_EV_COMMAND" = cmCancel ]; }; then
+        fv.views._virt "$1" EndModal cmCancel || :
+        fv.dialogs._clear "$1"
+    else
+        fv.views._lvEvent "$1"
+    fi
+    return 0
 }
 
 # ---- the data transfer (FV TGroup.GetData / SetData / DataSize; design §4.6) ------

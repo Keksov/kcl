@@ -102,6 +102,8 @@ KCL_UNITS=(
     # (fv.app: TBackground / TDesktop / TProgram / TApplication on fv.views
     # and fv.menus; it adds its built-in bodies to fv.views' elision tables)
     "fv.app|||"
+    # (fv.histlist: FV's HistList, plain functions; fv.dialogs uses it)
+    "fv.histlist|||"
     # (fv.dialogs: TDialog and the dialog controls on fv.views; it adds its
     # built-in bodies, broadcast rows and hot-key texts to fv.views' tables;
     # readonly: its FV_BF_* / FV_DP_* constants are assigned once per process)
