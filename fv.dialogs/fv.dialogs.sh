@@ -7,8 +7,10 @@ kk.unit fv.dialogs || return $__kk_unit_rc
 # TCheckBoxes and TRadioButtons (FV dialogs.inc) as kklass classes on fv.views'
 # TView / TWindow, the data transfer (fv.dialogs.getData / setData / dataSize
 # over the GetData / SetData / DataSize virtuals), the setters and FV's TDialog
-# helpers. TInputLine / TListBox come with 3d, THistory with 3h.
-# Design: kcl/docs/dev/fv/P3_DESIGN.md (§1, §2.1, §2.4, §2.6, §2.7, §3, §4.6);
+# helpers; stage 3d TInputLine (clusters, FV's keys, selection, scrolling,
+# the mouse, overwrite, password mode, the clipboard keys and bracketed
+# paste) and TListBox. THistory comes with 3h.
+# Design: kcl/docs/dev/fv/P3_DESIGN.md (§1, §2.1, §2.4-§2.7, §3, §4, §5);
 # API and deviations: README.md.
 #
 # Conventions (as fv.views'): locals `__fvg_*` (fv.drivers has __fvd_), the
@@ -31,7 +33,8 @@ kk.unit fv.dialogs || return $__kk_unit_rc
 # hot-key tables __FV_VW_HKS / __FV_VW_HKE (the cluster's item test); calls of
 # fv.views._virt, _message, _viewEvent,
 # _viewSetState, _windowEvent, _windowCalcBounds, _groupValid, _topView,
-# _track, _hk, _hkDirty and _newReserved.
+# _track, _hk, _hkDirty, _newReserved and (TListBox) _lvSetRange,
+# _lvFocusNum. fv.video: _g (its guard), clusters, setClipboard.
 
 kk.uses kklass_pascal fv.views || return
 
@@ -57,8 +60,21 @@ fi
 #            from the per-item patterns ${v}_cpl / _cpp / _cpw / _chot)
 #   PK[p] / PN[p]  a TParamText's format and the arguments it takes (its
 #            conversions, fv.dialogs._ptCount), counted once per text
-declare -gA __FV_DG_KIND __FV_DG_CK __FV_DG_CN __FV_DG_RT __FV_DG_RA __FV_DG_PK __FV_DG_PN
-__FV_DG_KIND+=() __FV_DG_CK+=() __FV_DG_CN+=() __FV_DG_RT+=() __FV_DG_RA+=() __FV_DG_PK+=() __FV_DG_PN+=()
+#   IW[v]    an input line (kind il) holds a cluster of two cells (its
+#            cells are then summed, else counted); IO[v] its cluster 0 is
+#            an orphan (a joining character first: drawn after a blank)
+declare -gA __FV_DG_KIND __FV_DG_CK __FV_DG_CN __FV_DG_RT __FV_DG_RA __FV_DG_PK __FV_DG_PN __FV_DG_IW __FV_DG_IO
+__FV_DG_KIND+=() __FV_DG_CK+=() __FV_DG_CN+=() __FV_DG_RT+=() __FV_DG_RA+=() __FV_DG_PK+=() __FV_DG_PN+=() __FV_DG_IW+=() __FV_DG_IO+=()
+# FV_CLIPBOARD: the internal clipboard (design P3 §4.5, D24): what an input
+# line's Ctrl+Ins / Shift+Del copied last, what Shift+Ins (cmPaste) inserts;
+# process-wide, kept across a reload
+declare -g FV_CLIPBOARD=${FV_CLIPBOARD-}
+# the input line's word delimiters (FPC 2025's TInputLine.HandleEvent set;
+# Tab, LF and CR never stand in a line)
+declare -g __FV_DG_DLS=$' .,;:!?-_/\x5c()[]{}<>"\x27\x60\x7c@#$%^&*+=~'
+# FV's pad keys (PadKeys: Home Left Right End Ctrl+Left Ctrl+Right): with Shift
+# they extend an input line's selection
+declare -gA __FV_DG_PAD=([kbLeft]=1 [kbRight]=1 [kbHome]=1 [kbEnd]=1 [kbCtrlLeft]=1 [kbCtrlRight]=1)
 
 # ---- the classes (FV dialogs.inc; fields design §1.2, virtuals §1.3) ---------
 
@@ -266,6 +282,81 @@ TRadioButtons.MovedTo() { fv.dialogs._rbMovedTo "$this" "$@" || return; }
 TRadioButtons.SetData() { fv.dialogs._rbSetData "$this" "$@" || return; }
 build TRadioButtons
 
+# (P3 stage 3d) TInputLine.new NAME AX AY BX BY MAXLEN — FV TInputLine.Init(
+# Bounds, AMaxLen): TView's, then sfCursorVis, ofSelectable + ofFirstClick,
+# the text empty: its clusters in ${NAME}_cl, their cells in ${NAME}_cw
+# (design P3 §4.1: CurPos FirstPos SelStart SelEnd count clusters, MaxLen
+# too). PasswordChar '' (D29: set, every cluster shows as that one-cell
+# character), Validator '' (a plain function FN TEXT, rc 0 = valid, §4.7).
+# Refused before anything is made (rc 2, one Error line): MAXLEN missing or
+# not digits
+class TInputLine : TView
+    public
+        var MaxLen
+        var CurPos
+        var FirstPos
+        var SelStart
+        var SelEnd
+        var PasswordChar
+        var Validator
+        constructor Create
+        nofields destructor Done
+        nofields override proc Draw
+        nofields override proc HandleEvent
+        nofields override func GetPalette
+        nofields override proc SetState
+        nofields override func Valid
+        nofields func DataSize
+        nofields proc GetData
+        nofields proc SetData
+        nofields proc SelectAll
+end
+TInputLine.Create() {
+    fv.dialogs._ilArgs "$this" "$@" || return
+    inherited
+    [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
+    fv.dialogs._ilCreate "$this" "$5"
+}
+TInputLine.Done() { fv.dialogs._free "$this"; fv.views._done "$this"; }
+TInputLine.Draw() { fv.dialogs._ilDraw "$this" || return; }
+TInputLine.HandleEvent() { fv.dialogs._ilEvent "$this" "$@" || return; }
+TInputLine.GetPalette() { fv.dialogs._ilGetPalette "$this" || return; }
+TInputLine.SetState() { fv.dialogs._ilSetState "$this" "$@" || return; }
+TInputLine.Valid() { fv.dialogs._ilValid "$this" "$@" || return; }
+TInputLine.DataSize() { fv.dialogs._ilDataSize "$this" || return; }
+TInputLine.GetData() { fv.dialogs._ilGetData "$this" "$@" || return; }
+TInputLine.SetData() { fv.dialogs._ilSetData "$this" "$@" || return; }
+TInputLine.SelectAll() { fv.dialogs.selectAll "$this" "$@" || return; }
+build TInputLine
+
+# (P3 stage 3d) TListBox.new NAME AX AY BX BY [NUMCOLS [SCROLLBAR]] — FV
+# TListBox.Init(Bounds, ANumCols, AScrollBar): TListViewer's (no horizontal
+# bar), SetRange(0). Its items: fv.dialogs.newList NAME ARRAY [FMT] (FV
+# NewList; List = the caller's indexed array, Formatter, Marks: TListViewer's
+# data model, design P3 §5). Data: the focused item
+class TListBox : TListViewer
+    public
+        constructor Create
+        nofields destructor Done
+        nofields func DataSize
+        nofields proc GetData
+        nofields proc SetData
+        nofields proc NewList
+end
+TListBox.Create() {
+    # (TListViewer's arguments: NUMCOLS, no horizontal bar, the vertical one)
+    if (( $# > 4 )); then set -- "$1" "$2" "$3" "$4" "${5:-1}" '' "${6-}"; fi
+    inherited
+    [[ -n ${__FV_VW_LIVE[$this]-} ]] || return "$__FV_VW_CRC"
+    fv.dialogs._lbCreate "$this"
+}
+TListBox.Done() { fv.dialogs._free "$this"; fv.views._done "$this"; }
+TListBox.DataSize() { fv.dialogs._lbDataSize "$this" || return; }
+TListBox.GetData() { fv.dialogs._lbGetData "$this" "$@" || return; }
+TListBox.SetData() { fv.dialogs._lbSetData "$this" "$@" || return; }
+TListBox.NewList() { fv.dialogs.newList "$this" "$@" || return; }
+build TListBox
+
 # fv.dialogs._register — the built-in bodies into fv.views' elision table,
 # the broadcast reactions into its broadcast table (design §1.5) and the
 # hot-key texts into its hot-key table (§3.1); fv.views merges the tables on
@@ -309,11 +400,23 @@ fv.dialogs._register() {
     __FV_VW_IMPL[TRadioButtons.Press]=fv.dialogs._rbPress
     __FV_VW_IMPL[TRadioButtons.MovedTo]=fv.dialogs._rbMovedTo
     __FV_VW_IMPL[TRadioButtons.SetData]=fv.dialogs._rbSetData
+    __FV_VW_IMPL[TInputLine.Draw]=fv.dialogs._ilDraw
+    __FV_VW_IMPL[TInputLine.HandleEvent]=fv.dialogs._ilEvent
+    __FV_VW_IMPL[TInputLine.GetPalette]=fv.dialogs._ilGetPalette
+    __FV_VW_IMPL[TInputLine.SetState]=fv.dialogs._ilSetState
+    __FV_VW_IMPL[TInputLine.Valid]=fv.dialogs._ilValid
+    __FV_VW_IMPL[TInputLine.DataSize]=fv.dialogs._ilDataSize
+    __FV_VW_IMPL[TInputLine.GetData]=fv.dialogs._ilGetData
+    __FV_VW_IMPL[TInputLine.SetData]=fv.dialogs._ilSetData
+    __FV_VW_IMPL[TListBox.DataSize]=fv.dialogs._lbDataSize
+    __FV_VW_IMPL[TListBox.GetData]=fv.dialogs._lbGetData
+    __FV_VW_IMPL[TListBox.SetData]=fv.dialogs._lbSetData
     __FV_VW_FUNC[GetText]=1 __FV_VW_FUNC[Mark]=1 __FV_VW_FUNC[DataSize]=1
     __FV_VW_BCAST[fv.dialogs._dlgEvent]='cmSelectWindowNum'
     __FV_VW_BCAST[fv.dialogs._btnEvent]='cmDefault cmGrabDefault cmReleaseDefault cmCommandSetChanged'
     __FV_VW_BCAST[fv.dialogs._lblEvent]='cmReceivedFocus cmReleasedFocus'
     __FV_VW_BCAST[fv.dialogs._clEvent]=''
+    __FV_VW_BCAST[fv.dialogs._ilEvent]=''
     __FV_VW_HKS[fv.dialogs._btnEvent]='_data[Title]'
     __FV_VW_HKS[fv.dialogs._lblEvent]='_data[Text]'
     __FV_VW_HKS[fv.dialogs._clEvent]='_items[@]'
@@ -335,7 +438,7 @@ fv.dialogs._bad() {
     return 2
 }
 # fv.dialogs._kind V KIND... CALLER — rc 0 for a live widget of one of the
-# KINDs (btn st lbl pt cl); else _bad's rc 2
+# KINDs (btn st lbl pt cl il lb); else _bad's rc 2
 fv.dialogs._kind() {
     local __fvg_k=${__FV_DG_KIND[${1:-.}]-} __fvg_a __fvg_n=0 __fvg_l=''
     # (each argument by a loop: "${@:2}" loses parts under a caller IFS holding \x01)
@@ -363,15 +466,17 @@ fv.dialogs._aname() {
        && $1 != _[fF][vV]* && $1 != __[fF][vV]* ]] && ! [ "$1" = RESULT ]
 }
 # fv.dialogs._free V — the widget's private entries: its cached rows, its
-# kind, a cluster's items and patterns (the destructors; a name re-created
-# over a live view starts clean too: the constructors call it first)
+# kind, a cluster's items and patterns, an input line's clusters (the
+# destructors; a name re-created over a live view starts clean too: the
+# constructors call it first)
 fv.dialogs._free() {
     local __fvg_y
     for (( __fvg_y = 0; __fvg_y < ${__FV_DG_CN[$1]:-0}; __fvg_y++ )); do
         unset "__FV_DG_RT[$1.$__fvg_y]" "__FV_DG_RA[$1.$__fvg_y]"
     done
     if [ "${__FV_DG_KIND[$1]-}" = cl ]; then unset "${1}_items" "${1}_cpl" "${1}_cpp" "${1}_cpw" "${1}_chot"; fi
-    unset '__FV_DG_CK[$1]' '__FV_DG_CN[$1]' '__FV_DG_KIND[$1]' '__FV_DG_PK[$1]' '__FV_DG_PN[$1]'
+    if [ "${__FV_DG_KIND[$1]-}" = il ]; then unset "${1}_cl" "${1}_cw"; fi
+    unset '__FV_DG_CK[$1]' '__FV_DG_CN[$1]' '__FV_DG_KIND[$1]' '__FV_DG_PK[$1]' '__FV_DG_PN[$1]' '__FV_DG_IW[$1]' '__FV_DG_IO[$1]'
     return 0
 }
 # fv.dialogs._impl V METHOD — the caller's __fvg_im = the body the elision
@@ -1511,6 +1616,723 @@ fv.dialogs._clMouse() {
         [[ -n ${__FV_VW_LIVE[$1]-} ]] && fv.dialogs._clChanged "$1" "$__fvg_o" "$__fvg_v"
     fi
     fv.dialogs._clear "$1"
+}
+
+# ---- TInputLine (FV dialogs.inc TInputLine, FPC 2025; design P3 §4) ---------------
+# The text is its clusters (P3-5): ${V}_cl the cluster strings, ${V}_cw their
+# cells (1 or 2), both from fv.video.clusters, so the line and the screen
+# agree cell for cell (wide characters, joiners, Cygwin's astral characters,
+# ASCII mode's one cell per character). CurPos FirstPos SelStart SelEnd and
+# MaxLen count clusters (FV: UTF-16 units; a documented deviation). After a
+# non-ASCII edit the clusters around it are split again (M6, _ilSplit).
+
+# fv.dialogs._ilArgs V AX AY BX BY MAXLEN — the refusal: MAXLEN missing or not
+# 1-9 digits
+fv.dialogs._ilArgs() {
+    if (( $# < 6 )) || [[ -z $6 || $6 == *[!0123456789]* || ${#6} -gt 9 ]]; then
+        local __fvg_v=$1 IFS=' '
+        shift
+        fv.dialogs._err "TInputLine.Create: '$__fvg_v': the arguments are AX AY BX BY MAXLEN (MAXLEN digits) (got: $*)"
+        __FV_VW_CRC=2
+        return 2
+    fi
+}
+fv.dialogs._ilCreate() {   # V MAXLEN
+    local -n __fvg_d=${1}_data
+    fv.dialogs._free "$1"
+    if [[ -z ${__FV_VW_IMPL[TInputLine.Draw]-} ]]; then fv.dialogs._register; fi
+    __fvg_d[State]=$(( ${__fvg_d[State]:-0} | FV_SF_CURSORVIS ))
+    __fvg_d[Options]=$(( ${__fvg_d[Options]:-0} | FV_OF_SELECTABLE | FV_OF_FIRSTCLICK ))
+    __fvg_d[MaxLen]=$(( 10#$2 )) __fvg_d[CurPos]=0 __fvg_d[FirstPos]=0 __fvg_d[SelStart]=0 __fvg_d[SelEnd]=0
+    __fvg_d[PasswordChar]='' __fvg_d[Validator]='' __fvg_d[CursorX]=1 __fvg_d[CursorY]=0
+    declare -ga "${1}_cl=()" "${1}_cw=()"
+    __FV_DG_KIND[$1]=il __FV_DG_IW[$1]=0 __FV_DG_IO[$1]=0
+}
+# TInputLine.GetPalette (func) — FV CInputLine 19 19 20 21 14
+fv.dialogs._ilGetPalette() { RESULT='19 19 20 21 14'; }
+
+# fv.dialogs._ilCells V A B — the caller's __fvg_cc = the cells of clusters
+# A .. B-1 (B <= A: 0); one per cluster in password mode or a line of
+# narrow clusters only, else their sum (one arithmetic expansion)
+fv.dialogs._ilCells() {
+    __fvg_cc=0
+    if (( $3 <= $2 )); then return 0; fi
+    if [[ -n ${__fvg_d[PasswordChar]-} ]] || [ "${__FV_DG_IW[$1]-0}" = 0 ]; then __fvg_cc=$(( $3 - $2 )); return 0; fi
+    local -n __fvg_ws=${1}_cw
+    local IFS=+ __fvg_s
+    __fvg_s="${__fvg_ws[*]:$2:$3-$2}"
+    __fvg_cc=$(( ${__fvg_s:-0} ))
+}
+# fv.dialogs._ilWide V — after an edit: IW[V] = 1 when a cluster takes two
+# cells; IO[V] = 1 when cluster 0 is an orphan (it starts with a character
+# that joins the one before it: a combining mark, ZWJ, VS16 at the text's
+# start — fv.video shows it after a blank, so Draw puts a blank in front of
+# it; without that the cell before it, `<` or ' ', would take it in)
+fv.dialogs._ilWide() {
+    local -n __fvg_ws=${1}_cw __fvg_wl=${1}_cl
+    local IFS=' '
+    local -a _fvg_ol=() _fvg_ow=()
+    __FV_DG_IW[$1]=0 __FV_DG_IO[$1]=0
+    if [[ " ${__fvg_ws[*]} " == *' 2 '* ]]; then __FV_DG_IW[$1]=1; fi
+    if [[ ${__fvg_wl[0]-} == *[![:ascii:]]* ]]; then
+        fv.video.clusters "a${__fvg_wl[0]}" _fvg_ol _fvg_ow || :
+        if (( ${#_fvg_ol[@]} == 1 )); then __FV_DG_IO[$1]=1; fi
+    fi
+}
+# fv.dialogs._ilCur V — CursorX = 1 + the cells from FirstPos to CurPos
+# (negative when CurPos lies before FirstPos: the cursor then hidden by
+# fv.views' resetCursor), CursorY 0 (FV Draw's SetCursor; design §2.5)
+fv.dialogs._ilCur() {
+    local __fvg_cc __fvg_f=${__fvg_d[FirstPos]:-0} __fvg_p=${__fvg_d[CurPos]:-0}
+    if (( __fvg_p >= __fvg_f )); then fv.dialogs._ilCells "$1" "$__fvg_f" "$__fvg_p"; __fvg_d[CursorX]=$(( __fvg_cc + 1 ))
+    else fv.dialogs._ilCells "$1" "$__fvg_p" "$__fvg_f"; __fvg_d[CursorX]=$(( 1 - __fvg_cc )); fi
+    __fvg_d[CursorY]=0
+}
+
+# TInputLine.Draw — FV_UNICODE's: the row in colour 1 (2 focused, 5 when not
+# selectable), the clusters from FirstPos in cells 1 .. SizeX-2 (a wide one
+# that does not fit ends them: no half cell), `>` in colour 4 in the last
+# cell while text lies past it (FV CanScroll(1)); focused and selectable:
+# `<` in colour 4 in cell 0 when FirstPos > 0, the selection SelStart ..
+# SelEnd in colour 3, the cursor (CursorX) after CurPos. Password mode
+# (PasswordChar set, D29): every cluster one cell of that character. The
+# row on every row of the view (FV WriteLine over Size.Y); one writeLine
+fv.dialogs._ilDraw() {
+    if ! [ "${FV_DRAW_VIEW-}" = "$1" ]; then return 0; fi
+    local -n __fvg_d=${1}_data __fvg_cl=${1}_cl
+    local __fvg_sx=${__fvg_d[SizeX]:-0} __fvg_sy=${__fvg_d[SizeY]:-0} __fvg_f=${__fvg_d[FirstPos]:-0} __fvg_n=${#__fvg_cl[@]}
+    local __fvg_p=$FV_DRAW_PAL __fvg_e=$__FV_VW_ERRSYM __fvg_c __fvg_c3 __fvg_c4 __fvg_fo=0 __fvg_room __fvg_t='' __fvg_a=''
+    local __fvg_m=0 __fvg_mo=0 __fvg_l __fvg_r __fvg_rp __fvg_x0=' ' __fvg_a0 __fvg_x1=' ' __fvg_a1 __fvg_s=${__fvg_d[State]:-0} IFS=
+    if (( __fvg_sx < 1 || __fvg_sy < 1 )); then return 0; fi
+    if (( ! (${__fvg_d[Options]:-0} & FV_OF_SELECTABLE) )); then __fvg_c=${__fvg_p:4:1}
+    elif (( __fvg_s & FV_SF_FOCUSED )); then __fvg_c=${__fvg_p:1:1} __fvg_fo=1
+    else __fvg_c=${__fvg_p:0:1}; fi
+    __fvg_c=${__fvg_c:-$__fvg_e} __fvg_c3=${__fvg_p:2:1} __fvg_c4=${__fvg_p:3:1}
+    __fvg_c3=${__fvg_c3:-$__fvg_e} __fvg_c4=${__fvg_c4:-$__fvg_e} __fvg_a0=$__fvg_c __fvg_a1=$__fvg_c
+    __fvg_room=$(( __fvg_sx - 2 ))
+    if (( __fvg_room < 0 )); then __fvg_room=0; fi
+    if [[ -n ${__fvg_d[PasswordChar]-} || ${__FV_DG_IW[$1]-0} != 0 ]]; then fv.dialogs._ilRowW "$1"
+    else
+        # (narrow clusters: one cell each; the visible ones joined)
+        __fvg_m=$(( __fvg_n - __fvg_f ))
+        if (( __fvg_m > __fvg_room )); then __fvg_m=$__fvg_room __fvg_mo=1; fi
+        if (( __fvg_m < 0 )); then __fvg_m=0; fi
+        __fvg_t="${__fvg_cl[*]:__fvg_f:__fvg_m}"
+        if (( __fvg_f == 0 && ${__FV_DG_IO[$1]:-0} )); then __fvg_t=" $__fvg_t"; fi
+        __fvg_l=$(( ${__fvg_d[SelStart]:-0} - __fvg_f )) __fvg_r=$(( ${__fvg_d[SelEnd]:-0} - __fvg_f ))
+        if (( __fvg_l < 0 )); then __fvg_l=0; fi
+        if (( __fvg_r > __fvg_m )); then __fvg_r=$__fvg_m; fi
+        if (( __fvg_fo && __fvg_l < __fvg_r )); then
+            fv.dialogs._rep "$__fvg_c" "$__fvg_l"; __fvg_a=$__fvg_rp
+            fv.dialogs._rep "$__fvg_c3" "$(( __fvg_r - __fvg_l ))"; __fvg_a+=$__fvg_rp
+            fv.dialogs._rep "$__fvg_c" "$(( __fvg_m - __fvg_r ))"; __fvg_a+=$__fvg_rp
+        else fv.dialogs._rep "$__fvg_c" "$__fvg_m"; __fvg_a=$__fvg_rp; fi
+    fi
+    if (( __fvg_fo && __fvg_f > 0 )); then __fvg_x0='<' __fvg_a0=$__fvg_c4; fi
+    if (( __fvg_mo )); then __fvg_x1='>' __fvg_a1=$__fvg_c4; fi
+    fv.dialogs._rep "$__fvg_c" "$(( __fvg_room - __fvg_m ))"
+    if (( __fvg_sx == 1 )); then __fvg_t=$__fvg_x0 __fvg_a=$__fvg_a0
+    else __fvg_t=$__fvg_x0$__fvg_t${__FV_VW_PAD:0:__fvg_room-__fvg_m}$__fvg_x1 __fvg_a=$__fvg_a0$__fvg_a$__fvg_rp$__fvg_a1; fi
+    fv.views.writeLine 0 0 "$__fvg_sy" "$__fvg_t" "$__fvg_a" || :
+    if (( __fvg_fo )); then fv.dialogs._ilCur "$1"; fi
+}
+# (_ilDraw's row of a line with wide clusters or in password mode: the
+# caller's __fvg_t / __fvg_a / __fvg_m (cells shown) / __fvg_mo (FV
+# CanScroll(1)), cluster by cluster)
+fv.dialogs._ilRowW() {
+    local -n __fvg_cw=${1}_cw
+    local __fvg_k=$__fvg_f __fvg_w __fvg_y __fvg_pc=${__fvg_d[PasswordChar]-} __fvg_ss=${__fvg_d[SelStart]:-0} __fvg_se=${__fvg_d[SelEnd]:-0} __fvg_cc
+    __fvg_pc=${__fvg_pc:0:1}
+    while (( __fvg_k < __fvg_n )); do
+        __fvg_w=1
+        if [[ -z $__fvg_pc ]]; then __fvg_w=${__fvg_cw[__fvg_k]:-1}; fi
+        if (( __fvg_m + __fvg_w > __fvg_room )); then break; fi
+        if [[ -n $__fvg_pc ]]; then __fvg_t+=$__fvg_pc
+        elif (( __fvg_k == 0 && ${__FV_DG_IO[$1]:-0} )); then __fvg_t+=" ${__fvg_cl[0]}"
+        else __fvg_t+=${__fvg_cl[__fvg_k]}; fi
+        __fvg_y=$__fvg_c
+        if (( __fvg_fo && __fvg_k >= __fvg_ss && __fvg_k < __fvg_se )); then __fvg_y=$__fvg_c3; fi
+        __fvg_a+=$__fvg_y
+        if (( __fvg_w == 2 )); then __fvg_a+=$__fvg_y; fi
+        __fvg_m=$(( __fvg_m + __fvg_w )) __fvg_k=$(( __fvg_k + 1 ))
+    done
+    if (( __fvg_k < __fvg_n )); then
+        fv.dialogs._ilCells "$1" "$__fvg_f" "$__fvg_n"
+        if (( __fvg_cc > __fvg_room )); then __fvg_mo=1; fi
+    fi
+}
+
+# TInputLine.SetState BIT ENABLE — FV: TView's; sfSelected (or sfActive while
+# selected) -> SelectAll(ENABLE); sfFocused -> drawn. P3-12: the framework's
+# sequence sfSelected then sfFocused (the owner focused: SetCurrent) draws
+# once, at its sfFocused; otherwise SelectAll draws when the picture changed
+fv.dialogs._ilSetState() {
+    local -n __fvg_d=${1}_data
+    fv.views._viewSetState "$@"
+    [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+    if (( $2 == FV_SF_SELECTED || ($2 == FV_SF_ACTIVE && (${__fvg_d[State]:-0} & FV_SF_SELECTED)) )); then
+        local __fvg_o __fvg_pk __fvg_w=${__fvg_d[Owner]-}
+        fv.dialogs._ilPic "$1"
+        __fvg_o=$__fvg_pk
+        fv.dialogs._ilSel "$1" "$3"
+        if (( $2 == FV_SF_SELECTED && $3 )) && [[ -n $__fvg_w && -n ${__FV_VW_LIVE[$__fvg_w]-} ]]; then
+            local -n __fvg_od=${__fvg_w}_data
+            if (( ${__fvg_od[State]:-0} & FV_SF_FOCUSED )); then return 0; fi
+        fi
+        fv.dialogs._ilPic "$1"
+        if ! [ "$__fvg_pk" = "$__fvg_o" ]; then fv.views.drawView "$1" || :; fi
+    elif (( $2 == FV_SF_FOCUSED )); then
+        fv.views.drawView "$1" || :
+    fi
+    return 0
+}
+# (the caller's __fvg_pk: what the picture is made of besides the text — the
+# first cluster shown, and while focused a selection that is not empty)
+fv.dialogs._ilPic() {
+    __fvg_pk=${__fvg_d[FirstPos]:-0}
+    if (( (${__fvg_d[State]:-0} & FV_SF_FOCUSED) && ${__fvg_d[SelStart]:-0} < ${__fvg_d[SelEnd]:-0} )); then __fvg_pk+="|${__fvg_d[SelStart]:-0}|${__fvg_d[SelEnd]:-0}"; fi
+}
+# (FV SelectAll(ENABLE) without its DrawView: CurPos FirstPos SelStart 0,
+# SelEnd the length when ENABLE)
+fv.dialogs._ilSel() {
+    local -n __fvg_sl=${1}_cl
+    __fvg_d[CurPos]=0 __fvg_d[FirstPos]=0 __fvg_d[SelStart]=0 __fvg_d[SelEnd]=0
+    if [ "${2-}" = 1 ]; then __fvg_d[SelEnd]=${#__fvg_sl[@]}; fi
+}
+
+# TInputLine.HandleEvent — FV: TView's (a click focuses: ofFirstClick, the
+# click goes on), then while selected: keys (fv.dialogs._ilKey), the mouse
+# (_ilMouse), evCommand cmPasteText (a bracketed paste: FV_EV_INFO) and
+# cmPaste (the internal clipboard FV_CLIPBOARD)
+fv.dialogs._ilEvent() {
+    if [ "$FV_EV_WHAT" = evKeyDown ]; then fv.dialogs._ilKey "$1"
+    elif [ "$FV_EV_WHAT" = evMouseDown ]; then
+        fv.views._viewEvent "$1"
+        if [ "$FV_EV_WHAT" = evMouseDown ] && [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.dialogs._ilMouse "$1"; fi
+    elif [ "$FV_EV_WHAT" = evCommand ]; then fv.dialogs._ilCmd "$1"; fi
+    return 0
+}
+# fv.dialogs._ilKey V — a key while selected. The fast path (design §4.1):
+# a printable ASCII character typed in insert mode with no selection, under
+# MaxLen, between two ASCII clusters: one cluster in place, no fv.video
+# call; every other key: fv.dialogs._ilKeyX
+fv.dialogs._ilKey() {
+    local -n __fvg_d=${1}_data
+    if (( ! (${__fvg_d[State]:-0} & FV_SF_SELECTED) )); then return 0; fi
+    if [ "$FV_EV_KEY" = kbChar ] && [[ ${#FV_EV_CHAR} == 1 && $FV_EV_CHAR == [[:print:]] && $FV_EV_CHAR == [[:ascii:]] ]] \
+       && (( ! (${__fvg_d[State]:-0} & FV_SF_CURSORINS) )) && [ "${__fvg_d[SelStart]:-0}" = "${__fvg_d[SelEnd]:-0}" ]; then
+        local -n __fvg_cl=${1}_cl __fvg_cw=${1}_cw
+        local __fvg_c=${__fvg_d[CurPos]:-0} __fvg_n __fvg_x='' __fvg_f=${__fvg_d[FirstPos]:-0} __fvg_h=$(( ${__fvg_d[SizeX]:-0} - 3 ))
+        __fvg_n=${#__fvg_cl[@]}
+        if (( __fvg_c > 0 )); then __fvg_x=${__fvg_cl[__fvg_c-1]}; fi
+        if (( __fvg_c < __fvg_n )); then __fvg_x+=${__fvg_cl[__fvg_c]}; fi
+        if (( __fvg_n < ${__fvg_d[MaxLen]:-0} )) && [[ $__fvg_x != *[![:print:]]* && $__fvg_x != *[![:ascii:]]* ]]; then
+            if (( __fvg_c == __fvg_n )); then __fvg_cl[__fvg_n]=$FV_EV_CHAR __fvg_cw[__fvg_n]=1
+            else fv.dialogs._ilIns1 "$1" "$__fvg_c"; fi
+            if (( __fvg_c == 0 )); then __FV_DG_IO[$1]=0; fi
+            __fvg_c=$(( __fvg_c + 1 ))
+            # (FV's FirstPos rule: the text from FirstPos to CurPos in SizeX - 3 cells)
+            if (( __fvg_f > __fvg_c )); then __fvg_f=$__fvg_c; fi
+            if [[ -z ${__fvg_d[PasswordChar]-} && ${__FV_DG_IW[$1]-0} != 0 ]]; then
+                __fvg_d[CurPos]=$__fvg_c __fvg_d[FirstPos]=$__fvg_f
+                fv.dialogs._ilFirst "$1"
+            else
+                if (( __fvg_c - __fvg_f > __fvg_h )); then __fvg_f=$(( __fvg_c - __fvg_h )); fi
+                if (( __fvg_f > __fvg_c )); then __fvg_f=$__fvg_c; fi
+                __fvg_d[FirstPos]=$__fvg_f
+            fi
+            __fvg_d[CurPos]=$__fvg_c __fvg_d[SelStart]=$__fvg_c __fvg_d[SelEnd]=$__fvg_c
+            fv.views.drawView "$1" || :
+            fv.dialogs._clear "$1"
+            return 0
+        fi
+    fi
+    fv.dialogs._ilKeyX "$1"
+}
+# (the fast path's insert inside the line: FV_EV_CHAR as cluster $2)
+fv.dialogs._ilIns1() {
+    __fvg_cl=("${__fvg_cl[@]:0:$2}" "$FV_EV_CHAR" "${__fvg_cl[@]:$2}")
+    __fvg_cw=("${__fvg_cw[@]:0:$2}" 1 "${__fvg_cw[@]:$2}")
+}
+# fv.dialogs._ilFirst V — FV's FirstPos rule over the cells (FPC 2025:
+# while the text from FirstPos to CurPos takes more than SizeX - 3 cells,
+# FirstPos + 1; never past CurPos)
+fv.dialogs._ilFirst() {
+    local -n __fvg_fw=${1}_cw
+    local __fvg_cc __fvg_a=${__fvg_d[FirstPos]:-0} __fvg_p=${__fvg_d[CurPos]:-0} __fvg_h=$(( ${__fvg_d[SizeX]:-0} - 3 ))
+    if (( __fvg_a > __fvg_p )); then __fvg_a=$__fvg_p; fi
+    fv.dialogs._ilCells "$1" "$__fvg_a" "$__fvg_p"
+    while (( __fvg_cc > __fvg_h && __fvg_a < __fvg_p )); do
+        if [[ -n ${__fvg_d[PasswordChar]-} ]]; then __fvg_cc=$(( __fvg_cc - 1 )); else __fvg_cc=$(( __fvg_cc - ${__fvg_fw[__fvg_a]:-1} )); fi
+        __fvg_a=$(( __fvg_a + 1 ))
+    done
+    __fvg_d[FirstPos]=$__fvg_a
+}
+
+# fv.dialogs._ilKeyX V — FV's key set (design §4.2) through CtrlToArrow:
+#   Left Right Home End (WordStar Ctrl+S D A F) by a cluster / to the ends,
+#   Ctrl+Left / Ctrl+Right FPC 2025's word moves; Shift + those (FV's pad
+#   keys with Shift) extend the selection from its anchor; Back / Del (Ctrl+H
+#   / Ctrl+G) delete the selection, else the cluster before / at the cursor;
+#   Ins (Ctrl+V) toggles sfCursorIns (overwrite, the block cursor: D27);
+#   Ctrl+Y clears; a character deletes the selection (overwrite: the cluster
+#   at the cursor) and goes in (MaxLen kept); Ctrl+Ins copies the selection
+#   (FV_CLIPBOARD and OSC 52), Shift+Del cuts, Shift+Ins pastes FV_CLIPBOARD
+#   (FV cmPaste); copy and cut do nothing in password mode (D29).
+# Then the selection collapses to the cursor (or follows the anchor), FV's
+# FirstPos rule, the line drawn when its picture changed (P3-12: a cursor
+# move inside the text without a selection only moves the cursor); handled.
+# Other keys pass (FV: Exit)
+fv.dialogs._ilKeyX() {
+    if fv.dialogs._guard; then fv.video._g fv.dialogs._ilKeyX "$1"; return; fi
+    local -n __fvg_d=${1}_data __fvg_cl=${1}_cl __fvg_cw=${1}_cw
+    local __fvg_k=${__FV_VW_C2A[${FV_EV_KEY:-kbNoKey}]-$FV_EV_KEY} __fvg_c=${__fvg_d[CurPos]:-0} __fvg_n=${#__fvg_cl[@]}
+    local __fvg_ss=${__fvg_d[SelStart]:-0} __fvg_se=${__fvg_d[SelEnd]:-0} __fvg_x=0 __fvg_an=0 __fvg_ch=0 __fvg_pk __fvg_o
+    fv.dialogs._ilPic "$1"
+    __fvg_o=$__fvg_pk
+    # (Shift + one of FV's pad keys: Left Right Home End, Ctrl+Left / Right)
+    if [[ $__fvg_k == kb*Shift* && -n ${__FV_DG_PAD[${__fvg_k/Shift/}]-} ]]; then
+        __fvg_x=1 __fvg_k=${__fvg_k/Shift/}
+        if (( __fvg_c == __fvg_se )); then __fvg_an=$__fvg_ss; else __fvg_an=$__fvg_se; fi
+    fi
+    case $__fvg_k in
+        kbLeft) if (( __fvg_c > 0 )); then __fvg_c=$(( __fvg_c - 1 )); fi ;;
+        kbRight) if (( __fvg_c < __fvg_n )); then __fvg_c=$(( __fvg_c + 1 )); fi ;;
+        kbHome) __fvg_c=0 ;;
+        kbEnd) __fvg_c=$__fvg_n ;;
+        kbCtrlLeft) fv.dialogs._ilWord "$__fvg_k" ;;
+        kbCtrlRight) fv.dialogs._ilWord "$__fvg_k" ;;
+        kbBack)
+            if (( __fvg_ss == __fvg_se && __fvg_c > 0 )); then __fvg_ss=$(( __fvg_c - 1 )) __fvg_se=$__fvg_c; fi
+            fv.dialogs._ilDelSel "$1" ;;
+        kbDel)
+            if (( __fvg_ss == __fvg_se && __fvg_c < __fvg_n )); then __fvg_ss=$__fvg_c __fvg_se=$(( __fvg_c + 1 )); fi
+            fv.dialogs._ilDelSel "$1" ;;
+        kbIns)
+            if (( ${__fvg_d[State]:-0} & FV_SF_CURSORINS )); then fv.views._virt "$1" SetState "$FV_SF_CURSORINS" 0 || :
+            else fv.views._virt "$1" SetState "$FV_SF_CURSORINS" 1 || :; fi
+            [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0 ;;
+        kbCtrlY) if (( __fvg_n )); then __fvg_cl=() __fvg_cw=() __fvg_n=0 __fvg_c=0 __fvg_ch=1 __FV_DG_IW[$1]=0 __FV_DG_IO[$1]=0; fi ;;
+        kbCtrlIns) fv.dialogs._ilCopy "$1" "$__fvg_k" ;;
+        kbShiftDel) fv.dialogs._ilCopy "$1" "$__fvg_k" ;;
+        kbShiftIns) fv.dialogs._ilPaste "$1" "${FV_CLIPBOARD-}" ;;
+        kbChar)
+            if [[ -z $FV_EV_CHAR || $FV_EV_CHAR == *[[:cntrl:]]* ]]; then return 0; fi
+            fv.dialogs._ilPut "$1" "$FV_EV_CHAR" 1 ;;
+        *) return 0 ;;
+    esac
+    fv.dialogs._ilFin "$1"
+    fv.dialogs._clear "$1"
+}
+# (the end of a key, the caller's locals: the selection follows the anchor
+# (__fvg_x) or collapses, FV's FirstPos rule, drawn when the text
+# (__fvg_ch) or the picture (__fvg_o) changed, else only the cursor placed)
+fv.dialogs._ilFin() {
+    if (( __fvg_x )); then
+        if (( __fvg_c < __fvg_an )); then __fvg_ss=$__fvg_c __fvg_se=$__fvg_an; else __fvg_ss=$__fvg_an __fvg_se=$__fvg_c; fi
+    else __fvg_ss=$__fvg_c __fvg_se=$__fvg_c; fi
+    __fvg_d[CurPos]=$__fvg_c __fvg_d[SelStart]=$__fvg_ss __fvg_d[SelEnd]=$__fvg_se
+    fv.dialogs._ilFirst "$1"
+    fv.dialogs._ilPic "$1"
+    if (( __fvg_ch )) || ! [ "$__fvg_pk" = "$__fvg_o" ]; then fv.views.drawView "$1" || :
+    elif (( ${__fvg_d[State]:-0} & FV_SF_FOCUSED )); then fv.dialogs._ilCur "$1"; fi
+}
+# (FPC 2025's Ctrl+Left / Ctrl+Right over the caller's clusters: a cluster
+# is a delimiter when it is one character of __FV_DG_DLS)
+fv.dialogs._ilWord() {
+    local __fvg_i
+    if [ "$1" = kbCtrlLeft ]; then
+        if (( __fvg_c <= 0 )); then return 0; fi
+        __fvg_i=1
+        while (( __fvg_i <= __fvg_n )) && fv.dialogs._ilDl "${__fvg_cl[__fvg_i-1]}"; do __fvg_i=$(( __fvg_i + 1 )); done
+        if (( __fvg_c == __fvg_i - 1 )); then __fvg_c=0; return 0; fi
+        __fvg_i=$__fvg_c
+        while (( __fvg_i > 0 )) && fv.dialogs._ilDl "${__fvg_cl[__fvg_i-1]}"; do __fvg_i=$(( __fvg_i - 1 )); done
+        while (( __fvg_i > 0 )) && ! fv.dialogs._ilDl "${__fvg_cl[__fvg_i-1]}"; do __fvg_i=$(( __fvg_i - 1 )); done
+        __fvg_c=$__fvg_i
+    else
+        __fvg_i=$__fvg_n
+        while (( __fvg_i > 0 )) && fv.dialogs._ilDl "${__fvg_cl[__fvg_i-1]}"; do __fvg_i=$(( __fvg_i - 1 )); done
+        if (( __fvg_c == __fvg_i )); then __fvg_c=$__fvg_n; return 0; fi
+        __fvg_i=$__fvg_c
+        while (( __fvg_i < __fvg_n )) && fv.dialogs._ilDl "${__fvg_cl[__fvg_i]}"; do __fvg_i=$(( __fvg_i + 1 )); done
+        while (( __fvg_i < __fvg_n )) && ! fv.dialogs._ilDl "${__fvg_cl[__fvg_i]}"; do __fvg_i=$(( __fvg_i + 1 )); done
+        __fvg_c=$__fvg_i
+    fi
+}
+fv.dialogs._ilDl() { [[ ${#1} == 1 && $__FV_DG_DLS == *"$1"* ]]; }
+
+# (FV DeleteSelect over the caller's locals: the clusters SelStart ..
+# SelEnd-1 out, CurPos at SelStart)
+fv.dialogs._ilDelSel() {
+    if (( __fvg_ss < __fvg_se )); then fv.dialogs._ilDel "$1" "$__fvg_ss" "$__fvg_se"; fi
+}
+# fv.dialogs._ilDel V A B — clusters A .. B-1 out (the caller's arrays,
+# __fvg_c := A, __fvg_n, __fvg_ch); next to a non-ASCII cluster the
+# neighbours are split again (M6: a regional indicator re-pairs, ...)
+fv.dialogs._ilDel() {
+    __fvg_cl=("${__fvg_cl[@]:0:$2}" "${__fvg_cl[@]:$3}")
+    __fvg_cw=("${__fvg_cw[@]:0:$2}" "${__fvg_cw[@]:$3}")
+    __fvg_n=${#__fvg_cl[@]} __fvg_c=$2 __fvg_ch=1
+    local __fvg_q=''
+    if (( $2 > 0 )); then __fvg_q=${__fvg_cl[$2-1]}; fi
+    __fvg_q+=${__fvg_cl[$2]-}
+    if [[ $__fvg_q == *[![:ascii:]]* ]]; then
+        __fvg_q=''
+        if (( $2 > 0 )); then __fvg_q=${__fvg_cl[$2-1]}; fi
+        fv.dialogs._ilSplit "$1" "$(( $2 - 1 ))" "$(( $2 + 1 ))" "${#__fvg_q}"
+    fi
+    fv.dialogs._ilWide "$1"
+}
+# fv.dialogs._ilPut V TEXT [K] — FV's character insert for TEXT (a typed
+# character: K 1; a paste: its clusters counted here) at the caller's
+# __fvg_c: overwrite (sfCursorIns) takes out as many clusters at the cursor
+# as come in, else the selection goes; then as many clusters as MaxLen
+# leaves room for go in, the cursor after them. ASCII between ASCII: one
+# cluster per character; anything else is split again with its neighbours
+# (M6, fv.dialogs._ilSplit: one fv.video call). Under fv.video's guard
+fv.dialogs._ilPut() {
+    local -a _fvg_nl=() _fvg_nw=()
+    local __fvg_k=${3-} __fvg_t=$2 __fvg_m __fvg_q='' __fvg_j IFS=
+    if [[ -z $__fvg_k ]]; then
+        # (a paste: its clusters; joined again, invalid bytes are fv.video's '?')
+        fv.video.clusters "$__fvg_t" _fvg_nl _fvg_nw || return 0
+        __fvg_k=${#_fvg_nl[@]} __fvg_t="${_fvg_nl[*]}"
+    fi
+    if (( __fvg_k < 1 )); then return 0; fi
+    if (( ${__fvg_d[State]:-0} & FV_SF_CURSORINS )); then
+        __fvg_j=$(( __fvg_n - __fvg_c ))
+        if (( __fvg_j > __fvg_k )); then __fvg_j=$__fvg_k; fi
+        if (( __fvg_j > 0 )); then fv.dialogs._ilDel "$1" "$__fvg_c" "$(( __fvg_c + __fvg_j ))"; fi
+    elif (( __fvg_ss < __fvg_se )); then
+        fv.dialogs._ilDel "$1" "$__fvg_ss" "$__fvg_se"
+    fi
+    __fvg_m=$(( ${__fvg_d[MaxLen]:-0} - __fvg_n ))
+    if (( __fvg_m <= 0 )); then return 0; fi
+    if (( __fvg_k > __fvg_m )); then
+        # (a paste longer than the room: its first clusters)
+        __fvg_t="${_fvg_nl[*]:0:__fvg_m}"
+        _fvg_nl=("${_fvg_nl[@]:0:__fvg_m}") _fvg_nw=("${_fvg_nw[@]:0:__fvg_m}") __fvg_k=$__fvg_m
+    fi
+    if (( __fvg_c > 0 )); then __fvg_q=${__fvg_cl[__fvg_c-1]}; fi
+    __fvg_q+=$__fvg_t${__fvg_cl[__fvg_c]-}
+    __fvg_ch=1
+    if [[ $__fvg_q != *[![:ascii:]]* && $__fvg_q != *[![:print:]]* ]]; then
+        if (( ! ${#_fvg_nl[@]} )); then fv.video.clusters "$__fvg_t" _fvg_nl _fvg_nw || return 0; fi
+        if (( __fvg_c == 0 )); then __FV_DG_IO[$1]=0; fi
+        __fvg_cl=("${__fvg_cl[@]:0:__fvg_c}" "${_fvg_nl[@]}" "${__fvg_cl[@]:__fvg_c}")
+        __fvg_cw=("${__fvg_cw[@]:0:__fvg_c}" "${_fvg_nw[@]}" "${__fvg_cw[@]:__fvg_c}")
+        __fvg_n=${#__fvg_cl[@]} __fvg_c=$(( __fvg_c + ${#_fvg_nl[@]} ))
+        return 0
+    fi
+    # (the text in as one entry, then split with the cluster before and after
+    # it; the cursor after the cluster that holds the text's last character)
+    __fvg_q=''
+    if (( __fvg_c > 0 )); then __fvg_q=${__fvg_cl[__fvg_c-1]}; fi
+    __fvg_cl=("${__fvg_cl[@]:0:__fvg_c}" "$__fvg_t" "${__fvg_cl[@]:__fvg_c}")
+    __fvg_cw=("${__fvg_cw[@]:0:__fvg_c}" 1 "${__fvg_cw[@]:__fvg_c}")
+    __fvg_n=${#__fvg_cl[@]}
+    fv.dialogs._ilSplit "$1" "$(( __fvg_c - 1 ))" "$(( __fvg_c + 2 ))" "$(( ${#__fvg_q} + ${#__fvg_t} ))"
+    fv.dialogs._ilWide "$1"
+}
+# fv.dialogs._ilSplit V A B OFF — M6 (design §4.1): the clusters A .. B-1 (cut
+# to the line) joined and split again by fv.video.clusters, the window first
+# widened over the regional indicators at either end (a flag run re-pairs
+# from its start); the caller's __fvg_c = the end of the new cluster that
+# holds the window text's character OFF (OFF counted from A's text; 0 = A),
+# __fvg_n the count. The window's text is valid text without control
+# characters (typed, or a paste normalized by fv.video.clusters), so its
+# clusters join to it and the characters count alike on every runtime
+fv.dialogs._ilSplit() {
+    local __fvg_a=$2 __fvg_b=$3 __fvg_o=$4 __fvg_m __fvg_j=0 __fvg_l=0 __fvg_t IFS=
+    local -a _fvg_xl=() _fvg_xw=() _fvg_yl=() _fvg_yw=()
+    if (( __fvg_a < 0 )); then __fvg_a=0; fi
+    if (( __fvg_b > __fvg_n )); then __fvg_b=$__fvg_n; fi
+    if (( __fvg_b > __fvg_a )) && fv.dialogs._ilRI "${__fvg_cl[__fvg_a]}"; then
+        while (( __fvg_a > 0 )) && fv.dialogs._ilRI "${__fvg_cl[__fvg_a-1]}"; do
+            __fvg_a=$(( __fvg_a - 1 )) __fvg_t=${__fvg_cl[__fvg_a]} __fvg_o=$(( __fvg_o + ${#__fvg_t} ))
+        done
+    fi
+    if (( __fvg_b > __fvg_a )) && fv.dialogs._ilRI "${__fvg_cl[__fvg_b-1]}"; then
+        while (( __fvg_b < __fvg_n )) && fv.dialogs._ilRI "${__fvg_cl[__fvg_b]}"; do __fvg_b=$(( __fvg_b + 1 )); done
+    fi
+    __fvg_t="${__fvg_cl[*]:__fvg_a:__fvg_b-__fvg_a}"
+    fv.video.clusters "$__fvg_t" _fvg_xl _fvg_xw || return 0
+    __fvg_m=${#_fvg_xl[@]}
+    # (the right edge: while the window's last cluster and the next one split
+    # otherwise than as two clusters as they are — a modifier or a pictograph
+    # after a ZWJ that found its emoji, a mark, indicators that pair anew —
+    # the next one is taken in, one at a time; one starting with ASCII never
+    # joins)
+    while (( __fvg_b < __fvg_n && __fvg_m > 0 )); do
+        __fvg_t=${__fvg_cl[__fvg_b]}
+        if [[ ${__fvg_t:0:1} == [[:ascii:]] ]]; then break; fi
+        fv.video.clusters "${_fvg_xl[__fvg_m-1]}$__fvg_t" _fvg_yl _fvg_yw || break
+        if (( ${#_fvg_yl[@]} == 2 )) && [ "${_fvg_yl[0]}" = "${_fvg_xl[__fvg_m-1]}" ]; then break; fi
+        unset '_fvg_xl[__fvg_m-1]' '_fvg_xw[__fvg_m-1]'
+        _fvg_xl+=("${_fvg_yl[@]}") _fvg_xw+=("${_fvg_yw[@]}")
+        __fvg_m=${#_fvg_xl[@]} __fvg_b=$(( __fvg_b + 1 ))
+    done
+    while (( __fvg_l < __fvg_o && __fvg_j < __fvg_m )); do
+        __fvg_t=${_fvg_xl[__fvg_j]} __fvg_l=$(( __fvg_l + ${#__fvg_t} )) __fvg_j=$(( __fvg_j + 1 ))
+    done
+    __fvg_cl=("${__fvg_cl[@]:0:__fvg_a}" "${_fvg_xl[@]}" "${__fvg_cl[@]:__fvg_b}")
+    __fvg_cw=("${__fvg_cw[@]:0:__fvg_a}" "${_fvg_xw[@]}" "${__fvg_cw[@]:__fvg_b}")
+    __fvg_c=$(( __fvg_a + __fvg_j )) __fvg_n=${#__fvg_cl[@]}
+}
+# fv.dialogs._ilRI S — rc 0 when the cluster S holds a regional indicator
+# (U+1F1E6 .. U+1F1FF: the bytes F0 9F 87 A6..BF; bytes in the C locale, so
+# that a character past U+FFFF reads alike on every runtime)
+fv.dialogs._ilRI() {
+    [[ $1 == *[![:ascii:]]* ]] || return 1
+    local LC_ALL=C
+    [[ $1 == *$'\xf0\x9f\x87'[$'\xa6'-$'\xbf']* ]]
+}
+
+# (Ctrl+Ins / Shift+Del over the caller's locals: the selection to
+# FV_CLIPBOARD and by OSC 52 to the system clipboard (fv.video.setClipboard);
+# Shift+Del then deletes it. Password mode: nothing (D29))
+fv.dialogs._ilCopy() {
+    local IFS= __fvg_t
+    if [[ -n ${__fvg_d[PasswordChar]-} ]] || (( __fvg_ss >= __fvg_se )); then return 0; fi
+    __fvg_t="${__fvg_cl[*]:__fvg_ss:__fvg_se-__fvg_ss}"
+    FV_CLIPBOARD=$__fvg_t
+    fv.video.setClipboard "$__fvg_t" || :
+    if [ "$2" = kbShiftDel ]; then fv.dialogs._ilDelSel "$1"; fi
+}
+# (a paste over the caller's locals, FV PasteText: the text's control
+# characters dropped (FV inserts each character as a key: a newline or a Tab
+# goes nowhere), the rest as typed — overwrite or the selection first,
+# MaxLen kept)
+fv.dialogs._ilPaste() {
+    local __fvg_t=${2//[[:cntrl:]]/}
+    if [[ -n $__fvg_t ]]; then fv.dialogs._ilPut "$1" "$__fvg_t"; fi
+}
+# fv.dialogs._ilCmd V — evCommand while selected: cmPasteText (fv.drivers'
+# bracketed paste: the text in FV_EV_INFO) and cmPaste (FV_CLIPBOARD) ->
+# inserted as typed (fv.dialogs._ilPaste), handled
+fv.dialogs._ilCmd() {
+    if ! [ "$FV_EV_COMMAND" = cmPasteText ] && ! [ "$FV_EV_COMMAND" = cmPaste ]; then return 0; fi
+    if fv.dialogs._guard; then fv.video._g fv.dialogs._ilCmd "$1"; return; fi
+    local -n __fvg_d=${1}_data __fvg_cl=${1}_cl __fvg_cw=${1}_cw
+    if (( ! (${__fvg_d[State]:-0} & FV_SF_SELECTED) )); then return 0; fi
+    local __fvg_c=${__fvg_d[CurPos]:-0} __fvg_n=${#__fvg_cl[@]} __fvg_ss=${__fvg_d[SelStart]:-0} __fvg_se=${__fvg_d[SelEnd]:-0}
+    local __fvg_x=0 __fvg_an=0 __fvg_ch=0 __fvg_pk __fvg_o
+    fv.dialogs._ilPic "$1"
+    __fvg_o=$__fvg_pk
+    if [ "$FV_EV_COMMAND" = cmPasteText ]; then fv.dialogs._ilPaste "$1" "$FV_EV_INFO"
+    else fv.dialogs._ilPaste "$1" "${FV_CLIPBOARD-}"; fi
+    fv.dialogs._ilFin "$1"
+    fv.dialogs._clear "$1"
+}
+
+# fv.dialogs._ilMouse V — FV's mouse-down while selected: on an arrow cell
+# that can scroll (cell 0 / the last cell, FV MouseDelta + CanScroll) the
+# text scrolls a cluster per evMouseAuto while the button is held; a double
+# click selects all; else the cursor goes to the cluster under the mouse
+# (FV MousePos) and the selection follows the drag from there (moves
+# coalesced, an evMouseAuto past an edge scrolls a cluster). Each step drawn
+# when its picture changed; a key or the release ends the tracking
+# (fv.views._track); handled
+fv.dialogs._ilMouse() {
+    local -n __fvg_d=${1}_data __fvg_cl=${1}_cl
+    if (( ! (${__fvg_d[State]:-0} & FV_SF_SELECTED) )); then return 0; fi
+    local __fvg_dl __fvg_cc __fvg_an __fvg_mp __fvg_pk __fvg_o __fvg_n=${#__fvg_cl[@]}
+    local -a __fvg_es=("$FV_EV_WHAT" "$FV_EV_KEY" "$FV_EV_CHAR" "$FV_EV_COMMAND" "$FV_EV_ID" "$FV_EV_INFO"
+        "$FV_EV_MOUSE_X" "$FV_EV_MOUSE_Y" "$FV_EV_MOUSE_BUTTONS" "$FV_EV_MOUSE_MODS"
+        "$FV_EV_MOUSE_DOUBLE" "$FV_EV_MOUSE_TRIPLE" "$FV_EV_WHEEL" "$FV_EV_EOF" "${FV_EV_BASE-}")
+    __FV_VW_TRK=''
+    fv.dialogs._ilDelta "$1"
+    if fv.dialogs._ilCan "$1" "$__fvg_dl"; then
+        while :; do
+            if fv.dialogs._ilCan "$1" "$__fvg_dl"; then
+                __fvg_d[FirstPos]=$(( ${__fvg_d[FirstPos]:-0} + __fvg_dl ))
+                fv.views.drawView "$1" || :
+                [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+            fi
+            fv.views._track "$1" "$FV_EM_MOUSEAUTO" || break
+        done
+    elif (( ${FV_EV_MOUSE_DOUBLE:-0} == 1 )); then
+        fv.dialogs._ilSel "$1" 1
+        fv.views.drawView "$1" || :
+    else
+        fv.dialogs._ilMPos "$1"
+        __fvg_an=$__fvg_mp
+        while :; do
+            fv.dialogs._ilPic "$1"
+            __fvg_o=$__fvg_pk
+            if [ "$FV_EV_WHAT" = evMouseAuto ]; then
+                fv.dialogs._ilDelta "$1"
+                if fv.dialogs._ilCan "$1" "$__fvg_dl"; then __fvg_d[FirstPos]=$(( ${__fvg_d[FirstPos]:-0} + __fvg_dl )); fi
+            fi
+            fv.dialogs._ilMPos "$1"
+            __fvg_d[CurPos]=$__fvg_mp
+            if (( __fvg_mp < __fvg_an )); then __fvg_d[SelStart]=$__fvg_mp __fvg_d[SelEnd]=$__fvg_an
+            else __fvg_d[SelStart]=$__fvg_an __fvg_d[SelEnd]=$__fvg_mp; fi
+            fv.dialogs._ilPic "$1"
+            if ! [ "$__fvg_pk" = "$__fvg_o" ]; then fv.views.drawView "$1" || :; else fv.dialogs._ilCur "$1"; fi
+            [[ -n ${__FV_VW_LIVE[$1]-} ]] || return 0
+            fv.views._track "$1" "$(( FV_EM_MOUSEMOVE | FV_EM_MOUSEAUTO ))" || break
+        done
+    fi
+    fv.dialogs._evBack
+    fv.dialogs._clear "$1"
+}
+# (FV MouseDelta: the caller's __fvg_dl = -1 on or left of cell 0, 1 on or
+# right of the last cell, else 0)
+fv.dialogs._ilDelta() {
+    __fvg_dl=0
+    fv.views.makeLocal "$1" "$FV_EV_MOUSE_X" "$FV_EV_MOUSE_Y" || return 0
+    if (( FV_POINT_X <= 0 )); then __fvg_dl=-1; elif (( FV_POINT_X >= ${__fvg_d[SizeX]:-0} - 1 )); then __fvg_dl=1; fi
+}
+# (FV CanScroll(D): left while FirstPos > 0, right while the text from
+# FirstPos takes more than SizeX - 2 cells)
+fv.dialogs._ilCan() {
+    if (( $2 < 0 )); then (( ${__fvg_d[FirstPos]:-0} > 0 )); return; fi
+    if (( $2 == 0 )); then return 1; fi
+    local __fvg_cc
+    fv.dialogs._ilCells "$1" "${__fvg_d[FirstPos]:-0}" "$__fvg_n"
+    (( __fvg_cc > ${__fvg_d[SizeX]:-0} - 2 ))
+}
+# (FV MousePos: the caller's __fvg_mp = the cluster in front of which the
+# mouse's cell lies: the local X from 1, cluster by cluster from FirstPos)
+fv.dialogs._ilMPos() {
+    local -n __fvg_mw=${1}_cw
+    local __fvg_i=${__fvg_d[FirstPos]:-0} __fvg_w
+    fv.views.makeLocal "$1" "$FV_EV_MOUSE_X" "$FV_EV_MOUSE_Y" || :
+    __fvg_w=$FV_POINT_X
+    if (( __fvg_w < 1 )); then __fvg_w=1; fi
+    while (( __fvg_i < __fvg_n )); do
+        if [[ -n ${__fvg_d[PasswordChar]-} ]]; then __fvg_w=$(( __fvg_w - 1 )); else __fvg_w=$(( __fvg_w - ${__fvg_mw[__fvg_i]:-1} )); fi
+        if (( __fvg_w <= 0 )); then break; fi
+        __fvg_i=$(( __fvg_i + 1 ))
+    done
+    __fvg_mp=$__fvg_i
+}
+
+# TInputLine.Valid CMD (func; rc 0 = valid) — FV: TView's, then with a
+# Validator (a plain function FN TEXT, rc 0 = valid: design §4.7 instead of
+# FV's TValidator), a text and the line enabled: cmValid and cmCancel are
+# valid, any other command asks FN; a "no" selects the line (FV Select)
+fv.dialogs._ilValid() {
+    local -n __fvg_d=${1}_data __fvg_cl=${1}_cl
+    local __fvg_f=${__fvg_d[Validator]-} __fvg_t __fvg_rc=0 IFS=
+    if [[ -z $__fvg_f ]] || (( ${__fvg_d[State]:-0} & FV_SF_DISABLED )) || [ "${2-}" = cmCancel ] || [ "${2-}" = cmValid ]; then RESULT=1; return 0; fi
+    __fvg_t="${__fvg_cl[*]}"
+    if [[ -z $__fvg_t ]]; then RESULT=1; return 0; fi
+    if ! declare -F "$__fvg_f" >/dev/null; then
+        kk.debug "Error: fv.dialogs: TInputLine.Valid: Validator '$__fvg_f' of '$1' is not a function (taken as valid)"
+        RESULT=1
+        return 0
+    fi
+    "$__fvg_f" "$__fvg_t" || __fvg_rc=$?
+    if (( __fvg_rc )); then
+        if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views.select "$1" || :; fi
+        return 1
+    fi
+    RESULT=1
+}
+# DataSize (func) 1; GetData ARRAY INDEX -> ARRAY[INDEX] = the text (FV:
+# Data); SetData ARRAY INDEX -> the text from ARRAY[INDEX] (FV: then
+# SelectAll(True), drawn)
+fv.dialogs._ilDataSize() { RESULT=1; }
+fv.dialogs._ilGetData() {
+    local -n __fvg_cl=${1}_cl __fvg_ar=$2
+    local IFS=
+    __fvg_ar[$3]="${__fvg_cl[*]}"
+}
+fv.dialogs._ilSetData() {
+    local -n __fvg_ar=$2
+    fv.dialogs._ilSet "$1" "${__fvg_ar[$3]-}"
+}
+# (the text replaced: its control characters dropped, split by fv.video, cut
+# to MaxLen clusters; FV SetData's SelectAll(True) and DrawView)
+fv.dialogs._ilSet() {
+    if fv.dialogs._guard; then fv.video._g fv.dialogs._ilSet "$1" "$2"; return; fi
+    local -n __fvg_d=${1}_data __fvg_cl=${1}_cl __fvg_cw=${1}_cw
+    local __fvg_m=${__fvg_d[MaxLen]:-0}
+    fv.video.clusters "${2//[[:cntrl:]]/}" "${1}_cl" "${1}_cw" || :
+    if (( ${#__fvg_cl[@]} > __fvg_m )); then __fvg_cl=("${__fvg_cl[@]:0:__fvg_m}") __fvg_cw=("${__fvg_cw[@]:0:__fvg_m}"); fi
+    fv.dialogs._ilWide "$1"
+    fv.dialogs._ilSel "$1" 1
+    fv.views.drawView "$1" || :
+}
+
+# fv.dialogs.getText IL — RESULT = the input line's text (its clusters joined;
+# FV's Data). rc 2: not an input line
+fv.dialogs.getText() {
+    if (( $# != 1 )); then fv.dialogs._bad "${FUNCNAME#fv.dialogs.}" 'wrong argument count'; return; fi
+    fv.dialogs._kind "$1" il getText || return
+    local -n __fvg_cl=${1}_cl
+    local IFS=
+    RESULT="${__fvg_cl[*]}"
+}
+# fv.dialogs.setText IL TEXT — FV SetData for a string: the text replaced
+# (control characters dropped, cut to MaxLen clusters), all of it selected
+# (FV SelectAll(True)), drawn. RESULT kept
+fv.dialogs.setText() {
+    if (( $# != 2 )); then fv.dialogs._bad "${FUNCNAME#fv.dialogs.}" 'wrong argument count'; return; fi
+    fv.dialogs._kind "$1" il setText || return
+    local __fvg_rr=${RESULT-}
+    fv.dialogs._ilSet "$1" "$2"
+    RESULT=$__fvg_rr
+}
+# fv.dialogs.selectAll IL 1|0 — FV SelectAll(Enable): the cursor and the
+# first shown cluster at the start, the whole text selected (1) or nothing
+# (0), drawn. RESULT kept
+fv.dialogs.selectAll() {
+    if (( $# != 2 )); then fv.dialogs._bad "${FUNCNAME#fv.dialogs.}" 'wrong argument count'; return; fi
+    fv.dialogs._kind "$1" il selectAll || return
+    if ! [[ $2 == [01] ]]; then fv.dialogs._bad selectAll 'ENABLE must be 1 or 0'; return; fi
+    local -n __fvg_d=${1}_data
+    fv.dialogs._ilSel "$1" "$2"
+    fv.views.drawView "$1" || :
+}
+
+# ---- TListBox (FV dialogs.inc TListBox; design P3 §5) ------------------------------
+fv.dialogs._lbCreate() {
+    fv.dialogs._free "$1"
+    if [[ -z ${__FV_VW_IMPL[TListBox.DataSize]-} ]]; then fv.dialogs._register; fi
+    __FV_DG_KIND[$1]=lb
+}
+# DataSize (func) 1; GetData ARRAY INDEX -> ARRAY[INDEX] = Focused (FV's
+# TListBoxRec.Selection; its List stays the caller's array); SetData ARRAY
+# INDEX -> the focused item from ARRAY[INDEX] (a number; FocusItemNum keeps
+# it in the range), drawn (FV)
+fv.dialogs._lbDataSize() { RESULT=1; }
+fv.dialogs._lbGetData() {
+    local -n __fvg_d=${1}_data __fvg_ar=$2
+    __fvg_ar[$3]=${__fvg_d[Focused]:-0}
+}
+fv.dialogs._lbSetData() {
+    local -n __fvg_ar=$2
+    local __fvg_x=${__fvg_ar[$3]-0}
+    if [[ -z $__fvg_x || $__fvg_x == *[!0123456789]* || ${#__fvg_x} -gt 9 ]]; then __fvg_x=0; fi
+    fv.views._lvFocusNum "$1" "$(( 10#$__fvg_x ))"
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views.drawView "$1" || :; fi
+}
+# fv.dialogs.newList LB ARRAY [FMT] — FV NewList(AList): List := ARRAY (the
+# name of the caller's indexed array, '' = none), Formatter := FMT (a plain
+# function FMT INDEX WIDTH -> RESULT, '' = the element itself), the range
+# its length (FV SetRange), item 0 focused when there are items (FV
+# FocusItem, virtual), drawn. RESULT kept; rc 2: LB not a list box, ARRAY
+# not a usable name (an identifier; not RESULT, _fv* / __fv*; not an
+# associative array)
+fv.dialogs.newList() {
+    if (( $# < 2 || $# > 3 )); then fv.dialogs._bad "${FUNCNAME#fv.dialogs.}" 'wrong argument count'; return; fi
+    fv.dialogs._kind "$1" lb newList || return
+    local __fvg_n=0 __fvg_rr=${RESULT-}
+    if [[ -n $2 ]]; then
+        fv.dialogs._arr newList "$1" "$2" || return
+        local -n __fvg_la=$2
+        __fvg_n=${#__fvg_la[@]}
+    fi
+    local -n __fvg_d=${1}_data
+    __fvg_d[List]=$2 __fvg_d[Formatter]=${3-}
+    fv.views._lvSetRange "$1" "$__fvg_n"
+    if (( __fvg_n > 0 )) && [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views._virt "$1" FocusItem 0 || :; fi
+    if [[ -n ${__FV_VW_LIVE[$1]-} ]]; then fv.views.drawView "$1" || :; fi
+    RESULT=$__fvg_rr
 }
 
 # ---- the data transfer (FV TGroup.GetData / SetData / DataSize; design §4.6) ------

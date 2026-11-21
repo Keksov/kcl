@@ -145,7 +145,7 @@ chk "${E}[233;5u" kbUnknown 'é' '' 'Ctrl+é: no name'
 
 # --- what stays kbUnknown ---------------------------------------------------------------
 chk "${E}[70;33;1072;1;2;1_" kbUnknown '' '' 'win32-input-mode (option d, not decoded)'
-chk "${E}[200~" kbUnknown '' '' 'bracketed paste start (stage 3d)'
+chk "${E}[200~" kbPaste '' '' 'bracketed paste start alone: an empty paste (P3 3d; 014_Paste)'
 chk "${E}[1072::102;3x" kbUnknown '' '' 'another final byte'
 
 # --- exact consumption --------------------------------------------------------------------

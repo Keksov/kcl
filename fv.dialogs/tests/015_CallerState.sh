@@ -7,7 +7,9 @@
 # Space, a radio move, Alt + a hot letter, a Cyrillic letter through its
 # base key, a plain letter in post-process), a click on a check box with
 # the tracking loop on a scripted source, getData / setData, the setters,
-# refusals, rows read back) runs in a child shell under each setup -
+# refusals, rows read back; 3d: an input line typed into with Cyrillic and
+# CJK, selection, copy, paste, word moves, a list box moved and read back)
+# runs in a child shell under each setup -
 # nocasematch, failglob, nullglob, noglob, extglob on and off,
 # globasciiranges off, odd IFS values (digits, '-', letters, empty),
 # set -eu with pipefail, a C locale, all at once - and must give the
@@ -39,6 +41,9 @@ TCheckBoxes.new cb 2 3 26 5 "~A~lpha" "~B~eta"
 TRadioButtons.new rb 28 3 50 5 "~N~orth" "~S~outh"
 TButton.new Ok 2 10 12 12 "~O~k" cmOk2 0
 TButton.new ok 14 10 24 12 "O~K~" cmOK 1
+TInputLine.new il 28 6 40 7 30
+TListBox.new lbx 2 6 20 9 1
+LST=(one two три)
 ge() {
     local s
     if (( ${#__FV_DR_PEND[@]} )); then fv.drivers.getEvent 0; return; fi
@@ -55,7 +60,8 @@ key8() { fv.drivers.clearEvent; __FV_DR_PEND=(); FV_EV_WHAT=evKeyDown FV_EV_KEY=
 SCENE='
 r=""
 for v in bg; do fv.views.insert app "$v"; done
-for v in st lb cb rb Ok ok; do fv.views.insert dlg "$v"; done
+for v in st lb cb rb Ok ok il lbx; do fv.views.insert dlg "$v"; done
+fv.dialogs.newList lbx LST
 fv.views.select cb
 fv.views.insert app dlg
 app_data[State]=$(( app_data[State] | FV_SF_EXPOSED | FV_SF_SELECTED | FV_SF_MODAL ))
@@ -79,6 +85,15 @@ key8 kbAltQ q; key8 kbAltW w; key8 kbAltL l
 fv.dialogs.setTitle cb x || r+="$?,"
 fv.dialogs.getData dlg RESULT || r+="$?,"
 fv.dialogs.setButtonState cb x 1 || r+="$?;"
+fv.views.focus il
+key8 kbChar a; key8 kbChar ж; key8 kbChar 中; key8 kbShiftLeft; key8 kbCtrlIns; key8 kbHome; key8 kbShiftIns
+fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmPasteText FV_EV_INFO="x
+y"; fv.views._virt dlg HandleEvent
+key8 kbCtrlLeft; key8 kbBack; key8 kbEnd; key8 kbShiftLeft; key8 kbChar b
+fv.dialogs.getText il; printf -v cwj "%s " "${il_cw[@]}"; r+="il=$RESULT/$FV_CLIPBOARD/${il_data[CurPos]}/$cwj;"
+fv.views.focus lbx; key8 kbDown
+D=(); fv.dialogs.getData dlg D; r+="get2=${D[2]},${D[3]};"
+cut8 8 30 12 ,
 cut8 4 2 22 ,
 cut8 5 2 50 ,
 cut8 12 2 24 ""

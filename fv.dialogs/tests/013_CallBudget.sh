@@ -105,4 +105,23 @@ if (( FVW_LASTW <= 24 )); then kt_test_pass "$FVW_LASTW writes"; else kt_test_fa
 kt_test_start "the dialog's draw == a full repaint"
 if fvw_full app; then kt_test_pass ok; else kt_test_fail "$FVW_DIFF"; fi
 fv.views.delete desk dlg
+
+# (P3 3d) typing into an input line of the modal dialog (design §8.1:
+# 0 dispatches, 1 write per key; limits 2 / 2), the line made the dialog's
+# Current (its text selected as the dialog opens: FV's SelectAll on focus)
+TInputLine.new tin 3 8 40 9 255
+fv.views.insert dlg tin
+fv.views.select tin
+budget dlg.type 2 2 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'char a' 'key kbCtrlF4'
+budget dlg.type-cyr 2 2 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'char ж' 'key kbCtrlF4'
+budget dlg.type-cjk 2 2 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'char 中' 'key kbCtrlF4'
+budget dlg.type-back 2 2 'key kbF2' 'char a' 'key kbCtrlF4' -- 'key kbF2' 'char a' 'key kbBack' 'key kbCtrlF4'
+fv.dialogs.setText tin "$(printf 'w%.0s' {1..70})"
+budget dlg.type-scrolled 2 2 'key kbF2' 'key kbEnd' 'key kbCtrlF4' -- 'key kbF2' 'key kbEnd' 'char a' 'key kbCtrlF4'
+fv.dialogs.setText tin "$(printf 'w%.0s' {1..70})"
+budget dlg.shift-left 2 2 'key kbF2' 'key kbEnd' 'key kbCtrlF4' -- 'key kbF2' 'key kbEnd' 'key kbShiftLeft' 'key kbCtrlF4'
+kt_test_start "after the typing: == a full repaint"
+fv.views.insert desk dlg; fv.views.select dlg
+if fvw_full app; then kt_test_pass ok; else kt_test_fail "$FVW_DIFF"; fi
+fv.views.delete desk dlg
 app.delete; dlg.delete

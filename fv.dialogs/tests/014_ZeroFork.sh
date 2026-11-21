@@ -6,7 +6,9 @@
 #     and through a base key, Enter -> the default button), a click on a
 #     button and on a check box with the tracking loops, getData / setData /
 #     dataSize, the setters, newButton / newLabel, a TParamText, CalcBounds,
-#     destruction: no "command not found";
+#     destruction: no "command not found"; (3d) an input line typed into
+#     (ASCII, Cyrillic, CJK, a ZWJ sequence), selection, copy with OSC 52,
+#     cut, paste, overwrite, password, a drag; a list box with marks;
 #   * the static scan (fv.video's 006 scanner, through fv.views' test lib):
 #     no $( ), backtick, process substitution, pipe, ( ) subshell, & or
 #     coproc on any code line of fv.dialogs.sh.
@@ -71,6 +73,43 @@ dlg.delete; app.delete
 printf '%s' \"\$r\"" 2>&1)
 want='cmOK:1:0|cmOK|3|0 7 1 0:4|dlg__fvbtn1|dlg__fvlbl1|20 6 80 20|'
 if [[ $out == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$out] want [$want]"; fi
+
+kt_test_start "PATH='' (P3 3d): an input line (typing ASCII, Cyrillic, CJK, a ZWJ, selection, copy with OSC 52, cut, paste, overwrite, password, a drag) and a list box (newList, Ins marks, data)"
+out=$("$BASH" -c "
+source '$FVG_TESTS_DIR/../fv.dialogs.sh'
+PATH=''
+r=''
+exec {o}>/dev/null; FV_VIDEO_OUT_FD=\$o FV_SCREEN_W=80 FV_SCREEN_H=24; fv.video.initScreen
+TGroup.new app 0 0 80 24; TGroup.new desk 0 0 80 24; TView.new bg 0 0 80 24
+fv.views.insert desk bg; fv.views.insert app desk
+app_data[State]=\$(( app_data[State] | FV_SF_EXPOSED | FV_SF_SELECTED | FV_SF_MODAL ))
+fv.views.setState app \"\$FV_SF_FOCUSED\" 1
+TDialog.new dlg 10 4 70 18 Edit
+TInputLine.new il 3 2 23 3 40
+TListBox.new lb 3 4 30 8 1
+for v in il lb; do fv.views.insert dlg \$v; done
+fv.views.insert desk dlg; fv.views.select dlg; fv.views.select il
+k() { fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=\$1 FV_EV_CHAR=\${2-}; fv.views._virt dlg HandleEvent; }
+for u in a b ж 中 👩 \$'\\u200d' 👦 x; do k kbChar \"\$u\"; done
+k kbShiftLeft; k kbShiftLeft; k kbCtrlIns; k kbShiftDel; k kbHome; k kbShiftIns
+k kbIns; k kbChar Z; k kbIns; k kbCtrlRight; k kbBack
+fv.drivers.clearEvent; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmPasteText FV_EV_INFO=\$'p\\nq'; fv.views._virt dlg HandleEvent
+fv.dialogs.getText il; r+=\"\$RESULT|\$FV_CLIPBOARD|\"
+q=('m:20' 'u:22')
+ge() { local s; if (( ! \${#q[@]} )); then FV_EV_WHAT=evNothing; return 1; fi; s=\${q[0]}; q=(\"\${q[@]:1}\"); fv.drivers.clearEvent
+    if [ \"\${s%%:*}\" = m ]; then FV_EV_WHAT=evMouseMove; else FV_EV_WHAT=evMouseUp; fi; FV_EV_MOUSE_X=\${s#*:} FV_EV_MOUSE_Y=6 FV_EV_MOUSE_BUTTONS=1; }
+__FV_VW_GETEVENT=ge
+fv.drivers.clearEvent; FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=14 FV_EV_MOUSE_Y=6 FV_EV_MOUSE_BUTTONS=1; fv.views._virt app HandleEvent
+r+=\"\${il_data[SelStart]}-\${il_data[SelEnd]}|\"
+il_data[PasswordChar]='*'; fv.views.drawView il
+L=(one два 三); declare -A M=(); fv.dialogs.newList lb L; lb_data[Marks]=M; fv.views.select lb
+k kbIns; k kbIns
+D=(); fv.dialogs.getData dlg D; r+=\"\${D[1]}:\${!M[*]}|\"
+dlg.delete; app.delete
+printf '%s' \"\$r\"" 2>&1)
+# (Ctrl+Ins collapses the selection as FV's tail does, so the Shift+Del after
+# it cuts nothing; the drag's release does not move the cursor: FV)
+if [[ $out == '👩‍👦xZbж中👩‍👦pq|👩‍👦x|0-5|2:'*'|' && $out != *'command not found'* && $out != *rror* ]]; then kt_test_pass "$out"; else kt_test_fail "got [$out]"; fi
 
 kt_test_start "fv.dialogs.sh: no fork construct on any code line"
 bad='' n=0 fn=''

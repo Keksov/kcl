@@ -9,7 +9,9 @@
 #   * a widget whose HandleEvent is overridden is never skipped by the
 #     hot-key map (called for every key in its phases);
 #   * the func answers: GetPalette / GetText / GetHelpCtx / DataSize answer
-#     through the override, Mark / Valid by rc.
+#     through the override, Mark / Valid by rc;
+#   * (3d) TInputLine and TListBox with every virtual overridden: the same
+#     result, data, clipboard and picture; the built-ins dispatch nothing.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvg_testlib.sh"
 fvg_init "$(basename "$0" .sh)" "$@"
@@ -162,4 +164,77 @@ if [[ $a == '10 11 12 13 14 14 14 15' && $b == $'\x03Search options' && $c == 11
 else kt_test_fail "[$a] [$b] $c $d $m1$m0$v"; fi
 fv.views.delete desk xdlg
 xdlg.delete; dlg.delete
+
+# (P3 3d) TInputLine and TListBox: the same with every virtual overridden
+class XInput : TInputLine
+    public
+        override proc Draw
+        override proc HandleEvent
+        override func GetPalette
+        override proc SetState
+        override func Valid
+        override func DataSize
+        override proc GetData
+        override proc SetData
+end
+XInput.Draw() { inherited Draw "$@"; }
+XInput.HandleEvent() { inherited HandleEvent "$@"; }
+XInput.GetPalette() { inherited GetPalette "$@"; }
+XInput.SetState() { inherited SetState "$@"; }
+XInput.Valid() { inherited Valid "$@"; }
+XInput.DataSize() { inherited DataSize "$@"; }
+XInput.GetData() { inherited GetData "$@"; }
+XInput.SetData() { inherited SetData "$@"; }
+build XInput
+class XListBox : TListBox
+    public
+        override func DataSize
+        override proc GetData
+        override proc SetData
+end
+XListBox.DataSize() { inherited DataSize "$@"; }
+XListBox.GetData() { inherited GetData "$@"; }
+XListBox.SetData() { inherited SetData "$@"; }
+build XListBox
+LST=(one two three four)
+# mk2 PREFIX DLGCLASS INPUT LISTBOX: a dialog with an input line, a list box, OK
+mk2() {
+    local p=$1
+    "$2.new" "${p}d2" 10 4 70 18 'Edit'
+    "$3.new" "${p}in" 3 2 30 3 40
+    "$4.new" "${p}lb" 3 4 30 8 1
+    TButton.new "${p}ok2" 14 10 24 12 'O~K~' cmOK "$FV_BF_DEFAULT"
+    local v
+    for v in in lb ok2; do fv.views.insert "${p}d2" "$p$v"; done
+    fv.dialogs.newList "${p}lb" LST
+    fv.views.select "${p}in"
+}
+play2() {
+    fvg_events 'char a' 'char ж' 'char 中' 'key kbShiftLeft' 'key kbCtrlIns' 'key kbHome' 'key kbShiftIns' 'key kbTab' 'key kbDown' 'key kbDown' 'key kbShiftTab' 'key kbEnd' 'key kbEnter'
+    fvw_count_on; FVW_CALLS=0
+    fv.views.execView desk "${1}d2"; R=$RESULT
+    C=$FVW_CALLS; fvw_count_off
+    fvw_noevents
+    local -a d=(); fv.dialogs.getData "${1}d2" d
+    S="$R ${d[*]} ${FV_CLIPBOARD}"
+}
+mk2 '' TDialog TInputLine TListBox
+mk2 x XDialog XInput XListBox
+kt_test_start "the built-in input line and list box: typing, selection, copy, paste, list moves, Enter: cmOK and the data, no dispatch of their own"
+play2 ''; s1=$S c1=$C
+if [[ $s1 == 'cmOK 中aж中 2 中' && $c1 == 2 ]]; then kt_test_pass "$s1"; else kt_test_fail "[$s1] $c1 dispatches"; fi
+kt_test_start "every virtual overridden with inherited: the same result and data; the same picture"
+play2 x; s2=$S c2=$C
+fv.views.insert desk d2; fvw_snap; a=$REPLY; fv.views.delete desk d2
+fv.views.insert desk xd2; fvw_snap; b=$REPLY; fv.views.delete desk xd2
+if [[ $s2 == "$s1" && $a == "$b" ]] && (( c2 > c1 )); then kt_test_pass "$c2 dispatches"; else kt_test_fail "[$s2] vs [$s1] $c2 screens $([[ $a == "$b" ]] && echo same || echo differ)"; fi
+kt_test_start "func answers through the overrides: GetPalette, DataSize; Valid by rc (a Validator saying no)"
+RESULT=''; fv.views._virt xin GetPalette; a=$RESULT
+fv.views._virt xlb DataSize; b=$RESULT
+no() { return 1; }
+xin_data[Validator]=no
+v=0; fv.views._virt xin Valid cmOK || v=$?
+xin_data[Validator]=''
+if [[ $a == '19 19 20 21 14' && $b == 1 && $v == 1 ]]; then kt_test_pass ok; else kt_test_fail "[$a] $b $v"; fi
+xd2.delete; d2.delete
 fvw_untscene

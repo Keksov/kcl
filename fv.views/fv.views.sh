@@ -5510,13 +5510,16 @@ fv.views._lvName() {
 # TListViewer.GetPalette (func) — FV CListViewer 26 26 27 28 29 when the
 # owner's resolved palette reaches entry 29 (a dialog; no owner: the app
 # palette); in a plain window (8 entries) the window's scroller entries
-# 6 6 7 6 6 instead of FV's ErrorAttr (D25, a documented deviation)
+# 6 6 7 2 6 instead of FV's ErrorAttr (D25, a documented deviation; a
+# marked row, colour 4, takes the window's entry 2 — bright white on blue
+# in a blue window — so that marks show, owner 2026-11-21; the focused row
+# keeps entry 7 even when marked: FV, focus wins)
 fv.views._lvGetPalette() {
     local -n __fvw_ld=${1}_data
     local __fvw_o=${__fvw_ld[Owner]-}
     if [[ -n $__fvw_o && -n ${__FV_VW_LIVE[$__fvw_o]-} ]]; then
         if [[ -z ${__FV_VW_PAL[$__fvw_o]+x} ]]; then fv.views._pal "$__fvw_o"; fi
-        if (( ${#__FV_VW_PAL[$__fvw_o]} < 29 )); then RESULT='6 6 7 6 6'; return 0; fi
+        if (( ${#__FV_VW_PAL[$__fvw_o]} < 29 )); then RESULT='6 6 7 2 6'; return 0; fi
     fi
     RESULT='26 26 27 28 29'
 }

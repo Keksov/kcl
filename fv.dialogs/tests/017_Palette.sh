@@ -3,7 +3,8 @@
 # (design P3 §2.6, FV dialogs.inc): each built-in GetPalette (CButton,
 # CStaticText, CLabel, CCluster, the frame's CFrame) through CGrayDialog
 # (32..63), CBlueDialog (64..95, FV's 30th entry 92) and CCyanDialog
-# (96..127) gives exactly CAppColor's entries (fv.views' app palette
+# (96..127) gives exactly CAppColor's entries; 3d: CInputLine, CListViewer
+# (a TListBox in a dialog) (fv.views' app palette
 # string, checked against fv.video's table by fv.views' 019).
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvg_testlib.sh"
@@ -11,6 +12,9 @@ fvg_init "$(basename "$0" .sh)" "$@"
 
 kt_test_section "017: palettes in a dialog"
 fvg_modeless
+# (P3 3d) an input line and a list box in the dialog too
+TInputLine.new pil 3 8 30 9 20; fv.views.insert dlg pil
+TListBox.new plb 32 7 56 9 1; fv.views.insert dlg plb
 # want V IDX... : the app entries V's palette entries resolve to (base added)
 want() {
     local v=$1 b=$2 i=1 e got='' exp=''
@@ -30,6 +34,8 @@ for pal in 2 0 1; do
     want l1 "$b" 7 8 9 9
     want opts "$b" 16 17 18 18 31 6
     want dlg__fvframe "$b" 1 1 2 2 3
+    want pil "$b" 19 19 20 21 14
+    want plb "$b" 26 26 27 28 29
 done
 dlg_data[Palette]=2; fv.views.resetPalette dlg
 kt_test_start "the dialog redrawn after a palette change == a full repaint"

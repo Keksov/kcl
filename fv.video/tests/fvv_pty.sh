@@ -159,7 +159,8 @@ fvp_file() {
 
 # fvp_restored NAME — rc 0 when the run restored everything: stty equal before
 # and after, the typescript holds ?1049l (unless noalt was used: pass 0 as
-# $2), ?25h, ?7h and the mouse-off sequence, never DECKPAM / DECKPNM; else
+# $2), ?25h, ?7h, the mouse-off sequence and bracketed paste off (?2004l,
+# P3 10.8), never DECKPAM / DECKPNM; else
 # REPLY says what is wrong
 fvp_restored() {
     local LC_ALL=C b a ts bad=''
@@ -171,6 +172,7 @@ fvp_restored() {
     if [[ $ts != *$'\e[?25h'* ]]; then bad+=' no?25h'; fi
     if [[ $ts != *$'\e[?7h'* ]]; then bad+=' no?7h'; fi
     if [[ $ts != *$'\e[?1006l\e[?1003l\e[?1002l\e[?1000l'* ]]; then bad+=' no-mouse-off'; fi
+    if [[ $ts != *$'\e[?2004l'* ]]; then bad+=' no?2004l'; fi
     if [[ $ts == *$'\e='* || $ts == *$'\e>'* ]]; then bad+=' DECKPAM/DECKPNM'; fi
     if [[ -e $FVP_ROOT/$1/survivors ]]; then bad+=" survivors:$(<"$FVP_ROOT/$1/survivors")"; fi
     REPLY=$bad

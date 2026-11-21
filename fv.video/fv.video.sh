@@ -56,6 +56,14 @@ kk.unit fv.video || return $__kk_unit_rc
 # kitty = push at once; off = send nothing) and pushes its flags 1|4 when the
 # reply comes (fv.video._kpush, run by fv.keyboard as it decodes the reply);
 # the restore pops them on every exit path, only when pushed.
+#
+# Paste, clipboard, cursor shape (design P3 §2.5, §4.5; 10.7-10.9):
+# initVideo turns bracketed paste on (ESC [ ? 2004 h), the restore turns it
+# off (ESC [ ? 2004 l) on every exit path; updateScreen sends the cursor's
+# shape by DECSCUSR when it changes (insert: underline, overwrite: block,
+# D27) and the restore sends ESC [ 0 SP q (the terminal's default shape)
+# when one was sent; fv.video.setClipboard TEXT sends OSC 52 (the system
+# clipboard, D24) with a pure-bash base64.
 
 # the width and cluster class of every code point (the screen buffer's walk)
 kk.uses fv.unicode || return
@@ -88,6 +96,9 @@ declare -g __FV_VI_WPID=${__FV_VI_WPID-} __FV_VI_WFD=${__FV_VI_WFD-} __FV_VI_RMO
 # KPUSH: 1 = the kitty keyboard flags were pushed on this terminal (the
 # restore pops them; design P3 §14.4)
 declare -g __FV_VI_KPUSH=${__FV_VI_KPUSH:-0}
+# CSHP: 1 = a cursor shape (DECSCUSR) was sent since init (the restore sends
+# ESC [ 0 SP q: the terminal's default shape; P3 10.7, D27)
+declare -g __FV_VI_CSHP=${__FV_VI_CSHP:-0}
 declare -ga __FV_VI_UNDEF
 __FV_VI_UNDEF+=()
 declare -gA __FV_VI_TP=() __FV_VI_PREV=()
@@ -434,7 +445,8 @@ fv.video._rstop() {
 }
 
 # fv.video._restore [quiet] — the terminal as it was (doneVideo, the traps):
-# SGR reset, autowrap, cursor, main screen, mouse reporting off, the input
+# SGR reset, autowrap, cursor, main screen, mouse reporting and bracketed
+# paste off, the terminal's default cursor shape (when one was sent), the input
 # drained (with a reader: through its pipe, then the reader stopped — no
 # timed read of the terminal in this shell, whose WINCH trap is still set;
 # else from the terminal itself; none of the output and no drain with quiet:
@@ -451,7 +463,11 @@ fv.video._restore() {
     if (( __FV_VI_KPUSH )); then __fvv_s=$'\e[<u'$__fvv_s __FV_VI_KPUSH=0; fi
     __FV_KB_ONKITTY='' __FV_KB_ISIG=0
     if (( __FV_VI_ALT )); then __fvv_s+=$'\e[?1049l'; fi
-    __fvv_s+=$'\e[?1006l\e[?1003l\e[?1002l\e[?1000l'
+    # mouse reporting and bracketed paste off (P3 10.8); the terminal's
+    # default cursor shape back when a shape was sent (10.7, D27: ESC [ 0 SP q)
+    __fvv_s+=$'\e[?1006l\e[?1003l\e[?1002l\e[?1000l\e[?2004l'
+    if (( __FV_VI_CSHP )); then __fvv_s+=$'\e[0 q'; fi
+    __FV_VI_CSHP=0 __FV_VS_SSHP=''
     if [[ -z ${1-} ]]; then printf '%s' "$__fvv_s" 2>/dev/null >&$__fvv_fd || :; fi
     # with a reader (RMODE): drain its pipe while it still forwards, then
     # stop it (before the stty) — never a timed read of the terminal. RMODE
@@ -646,8 +662,11 @@ fv.video.initVideo() {
     fv.video._rstart
     # never DECKPAM (ESC =): keypad ESC O p..y would read as vt100 F5-F12
     fv.video._kproto
-    __fvv_x=$__fvv_x$'\e[?25l\e[?7l\e[0m\e[H\e[2J'
+    # (bracketed paste on, P3 10.8: a paste arrives as one frame that
+    # fv.keyboard decodes into one key, kbPaste)
+    __fvv_x=$__fvv_x$'\e[?25l\e[?7l\e[0m\e[H\e[2J\e[?2004h'
     if (( __fvv_alt )); then __fvv_x=$'\e[?1049h'$__fvv_x; fi
+    __FV_VI_CSHP=0 __FV_VS_SSHP=''
     printf '%s' "$__fvv_x" 2>/dev/null >&$__fvv_fd || :
     fv.video.updateSize
     FV_VIDEO_ON=1
@@ -779,7 +798,7 @@ declare -g __FV_VS_W=${__FV_VS_W:-0} __FV_VS_H=${__FV_VS_H:-0} __FV_VS_SP=${__FV
 declare -g __FV_VS_CX1=${__FV_VS_CX1:-0} __FV_VS_CY1=${__FV_VS_CY1:-0} __FV_VS_CX2=${__FV_VS_CX2:-0} __FV_VS_CY2=${__FV_VS_CY2:-0}
 declare -g __FV_VS_DEPTH=${__FV_VS_DEPTH:-256} __FV_VS_FORCE=${__FV_VS_FORCE:-0} __FV_VS_LOC=${__FV_VS_LOC-}
 declare -g __FV_VS_CURX=${__FV_VS_CURX:-0} __FV_VS_CURY=${__FV_VS_CURY:-0} __FV_VS_CURT=${__FV_VS_CURT:-0}
-declare -g __FV_VS_SVIS=${__FV_VS_SVIS-} __FV_VS_SPOS=${__FV_VS_SPOS-}
+declare -g __FV_VS_SVIS=${__FV_VS_SVIS-} __FV_VS_SPOS=${__FV_VS_SPOS-} __FV_VS_SSHP=${__FV_VS_SSHP-}
 declare -ga __FV_VS_CH __FV_VS_AT __FV_VS_OCH __FV_VS_OAT __FV_VS_DX1 __FV_VS_DX2 __FV_VS_WIDE __FV_VS_N16
 declare -gA __FV_VS_FILL __FV_VS_PAL __FV_VS_SGR __FV_VS_AMAP __FV_VS_TC
 # wide characters: X ("Y X" -> the content of the marker cell there); XV / OXV
@@ -1452,7 +1471,7 @@ fv.video._alloc() {
         __FV_VS_CHA[__fvv_y]=$'\e['"$(( __fvv_y + 1 ))G"
     done
     __FV_VS_CX1=0 __FV_VS_CY1=0 __FV_VS_CX2=$__fvv_w __FV_VS_CY2=$__fvv_h
-    __FV_VS_FORCE=0 __FV_VS_SVIS='' __FV_VS_SPOS=''
+    __FV_VS_FORCE=0 __FV_VS_SVIS='' __FV_VS_SPOS='' __FV_VS_SSHP=''
 }
 
 # fv.video.initScreen — the buffer: ASCII mode decided (FV_ASCII, locale),
@@ -2605,6 +2624,57 @@ fv.video.setCursorType() {
     __FV_VS_CURT=$1
 }
 
+# fv.video.setClipboard TEXT — (P3 10.9, D24) TEXT to the system clipboard by
+# OSC 52: ESC ] 52 ; c ; BASE64 BEL (FPC fvclip.inc's form), TEXT's bytes in
+# base64 (pure bash), written at once to FV_VIDEO_OUT_FD, else FV_TTY_FD. A
+# terminal that does not take OSC 52 ignores it (README "Clipboard"). rc 1:
+# no output fd or the write failed (nothing sent), rc 2: not one argument.
+# RESULT ''. Fork-free
+fv.video.setClipboard() {
+    if (( $# != 1 )); then fv.video._bad setClipboard 'TEXT' "$@"; return; fi
+    local IFS= __fvv_fd=${FV_VIDEO_OUT_FD:-${FV_TTY_FD-}} __fvv_b=''
+    RESULT=''
+    if [[ -z $__fvv_fd || $__fvv_fd == *[!0123456789]* ]]; then
+        kk.debug "Error: fv.video.setClipboard: no output fd (FV_VIDEO_OUT_FD, FV_TTY_FD)"
+        return 1
+    fi
+    fv.video._b64 "$1"
+    printf '%s' $'\e]52;c;'"$__fvv_b"$'\a' 2>/dev/null >&$__fvv_fd || return 1
+}
+# fv.video._b64 TEXT — the caller's __fvv_b = TEXT's bytes in base64 (RFC
+# 4648, with `=` padding); bytes in the C locale (a byte's value & 255: some
+# C libraries give a byte >= 0x80 as negative or as 0xDF00 + the byte)
+fv.video._b64() {
+    local LC_ALL=C __fvv_t=$1 __fvv_i=0 __fvv_n __fvv_x __fvv_y __fvv_z=0 __fvv_r
+    local __fvv_k=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
+    __fvv_n=${#__fvv_t} __fvv_b=''
+    while (( __fvv_i + 2 < __fvv_n )); do
+        printf -v __fvv_x '%d' "'${__fvv_t:__fvv_i:1}"
+        printf -v __fvv_y '%d' "'${__fvv_t:__fvv_i+1:1}"
+        printf -v __fvv_z '%d' "'${__fvv_t:__fvv_i+2:1}"
+        fv.video._b64q
+        __fvv_b+=$__fvv_r __fvv_i=$(( __fvv_i + 3 ))
+    done
+    if (( __fvv_n - __fvv_i == 2 )); then
+        printf -v __fvv_x '%d' "'${__fvv_t:__fvv_i:1}"
+        printf -v __fvv_y '%d' "'${__fvv_t:__fvv_i+1:1}"
+        __fvv_z=0
+        fv.video._b64q
+        __fvv_b+=${__fvv_r:0:3}=
+    elif (( __fvv_n - __fvv_i == 1 )); then
+        printf -v __fvv_x '%d' "'${__fvv_t:__fvv_i:1}"
+        __fvv_y=0 __fvv_z=0
+        fv.video._b64q
+        __fvv_b+=${__fvv_r:0:2}==
+    fi
+}
+# (_b64's three bytes __fvv_x __fvv_y __fvv_z -> its four characters __fvv_r)
+fv.video._b64q() {
+    local __fvv_v=$(( (__fvv_x & 255) * 65536 + (__fvv_y & 255) * 256 + (__fvv_z & 255) ))
+    local __fvv_a=$(( __fvv_v / 262144 )) __fvv_c=$(( __fvv_v / 4096 % 64 )) __fvv_d=$(( __fvv_v / 64 % 64 )) __fvv_e=$(( __fvv_v % 64 ))
+    __fvv_r=${__fvv_k:__fvv_a:1}${__fvv_k:__fvv_c:1}${__fvv_k:__fvv_d:1}${__fvv_k:__fvv_e:1}
+}
+
 # fv.video.strWidth TEXT — RESULT = the display cells TEXT takes as a write
 # stores it (StringDisplayWidth: wide characters 2, a cluster its base's
 # width, a control or invalid sequence 1 as its '?')
@@ -2905,7 +2975,9 @@ fv.video._cells0() {
 # damaged columns as colour runs (a cursor move per row, an SGR when the look
 # changes; the SGR state is unknown at the start of a frame), then the cursor
 # (its position when it is visible and moved or text was written; ?25h/l on
-# change). force: every cell of every row, the cursor state re-sent. rc 1:
+# change; its shape by DECSCUSR when it changed, P3 10.7: ESC [ 4 SP q
+# underline for type 1, ESC [ 2 SP q block for 2 and 3, design D27).
+# force: every cell of every row, the cursor state re-sent. rc 1:
 # no screen, no fd (nothing emitted, the damage kept), or the printf failed
 # (the next frame is forced). Fork-free.
 fv.video.updateScreen() {
@@ -2914,14 +2986,14 @@ fv.video.updateScreen() {
     # so a caller IFS holding digits must not split it
     local IFS= __fvv_f=0 __fvv_fd=${FV_VIDEO_OUT_FD:-${FV_TTY_FD-}} __fvv_w=$__FV_VS_W __fvv_h=$__FV_VS_H __fvv_y __fvv_c __fvv_a
     local __fvv_x0 __fvv_n __fvv_sa __fvv_r __fvv_o='' __fvv_l='' __fvv_lg='' __fvv_sg __fvv_p
-    local __fvv_d=${__FV_VS_SGR[$__FV_VS_DEF]-} __fvv_py=-1 __fvv_px=-1 __fvv_cx=$__FV_VS_CURX __fvv_cy=$__FV_VS_CURY __fvv_v=l
+    local __fvv_d=${__FV_VS_SGR[$__FV_VS_DEF]-} __fvv_py=-1 __fvv_px=-1 __fvv_cx=$__FV_VS_CURX __fvv_cy=$__FV_VS_CURY __fvv_v=l __fvv_sh=''
     local -a __fvv_ys
     RESULT=''
     # (the argument, the screen and the fd: rare refusals in _updx)
     if [[ -n ${1-} || -z $__fvv_fd || $__fvv_fd == *[!0123456789]* ]] || (( ! __fvv_h )); then fv.video._updx "$@" || return; fi
     if (( __FV_VS_FORCE )); then __fvv_f=1; fi
     if (( __fvv_f )); then
-        __fvv_ys=("${!__FV_VS_CH[@]}") __FV_VS_SVIS='' __FV_VS_SPOS=''
+        __fvv_ys=("${!__FV_VS_CH[@]}") __FV_VS_SVIS='' __FV_VS_SPOS='' __FV_VS_SSHP=''
     else
         __fvv_ys=("${!__FV_VS_DX1[@]}")
     fi
@@ -2951,12 +3023,16 @@ fv.video.updateScreen() {
     if [[ -z $__fvv_o ]]; then return 0; fi
     if ! printf '%s' "$__fvv_o" 2>/dev/null >&$__fvv_fd; then fv.video._updf; return 1; fi
     __FV_VS_SVIS=$__fvv_v __FV_VS_SPOS=''
-    if (( __FV_VS_CURT )); then __FV_VS_SPOS="$__fvv_cx $__fvv_cy"; fi
+    if (( __FV_VS_CURT )); then __FV_VS_SPOS="$__fvv_cx $__fvv_cy" __FV_VS_SSHP=$__fvv_sh __FV_VI_CSHP=1; fi
 }
 # fv.video._updcur — updateScreen's visible cursor (its locals): its place
-# clamped to the screen, sent after any text or when it moved or was hidden
+# clamped to the screen, sent after any text or when it moved or was hidden;
+# its shape (__fvv_sh: 4 underline, 2 block) first when the terminal was
+# last sent another one (__FV_VS_SSHP; '' = unknown)
 fv.video._updcur() {
-    __fvv_v=h
+    __fvv_v=h __fvv_sh=2
+    if (( __FV_VS_CURT == 1 )); then __fvv_sh=4; fi
+    if [[ $__FV_VS_SSHP != "$__fvv_sh" ]]; then __fvv_o+=$'\e['"$__fvv_sh q"; fi
     if (( __fvv_cx >= __fvv_w )); then __fvv_cx=$(( __fvv_w - 1 )); fi
     if (( __fvv_cy >= __fvv_h )); then __fvv_cy=$(( __fvv_h - 1 )); fi
     if [[ -n $__fvv_o || $__FV_VS_SVIS != h || $__FV_VS_SPOS != "$__fvv_cx $__fvv_cy" ]]; then
@@ -2980,6 +3056,6 @@ fv.video._updx() {
 }
 # fv.video._updf — updateScreen's failed printf: the next frame is forced
 fv.video._updf() {
-    __FV_VS_FORCE=1 __FV_VS_SVIS='' __FV_VS_SPOS=''
+    __FV_VS_FORCE=1 __FV_VS_SVIS='' __FV_VS_SPOS='' __FV_VS_SSHP=''
     kk.debug "Error: fv.video.updateScreen: writing to fd $__fvv_fd failed; the next frame repaints everything"
 }

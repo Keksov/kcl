@@ -337,10 +337,11 @@ kt_test_start "lists scene (P3 3b), reference run: as expected"
 # the wheel, a click on row 2 dragged to row 5 (top 1), the bar's down arrow
 # + one auto (+2); the API; the window switch hides Ll's bar; Right in the
 # 2-column list clamps to its 5 items; Ll's rows 9 and 11 (inactive: the
-# focus in colour 4 = 2 in a plain window), Lhb (value 7 of 0..10: the
+# focus in colour 4: the window's entry 2 in a plain window, D25 since
+# 2026-11-21), Lhb (value 7 of 0..10: the
 # indicator on cell 17), ll's first row (CJK, divider)
 want='14:2:2;16:4:4;79:67:67;2:0:0;m=2;6:3:3;11:9:9;v=0;c=4;'
-want+='│ Файл_9                     │|8CCCCCCCCCCCCCCCCCCCCCCCCCCCC8,│ Файл_11                    │|8CCCCCCCCCCCCCCCCCCCCCCCCCCCC8,'
+want+='│ Файл_9                     │|8CCCCCCCCCCCCCCCCCCCCCCCCCCCC8,│ Файл_11                    │|899999999999999999999999999998,'
 want+='└─◄▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒■▒▒▒▒▒▒▒►─┘|88BBBBBBBBBBBBBBBBBBBBBBBBBB88,'
 want+='║ 报告_1       │             ║|9CCCCCCCCCCCCCCCCCCCCCCCCCCCC9'
 if [[ $ref3 == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$ref3] want [$want]"; fi

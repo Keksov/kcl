@@ -121,7 +121,7 @@ fvk_chk $'\e[<64;3;4M' kbMouse '' 'SGR wheel'
 fvk_chk $'\e[<0;3;4m' kbMouse '' 'SGR release'
 fvk_chk $'\e[99~' kbUnknown
 fvk_chk $'\e[I' kbUnknown '' 'focus-in report (not enabled by fv)'
-fvk_chk $'\e[200~' kbUnknown '' 'bracketed paste start (not enabled by fv)'
+fvk_chk $'\e[200~' kbPaste '' 'bracketed paste start alone: an empty paste (P3 3d; 014_Paste)'
 fvk_chk $'\e[1;2;3A' kbUnknown '' 'two modifier parameters'
 fvk_chk $'\e[1;17A' kbUnknown '' 'modifier out of range'
 fvk_chk $'\e[1;0A' kbUnknown '' 'modifier 0'

@@ -7,7 +7,8 @@
 #   * the rows (a blank, the item's text cut / padded to the column, FPC
 #     2025's GetItemColor: focused 3 when selected + active, selected 4 —
 #     the focused item or a Marks entry, D26 — else 2); D25's palettes (a
-#     plain window: 6 6 7 6 6; a dialog-sized owner: CListViewer);
+#     plain window: 6 6 7 2 6, marked rows visible; a dialog-sized owner:
+#     CListViewer);
 #   * the keys (arrows, PgUp / PgDn, Home / End, Ctrl+PgUp / Ctrl+PgDn,
 #     WordStar through ctrlToArrow, Space -> SelectItem -> cmListItemSelected,
 #     Marks toggled by Space / Ins), rule 4 (one write for Down inside the
@@ -93,7 +94,7 @@ hl.delete; hz.delete
 if [[ $r == '2222,dead,10 1' && ${#e[@]} == 4 && ${e[0]} == 'Error: fv.views: TListViewer.Create:'* ]]; then kt_test_pass "ok"; else kt_test_fail "[$r] [${e[*]}]"; fi
 
 fv.views.drawView app
-kt_test_start "the first paint: ' item N' padded to the list's 38 cells; the focused row in entry 3 of 6 6 7 6 6 (a plain window, D25), the rest in 2; the bar ▲ ■ ▒ … ▼"
+kt_test_start "the first paint: ' item N' padded to the list's 38 cells; the focused row in entry 3 of 6 6 7 2 6 (a plain window, D25), the rest in 2; the bar ▲ ■ ▒ … ▼"
 fvw_cells 41 1 38; a="$RESULT|${REPLY:0:3}"
 fvw_cells 41 2 38; b="$RESULT|${REPLY:0:3}"
 fv.views.getColor w2l 2; c2=$RESULT; fv.views.getColor w2l 3; c3=$RESULT
@@ -102,7 +103,7 @@ want1=" item 0$(printf '%31s' '')|$c3$c3$c3" want2=" item 1$(printf '%31s' '')|$
 if [[ $a == "$want1" && $b == "$want2" && $c2 != "$c3" && $x == '▲■▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▼' ]] && fvw_full app; then kt_test_pass "ok"
 else kt_test_fail "[$a] [$b] c2 $c2 c3 $c3 bar [$x] $FVW_DIFF"; fi
 
-kt_test_start "the palettes: 6 6 7 6 6 in a plain window (D25), CListViewer 26 26 27 28 29 under a dialog-sized owner (FV)"
+kt_test_start "the palettes: 6 6 7 2 6 in a plain window (D25: marked rows in the window's entry 2, owner 2026-11-21), CListViewer 26 26 27 28 29 under a dialog-sized owner (FV)"
 TGDlg.new gd 0 0 30 10 G 0
 TListViewer.new gl 1 1 29 9
 fv.views.insert gd gl
@@ -110,8 +111,9 @@ fv.views.getColor gl 2; a=$RESULT; fv.views.getColor gd 26; b=$RESULT
 fv.views.getColor gl 4; a+=$RESULT; fv.views.getColor gd 28; b+=$RESULT
 fv.views.getColor w2l 2; c=$RESULT; fv.views.getColor w2 6; d=$RESULT
 fv.views.getColor w2l 3; c+=$RESULT; fv.views.getColor w2 7; d+=$RESULT
+fv.views.getColor w2l 4; c+=$RESULT; fv.views.getColor w2 2; d+=$RESULT
 gd.delete
-if [[ $a == "$b" && $c == "$d" && ${a:0:1} != "${a:1:1}" ]]; then kt_test_pass "ok"; else kt_test_fail "dialog [$a] vs [$b], window [$c] vs [$d]"; fi
+if [[ $a == "$b" && $c == "$d" && ${a:0:1} != "${a:1:1}" && ${c:2:1} != "${c:0:1}" ]]; then kt_test_pass "ok"; else kt_test_fail "dialog [$a] vs [$b], window [$c] vs [$d]"; fi
 
 kt_test_start "keys: Down, PgDn (FocusItem moves TopItem: the item the bottom row), PgUp, End, Home, Ctrl+PgDn / Ctrl+PgUp (the page's last / first), Up at the top; the bar follows TopItem"
 r=''
@@ -148,6 +150,14 @@ want='0 0 0|cmListItemSelected:w2l;|evKeyDown|0 0|4 023|3 02|'
 s='cmListItemSelected:w2l;'
 if [[ $r == "$want$s$s$s$s" ]] && fvw_full app; then kt_test_pass "ok"
 else kt_test_fail "[$r] want [$want$s$s$s$s] $FVW_DIFF"; fi
+kt_test_start "marks show in a plain window (D25, owner 2026-11-21): a marked row in the window's entry 2, unlike a plain row (6); the focused row keeps entry 7 when marked too"
+MK[3]=1; fv.views.listDrawItem w2l 3
+fv.views.getColor w2l 2; c2=$RESULT; fv.views.getColor w2l 3; c3=$RESULT; fv.views.getColor w2l 4; c4=$RESULT
+fv.views.getColor w2 2; wc2=$RESULT
+fvw_cells 41 2 1; r1=$REPLY; fvw_cells 41 3 1; r2=$REPLY; fvw_cells 41 4 1; r3=$REPLY
+unset 'MK[3]'; fv.views.listDrawItem w2l 3
+if [[ $r1 == "$c2" && $r2 == "$c4" && $c4 == "$wc2" && $c4 != "$c2" && $r3 == "$c3" ]] && fvw_full app; then kt_test_pass ok
+else kt_test_fail "plain [$r1] marked [$r2] focused [$r3]; colours 2 [$c2] 3 [$c3] 4 [$c4] window 2 [$wc2]"; fi
 
 kt_test_start "Space / Ins with Marks paint the marked row once (Space: its row; Ins: the old and the new row in one drawPart, one write); a handler that moves the focus on cmListItemSelected: the marked row still painted"
 key kbHome kbDown kbDown kbDown

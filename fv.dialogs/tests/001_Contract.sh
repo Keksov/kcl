@@ -18,7 +18,7 @@ fvg_init "$(basename "$0" .sh)" "$@"
 UNIT="$(cd "$FVG_TESTS_DIR/.." && pwd)/fv.dialogs.sh"
 KBOOL="$(cd "$FVG_TESTS_DIR/../../.." && pwd)/kbool.sh"
 TMP=$FVW_TMP
-CLASSES='TDialog TButton TStaticText TParamText TLabel TCluster TCheckBoxes TRadioButtons'
+CLASSES='TDialog TButton TStaticText TParamText TLabel TCluster TCheckBoxes TRadioButtons TInputLine TListBox'
 
 kt_test_section "001: the kcl contract"
 
@@ -27,7 +27,7 @@ if err="$(bash -n "$UNIT" 2>&1)"; then kt_test_pass "bash -n clean"; else kt_tes
 
 kt_test_start "the public API is defined (plain functions, the classes, their methods)"
 miss=''
-for f in getData setData dataSize setTitle setLabel setItems setButtonState makeDefault newButton newLabel _register; do
+for f in getData setData dataSize setTitle setLabel setItems setButtonState makeDefault newButton newLabel getText setText selectAll newList _register; do
     declare -F "fv.dialogs.$f" >/dev/null || miss+=" fv.dialogs.$f"
 done
 for c in $CLASSES; do declare -F "$c.new" >/dev/null || miss+=" $c.new"; done
@@ -39,6 +39,9 @@ for m in Draw GetPalette HandleEvent; do [ "${TLabel_class_method_owner[$m]-}" =
 for m in Draw HandleEvent GetPalette SetState GetHelpCtx Mark Press MovedTo DataSize GetData SetData; do [ "${TCluster_class_method_owner[$m]-}" = TCluster ] || miss+=" TCluster.$m"; done
 for m in Draw Mark Press; do [ "${TCheckBoxes_class_method_owner[$m]-}" = TCheckBoxes ] || miss+=" TCheckBoxes.$m"; done
 for m in Draw Mark Press MovedTo SetData; do [ "${TRadioButtons_class_method_owner[$m]-}" = TRadioButtons ] || miss+=" TRadioButtons.$m"; done
+for m in Draw HandleEvent GetPalette SetState Valid DataSize GetData SetData SelectAll; do [ "${TInputLine_class_method_owner[$m]-}" = TInputLine ] || miss+=" TInputLine.$m"; done
+for m in DataSize GetData SetData NewList; do [ "${TListBox_class_method_owner[$m]-}" = TListBox ] || miss+=" TListBox.$m"; done
+[ "${TListBox_class_method_owner[HandleEvent]-}" = TListViewer ] || miss+=' TListBox.HandleEvent(TListViewer)'
 for v in FV_BF_NORMAL FV_BF_DEFAULT FV_BF_LEFTJUST FV_BF_BROADCAST FV_BF_GRABFOCUS FV_DP_BLUEDIALOG FV_DP_CYANDIALOG FV_DP_GRAYDIALOG; do
     [[ ${!v@a} == *r* ]] || miss+=" $v(readonly)"
 done
@@ -50,14 +53,15 @@ for c in $CLASSES; do
     declare -n __o=${c}_class_method_owner
     for m in "${!__o[@]}"; do
         [ "${__o[$m]}" = "$c" ] || continue
-        case $m in Create|Done) continue ;; esac
+        # (the thin aliases SelectAll / NewList call the plain functions: no elision entry)
+        case $m in Create|Done|SelectAll|NewList) continue ;; esac
         b=${__FV_VW_IMPL[$c.$m]-}
         [[ $b == fv.dialogs._* ]] && declare -F "$b" >/dev/null || bad+=" $c.$m"
     done
     unset -n __o
 done
-t="${__FV_VW_FUNC[GetText]-}${__FV_VW_FUNC[Mark]-}${__FV_VW_FUNC[DataSize]-}|${__FV_VW_BCAST[fv.dialogs._btnEvent]-}|${__FV_VW_BCAST[fv.dialogs._lblEvent]-}|${__FV_VW_HKS[fv.dialogs._btnEvent]-}${__FV_VW_HKS[fv.dialogs._lblEvent]-}${__FV_VW_HKS[fv.dialogs._clEvent]-}|${__FV_VW_HKE[fv.dialogs._clEvent]-}"
-if [[ -z $bad && $t == '111|cmDefault cmGrabDefault cmReleaseDefault cmCommandSetChanged|cmReceivedFocus cmReleasedFocus|_data[Title]_data[Text]_items[@]|fv.dialogs._clOn' ]]; then kt_test_pass ok
+t="${__FV_VW_FUNC[GetText]-}${__FV_VW_FUNC[Mark]-}${__FV_VW_FUNC[DataSize]-}|${__FV_VW_BCAST[fv.dialogs._btnEvent]-}|${__FV_VW_BCAST[fv.dialogs._lblEvent]-}|${__FV_VW_HKS[fv.dialogs._btnEvent]-}${__FV_VW_HKS[fv.dialogs._lblEvent]-}${__FV_VW_HKS[fv.dialogs._clEvent]-}|${__FV_VW_HKE[fv.dialogs._clEvent]-}|${__FV_VW_BCAST[fv.dialogs._ilEvent]+set}"
+if [[ -z $bad && $t == '111|cmDefault cmGrabDefault cmReleaseDefault cmCommandSetChanged|cmReceivedFocus cmReleasedFocus|_data[Title]_data[Text]_items[@]|fv.dialogs._clOn|set' ]]; then kt_test_pass ok
 else kt_test_fail "missing:$bad tables [$t]"; fi
 
 expect_clean() {
@@ -90,7 +94,10 @@ TCheckBoxes.new cb 2 4 30 6 '~A~lpha' '~B~eta'
 TRadioButtons.new rb 32 4 50 6 '~N~orth' '~S~outh'
 TButton.new ok 2 10 12 12 'O~K~' cmOK \"\$FV_BF_DEFAULT\"
 TButton.new cn 14 10 26 12 Cancel cmCancel
-for v in st pt lb cb rb ok cn; do fv.views.insert dlg \$v; done
+TInputLine.new il 2 7 30 8 20
+TListBox.new lbx 32 7 50 9 1
+L=(one two three); fv.dialogs.newList lbx L
+for v in st pt lb cb rb ok cn il lbx; do fv.views.insert dlg \$v; done
 fv.views.select cb
 q=(kbTab kbDown kbEnter)
 ge() {
@@ -101,15 +108,16 @@ ge() {
 __FV_VW_GETEVENT=ge
 fv.views.execView app dlg
 [[ \$RESULT == cmOK && \${rb_data[Value]} == 1 ]]
-D=(x 3 1); fv.dialogs.setData dlg D; D=(); fv.dialogs.getData dlg D
-[[ \${D[*]} == 'x 3 1' ]] || [[ \${D[*]} == 'x 3 1' ]]
+D=(x 3 1 hello 2); fv.dialogs.setData dlg D; D=(); fv.dialogs.getData dlg D
+[[ \${D[*]} == 'x 3 1 hello 2' ]]
+fv.dialogs.setText il 'ab жи'; fv.dialogs.getText il; [[ \$RESULT == 'ab жи' ]]; fv.dialogs.selectAll il 0
 fv.dialogs.setTitle ok '~Y~es'; fv.dialogs.setLabel lb '~L~'; fv.dialogs.setItems cb a b
 fv.dialogs.setButtonState cb 1 0; fv.dialogs.makeDefault cn 1
 if fv.dialogs.setTitle cb x; then exit 9; fi
 fv.dialogs.getData nosuch D || :
 fv.views.insert app dlg; fv.views.drawView app
 dlg.delete; app.delete
-[[ -z \${__FV_DG_KIND[ok]+x} && -z \${cb_items+x} ]]
+[[ -z \${__FV_DG_KIND[ok]+x} && -z \${cb_items+x} && -z \${il_cl+x} && -z \${__FV_DG_KIND[lbx]+x} ]]
 "
 expect_clean "the main path under set -eu (every widget, drawn, run to the default button, data, setters, refusals, destructors)" "source '$UNIT'
 $MAIN"
@@ -162,11 +170,11 @@ compgen -v | LC_ALL=C sort > '$TMP/v0'
 compgen -A function | LC_ALL=C sort > '$TMP/f0'
 source '$UNIT'
 $MAIN
-unset q D v
+unset q D v L
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
-cl='TDialog|TButton|TStaticText|TParamText|TLabel|TCluster|TCheckBoxes|TRadioButtons'
+cl='TDialog|TButton|TStaticText|TParamText|TLabel|TCluster|TCheckBoxes|TRadioButtons|TInputLine|TListBox'
 newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE "^(__FV_DG_[A-Z]+|($cl)_[A-Za-z_]+|RESULT|REPLY|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft|FVO|__FV_(VW|VS|VI|DR|KB|MS|UN)_[A-Za-z0-9_]+|FV_[A-Z0-9_]+)\$" | tr '\n' ' ')"
 newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE "^((fv\\.dialogs|$cl)\\..*|__kk[cm]\\.($cl)(\\..*)?|ge)\$" | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass "ok"; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi

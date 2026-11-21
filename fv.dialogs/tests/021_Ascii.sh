@@ -4,7 +4,9 @@
 # monochrome look), its pressed look; check / radio marks as in UTF-8 mode;
 # a label and a static text with a non-ASCII text one `?` cell per
 # character, as fv.video counts them there; cluster columns from those
-# cells; every scene == a full repaint.
+# cells; (3d) an input line: one cluster of one cell per non-ASCII
+# character, '?' on the screen, the cursor and FirstPos by those cells;
+# every scene == a full repaint.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvg_testlib.sh"
 fvg_init "$(basename "$0" .sh)" "$@"
@@ -37,4 +39,19 @@ TRadioButtons.new rcj 2 7 40 8 '文件' '保存文件' 'x'
 fv.views.insert dlg rcj
 fvg_cells 12 11 28
 if [ "$RESULT" = ' (*) ??  ( ) ????  ( ) x    ' ] && fvw_full app; then kt_test_pass ok; else kt_test_fail "[$RESULT] $FVW_DIFF"; fi
+# (P3 3d) the input line in ASCII mode: every non-ASCII character one
+# cluster of one cell (fv.video.clusters there), shown as '?'
+TInputLine.new ail 3 9 13 10 40
+fv.views.insert dlg ail
+fv.views.focus ail
+k() { fv.drivers.clearEvent; FV_EV_WHAT=evKeyDown FV_EV_KEY=$1 FV_EV_CHAR=${2-} FV_EV_BASE=''; fv.views._virt dlg HandleEvent; }
+kt_test_start "an input line: CJK, Cyrillic and an emoji typed: one cluster of one cell each, '?' on the screen, the cursor by those cells"
+for u in 中 ж a 😀; do k kbChar "$u"; done
+fvg_cells 13 13 10
+if [[ ${ail_cw[*]} == '1 1 1 1' && $RESULT == ' ??a?     ' && ${ail_data[CursorX]} == 5 ]] && fvw_full app; then kt_test_pass ok
+else kt_test_fail "cw [${ail_cw[*]}] [$RESULT] cx ${ail_data[CursorX]} $FVW_DIFF"; fi
+kt_test_start "scrolling by those cells: 12 CJK characters in the 10-cell line -> FirstPos 5 (SizeX - 3 = 7 cells), '<' shown"
+k kbCtrlY; for (( i = 0; i < 12; i++ )); do k kbChar 文; done
+fvg_cells 13 13 10
+if [[ ${ail_data[FirstPos]} == 5 && $RESULT == '<???????  ' ]] && fvw_full app; then kt_test_pass ok; else kt_test_fail "first ${ail_data[FirstPos]} [$RESULT]"; fi
 fvg_unscene
