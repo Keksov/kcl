@@ -500,7 +500,11 @@ Internal state is `__FV_VS_*`.
   checks are range globs, D21) for the call and puts both back on every
   return path; `failglob`, `nullglob`, `noglob`, `extglob`, `IFS` and
   `set -eu` change nothing (`tests/013`, also `globasciiranges` off under a
-  collation that is not the code order). Every function with a bare fd redirect (`>&$fd`, the form
+  collation that is not the code order). A caller IFS holding `\x01` —
+  bash's internal quoting byte: such an IFS drops that byte from a pattern
+  substitution over the wide cells and breaks `initScreen`'s palette
+  arithmetic — sends the call through the same guard, which runs it under
+  an empty IFS of its own (P3 3v-1 F4; `tests/025`). Every function with a bare fd redirect (`>&$fd`, the form
   bash 5.1 prints correctly) sets `local IFS=`, so a caller IFS holding
   digits cannot split the fd (`tests/015`, on a pty).
 * **Platform notes (PORT-1):** an integer argument is checked against
@@ -922,6 +926,69 @@ substrings of the multibyte cells) and the wide frame (`updateScreen`: ~11
 ms of the page against ~3 ms for the Cyrillic one, the resync after every
 CJK character): the D31 speed stage 3v (design 10.15).
 
+**P3 stage 3v-1, the wide write paths** (2026-11-21; the 3v design note's
+levers V1, V2, V5). Three per-row costs of a CJK page that 3a-1 left, and
+the cost a panel pays for standing beside one:
+
+* **V1** (`_wrb1`): after the batch's one validity check, when every
+  non-ASCII character of the batch is a plain wide one, the wide fast path
+  (`_wfb`) runs **once over the rows joined** instead of once per row — it is
+  a per-character substitution, so each row gets exactly its own answer; per
+  row only "holds `\x01`" picks the wide or the narrow cache entry. Without
+  the substitution (bash 5.1, or `patsub_replacement` off) `_wfb`'s loop
+  over the rows joined would be quadratic in the batch (CI, bash 5.1: the
+  CJK stand-in scene 47.1 → 55.7 ms): there the batch runs only `_wfb`'s
+  test over the rows joined, then the loop (`_wfbl`) per row of the
+  batch — still no `_fast` and no second test per row (3v-1 fix F1). A
+  batch with any other class (Cyrillic, emoji, a mark, a 4-byte character)
+  takes the per-row classes as before.
+* **V2** (`_wrowsu`): a wide cache hit is read inline (no `_wrx` per row), a
+  short row is padded inline from the screen's blanks (`_wrcut` only for a
+  row that is cut or a pad wider than the screen), and a
+  **plain wide row** — no marker in the text or in the row (`WIDE` bit 2
+  clear), inside the clip, no wide pair of the row cut at X or X+W — is
+  spliced in place with exactly `_putw`'s effects (the cells, the symbol's
+  fill, `WNEW` as `_putw` sets it, `WIDE` from one test, the damage X..X+W)
+  instead of a `_putw` call.
+* **V5** (`_wrows`' per-row helper `_wrw`): a narrow text written into a
+  row whose wide cells are plain (`WIDE` 1: a panel beside a CJK list),
+  inside the clip, with no wide pair cut at its edges, is spliced in place
+  (`WNEW` 1, `WIDE` 0 when no wide cell is left, the damage) instead of
+  `_wrw → _putw`, by the helper `_wrw5` behind a one-line guard in `_wrw`.
+
+Every other row with wide cells (a marker in the text or the row, a pair
+cut at an edge or by the clip, a wide text in `_wrows`) still takes
+`_putw`. Cost notes: bash copies a function's body on every call. V2's
+splice sits inline in `_wrowsu` (the non-ASCII pages' entry, called once
+per draw: its extra lines cost once per list, a helper call would cost once
+per CJK row); V5's sits in `_wrw5`, called from a one-line guard in `_wrw`,
+which every row with wide cells already called, so `_wrows` — the ASCII
+pages' and the stand-in's entry — keeps its body (inline there it cost ~25
+µs a call, 2 %, in a laptop microbench of a 21-row ASCII page; against that
+inline form the helper costs a beside-CJK page one call per row, ~0.4 ms on
+the laptop, and still saves the `_putw` call each such row made before),
+and so does `_wrw` but for the guard (with the splice inline its body was
+ten times longer, and a 21-row page of wide texts paid ~8 % for it; with
+the guard 1–2 %). No fork, no new state. `tests/025` compares the batch
+entries (and `_wrw`) with kcl c3ed3a2's (kept
+verbatim in the test) over seeded random scenes: every buffer, the side
+map, the versions, `WNEW`, the damage, the terminal rows, the cache answers,
+rc / RESULT and the frame bytes. Laptop, same-process interleaved A/B
+(c3ed3a2's four functions against these, median of 9 rounds × 10
+actions; CI decides), ms per action of
+the list scene (bench `views-list-80`):
+
+| action | Git-bash 5.3 before → after | Cygwin 5.2 before → after |
+|---|---|---|
+| list PgDn, ASCII | 9.09 → 8.84 (noise: the path is unchanged) | 9.89 → 9.68 (noise) |
+| list PgDn, Cyrillic | 11.23 → 11.23 | 11.69 → 11.63 |
+| list PgDn, CJK | **20.91 → 17.01** | **21.72 → 18.01** |
+| stand-in PgDn | 8.11 → 7.90 (noise) | 8.48 → 8.61 (noise) |
+| stand-in PgDn beside the CJK list | **14.26 → 12.52** | **15.06 → 13.63** |
+
+(The last row is the kbool bench row `W.standin.pgdn-cjk` added with this
+stage.)
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -981,9 +1048,12 @@ CJK character): the D31 speed stage 3v (design 10.15).
   control characters per row, **one** validity check over the rows joined
   with `\x1f`, split back, then per row the fast set, the wide fast path
   or the walk, exactly what `_text` gives row by row — so no row goes
-  through a public `writeBuf` for its text any more. A row with wide cells
+  through a public `writeBuf` for its text any more (a batch of plain wide
+  rows takes the wide fast path once, 3v V1). A row with wide cells
   (a wide text, or a narrow one over a row with wide cells) goes through
-  `_putw` with writeBuf's lead-symbol rule (10.12); a row with bad symbols
+  `_putw` with writeBuf's lead-symbol rule (10.12) — a narrow one over
+  plain wide cells (`WIDE` 1), inside the clip, no pair cut at its edges,
+  is spliced in place with `_putw`'s effects (3v V5); a row with bad symbols
   or ATTRS of another length goes through `writeBuf` itself (its refusal).
   RESULT = the widest row's cells (writeBuf's answer, the maximum; 0 for no
   rows); a row writeBuf refuses leaves RESULT `''` and rc 2 after the other
@@ -996,18 +1066,21 @@ CJK character): the D31 speed stage 3v (design 10.15).
   cells, symbols, side map and damage as a `writeBuf` of the text clipped
   to [X, X+W) plus blanks in the symbol up to X+W (a wide character the cut
   halves becomes a blank, writeBuf's edge rule); W < 1 writes nothing;
-  fresh texts batched as in `_wrows`. A `SYMS[k]` that is not one symbol
+  fresh texts batched as in `_wrows`; a plain wide row (no marker in the
+  text or the row, inside the clip, no pair of the row cut at X or X+W)
+  spliced in place with `_putw`'s effects (3v V2). A `SYMS[k]` that is not one symbol
   refuses that row (rc 2, RESULT `''` after the other rows); else RESULT =
   W (0 for no rows or W < 1); no screen rc 1. All of these are
   private to the fv.\* units (not for scripts); a change to them is a
   versioned change that fv.views' tests pin (`tests/020` compares each
   twin with its public one; `tests/021` compares `_wrows` with writeBuf per
   row; `tests/023` `_wrows` on fresh pages with writeBuf per row and the
-  walk, and `_wrowsu` with the clipped writeBuf).
+  walk, and `_wrowsu` with the clipped writeBuf; `tests/025` the
+  batch entries with kcl c3ed3a2's, the `_putw` path).
 
 ## Tests
 
-`bash kcl/fv.video/tests/tests.sh` — 531 tests. `initVideo` runs only under
+`bash kcl/fv.video/tests/tests.sh` — 565 tests. `initVideo` runs only under
 `script(1)`'s pty (the harness is `tests/fvv_pty.sh`, shared with
 fv.drivers), never on the terminal the tests were started from; without a
 util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
@@ -1038,6 +1111,7 @@ util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as
 | 019_P2 | the P2 additions (stage 2a): `writeBuf … H` (H 1 / omitted / `''` identical to P1, H 0, bad H rc 2 with nothing written (also before `initScreen`), the clip on every row, wide text over rows with wide cells, a marker per row, a huge H clamped, ASCII mode); `shadeRect` (characters kept, `V` / ATTR, screen and clip edges, negative and empty rectangles, a half-covered wide character shaded whole also outside the clip, side map and versions untouched, the damage, bad arguments, frames through the VT model incl. 16 colours, incremental = forced); `getRow` (display text, `REPLY`, read-only, bad Y, ASCII mode); `getClip` (after init / setClip / resetClip, a save-restore round trip); the default palette kept per process (a cached `initScreen` equals a fresh build at 256 and 16 colours, after `definePalette`, `setColorDepth`, an emptied 16-colour map, ASCII mode; values in the environment ignored); the fast argument check (every coordinate form: 1–7-digit integers incl. leading zeros and `-` pass with their value, the rest rc 2, in every write and `setClip`); a P2 scene under 12 caller setups; `PATH=''` |
 | 022_Clusters | P3 stage 3a-1: the wide fast path's table (every code point U+3000–U+FFFF it takes is one of the design's runs and class w in fv.unicode; Latin-1, Cyrillic, U+0800–2FFF, VS16 and 4-byte characters refused); `clusters` = the walk's cells (CL the cells' contents, CW their widths, an orphan's screen space dropped; RESULT; widths sum to strWidth; valid text joined back) over 300 seeded random texts (ASCII, Cyrillic, Greek, Latin-1, CJK, Hangul, kana, fullwidth, emoji, ZWJ, VS16, keycaps, flags, marks, controls, C1, invalid UTF-8), again with the 5.1 loops forced (`__FV_VS_AMP=0`) and with `patsub_replacement` off; ASCII mode (one cluster of one cell per UTF-8 sequence, TEXT's own bytes); the answers (empty, the fast path, a caller's local arrays, no screen) and the refusals (rc 2, the arrays untouched); a scene under 11 caller setups; `PATH=''` |
 | 023_Fresh | P3 stage 3a-1: `_text` with the wide fast path = the walk alone (400 random texts incl. the joins that must refuse it, the loop, the option off); `_wrows` on fresh pages = one `writeBuf` per row with the walk alone (160 seeded random pages of every kind of text, one invalid row among valid ones, controls incl. `\x1f`, refused rows, clips, X / Y off the edges, ASCII mode, 30×10 / 80×24 / 200×50; cells, symbols, side map, flags, versions, damage, rc, RESULT; the same page again from the cache), with the loops forced, with a nearly full text cache, 300 rows (two batches); the calls (a fresh Cyrillic / CJK page: one validity check, no `writeBuf`, no walk; cached: none; emoji: one walk per row); `_wrowsu` = a `writeBuf` clipped to [X, X+W) + blanks (a wide pair and a wide marker at the edge at every W −1..10, 160 random cases, refused symbols, the names rc 3, no screen rc 1); VT-model frames; every installed UTF-8 locale (also with `globasciiranges` off) against C.UTF-8; a scene under 12 caller setups (`patsub_replacement` off too); `PATH=''` |
+| 025_WidePaths | P3 stage 3v-1: the batch entries `_wrows` (with its helper `_wrw`) / `_wrb1` / `_wrowsu` against kcl c3ed3a2's (kept verbatim in the test, swapped in for the reference run: the `_putw` path) — 200 seeded random scenes (rows with and without wide cells, wide pairs at every edge, marker / emoji rows, Cyrillic, controls, invalid UTF-8, five clip kinds incl. edges on wide pairs, cuts, pads, refused rows, ASCII mode, fresh / warm texts, narrow rows over plain-wide rows), each written, shown, written again from the cache and shown: CH AT WIDE X XV WNEW DX, OCH OAT OXV, XSEQ, the cache answers, rc / RESULT and both frames' bytes equal, fewer `_putw` calls asserted; again with the 5.1 loop (`__FV_VS_AMP=0`) and `patsub_replacement` off; an edge sweep (W 1..10, X 0..4, pairs of the text and the row at both parities, a clip at the write); a narrow sweep (one `_wrows` of N 1..10 at X 0..4 into CJK rows at both parities, no earlier write at X, `WNEW` cleared before) and a narrow write over every pair (`WIDE` 0, `WNEW` 1, the damage); the calls (a fresh CJK page: one `_wfb`, no `_putw`; cached: no `_wrx`; a narrow page beside it: `_wrw` and `_wrw5` but no `_putw`; an emoji page: one `_putw` per row; with `__FV_VS_AMP=0` and with `patsub_replacement` off: one `_wfb`, the loop `_wfbl` per row, never over the rows joined); 19 caller setups (a caller IFS holding `\x01` before the screen and around the writes, `unset IFS` under `set -u`); the four single-row writes of fresh wide texts and `initScreen` (the palette built afresh) under such an IFS; `PATH=''` |
 | 024_KbdProto | P3 3L, the keyboard protocol: `_kproto` per `FV_KBD_PROTO` value (auto / empty / kitty / off / a bad one + its debug line; `__FV_KB_ISIG` set for every value), `_kpush` on a fake state (once; nothing with the TUI off, in a subshell, without a fd). `script(1)`: auto without a reply (the query after `?1049h`, no push, no pop), auto + a kitty reply typed twice (one push after it, the pop before `?1049l`, the reply no key), a DA1 reply only (no push), kitty (push at once, no query), kitty + noalt, off (nothing), a bad value (as auto); the pop on `exit` without doneVideo (3), SIGTERM after a reply-driven push (143), Ctrl+C (130); a late reply after doneVideo and a push from a subshell push nothing, after doneVideo the report `CSI 99;5u` is the key `kbCtrlC`; Ctrl+C typed as that report under the push (no 0x03): SIGINT all the same, popped, restored, 130 |
 
 Run on Git-bash 5.3.15 (pty cases SKIP), MSYS2 5.3.9, Cygwin 5.2.21 and Debian
