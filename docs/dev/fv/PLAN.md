@@ -1,8 +1,9 @@
 # fv — a Free Vision-style text UI library for bash (kcl/fv.*)
 
 **Status:** P0–P2 done and on main (2026-11-18); D21 done; **P3 done** (stages 3a-1 … 3g,
-2026-11-22) except the deferred speed stages 3v-2…3v-5 (owner, 2026-11-21); next: P4 when the
-owner says. **Ledger:** [`fv_ledger.json`](fv_ledger.json)
+2026-11-22) except the deferred speed stages 3v-2…3v-5 (owner, 2026-11-21); **P4 in progress**
+(design [`P4_DESIGN.md`](P4_DESIGN.md), owner answers D32–D39 2026-11-22; stages 4a-1 → 4a-2 →
+4b → 4b-L → image plan → 4d → 4e). **Ledger:** [`fv_ledger.json`](fv_ledger.json)
 (single source of truth for status).
 
 Owner request (2026-11-07): a set of windowing classes that other scripts can use, with
@@ -54,6 +55,14 @@ Sources:
 | D29 | 2026-11-20 | **For P4, in P3**: password mode (a mask character in TInputLine) and long checklists through a list with `Marks`. |
 | D30 | 2026-11-20 | **Hot keys with any keyboard layout, option (c)** (P3 Q7): typed character first, then the base-layout key from the kitty keyboard protocol, then layout tables generated from xkeyboard-config (`FV_KBD_LAYOUT` / locale / per-script default); stage 3L. win32-input-mode only later, as an opt-in after a live check. |
 | D31 | 2026-11-20 | **One list speed target for every kind of text** (P3 Q8 = a): PgDn <= 8 ms CI Linux 80x24 on fresh pages for ASCII, Cyrillic and CJK names; the two-panel list scene's first paint (F-1) <= 15 ms CI with real lists; an extra fv.video speed stage 3v after 3b. All P3 timing on GitHub CI (perf branches, same-run A/B); laptop numbers are estimates only. |
+| D32 | 2026-11-22 | **Flag set = compatible flags + extras** (P4 Q1 = c, closes O2): whiptail's and dialog's spellings of the common widgets and options, dialog's `0` (fit) / `-1` (whole screen) sizes, own options under `--fv-*` (`--fv-palette`, `--fv-ascii`, `--fv-mouse`, …); unknown flags refused, never silently ignored. |
+| D33 | 2026-11-22 | **Name: the command `fvdlg`, the unit `fv.dlg`** (P4 Q2); the command is `bin/fvdlg` at the kbool root. |
+| D34 | 2026-11-22 | **Screen mode by flag, the alternate screen by default** (P4 Q3 = c): `--fv-screen alt|main`, dialog's `--keep-tite` / `--erase-on-exit` understood; `--infobox` always on the main screen; a session (`fv.dlg.begin` / `end`) never flashes. |
+| D35 | 2026-11-22 | **Start-up: a general kbool load image** (P4 Q4 = b): `kk.image` in kkore / kklass as its own plan + critic right after 4b, `fvdlg` its first user; units declare their load-time env / locale reads (settings hooks) so nothing is frozen; per-user cache dir (`~/.cache/kbool`, `%LOCALAPPDATA%\kbool`), self-invalidating; no fv.dlg-private cache. Requirements: P4_DESIGN §11. |
+| D36 | 2026-11-22 | **No terminal: refuse with 255, opt-in default answers** (P4 Q5 = b): `--no-tty=default` / `FVDLG_NOTTY=default` answer as Enter would; the variable's inheritance by child scripts documented. |
+| D37 | 2026-11-22 | **List output: whiptail's quoted format + dialog's flags** (P4 Q6 = c): `"git" "curl"`, radiolist bare, `--separate-output`, `--single-quoted`, `--fv-output lines|quoted|single`; bash scripts get the `FV_DLG_TAGS` array; exact formats checked against the real tools on the Debian VM. |
+| D38 | 2026-11-22 | **Password echo: `*` by default, `--fv-echo none`** (P4 Q7 = c). |
+| D39 | 2026-11-22 | **`--gauge` and `--textbox` in P4** (P4 Q8 = a), stage 4d with a critic. |
 
 ## 2. What the measurements say
 
@@ -314,7 +323,8 @@ A command that any script can call without writing a class:
 * the result in an exit status plus stdout or a chosen fd;
 * the terminal restored exactly as found.
 
-Flag compatibility with whiptail/dialog per open item O2.
+Flag compatibility with whiptail/dialog per open item O2 — **decided D32–D39 (2026-11-22)**; the
+design, the budgets and the stage split: [`P4_DESIGN.md`](P4_DESIGN.md) (§8).
 
 ### P5 — protocol utility (face B)
 
@@ -372,7 +382,7 @@ Linux targets are set after the first native numbers.
 | # | Phase | Question | Recommendation |
 |---|---|---|---|
 | O1 | P0 | Esc timeout default | 0.02 s, override `FV_ESC_TIMEOUT` (0.1 over ssh) |
-| O2 | P4 | One-shot dialogs: whiptail/dialog-compatible flags (`--msgbox TEXT H W`) or own syntax? Also the command name | compatible subset: scripts can switch with one word |
+| O2 | P4 | **DECIDED D32/D33: compatible flags + `--fv-*` extras; `fvdlg`** — One-shot dialogs: whiptail/dialog-compatible flags (`--msgbox TEXT H W`) or own syntax? Also the command name | compatible subset: scripts can switch with one word |
 | O3 | P3 | **DECIDED D22/D23: yes, full; the bar only on request** — TMenuBar/TMenuBox in v1? | (was: yes if P2 lands within budget) |
 | O4 | P1 | **DECIDED D11 (a)** — Not a UTF-8 locale | try `C.UTF-8` locally in the unit's functions; else ASCII mode with `?` for non-ASCII |
 | O5 | P5 | Protocol line format: words with shell quoting, `key=value`, or JSON lines | words with `%q` quoting: bash reads them with `read -a`, no parser needed |
