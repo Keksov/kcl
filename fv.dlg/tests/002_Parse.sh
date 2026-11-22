@@ -7,8 +7,10 @@
 #     an optional positional (INIT) unless it is exactly a known option,
 #     `--` ending the options (INIT after it), one widget per call, sizes
 #     0 / -1 / numbers, refusals with one line (unknown, missing, extra, bad
-#     sizes, values, the list widgets "not supported yet", flags outside the
-#     subset);
+#     sizes, values); the list widgets (4a-2): LH,
+#     TAG ITEM [STATUS] groups, options at a group boundary, `--` before
+#     tags, empty / incomplete lists, STATUS on / off (any case); flags
+#     outside the subset;
 #   * THE GOLDEN TABLE (stage 4a-1, the real whiptail 0.52.25 and dialog
 #     1.3-20250116 on Debian 13 under script(1); scratchpad p4/golden): each
 #     row names what whiptail and dialog did with the same argv and what
@@ -75,8 +77,8 @@ pt "--help stops the parse (the command's)" '0|m:--help' --msgbox t 0 0 --help -
 pt "--version" '0|m:--version' --version
 
 kt_test_section "002: the refusals"
-pt "no arguments" '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox)'
-pt "options only" '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox)' --title T
+pt "no arguments" '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)'
+pt "options only" '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)' --title T
 pt "an unknown option" "1|unknown option '--bogus'" --bogus --msgbox t 0 0
 pt "an unknown option after the positionals" "1|unknown option '--bogus'" --msgbox t 0 0 --bogus
 pt "a single-dash word before the widget" "1|unknown option '-x'" -x --msgbox t 0 0
@@ -94,9 +96,19 @@ pt "two widgets" "1|one widget per call ('--yesno' after '--msgbox'); --and-widg
 pt "--and-widget" "1|option '--and-widget' is not supported (outside fvdlg's whiptail / dialog subset)" --msgbox a 0 0 --and-widget --msgbox b 0 0
 pt "--help-button / --extra-button" "1|option '--extra-button' is not supported (outside fvdlg's whiptail / dialog subset)" --extra-button --msgbox t 0 0
 pt "a dialog-only widget" "1|option '--calendar' is not supported (outside fvdlg's whiptail / dialog subset)" --calendar t 0 0
-pt "--menu: not yet (4a-2)" "1|'--menu' is not supported yet" --menu t 0 0 0 a A
-pt "--checklist: not yet" "1|'--checklist' is not supported yet" --title T --checklist t 0 0 0 a A on
-pt "--radiolist: not yet" "1|'--radiolist' is not supported yet" --radiolist t 0 0 0 a A on
+pt "--menu: TEXT H W LH and TAG ITEM groups" "0|menu|t|0|0|0|a|A|b|B||" --menu t 0 0 0 a A b B
+pt "--checklist: TAG ITEM STATUS groups, an option before" "0|checklist|t|0|0|0|a|A|on||title=T;" --title T --checklist t 0 0 0 a A on
+pt "--radiolist: STATUS in any case" "0|radiolist|t|0|0|3|a|A|ON|b|B|Off||" --radiolist t 0 0 3 a A ON b B Off
+pt "a list's fixed positionals are literal (TEXT '--title')" "0|menu|--title|0|0|0|a|A||" --menu --title 0 0 0 a A
+pt "an option at a group boundary is an option, inside a group data" "0|menu|t|0|0|0|a|--title|b|B||title=T;" --menu t 0 0 0 a --title --title T b B
+pt "after -- every word is an item" "0|checklist|t|0|0|0|--title|x|on|-|y|off||" --checklist t 0 0 0 -- --title x on - y off
+pt "an unknown word at a boundary starts a group" "0|menu|t|0|0|0|-x|X||" --menu t 0 0 0 -x X
+pt "LH not an integer" "1|LIST-HEIGHT must be an integer, 0 or more (got 'z')" --menu t 0 0 z a A
+pt "LH negative" "1|LIST-HEIGHT must be an integer, 0 or more (got '-1')" --menu t 0 0 -1 a A
+pt "too few fixed positionals for a list" "1|'--menu' needs TEXT HEIGHT WIDTH LIST-HEIGHT (got 3 of 4)" --menu t 0 0
+pt "an empty list" "1|'--radiolist' needs at least one TAG ITEM STATUS group (the list is empty)" --radiolist t 0 0 0
+pt "an incomplete group" "1|'--menu' takes TAG ITEM groups (3 words after LIST-HEIGHT: the last group is incomplete)" --menu t 0 0 0 a A b
+pt "a bad STATUS" "1|STATUS must be on or off (got '1' for the tag 'b')" --checklist t 0 0 0 a A on b B 1
 pt "--gauge / --textbox: not yet (4d)" "1|'--textbox' is not supported yet" --textbox /etc/hosts 0 0
 pt "a list widget after a widget: one widget per call" "1|one widget per call ('--menu' after '--msgbox'); --and-widget is not supported" --msgbox a 0 0 --menu t 0 0 0
 pt "a value missing at the end" "1|option '--backtitle' needs a value" --msgbox t 0 0 --backtitle
@@ -155,7 +167,7 @@ golden msg_colors  "'--colors: unknown option' rc 1" '\Z stripped' '0|msgbox|a\Z
 golden msg_space   "' ' ignored, rc 0" 255 "1|unexpected argument ' '" --msgbox 'Hello world' 8 30 ' '
 golden msg_okbutton 'OKB shown' 'OKB shown' '0|msgbox|Hello|8|30||ok=OKB;' --ok-button OKB --msgbox Hello 8 30
 golden msg_oklabel "'--ok-label: unknown option' rc 1" 'OKL shown' '0|msgbox|Hello|8|30||ok=OKL;' --ok-label OKL --msgbox Hello 8 30
-golden msg_noargs  'usage, 255' 'rc 0, nothing' '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox)'
+golden msg_noargs  'usage, 255' 'rc 0, nothing' '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)'
 golden msg_stdout  "'--stdout: unknown option' rc 1" 'rc 0' '0|msgbox|Hello|8|30||out=1;' --stdout --msgbox Hello 8 30
 golden yn_button   'JAB / NEINB' 'JAB / NEINB' '0|yesno|q|8|30||no=NEINB;yes=JAB;' --yes-button JAB --no-button NEINB --yesno q 8 30
 golden yn_label    "'--yes-label: unknown option' rc 1" 'JAL / NEINL' '0|yesno|q|8|30||no=NEINL;yes=JAL;' --yes-label JAL --no-label NEINL --yesno q 8 30
@@ -172,7 +184,16 @@ golden f_no_cancel 'unknown option, rc 1' 'rc 0' '0|msgbox|hi|8|30||nocancel=1;'
 golden f_helpbutton 'unknown option, rc 1' 'rc 0 (a Help button)' "1|option '--help-button' is not supported (outside fvdlg's whiptail / dialog subset)" --help-button --msgbox hi 8 30
 golden f_andwidget 'unknown option, rc 1' 'both shown, rc 0' "1|option '--and-widget' is not supported (outside fvdlg's whiptail / dialog subset)" --msgbox a 8 30 --and-widget --msgbox b 8 30
 golden f_gauge_missing 'usage, 255' 'rc 0' "1|'--gauge' is not supported yet" --gauge
-golden msg_onlytitle 'usage, 255' 'rc 0, nothing' '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox)' --title T
+golden msg_onlytitle 'usage, 255' 'rc 0, nothing' '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)' --title T
+golden menu_trailopt 'rc 0, TRAILT shown' "'Expected a box option', 255" '0|menu|Pick|15|40|4|a|Apple|b|Banana||title=TRAILT;' --menu 'Pick' 15 40 4 a Apple b Banana --title TRAILT
+golden menu_dashtags 'tags - and --title (Down: --title)' "'Expected a box option', 255" '0|menu|Pick|15|40|4|-|Dash|--title|Title||' --menu 'Pick' 15 40 4 -- - Dash --title Title
+golden menu_odd    'usage, 255' "'Expected 2 arguments, found extra 1', 255" "1|'--menu' takes TAG ITEM groups (3 words after LIST-HEIGHT: the last group is incomplete)" --menu 'Pick' 15 40 4 a Apple b
+golden check_odd   'usage, 255' "'Expected 3 arguments, found extra 2', 255" "1|'--checklist' takes TAG ITEM STATUS groups (5 words after LIST-HEIGHT: the last group is incomplete)" --checklist 'Chk' 15 50 5 a A on b B
+golden check_status 'ON 1 yes On all on' 'ON On on, 1 yes off' "1|STATUS must be on or off (got '1' for the tag 'b')" --checklist 'Chk' 15 50 5 a A ON b B 1 c C yes d D On
+golden check_off_upper 'OFF Off off (golden2)' 'OFF Off off' '0|checklist|Chk|15|50|5|a|A|OFF|b|B|Off|c|C|on||' --checklist 'Chk' 15 50 5 a A OFF b B Off c C on
+golden menu_empty  'usage, 255 (golden2)' "'Expected at least 20 tokens', 255" "1|'--menu' needs at least one TAG ITEM group (the list is empty)" --menu 'Pick' 15 40 4
+golden check_empty 'rc 0, nothing (golden2)' "'Expected at least 20 tokens', 255" "1|'--checklist' needs at least one TAG ITEM STATUS group (the list is empty)" --checklist 'Chk' 15 50 5
+golden radio_empty 'segfault, rc 139 (golden2)' "'Expected at least 20 tokens', 255" "1|'--radiolist' needs at least one TAG ITEM STATUS group (the list is empty)" --radiolist 'Rad' 15 50 5
 golden msg_realnl  'rc 0, two lines' 'rc 0, two lines' $'0|msgbox|one\ntwo|10|30||' --msgbox $'one\ntwo' 10 30
 golden msg_long    'rc 0' 'rc 0' '0|msgbox|The quick brown fox jumps over the lazy dog and keeps running far past the end of this box|0|0||' --msgbox 'The quick brown fox jumps over the lazy dog and keeps running far past the end of this box' 0 0
 golden yn_00       'rc 0' 'rc 0' '0|yesno|Proceed?|0|0||' --yesno 'Proceed?' 0 0

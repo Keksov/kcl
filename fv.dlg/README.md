@@ -6,16 +6,17 @@ dialog-compatible flags on Free Vision's classes
 ([fv.app](../fv.app/README.md), [fv.dialogs](../fv.dialogs/README.md)):
 one parser, two faces — the command `fvdlg` (stage 4b ships `bin/fvdlg`,
 which calls `fv.dlg.main`) and `fv.dlg.run` for bash scripts that load
-kbool.
+kbool, with sessions (`fv.dlg.begin` / `fv.dlg.end`) and a host-application
+mode.
 
-**Status: P4 stage 4a-1** — the parser (D32's flag set in both tools'
-spellings, §4.5's rules), `--msgbox`, `--yesno`, `--infobox`, `--inputbox`,
-`--passwordbox`, the results and exit codes, P4-6's buffering, `NO_COLOR`.
-Next: 4a-2 (menu / checklist / radiolist, exact sizes and the minimum,
-the scrolling text, the session face `fv.dlg.begin` / `end`, the host
-application), 4b (`bin/fvdlg`, the screen modes, no terminal), 4d (gauge,
-textbox), 4e (bench, docs). The unit loads `kklass_pascal`, `fv.app` and
-`fv.dialogs`.
+**Status: P4 stages 4a-1 + 4a-2** — the parser (D32's flag set in both
+tools' spellings, §4.5's rules), `--msgbox`, `--yesno`, `--infobox`,
+`--inputbox`, `--passwordbox`, `--menu`, `--checklist`, `--radiolist`, the
+results and exit codes (D37's list answers), P4-6's buffering, `NO_COLOR`,
+the sizes and the minimum (P4-8), the scrolling text (P4-9), resize,
+sessions and the host application. Next: 4b (`bin/fvdlg`, the screen
+modes, no terminal), 4d (gauge, textbox), 4e (bench, docs). The unit loads
+`kklass_pascal`, `fv.app` and `fv.dialogs`.
 
 ## Quick start
 
@@ -25,8 +26,14 @@ kk.uses fv.dlg
 
 fv.dlg.run --title Disk --yesno 'Format /dev/sdb1?' 0 0 && format_it
 fv.dlg.run --inputbox 'Your name:' 0 0 "$USER" && name=$RESULT
+fv.dlg.run --checklist 'Packages' 0 0 0 git Git on vim Vim off curl curl on
+case $? in 0) printf 'chosen: %s\n' "${FV_DLG_TAGS[@]}" ;; 1) echo cancelled ;; 255) echo 'Esc, or an error' ;; esac
+
+fv.dlg.begin --backtitle 'Setup'           # one screen for several questions
+fv.dlg.run --inputbox 'Host:' 0 0 localhost && host=$RESULT
 fv.dlg.run --passwordbox 'Password:' 0 0 && pass=$RESULT
-case $? in 0) ;; 1) echo cancelled ;; 255) echo 'Esc, or an error' ;; esac
+fv.dlg.run --infobox 'Installing…' 0 0     # returns at once; stays until the next call
+fv.dlg.end
 ```
 
 The command's face (what `bin/fvdlg` runs, stage 4b):
@@ -34,70 +41,182 @@ The command's face (what `bin/fvdlg` runs, stage 4b):
 ```bash
 fv.dlg.main --title Disk --yesno 'Format /dev/sdb1?' 0 0; echo $?
 name=$(fv.dlg.main --stdout --inputbox 'Your name:' 0 0 "$USER")
-name=$(fv.dlg.main --inputbox 'Your name:' 0 0 3>&1 1>&2 2>&3)   # whiptail's idiom
+pick=$(fv.dlg.main --menu 'Pick' 0 0 0 a Apple b Banana 3>&1 1>&2 2>&3)   # whiptail's idiom
 ```
 
-## The two faces
+## The faces
 
 | Function | Answer |
 |---|---|
-| `fv.dlg.main ARG…` | the command: the answer (input text) **on stderr** by default, stdout with `--stdout`, fd N with `--output-fd N`; written once, after the terminal is restored, **without a trailing newline**, only for status 0; stderr and stdout buffered while the UI runs when they are the terminal (P4-6, below); `--help` / `--version` on stdout (status 0). **Returns** the status (bin/fvdlg exits with it). Refusals: one line `fvdlg: …` on stderr |
-| `fv.dlg.run ARG…` | the same argv and rules; the answer in **`RESULT`** (`''` for 1 / 255 and for the boxes without an answer), **`FV_DLG_CMD`** the FV command that ended the dialog (`cmOK cmYes cmNo cmCancel`, `''` after a refusal); prints nothing unless `--stdout`, `--stderr` or `--output-fd` asks; the same status. Refusals: `fv.dlg.run: …` (the same words); `--help` / `--version` are refused (the command's) |
+| `fv.dlg.main ARG…` | the command: the answer **on stderr** by default, stdout with `--stdout`, fd N with `--output-fd N`; written once, after the terminal is restored, **without a trailing newline** (`--separate-output`: each tag and a newline), only for status 0; stderr and stdout buffered while the UI runs when they are the terminal (P4-6, below); `--help` / `--version` on stdout (status 0). **Returns** the status (bin/fvdlg exits with it). Refusals: one line `fvdlg: …` on stderr |
+| `fv.dlg.run ARG…` | the same argv and rules; the answer in **`RESULT`** (the input text, the menu's / radiolist's tag, the checklist's answer in its output form; `''` for 1 / 255 and the boxes), **`FV_DLG_TAGS`** the chosen tags as an array (a list widget and status 0; else empty), **`FV_DLG_CMD`** the FV command that ended the dialog (`cmOK cmYes cmNo cmCancel`, `''` after a refusal); prints nothing unless `--stdout`, `--stderr` or `--output-fd` asks; the same status. Refusals: `fv.dlg.run: …` (the same words); `--help` / `--version` are refused (the command's) |
+| `fv.dlg.begin [OPTION…]` | **a session** (design §2.2): one application and one screen for the `fv.dlg.run` calls until `fv.dlg.end` — no terminal start / stop per dialog, nothing flashes between them, the desktop and the background title painted at once. Options: `--backtitle T`, `--fv-ascii` / `--ascii-lines`, `--fv-mouse on\|off`, `--fv-screen alt\|main`, `--keep-tite`, `--erase-on-exit`, `--clear`, `--fv-headless [--fv-keys F] [--fv-size WxH] [--fv-out F]`; `NO_COLOR` applied once. Status 0; 255 and one line `fv.dlg.begin: …` for a session already running, an fv application already running, a dialog's option, no terminal |
+| `fv.dlg.end` | the session's application deleted (fv.video gives the terminal back), its key / frame files closed, the caller's terminal settings back. In a host application: the infobox `fv.dlg.run` left there removed. Without either: nothing. Status 0 |
 
-Each call makes a headless or real application (`TDlgApp`), runs the
-dialog modal, and deletes the application: fv.video turns the terminal on
-and gives it back exactly as found (fv.video README, "The terminal"); the
-answer is printed after that. Inside a running fv application (`FV_APP`
-live) a call is refused for now (the host-application mode is 4a-2's).
-Inside `$( )` a call works (the subshell owns its own terminal) but pays
-the whole terminal start.
+Where a dialog runs:
+
+* **Alone** (no fv application in the shell): each call makes a headless
+  or real application (`TDlgApp`), runs the dialog modal and deletes the
+  application; fv.video turns the terminal on and gives it back exactly as
+  found (fv.video README, "The terminal"); the answer is printed after that.
+* **In a session**: on the session's desktop; a run's `--backtitle`
+  replaces the session's title text. An **infobox** returns at once and
+  stays on the desktop until the next call (or `fv.dlg.end`). The terminal
+  options (`--fv-headless`, `--fv-keys`, `--fv-size`, `--fv-out`,
+  `--fv-ascii` / `--ascii-lines`, `--fv-mouse`, `--fv-screen`) belong to
+  `fv.dlg.begin`: given to `fv.dlg.run` inside the session they are refused
+  (255); `--clear`, `--keep-tite`, `--erase-on-exit` are accepted and the
+  session's screen stays. A script that exits without `fv.dlg.end` still
+  gets its terminal back (fv.video restores it on every exit path).
+* **Inside a running fv application** (`FV_APP` live, not a session — the
+  host): on the host's desktop (its menu bar and status line stay; the
+  minimum is checked against the desktop: `the desktop is too small (need
+  …)`); the host's palette is left alone (`NO_COLOR` is the host's
+  business), `--backtitle` is ignored, the terminal options are refused; an
+  infobox stays until the next call or `fv.dlg.end` and is inserted **not
+  selectable**: the host's current window keeps its focus and its state (a
+  session's infobox is not the desktop's current view either). **The host
+  owns the layout on a resize** (L1): fv.dlg lays nothing out again and
+  checks no minimum there — the host's desktop moves the dialog by
+  TDialog's own `CalcBounds` and the controls follow by their `GrowMode`; a
+  dialog wider than the new desktop is clipped, as any host window.
+* **`$( … )`**: without a session it works — the subshell owns its own
+  terminal and pays the whole terminal start; capture the answer with
+  `--stdout` (the subshell's `RESULT` does not reach the caller). Inside a
+  session or a host application it is **refused** (255, `refused in a
+  subshell (…): call it in the shell that owns the screen, the answer is in
+  RESULT`; design §2.2 said rc 2 — 255 keeps the unit's status set, so a
+  `case $?` with 0 / 1 / 255 covers it). A session begun inside a subshell
+  is that subshell's.
+
+Printing to a terminal fd (`--stdout` when stdout is the terminal) inside a
+session or a host writes onto the dialog screen; read `RESULT` there.
 
 ### Exit status
 
 | status | constant (readonly) | when |
 |---|---|---|
-| 0 | `FV_DLG_OK` | OK, Yes; the infobox |
+| 0 | `FV_DLG_OK` | OK, Yes; a list's OK (also with nothing checked); the infobox |
 | 1 | `FV_DLG_CANCEL` | Cancel, No (the buttons send `cmNo`, P4-4) |
-| 255 | `FV_DLG_ESC` | Esc, Ctrl+F4, the close icon, the end of input; no terminal; bad arguments (one line on stderr) |
+| 255 | `FV_DLG_ESC` | Esc, Ctrl+F4, the close icon, the end of input; no terminal; too small (also after a resize); bad arguments; a call refused in a subshell (one line on stderr) |
 | 130 / 143 / 129 | — | Ctrl+C, SIGTERM, SIGHUP: fv.video's exit path (the terminal restored, then the signal's status) |
 
-## Widgets (stage 4a-1)
+## Widgets
 
 | widget | built from | answer |
 |---|---|---|
-| `--msgbox TEXT H W` | `TDialog` (gray, FV's frame, close icon, shadow) + `TStaticText` + `O~K~` (`cmOK`, default) | 0 / 255 |
+| `--msgbox TEXT H W` | `TDialog` (gray, FV's frame, close icon, shadow) + `TStaticText` (or `TDlgText`, below) + `O~K~` (`cmOK`, default) | 0 / 255 |
 | `--yesno TEXT H W` | + `~Y~es` (`cmYes`) / `~N~o` (`cmNo`); `--defaultno`: No selected and default | 0 / 1 / 255 |
-| `--infobox TEXT H W` | the dialog without buttons, **drawn once, no loop** (P4-10): the main screen (`initVideo noalt`, so the box stays visible after the exit), `FV_KBD_PROTO=off` unless the environment sets it (no keyboard query whose reply could land on the shell), the cursor left on the screen's last row; fv.video's init clears the screen first | 0 |
+| `--infobox TEXT H W` | the dialog without buttons, **drawn once, no loop** (P4-10): alone on the main screen (`initVideo noalt`, so the box stays visible after the exit), `FV_KBD_PROTO=off` unless the environment sets it (no keyboard query whose reply could land on the shell), the cursor left on the screen's last row; fv.video's init clears the screen first. In a session / a host: drawn on the desktop, returns at once, left there until the next call | 0 |
 | `--inputbox TEXT H W [INIT]` | + `TInputLine` (1024 clusters; INIT shown **selected**: the first typed key replaces it, FV's rule; End keeps it) + `O~K~` / `Cancel` (`cmNo`); wide and joined characters, the clipboard keys and bracketed paste are the input line's | 0 + the text / 1 / 255 |
 | `--passwordbox TEXT H W [INIT]` | the same with `*` per character (D38); `--fv-echo none`: blanks and no cursor | 0 + the text / 1 / 255 |
+| `--menu TEXT H W LH TAG ITEM…` | + **`TDlgList : TListBox`** (+ a `TScrollBar` only when the items do not fit), rows `tag  item` (the tags padded to the widest) + `O~K~` / `Cancel` | 0 + the focused tag / 1 / 255 |
+| `--checklist TEXT H W LH TAG ITEM STATUS…` | the list with `[X]` / `[ ]` from its marks (STATUS `on` / `off`, any case) | 0 + the checked tags (D37) / 1 / 255 |
+| `--radiolist TEXT H W LH TAG ITEM STATUS…` | the same with `(*)` / `( )`; **exactly one mark** at most | 0 + the marked tag / 1 / 255 |
+
+**The lists** (design §5.1). `LH` = the list's rows (`0`: every item, as
+far as the box allows); `--default-item TAG` focuses the first item with
+that tag (also in a checklist / radiolist: dialog's behaviour; whiptail
+ignores it there); `--notags` shows the items only, `--noitem` the tags only
+(both: the tags); `--nocancel` drops Cancel. Keys: Up / Down, PgUp / PgDn
+(by the list's rows), Home / End; **Enter** answers OK with the focused
+(menu) / marked (checklist, radiolist) tags; Tab moves to OK / Cancel (Tab
+Enter = OK, Tab Tab Enter = Cancel, as whiptail). **Space** toggles a
+checklist item and marks a radiolist item — the radiolist keeps exactly one
+mark (Space on another moves it, Space on the marked one keeps it); **Ins**
+does the same and moves down (FV's D29); Space in a menu does nothing.
+**A printable character** jumps to the next item after the focused one
+whose tag (with `--notags`: the shown item) starts with it,
+case-insensitive both ways, wrapping (dialog's rule, in every list, digits
+and non-Latin letters too); a character no item starts with does nothing
+(it never reaches the buttons' hot keys). **The mouse**: a click focuses an
+item, a double click answers OK with it (menu) / toggles it (checklist) /
+marks it (radiolist); the wheel and the bar scroll. **Two `on` items** in a
+radiolist: the last one is marked (whiptail; dialog marks the first).
+Validation: an empty list, an incomplete group, a STATUS other than `on` /
+`off`, a negative or non-integer LH → 255 and one line.
+
+**The list answers** (D37, the golden table):
+
+| widget, flag | answer (written / `RESULT`) |
+|---|---|
+| `--menu`, `--radiolist` | the tag bare (`my app`; `--separate-output` and `--single-quoted` change nothing: whiptail / dialog); nothing chosen in a radiolist: `''`, status 0 |
+| `--checklist` (default; `--fv-output quoted`) | **whiptail's form**: each tag in double quotes, one blank between, **nothing escaped** (`"git" "my app" "it's" "x"y" "a\b" ""`) |
+| `--checklist --separate-output` (`--fv-output lines`) | each tag and a newline (`git⏎my app⏎`), no quotes |
+| `--checklist --single-quoted` (`--fv-output single`) | **dialog's form**: a tag quoted only when it is empty or holds a blank, a tab, a newline, `'`, `\` or one of `[ ] { } ? * ; `` ` `` ~ # $ ^ & ( ) \| < >`; inside the quotes `'`, `\` and a newline get a backslash (`git 'my app' 'it\'s' x"y 'a\\b' 'a*b' ''`) |
+| `--fv-output` | wins over `--separate-output` / `--single-quoted`; `--separate-output` wins over `--single-quoted` |
+
+Nothing checked: `''` with status 0. `FV_DLG_TAGS` holds the tags whatever
+the form; duplicates are kept (both tools write them twice).
 
 **Layout.** The text from cell 2 of row 1 (`\n` written as two characters is
-a newline; long lines wrap at blanks, TStaticText's rule), the input line
-two rows below it, the buttons centred on the row `H − 3` (each the
-label's cells + 4, at least FV's 10, two cells apart). **Sizes** (P4-8): `0`
-= fit the text (the widest line + 5 columns, at most 2/3 of the screen for
-the text, at least the title + 12 — at most the screen — and the buttons;
-its rows + 5, + 7 with the input line, + 2 for the infobox), `-1` = the
-whole screen (below the background title), a number = that size, clamped
-to the screen. The box is centred (`--topleft`: at the top left). A size
-below the box's minimum (the buttons across; one text row, the input line,
-the buttons and the frame down) grows to it; a screen below it: 255 and
-`terminal too small (need WxH, have WxH)` — only for the geometry, never
-for text: a title wider than the box is cut by the frame, and button labels
-wider than the screen allows are clipped (a short one keeps its cells, the
-other gets the rest; a `~` letter that survives the cut still works). The
-exact rule and a resize below it come with 4a-2. A resize re-centres
-the box through TDialog's own `CalcBounds` (FPC 2025: the margins kept in
-proportion). **Background**: FV's desktop (`░`); `--backtitle T`: row 0 in
-the background's colours (`TDlgTitle`), the box below it. No status line,
-no menu bar.
+a newline; long lines wrap at blanks, TStaticText's rule); the input line
+below it; a list's rows below the text and a blank, from column 2 (the bar
+right of them), a blank under them; the buttons centred on the row `H − 3`
+(each the label's cells + 4, at least FV's 10, two cells apart). The box is
+centred on the desktop (`--topleft`: at the top left); `--backtitle T`:
+row 0 in the background's colours (`TDlgTitle`), the box below it. No
+status line, no menu bar. FV's desktop (`░`) is the background.
+
+**Sizes** (P4-8, design §5.3): `0` = fit — the width: the text's widest
+line + 5 columns (the text at most 2/3 of the desktop), a list's widest row
++ 6 (+ 1 for the bar), at least the title + 12 and the buttons, at most the
+desktop; the height: the text's rows + 5 (msgbox, yesno), + 7 (input), + 2
+(infobox), a list's text + LH rows + 6, at most the desktop (a list gets its
+rows first; the text at most half the room when both do not fit) — `-1` =
+the desktop (below the background title; dialog's meaning), a number = that
+size, clamped. **Spare rows go to the list** (L7, dialog's behaviour): an
+explicit `H` (or `-1`) taller than the text and LH rows need keeps the text
+at its rows and gives every other row to the list, past LH (blank rows
+below the last item when there are fewer items). **The minimum** of each widget, exactly: across, the buttons
++ 4 (the frame and a blank each side), at least 16 (the frame's icon and a
+title); down, msgbox / yesno **5**, inputbox / passwordbox **7**, the lists
+**8**, the infobox **3** (+ 1 with a background title). A smaller `H` /
+`W` grows to it; a desktop below it: 255 and `terminal too small (need WxH,
+have WxH)` — only for the geometry: a title wider than the box is cut by
+the frame, button labels wider than the desktop allows are clipped (a
+short one keeps its cells, the other gets the rest; a `~` letter that
+survives the cut still works), long text scrolls.
+
+**Resize** (§3.5): a terminal resize re-lays the running dialog out — it
+takes its size again (`-1`: the new desktop; a number or the fit: as
+built, at most the desktop, at least the minimum), centred again, and a
+new size **lays the controls out as a build at that size would** (H1):
+the same text / list split (the text at most half the room when both do
+not fit), the text made again in its place — a static text that no longer
+fits becomes the scrolling view (wrapped at the new width, its bar), a
+scrolling one that fits again goes back to static — the list moved to its
+rows with its bar made or dropped, the focused item kept on screen, the
+input line and the buttons on their rows. What the user did stays: the
+focused control (a msgbox's / yesno's text takes the focus when it starts
+to scroll and the default button had it, as a build gives it), the input
+text and cursor, the list's focus and marks. At or above the minimum
+every control keeps one row at least; growing back restores the layout as
+built. **Below the minimum the dialog ends**: status 255 and the
+`terminal too small (…)` line after the terminal is restored (§3.7's rule:
+no clipped dialog keeps running). In a host application the host owns the
+layout (above).
+
+**The scrolling text** (`TDlgText : TListViewer`, P4-9). Text that needs
+more rows than the box has (an explicit H, or the desktop's height) — the
+msgbox's / yesno's text, the prompt above an input line or a list — becomes
+a read-only view of its wrapped lines with a bar: the rows in the static
+text's colour (no highlighted focus row), Up / Down by a row, PgUp / PgDn
+by the view's rows, Home / End, the wheel and the bar scroll it. In a
+msgbox / yesno it takes the focus, Enter still presses the default button
+(whiptail's `--scrolltext` needs Tab first); Tab reaches the buttons; the
+input line / the list keep the focus otherwise. `--scrolltext` (msgbox,
+yesno) uses the view even for text that fits (no bar then). Text that fits
+stays a `TStaticText` (4a-1's layout unchanged).
 
 **Keys.** FV's: Enter presses the default button, Tab / Shift+Tab and the
 arrows move between the controls, Space presses the focused button, the
-button's `~` letter (Alt + it, or the plain letter: `y` / `n` / `k`), a click
-on a button; Esc and Ctrl+F4 and the close icon answer `cmCancel` (255).
-Labels given with `--yes-button` and the like have no hot letter (a `~` in
-them marks one).
+button's `~` letter (Alt + it, or the plain letter: `y` / `n` / `k` — not
+while a list has the focus), a click on a button; Esc and Ctrl+F4 and the
+close icon answer `cmCancel` (255). Labels given with `--yes-button` and
+the like have no hot letter (a `~` in them marks one); an empty label
+(`--ok-button ''`, any of them) is a blank button of FV's minimum width
+(L3).
 
 ## Results and the terminal
 
@@ -106,34 +225,36 @@ them marks one).
 | (none) | stderr (fd 2) — the command; nothing — `fv.dlg.run` | `x=$(fvdlg --inputbox … 3>&1 1>&2 2>&3)` |
 | `--stdout` | stdout | `x=$(fvdlg --stdout --inputbox …)` |
 | `--stderr` | stderr | |
-| `--output-fd N` | fd N (an fd that is not open: 255, one line, `RESULT` and `FV_DLG_CMD` `''` as for every 255) | `fvdlg --output-fd 3 --inputbox … 3>answer.txt` |
+| `--output-fd N` | fd N (an fd that is not open: 255, one line, `RESULT`, `FV_DLG_TAGS` and `FV_DLG_CMD` empty as for every 255) | `fvdlg --output-fd 3 --inputbox … 3>answer.txt` |
 
-**P4-6, output during the UI.** In the command's face, while the dialog is
-shown, stderr — and stdout — **when that fd is the terminal** go to a
-private file (`$TMPDIR`, mode 0600 under `umask 077`, `noclobber`, a name
-that cannot be predicted); after the terminal is restored the file is
-copied to the terminal (stderr's when it was buffered, else stdout's) and
-removed, then the answer is written. A file, a pipe or a capture (the swap
-idiom's fd 2) is never touched. The caller's EXIT trap is set aside while
-the UI runs (the one active in this process: inside `$( )` or `( )` the
-parent's trap texts that `trap -p` still shows there are dropped first, so
-the parent's handler never runs in the subshell) and put back after. If the
-process dies during the UI (`exit`, or Ctrl+C / SIGTERM / SIGHUP through
-fv.video's handlers), the EXIT trap still restores the fds, replays and
-removes the buffer, then runs the caller's EXIT handler once, with the
-status kept. The buffer costs one `rm` and one `trap -p` (in a subshell one
-more, fv.video's `_drop`) — the unit's only processes — and is made only
-when an fd is the terminal.
+**P4-6, output during the UI.** In the command's face (a call alone), while
+the dialog is shown, stderr — and stdout — **when that fd is the terminal**
+go to a private file (`$TMPDIR`, mode 0600 under `umask 077`, `noclobber`,
+a name that cannot be predicted); after the terminal is restored the file
+is copied to the terminal (stderr's when it was buffered, else stdout's)
+and removed, then the answer is written. A file, a pipe or a capture (the
+swap idiom's fd 2) is never touched. The caller's EXIT trap is set aside
+while the UI runs (the one active in this process: inside `$( )` or `( )`
+the parent's trap texts that `trap -p` still shows there are dropped
+first, so the parent's handler never runs in the subshell) and put back
+after. If the process dies during the UI (`exit`, or Ctrl+C / SIGTERM /
+SIGHUP through fv.video's handlers), the EXIT trap still restores the fds,
+replays and removes the buffer, then runs the caller's EXIT handler once,
+with the status kept. The buffer costs one `rm` and one `trap -p` (in a
+subshell one more, fv.video's `_drop`) — the unit's only processes — and is
+made only when an fd is the terminal. In a session or a host there is no
+buffer (the screen stays the session's).
 
 **`NO_COLOR`** (any non-empty value, no-color.org): the app palette's
 entries a dialog uses become light grey / white on black, the focused
 button, the input field and the selection in reverse (FV's black-and-white
-idea), through one `fv.app.setAppPalettes` call before the first paint; the
-palette is the default again after the call. Under `NO_COLOR` the dialog
-keeps the gray palette even with `--fv-palette blue` / `cyan` (those
-entries are not mapped).
+idea), through one `fv.app.setAppPalettes` call before the first paint (a
+session: at `fv.dlg.begin`); the palette is the default again after the
+call. Under `NO_COLOR` the dialog keeps the gray palette even with
+`--fv-palette blue` / `cyan` (those entries are not mapped). A host
+application's palette is not touched.
 
-## The flags (stage 4a-1)
+## The flags
 
 `w` = whiptail 0.52.25, `d` = dialog 1.3-20250116 (both checked on Debian
 13, the golden table below); fvdlg accepts both tools' spellings. Unknown
@@ -142,20 +263,22 @@ flags are refused (255, one line), never ignored.
 | flag | w | d | fvdlg |
 |---|---|---|---|
 | `--msgbox --yesno --infobox --inputbox --passwordbox` | ✓ | ✓ | ✓ |
-| `--menu --checklist --radiolist` | ✓ | ✓ | refused "not supported yet" (4a-2) |
+| `--menu --checklist --radiolist` | ✓ | ✓ | ✓ (`TDlgList`; empty lists refused: dialog; whiptail answers an empty checklist with 0 and crashes on an empty radiolist) |
 | `--gauge --textbox` | ✓ | ✓ | refused "not supported yet" (4d) |
-| `--title T`, `--backtitle T` | ✓ | ✓ | ✓ |
+| `--title T`, `--backtitle T` | ✓ | ✓ | ✓ (a session: the session's title, a run's replaces its text; a host: ignored) |
 | `--ok-button L` / `--ok-label L` | button only | both | both |
 | `--cancel-button` / `--cancel-label`, `--yes-button` / `--yes-label`, `--no-button` / `--no-label` | button only | both (the last wins) | both (the last wins) |
 | `--defaultno` | ✓ | ✓ | ✓ (yesno) |
-| `--nocancel` / `--no-cancel` | nocancel | both | both (no Cancel button) |
+| `--nocancel` / `--no-cancel` | nocancel | both | both (no Cancel button: input, lists) |
 | `--stdout`, `--stderr` | — | ✓ | ✓ |
 | `--output-fd N` | ✓ | ✓ | ✓ |
-| `--default-item T`, `--separate-output`, `--notags` / `--no-tags`, `--noitem` / `--no-items` | ✓ (`no-` forms: d) | ✓ | parsed (the lists, 4a-2) |
-| `--single-quoted` | — | ✓ | parsed (4a-2) |
+| `--default-item T` | ✓ (menu only) | ✓ | ✓ (every list) |
+| `--separate-output` | ✓ | ✓ (not radiolist: 255) | ✓ (checklist; menu / radiolist bare) |
+| `--single-quoted` | — | ✓ | ✓ (checklist; dialog's form) |
+| `--notags` / `--no-tags`, `--noitem` / `--no-items` | ✓ (`no-` forms: d) | ✓ | ✓ |
 | `--colors` | — | ✓ | `\Z0`–`\Z7`, `\Zb \ZB \Zr \ZR \Zu \ZU \Zn` stripped (no colours in v1); without it they are text, as in both tools |
-| `--clear`, `--keep-tite`, `--erase-on-exit` | clear only | ✓ | parsed; the screen modes are 4b's |
-| `--scrolltext` | ✓ | ✓ | parsed (the scrolling text is 4a-2's) |
+| `--clear`, `--keep-tite`, `--erase-on-exit` | clear only | ✓ | parsed; the screen modes are 4b's (a session keeps its screen) |
+| `--scrolltext` | ✓ | ✓ | the scrolling text view (msgbox, yesno) |
 | `--fb` / `--fullbuttons`, `--no-collapse`, `--cr-wrap`, `--trim`, `--insecure` | fb, fullbuttons | ✓ (not fullbuttons) | accepted, no effect (FV buttons are full; whiptail's text rule; `*` always) |
 | `--topleft` | ✓ | ✓ | the box at the top left |
 | `--ascii-lines` | — | ✓ | = `--fv-ascii` |
@@ -163,27 +286,33 @@ flags are refused (255, one line), never ignored.
 | `--help`, `--version` | ✓ | ✓ | the command only |
 | `--help-button --extra-button --and-widget --item-help --timeout`, dialog's other widgets | — | ✓ | refused (outside the subset) |
 | `--fv-palette gray\|blue\|cyan` | | | FV's dialog palettes |
-| `--fv-ascii` | | | ASCII mode (`FV_ASCII=1` for the call) |
+| `--fv-ascii` | | | ASCII mode (`FV_ASCII=1` for the call / the session) |
 | `--fv-mouse on\|off` | | | off: mouse reporting switched off right after the start (the keys already typed are kept) |
 | `--fv-echo star\|none` | | | the password echo (D38) |
 | `--fv-screen alt\|main` | | | parsed and kept; the switch is 4b's (D34) |
-| `--fv-output lines\|quoted\|single` | | | parsed; the list output is 4a-2's (D37) |
+| `--fv-output lines\|quoted\|single` | | | the checklist's answer form (D37) |
 | `--fv-headless`, `--fv-keys FILE`, `--fv-size WxH`, `--fv-out FILE` | | | no terminal: the keys from FILE (the bytes a terminal sends; the end of the file is the end of input), the frames to FILE (default `/dev/null`), the size (default 80x24, 1–1000 per side) — tests and the bench. A caller's own `FV_APP_HEADLESS=1` (with its `FV_KEY_FD`, `FV_VIDEO_OUT_FD`, `FV_SCREEN_W` / `_H`: fv.app's convention) is honoured without these flags |
 
 **Parser rules** (P4-7, design §4.5): options anywhere before `--`, also
 after the widget's arguments (`--msgbox Hi 10 40 --title T`); the widget's
-fixed positionals are taken literally (TEXT may be `-5` or `--title`); H and
-W must be integers, checked as soon as the three are taken (the refusal
-names the word that stood there); an fv extra's value is one of its words,
-exactly (no pattern, whatever `nocasematch` says); an optional positional (INIT) is taken unless it is
-exactly a known option (`--inputbox N 0 0 -x` → INIT `-x`); `--` ends the
-options (`--inputbox N 0 0 -- --weird`); `--opt=value` or `--opt value`; one
-widget per call; anything left over is refused.
+fixed positionals are taken literally (TEXT may be `-5` or `--title`); H, W
+and a list's LH must be integers (LH ≥ 0), checked as soon as they are
+taken (the refusal names the word that stood there); an fv extra's value is
+one of its words, exactly (no pattern, whatever `nocasematch` says); an
+optional positional (INIT) is taken unless it is exactly a known option
+(`--inputbox N 0 0 -x` → INIT `-x`); **list items** come in groups (`TAG
+ITEM` / `TAG ITEM STATUS`): inside a group every word is data, at a group
+boundary `--` and a known option are what they are (so trailing options
+work) and any other word starts a group (`-x` is a tag); `--` ends the
+options (`--inputbox N 0 0 -- --weird`, `--menu T 0 0 0 -- - Dash`);
+`--opt=value` or `--opt value`; one widget per call; anything left over is
+refused.
 
 ## What differs from whiptail / dialog
 
 From the golden table (`whiptail` / `dialog` under `script(1)` with scripted
-keys; rows in `tests/002_Parse.sh` and `tests/005_Output.sh`):
+keys; rows in `tests/002_Parse.sh`, `tests/005_Output.sh` and
+`tests/006_Lists.sh`):
 
 * **INIT is selected**: the first key replaces it (FV). Both tools put the
   cursor after it and append (`init` + `x` → `initx`); End first gives
@@ -194,7 +323,7 @@ keys; rows in `tests/002_Parse.sh` and `tests/005_Output.sh`):
   them, dialog refuses.
 * **Options after the positionals** work (whiptail); dialog refuses them.
   `--title=T` works (whiptail); dialog refuses it.
-* **Options between the positionals are refused**: the three fixed ones are
+* **Options between the positionals are refused**: the fixed ones are
   taken literally, so `--msgbox Hi --title T 10 40` answers 255 and
   `HEIGHT must be an integer (got '--title')` (golden `msg_between`).
   whiptail accepts them (the title shown); dialog refuses them.
@@ -207,6 +336,31 @@ keys; rows in `tests/002_Parse.sh` and `tests/005_Output.sh`):
 * **Yes / No hot letters** `y` / `n` answer (dialog); whiptail ignores them.
 * **The password echo** is `*` (whiptail); dialog shows nothing unless
   `--insecure`; `--fv-echo none` shows nothing.
+* **The checklist's default answer** is whiptail's (every tag quoted,
+  nothing escaped); dialog's default quotes only as needed and escapes —
+  its form is `--single-quoted`'s here (dialog's own `--single-quoted`).
+* **STATUS** must be `on` / `off` (any case); whiptail takes anything but
+  `off` (any case) for on, dialog anything but `on` for off — `1`, `yes`
+  are refused here (255).
+* **Letter jumps** follow dialog: every list, any printable character, the
+  next match after the focused item. whiptail jumps only in a menu, only
+  on ASCII letters, and searches from the top unless the focused tag
+  already starts with the letter (golden2 `menu_wrap`: from `cherry`, `a` →
+  whiptail `apple`, dialog and fvdlg `avocado`).
+* **`--default-item`** works in every list (dialog); whiptail ignores it in
+  a checklist / radiolist.
+* **Two `on` in a radiolist**: the last (whiptail); dialog the first.
+* **Ins** toggles and moves down in a checklist (FV D29); both tools ignore
+  it.
+* **Empty lists** are refused (dialog, and whiptail's menu); whiptail
+  answers an empty checklist with 0 and crashes (signal 11) on an empty
+  radiolist.
+* **`--separate-output` with a radiolist** answers the bare tag
+  (whiptail); dialog refuses it.
+* **Tab in a list**: Tab Enter = OK, Tab Tab Enter = Cancel (whiptail);
+  dialog's list is no tab stop (Tab Enter = Cancel).
+* **`--scrolltext`**: Enter presses OK at once; whiptail's focus stays on
+  the text (Tab Enter).
 * **The screen**: the alternate screen per call (whiptail; D34, 4b adds
   `--fv-screen main`); dialog draws on the main screen by default. The
   **infobox** stays on the main screen (dialog); whiptail's vanishes on
@@ -218,23 +372,47 @@ keys; rows in `tests/002_Parse.sh` and `tests/005_Output.sh`):
 
 Unchanged in both tools and here: the exit codes 0 / 1 / 255 of Enter /
 Tab-Enter / Esc / `--defaultno`, the answer without a trailing newline,
-nothing written for 1 / 255, `0 0` auto size, `\n` in TEXT, INIT after `--`.
+nothing written for 1 / 255, `0 0` auto size, `\n` in TEXT, INIT after
+`--`, a menu's tag and a radiolist's tag bare, `--separate-output`'s lines,
+Space in a menu doing nothing, Space on the marked radio item keeping it,
+PgDn by the list's rows, duplicate tags written twice.
 
 ## Contract (kcl README §1) and deviations
 
-§1; deviations: classes (`TDlgApp : TApplication`, `TDlgTitle : TView`)
-built at load; friend uses of the same framework: fv.views'
-`__FV_VW_LIVE` and `_newReserved` (the reserved names
-`__fvdlgapp`, `…__fvdlg`, `…__fvdlg__fvinput`), fv.app's `_firstPaint` (the
-infobox's one paint without a loop), fv.video's `_drop` (P4-6 in a
-subshell), fv.mouse's `disable` (`--fv-mouse off` without fv.drivers'
-flush of the keys); the instance fields read and written
-through `${v}_data` (kklass friend contract). The call's terminal settings
+§1; deviations: classes (`TDlgApp : TApplication`, `TDlgTitle : TView`,
+`TDlgList : TListBox`, `TDlgText : TListViewer`) built at load. **The
+elision table**: `TDlgList.HandleEvent` / `SelectItem`, `TDlgText.GetPalette`
+/ `HandleEvent` and `TDlgApp.HandleEvent` register their plain bodies in
+fv.views' `__FV_VW_IMPL` (as fv.dialogs does for its classes), so the
+lists' keys cost no kklass dispatch (design §5.1 counted 2 per key) and
+`TDlgText`'s func override prints nothing inside `$( )`. Friend uses of
+the same framework: fv.views' `__FV_VW_LIVE`, `__FV_VW_OWNER`,
+`__FV_VW_C2A`, `_newReserved` (the reserved names `__fvdlgapp`,
+`…__fvdlg` / `…__fvdlg2`, `…__fvbacktitle`, `…__fvdlg__fv{text,input,list,
+listbar,textbar,b1,b2}`), `_showNow`, `_message`, `_lvEvent` /
+`_lvSelectItem` (the inherited bodies), `__FV_VW_LY` (a list bar made on a
+resize gets its steps); fv.video's `__FV_VS_PNA` (printable ASCII), `_g`
+(below) and `_drop` (P4-6 in a subshell); fv.app's `_firstPaint` (the
+infobox's one paint without a loop; a session's first paint) and
+`_appEvent` (TApplication's HandleEvent body); fv.mouse's `disable`
+(`--fv-mouse off` without fv.drivers' flush of the keys); the instance
+fields read and written through `${v}_data` (kklass friend contract). The
+list's and the text view's data live in `__DLFV_TAGS`, `__DLFV_ROWS`,
+`__DLFV_MARKS`, `__DLFV_FIRST`, `__DLFV_NEXT`, `__DLFV_TEXT` (fv.views
+refuses List / Marks names that start with `_fv` / `__fv`). **The locale**
+(fv.video's D11, M2): a caller whose locale is not UTF-8 (`LC_ALL=C`), or
+with `nocasematch`, or without `globasciiranges`, runs `fv.dlg.run` /
+`fv.dlg.main` / `fv.dlg.begin` whole through `fv.video._g` — a UTF-8 locale
+of its own and the caller's state put back by fv.video's L-1 rules — so
+the letter jumps fold and match characters (Cyrillic, CJK) and the wrap
+never cuts inside a UTF-8 sequence; the answers and the screen are the
+same as under a UTF-8 locale. A call's terminal settings
 (`FV_APP_HEADLESS`, `FV_SCREEN_W/H`, `FV_VIDEO_OUT_FD`, `FV_KEY_FD`,
 `FV_ASCII`, `FV_VIDEO_ASCII`, `FV_KBD_PROTO`) are locals of the call (they
-start as the caller's: its `FV_APP_HEADLESS=1` is honoured): the
-caller's come back at the return. Fork-free but P4-6's buffer (one `rm`, one
-`trap -p`, in a subshell one more for fv.video's `_drop`).
+start as the caller's: its `FV_APP_HEADLESS=1` is honoured); a session's
+are set by `fv.dlg.begin` and the caller's come back at `fv.dlg.end`.
+Fork-free but P4-6's buffer (one `rm`, one `trap -p`, in a subshell one
+more for fv.video's `_drop`).
 
 ## Cost
 
@@ -247,6 +425,14 @@ headless; design §6.1's limits):
 | yesno, Enter | 19 | 12 | 24 / 16 |
 | infobox (no loop) | 15 | 7 | 20 / 12 |
 | inputbox / passwordbox, `abc` Enter | 21 | 14 | 26 / 20 |
+| menu (8 items), Down Down Enter | 21 | 13 | 36 / 20 |
+| checklist (5), Space Down Space Enter | 21 | 14 | 40 / 20 |
+| radiolist (5), Space Down Space Enter | 21 | 15 | 40 / 20 |
+| menu, a double click on an item | 21 | 13 | 36 / 20 |
+| checklist of 10 000 items, End Space Enter | 23 | 14 | 40 / 20 |
+| msgbox with scrolling text, PgDn Enter | 19 | 11 | 36 / 20 |
+| a key on a list (Down, PgDn, Space; a radio Space, a letter jump) | 0 | 1 (1.25, 1.5) | 1 / 3 |
+| a scrolling text key | 0 | 1 | 1 / 3 |
 | a typed key in the input line | 0 | 1 | 2 / 2 |
 | a cursor key in the input line | 0 | 0 | 2 / 2 |
 | a key nobody takes in a box | 0 | 0 | 2 / 2 |
@@ -254,27 +440,39 @@ headless; design §6.1's limits):
 | msgbox with `--backtitle` | 20 | 12 | (logged) |
 
 Times: the CI bench (stage 4e, design §6.2). Laptop estimates (Git-bash
-5.3, one process): `kk.uses fv.dlg` ≈ fv.app + fv.dialogs (~0.7 s) + 26 ms
-for the unit; a headless msgbox call ~65 ms, inputbox ~100 ms, infobox ~58
-ms; `NO_COLOR` adds ~20 ms (one `fv.app.setAppPalettes` call for its 32
-entries; 32 `setAppPalette` calls took ~60 ms, ~3.7× the batch in the same
-process); `--backtitle` ~8 ms.
+5.3, one process; labelled estimates, not targets): `kk.uses fv.dlg` ≈
+fv.app + fv.dialogs (~0.7 s) + the unit; a headless msgbox call ~65 ms,
+inputbox ~100 ms, infobox ~58 ms; `NO_COLOR` adds ~20 ms; `--backtitle`
+~8 ms. A session saves the application's construction per dialog and, on
+a terminal, fv.video's start / stop (design §1: ~450 ms on Windows, ~65 ms
+on Linux). **Big inputs** (L2, M3; laptop, Git-bash): a list of 10 000
+items is split by `printf` over the argv and word splitting (no loop per
+row; the list's part ~0.5–0.7 s of a ~1.5 s call, most of the rest the
+parser), its letter jumps use an index built on the first letter (a
+character no item starts with: one lookup); the text wrap is linear (a
+line split into its words once, printable ASCII counted by characters, a
+long word cut in pieces): a 200 KB one-line msgbox ~3 s headless (4a-2:
+quadratic, 40 KB took 9 s).
 
 ## Tests
 
 `bash kcl/fv.dlg/tests/tests.sh` — headless (no terminal is touched).
 `tests/fvdlg_testlib.sh` builds on fv.app's test lib (the scripted terminal,
-the counters).
+the counters; `dbl X Y` a double click).
 
 | file | what |
 |---|---|
-| 001_Contract | `bash -n`; the API, the readonly constants, the classes; loads, re-loads, `kk.unit --forget` and the main path (every widget, keys from files) under `set -eu`; failing calls under `set -e`; nothing on stdout; no stray names; `PATH=''` and the static fork scan; the refusals' words |
-| 002_Parse | every flag in both spellings, the fv extras (exact words: no substring, `nocasematch`), `--fv-size`'s cap, §4.5's rules (H / W checked at once), the refusals, **the golden table's parse rows** (the `f_*` flag rows by ID), `\n` / `\Z`, the fit of a text |
-| 003_Boxes | msgbox / yesno / infobox: layout, sizes, `--topleft`, `--backtitle`, `--no-shadow`, `--fv-palette`, labels; Enter / Space / Tab / hot letters / Alt / clicks / Esc / Ctrl+F4 / the close icon / the end of input → 0 / 1 / 255; the infobox's one paint, `noalt`, `FV_KBD_PROTO=off`, the cursor row (fv.video stubbed); `NO_COLOR` (one setAppPalettes call, gray even with `--fv-palette blue` / `cyan`); long titles and labels (clipped, never "terminal too small"); `--fv-mouse off` (fv.video stubbed: the disable after the enable, a key already read kept) |
-| 004_Input | input / password: layout, INIT selected and replaced, the golden rows (Tab orders, Esc, blanks, Cyrillic, wide), paste, MaxLen, `--nocancel`, labels, the echo (`*`, `--fv-echo none`) |
-| 005_Output | **the golden table's output rows** (stderr / `--stdout` / `--output-fd` / `--stderr`, no newline, nothing on 1 / 255); the bash face; a closed fd (`RESULT` / `FV_DLG_CMD` `''`); the caller's `FV_APP_HEADLESS=1`; the command in a child bash (the swap idiom); P4-6 (buffered and replayed when the fd is the terminal, untouched when it is a file, the EXIT trap, a death during the UI by `exit` / INT / TERM / HUP running the caller's EXIT handler once, inside `$( )` the parent's handler run once by the parent only) |
-| 012_Budget | §6.1's limits for the boxes, per key, logged |
+| 001_Contract | `bash -n`; the API (+ `begin` / `end`), the readonly constants, the classes; loads, re-loads, `kk.unit --forget` and the main path (every widget, a session, keys from files) under `set -eu`; failing calls under `set -e`; nothing on stdout; no stray names; `PATH=''` and the static fork scan; the refusals' words; the elision registrations and each override's owner, a lost registration restored by the next dialog |
+| 002_Parse | every flag in both spellings, the fv extras (exact words: no substring, `nocasematch`), `--fv-size`'s cap, §4.5's rules (H / W / LH checked at once, list groups, options at a group boundary, `--` before tags), the refusals, **the golden table's parse rows**, `\n` / `\Z`, the fit of a text |
+| 003_Boxes | msgbox / yesno / infobox: layout, sizes, `--topleft`, `--backtitle`, `--no-shadow`, `--fv-palette`, labels; Enter / Space / Tab / hot letters / Alt / clicks / Esc / Ctrl+F4 / the close icon / the end of input → 0 / 1 / 255; the infobox's one paint, `noalt`, `FV_KBD_PROTO=off`, the cursor row (fv.video stubbed); `NO_COLOR`; long titles and labels; `--fv-mouse off` |
+| 004_Input | input / password: layout, INIT selected and replaced, the golden rows, paste, MaxLen, `--nocancel`, labels, the echo |
+| 005_Output | **the golden table's output rows**; the bash face; a closed fd; the caller's `FV_APP_HEADLESS=1`; the command in a child bash (the swap idiom); P4-6 |
+| 006_Lists | menu / checklist / radiolist: the layout (marks, padding, the bar only when needed, `--notags` / `--noitem` / `--nocancel`), the keys, `--default-item`, radio exclusivity, the letter jumps and the golden2 rows with both tools' answers, the mouse (click, double click), D37's answers and escaping rows, `FV_DLG_TAGS`, the command's face, 10 000 items |
+| 007_Sizes | the auto size per widget, `-1`, clamping, the exact minimum per widget (one cell less refused), the scrolling text (rows, colour, keys, prompts, `--scrolltext`), resize (re-centred, shrunk, `-1` following, `--topleft`, below the minimum → 255 after the restore, the text re-wrapped; H1: the controls laid out again — a list keeps its rows and bar, the focused item on screen, a static text turned scrolling, the focus / marks / input text kept, grown back = as built); L7 (spare rows to the list); L3 (empty labels); M3 (the wrap's rows as 4a-2's, long words, a 200 KB line within 60 s) |
+| 008_Sourced | `fv.dlg.run` → `RESULT` / `FV_DLG_TAGS` / `FV_DLG_CMD`; a session (one application, the title, the infobox left until the next run, the settings back, the refusals, one `initVideo` / `doneVideo` per session with fv.video stubbed); the host application (its desktop, palette, minimum, refusals, infobox, not selectable: the host's current window and its state kept — M1); begin leaves RESULT '' (L4); `$( )` with and without a session |
+| 011_CallerState | a child scene (every widget, a session) under IFS variants, `nocasematch`, `extglob`, `LC_ALL=C` (a Cyrillic jump, a CJK scrolling prompt's frames — M2), `set -u`, `set -e`, the glob options (nullglob, failglob, globstar, dotglob, `set -f` + nocaseglob): the same answers, the caller's state kept; 105 calls leave nothing and grow no table |
+| 012_Budget | §6.1's limits for the boxes and the lists, per key (a list key at most 1 dispatch: measured 0), logged |
 
 The golden table itself (the real tools' runs, the typescripts) is kept in
-the stage's scratch folder; its rows are in 002 and 005 with what each
-tool did.
+the stages' scratch folders (`p4/golden`, `p4/golden2`); its rows are in
+002, 005 and 006 with what each tool did.

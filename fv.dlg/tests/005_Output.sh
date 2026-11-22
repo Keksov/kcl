@@ -75,7 +75,7 @@ grow yn_defno    'rc 1, nothing' 'rc 1, nothing' 1 '' '' '' 'key kbEnter' -- --d
 grow info        'rc 0, nothing' 'rc 0, nothing' 0 '' '' '' -- --infobox 'Please wait' 8 30
 grow msg_unknown "'--bogus: unknown option' rc 1" "'Unknown option --bogus.' 255" 255 '' $'fvdlg: unknown option \'--bogus\'\n' '' -- --bogus --msgbox Hello 8 30
 grow msg_missing 'usage, 255' 'Expected ... tokens, 255' 255 '' $'fvdlg: \'--msgbox\' needs TEXT HEIGHT WIDTH (got 2 of 3)\n' '' -- --msgbox Hello 8
-grow msg_onlytitle 'usage, 255' 'rc 0, nothing' 255 '' $'fvdlg: no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox)\n' '' -- --title T
+grow msg_onlytitle 'usage, 255' 'rc 0, nothing' 255 '' $'fvdlg: no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)\n' '' -- --title T
 grow msg_realnl  'rc 0, nothing (two lines shown)' 'rc 0, nothing' 0 '' '' '' 'key kbEnter' -- --msgbox $'one\ntwo' 10 30
 grow msg_long    'rc 0, nothing' 'rc 0, nothing' 0 '' '' '' 'key kbEnter' -- --msgbox 'The quick brown fox jumps over the lazy dog and keeps running far past the end of this box' 0 0
 grow yn_00       'rc 0, nothing' 'rc 0, nothing' 0 '' '' '' 'key kbEnter' -- --yesno 'Proceed?' 0 0

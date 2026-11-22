@@ -2,7 +2,8 @@
 # 001_Contract.sh - fv.dlg follows the kcl contract (kcl README §1): the
 # source parses; the API (fv.dlg.main, fv.dlg.run), the readonly exit-code
 # constants (dialog's DIALOG_OK / _CANCEL / _ESC values), the classes
-# (TDlgApp, TDlgTitle), fv.app and fv.dialogs loaded by name; the unit
+# (TDlgApp, TDlgTitle, TDlgList, TDlgText), fv.dlg.begin / end, fv.app and
+# fv.dialogs loaded by name; the unit
 # loads under set -eu (twice; by name); the main path (each widget of the
 # stage headless, the keys from a file through the real fv.drivers, a
 # refusal in if / ||) under set -eu; a re-source and `kk.unit --forget
@@ -11,7 +12,9 @@
 # (also inside $( )); no stray globals or functions after the main path;
 # fork-free: PATH='' over the main path and the static scan (the only
 # forking lines are P4-6's buffer, marked `# fork: P4-6`); the refusals'
-# words (one line on stderr, rc 255, nothing made).
+# words (one line on stderr, rc 255, nothing made); L5: each override's
+# body in fv.views' __FV_VW_IMPL, each override owned by its class, a lost
+# registration back with the next dialog.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvdlg_testlib.sh"
 fvdl_init "$(basename "$0" .sh)" "$@"
@@ -23,6 +26,8 @@ printf '\r' > "$TMP/enter.keys"
 printf '\t\r' > "$TMP/tab.keys"
 printf 'abc\r' > "$TMP/abc.keys"
 printf 'x' > "$TMP/x.keys"
+printf ' \r' > "$TMP/sp.keys"
+printf 'b\r' > "$TMP/b.keys"
 
 kt_test_section "001: the kcl contract"
 
@@ -31,7 +36,7 @@ if err="$(bash -n "$UNIT" 2>&1)"; then kt_test_pass "bash -n clean"; else kt_tes
 
 kt_test_start "the API, the readonly constants, the classes, fv.app and fv.dialogs loaded"
 miss=''
-for f in fv.dlg.main fv.dlg.run TDlgApp.new TDlgTitle.new TApplication.new TDialog.new TInputLine.new; do
+for f in fv.dlg.main fv.dlg.run fv.dlg.begin fv.dlg.end TDlgApp.new TDlgTitle.new TDlgList.new TDlgText.new TApplication.new TDialog.new TInputLine.new TListBox.new; do
     declare -F "$f" >/dev/null || miss+=" $f"
 done
 declare -A want=([FV_DLG_OK]=0 [FV_DLG_CANCEL]=1 [FV_DLG_ESC]=255)
@@ -40,6 +45,22 @@ for v in "${!want[@]}"; do
 done
 [[ -n ${FV_DLG_CMD+x} ]] || miss+=' FV_DLG_CMD'
 if [[ -z $miss ]]; then kt_test_pass ok; else kt_test_fail "missing / wrong:$miss"; fi
+
+kt_test_start "the elision (L5): each override's body registered in fv.views' __FV_VW_IMPL, each override owned by its class"
+miss=''
+declare -A impl=([TDlgList.HandleEvent]=fv.dlg._lsEvent [TDlgList.SelectItem]=fv.dlg._lsSelect [TDlgText.GetPalette]=fv.dlg._txPal
+    [TDlgText.HandleEvent]=fv.dlg._txEvent [TDlgApp.HandleEvent]=fv.dlg._appEvent)
+for k in "${!impl[@]}"; do
+    [[ ${__FV_VW_IMPL[$k]-} == "${impl[$k]}" ]] || miss+=" IMPL[$k]=${__FV_VW_IMPL[$k]-unset}"
+    o="${k%%.*}_class_method_owner[${k#*.}]"
+    [[ ${!o-} == "${k%%.*}" ]] || miss+=" $o=${!o-unset}"
+done
+if [[ -z $miss ]]; then kt_test_pass ok; else kt_test_fail "wrong:$miss"; fi
+unset '__FV_VW_IMPL[TDlgList.HandleEvent]' '__FV_VW_IMPL[TDlgText.HandleEvent]'
+fv.dlg.run --fv-headless --fv-keys "$TMP/b.keys" --menu 'M' 0 0 0 a A b B; r=$? x=$RESULT
+kt_test_start "a lost registration comes back with the next dialog (fv.dialogs' rule, checked per build)"
+if [[ $r == 0 && $x == b && ${__FV_VW_IMPL[TDlgList.HandleEvent]-} == fv.dlg._lsEvent && ${__FV_VW_IMPL[TDlgText.HandleEvent]-} == fv.dlg._txEvent ]]; then kt_test_pass ok
+else kt_test_fail "rc $r [$x] [${__FV_VW_IMPL[TDlgList.HandleEvent]-unset}]"; fi
 
 expect_clean() {
     local out rc err
@@ -62,6 +83,18 @@ fv.dlg.run --fv-headless --fv-keys '$TMP/abc.keys' --inputbox 'Name:' 0 0 old
 fv.dlg.run --fv-headless --fv-keys '$TMP/abc.keys' --passwordbox 'Pass:' 0 0
 [[ \$RESULT == abc ]]
 fv.dlg.run --fv-headless --backtitle B --infobox 'Wait' 0 0
+fv.dlg.run --fv-headless --fv-keys '$TMP/sp.keys' --checklist 'C' 0 0 0 a A off 'b c' B on
+[[ \$RESULT == '\"a\" \"b c\"' && \${FV_DLG_TAGS[1]} == 'b c' ]]
+fv.dlg.run --fv-headless --fv-keys '$TMP/enter.keys' --single-quoted --radiolist 'R' 0 0 0 \"it's\" X on
+[[ \$RESULT == \"it's\" ]]
+fv.dlg.run --fv-headless --fv-keys '$TMP/b.keys' --menu 'M' 0 0 0 a A b B
+[[ \$RESULT == b ]]
+fv.dlg.run --fv-headless --fv-keys '$TMP/enter.keys' --msgbox 'a\\nb\\nc\\nd\\ne\\nf\\ng' 6 30
+fv.dlg.begin --fv-headless --fv-keys '$TMP/abc.keys' --backtitle S
+fv.dlg.run --inputbox 'H' 0 0
+[[ \$RESULT == abc ]]
+fv.dlg.run --infobox 'w' 0 0
+fv.dlg.end
 rc=0; fv.dlg.run --fv-headless --fv-keys '$TMP/x.keys' --msgbox 'eof' 0 0 || rc=\$?
 [[ \$rc == 255 ]]
 if fv.dlg.run --bogus --msgbox x 0 0 2>/dev/null; then exit 9; fi
@@ -110,8 +143,8 @@ $MAIN
 compgen -v | LC_ALL=C sort > '$TMP/v1'
 compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
-newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_DLG_[A-Z]+|__FV_DL_[A-Z]+|TDlg(App|Title)_[A-Za-z_]+|RESULT|REPLY|KK_UNIT_DIR|__FV_(VW|VS|VI|DR|KB|KL|MS|UN|UC|HL|DG|AP|MN)_[A-Za-z0-9_]+|FV_[A-Z0-9_]+|__KK_SITE_[A-Z0-9]+|__kk_ft|__kk_[a-z_]+)$' | tr '\n' ' ')"
-newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^(fv\.dlg\..*|TDlg(App|Title)\..*|__kk[cm]\.TDlg(App|Title).*)$' | tr '\n' ' ')"
+newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(FV_DLG_[A-Z]+|__FV_DL_[A-Z]+|TDlg(App|Title|List|Text)_[A-Za-z_]+|__DLFV_[A-Z]+|RESULT|REPLY|KK_UNIT_DIR|__FV_(VW|VS|VI|DR|KB|KL|MS|UN|UC|HL|DG|AP|MN)_[A-Za-z0-9_]+|FV_[A-Z0-9_]+|__KK_SITE_[A-Z0-9]+|__kk_ft|__kk_[a-z_]+)$' | tr '\n' ' ')"
+newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^(fv\.dlg\..*|TDlg(App|Title|List|Text)\..*|__kk[cm]\.TDlg(App|Title|List|Text).*)$' | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass ok; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi
 
 kt_test_section "001: fork-free"
@@ -146,7 +179,7 @@ refused() {
     if (( rc == 255 )) && [[ -z $r && ${#e[@]} == 1 && ${e[0]} == "fv.dlg.run: $want" && -z $REPLY ]]; then kt_test_pass "${e[0]:0:100}"
     else kt_test_fail "rc $rc RESULT [$r] err [${e[*]}] live [$REPLY]"; fi
 }
-refused "no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox)"
+refused "no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)"
 refused "unknown option '--bogus'" --bogus --msgbox x 0 0
 refused "unexpected argument 'hello'" hello --msgbox x 0 0
 refused "'--msgbox' needs TEXT HEIGHT WIDTH (got 2 of 3)" --msgbox x 0
@@ -154,7 +187,11 @@ refused "HEIGHT must be an integer (got 'x')" --msgbox t x 10
 refused "WIDTH must be an integer (got '1.5')" --msgbox t 10 1.5
 refused "unexpected argument 'extra'" --msgbox t 0 0 extra
 refused "one widget per call ('--yesno' after '--msgbox'); --and-widget is not supported" --msgbox a 0 0 --yesno b 0 0
-refused "'--menu' is not supported yet" --menu t 0 0 0 a A
+refused "'--menu' needs at least one TAG ITEM group (the list is empty)" --menu t 0 0 0
+refused "'--checklist' takes TAG ITEM STATUS groups (2 words after LIST-HEIGHT: the last group is incomplete)" --checklist t 0 0 0 a A
+refused "STATUS must be on or off (got 'yes' for the tag 'a')" --radiolist t 0 0 0 a A yes
+refused "LIST-HEIGHT must be an integer, 0 or more (got '-1')" --menu t 0 0 -1 a A
+refused "'--gauge' is not supported yet" --gauge t 0 0
 refused "option '--help-button' is not supported (outside fvdlg's whiptail / dialog subset)" --help-button --msgbox t 0 0
 refused "option '--title' needs a value" --msgbox t 0 0 --title
 refused "option '--defaultno' takes no value" --defaultno=1 --yesno t 0 0

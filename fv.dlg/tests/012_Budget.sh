@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 012_Budget.sh - design §6.1, the boxes (4a-1; the lists come with 4a-2):
+# 012_Budget.sh - design §6.1, the boxes (4a-1) and the lists (4a-2):
 # kklass dispatches and fv.video writes of one fv.dlg.run --fv-headless
 # call, the application made ... deleted (80 x 24, the scripted terminal,
 # the test lib's counting shims), each logged ("# calls" / "# writes"):
@@ -75,6 +75,50 @@ perkey inputbox.cursor 4 2 'key kbEnter' -- 'key kbLeft' 'key kbLeft' 'key kbRig
 # 3 writes; the design's 2 / 2 is for a key inside a control)
 perkey yesno.tab 4 4 'key kbEnter' -- 'key kbTab' 'key kbTab' 'key kbTab' 'key kbTab' 'key kbEnter' -- --yesno 'Proceed?' 0 0
 perkey msgbox.unused 4 2 'key kbEnter' -- 'key kbF2' 'key kbF3' 'char z' 'key kbUp' 'key kbEnter' -- --msgbox 'Hello' 0 0
+
+kt_test_section "012: the lists (4a-2, design §6.1)"
+L=(a Apple b Banana c Cherry d Date e Elder f Fig g Grape h Hazel)
+LC=(a Apple off b Banana off c Cherry off d Date off e Elder off)
+budget menu.down2.enter 36 20 'key kbDown' 'key kbDown' 'key kbEnter' -- --menu 'Pick' 0 0 0 "${L[@]}"
+budget checklist.sds.enter 40 20 'char _' 'key kbDown' 'char _' 'key kbEnter' -- --checklist 'Pick' 0 0 0 "${LC[@]}"
+budget radiolist.sds.enter 40 20 'char _' 'key kbDown' 'char _' 'key kbEnter' -- --radiolist 'Pick' 0 0 0 "${LC[@]}"
+budget menu.scrolltext.pgdn 36 20 'key kbPgDn' 'key kbEnter' -- --msgbox "$(printf 'l%d\\n' {1..30})" 8 30
+# per key on a list: at most 1 dispatch / 3 writes (§6.1 says 3 / 3; L5:
+# measured 0 — TDlgList's HandleEvent / SelectItem bodies run through fv.views'
+# elision; a lost registration shows at the Space keys (2 kklass dispatches
+# per key: HandleEvent + SelectItem) and in 001's registration check)
+perkey3() {
+    local l=$1 n=$2 c0 w0
+    shift 2
+    local -a few=() more=()
+    while [ "$1" != -- ]; do few+=("$1"); shift; done
+    shift
+    while [ "$1" != -- ]; do more+=("$1"); shift; done
+    count "${few[@]}" "$@"; c0=$C w0=$W
+    count "${more[@]}" "$@"
+    local dc=$(( C - c0 )) dw=$(( W - w0 ))
+    kt_test_log "# calls $l/key $(( dc / n )) ($dc for $n)"
+    kt_test_log "# writes $l/key $(( dw / n )) ($dw for $n)"
+    kt_test_start "per key, $l: at most 1 dispatch / 3 writes"
+    if (( dc <= n && dw <= 3 * n )); then kt_test_pass "$dc dispatches, $dw writes for $n keys"; else kt_test_fail "$dc dispatches, $dw writes for $n keys"; fi
+}
+perkey3 list.down 4 'key kbEnter' -- 'key kbDown' 'key kbDown' 'key kbDown' 'key kbDown' 'key kbEnter' -- --menu 'Pick' 0 0 4 "${L[@]}"
+perkey3 list.pgdn 2 'key kbEnter' -- 'key kbPgDn' 'key kbPgDn' 'key kbEnter' -- --menu 'Pick' 0 0 3 "${L[@]}"
+perkey3 list.space 4 'key kbEnter' -- 'char _' 'char _' 'char _' 'char _' 'key kbEnter' -- --checklist 'Pick' 0 0 0 "${LC[@]}"
+perkey3 radio.space 4 'key kbEnter' -- 'char _' 'key kbDown' 'char _' 'key kbUp' 'key kbEnter' -- --radiolist 'Pick' 0 0 0 "${LC[@]}"
+perkey3 list.letter 4 'key kbEnter' -- 'char c' 'char e' 'char a' 'char z' 'key kbEnter' -- --menu 'Pick' 0 0 0 "${L[@]}"
+perkey3 text.scroll 4 'key kbEnter' -- 'key kbDown' 'key kbDown' 'key kbPgDn' 'key kbUp' 'key kbEnter' -- --msgbox "$(printf 'l%d\\n' {1..30})" 8 30
+# (a double click: the press, focused + selected; its release)
+perkey3 checklist.dblclick 2 'key kbEnter' -- 'dbl 30 11' 'up 30 11' 'key kbEnter' -- --checklist 'Pick' 0 0 0 "${LC[@]}"
+count 'dbl 30 10' -- --menu 'Pick' 0 0 0 "${L[@]}"
+kt_test_log "# calls menu.dblclick $C"
+kt_test_log "# writes menu.dblclick $W"
+kt_test_start "a double click on a menu item ends it (rc 0) within the menu's limit 36 / 20"
+if (( R == 0 && C <= 36 && W <= 20 )); then kt_test_pass "$C dispatches, $W writes"; else kt_test_fail "rc $R, $C dispatches, $W writes"; fi
+BIG=()
+for (( i = 0; i < 10000; i++ )); do BIG+=("t$i" "item $i" off); done
+budget checklist.10000.end.space 40 20 'key kbEnd' 'char _' 'key kbEnter' -- --checklist 'Big' 0 0 0 "${BIG[@]}"
+unset BIG
 
 kt_test_section "012: logged"
 count 'key kbEnter' -- --backtitle 'Setup' --msgbox 'Hello, world!' 0 0

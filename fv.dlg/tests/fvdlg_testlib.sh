@@ -14,7 +14,8 @@
 #   fvdl_run SPEC... -- ARG...
 #                         fv.dlg.run --fv-headless ARG... with the scripted
 #                         events SPEC (fva_events' specs plus 'char C', '_'
-#                         a blank, and 'snap' = fvdl_snap): FVDL_RC,
+#                         a blank, 'dbl X Y' a double click's press, and
+#                         'snap' = fvdl_snap): FVDL_RC,
 #                         FVDL_RES (RESULT), FVDL_CMD (FV_DLG_CMD); the
 #                         scripted source taken off again
 #   fvdl_snap             FVDL_SNAP = the screen's rows as text, FVDL_SNAPA their
@@ -73,6 +74,15 @@ fvdl_src() {
         if [ "$a" = snap ]; then fvdl_snap; else "$b"; fi
         fvdl_src "$@"
         return
+    fi
+    if [ "$a" = dbl ]; then
+        # a double click's press at X Y (fv.drivers' FV_EV_MOUSE_DOUBLE)
+        FVA_Q=("${FVA_Q[@]:1}")
+        FVA_N=$(( FVA_N + 1 ))
+        fv.drivers.clearEvent
+        FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=${b% *} FV_EV_MOUSE_Y=${b#* } FV_EV_MOUSE_BUTTONS=1 FV_EV_MOUSE_DOUBLE=1
+        RESULT=$FV_EV_WHAT
+        return 0
     fi
     if [ "$a" = char ]; then
         FVA_Q=("${FVA_Q[@]:1}")
