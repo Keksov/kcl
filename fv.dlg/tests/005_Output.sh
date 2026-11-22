@@ -116,7 +116,7 @@ kt_test_start "FV_APP_HEADLESS=1 with the caller's FV_KEY_FD / FV_VIDEO_OUT_FD /
     r=$?
     printf '%s|%s|%s|%s|%s' "$r" "$RESULT" "$BOX" "$FV_APP_HEADLESS" "$(<"$TMP/hl.err")" > "$TMP/hl.res"
 )
-hl=$(<"$TMP/hl.res") hs=$(wc -c < "$TMP/hl.out")
+hl=$(<"$TMP/hl.res") hs=$(( $(wc -c < "$TMP/hl.out") ))
 if [[ $hl == '0|abc|17 6 43 14|1|' && $hs -gt 100 ]]; then kt_test_pass "$hl ($hs bytes of frames)"
 else kt_test_fail "[$hl] frames $hs bytes"; fi
 
@@ -155,7 +155,7 @@ p46() {
         say() {
             printf 'warn\n' >&2
             printf 'note\n'
-            printf '%s/%s' "$(wc -c < "$pe")" "$(wc -c < "$po")" > "$TMP/p.seen"
+            printf '%s/%s' "$(( $(wc -c < "$pe") ))" "$(( $(wc -c < "$po") ))" > "$TMP/p.seen"
         }
         die() { exit 7; }
         sig() { kill -"$SIG" "$BASHPID"; }
@@ -231,7 +231,7 @@ if [[ ${#hm[@]} == 2 && ${hm[0]} == after:val:* && ${hm[1]} == "P:${hm[0]##*:}" 
 else kt_test_fail "marks [${hm[*]}] left [$(ls -A "$TMP/t")]"; fi
 kt_test_start "the bash face never buffers"
 fvdl_events 'run say2' 'key kbEnter'
-say2() { SEEN2=$(wc -c < "$TMP/q.err"); printf 'warn\n' >&2; }
+say2() { SEEN2=$(( $(wc -c < "$TMP/q.err") )); printf 'warn\n' >&2; }
 ( fv.dlg._isTerm() { return 0; }; TMPDIR=$TMP/t; fv.dlg.run --fv-headless --msgbox t 0 0; echo "$SEEN2" > "$TMP/q.seen" ) 2>"$TMP/q.err"
 fva_noevents; __FV_VW_EOF=0
 q=$(<"$TMP/q.err") qs=$(<"$TMP/q.seen")
