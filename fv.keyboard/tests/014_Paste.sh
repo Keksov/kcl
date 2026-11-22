@@ -126,8 +126,8 @@ fvk_now; ms=$(( (REPLY - t0) / 1000 ))
 fvk_done
 if [[ $a == kbPaste:ab ]] && (( ms < 2500 )); then kt_test_pass "$ms ms"; else kt_test_fail "$a in $ms ms"; fi
 
-kt_test_start "F7: a frame that stalls past __FV_KB_PT (0.2 s; the rest 0.6 s later): kbPaste with the text so far, its tail then comes as keys (documented)"
-fvk_writer "${P0}ab" 600000 "cd${P1}x"
+kt_test_start "F7: a frame that stalls past __FV_KB_PT (0.2 s; the rest 1.5 s later: margin for a loaded runner): kbPaste with the text so far, its tail then comes as keys (documented)"
+fvk_writer "${P0}ab" 1500000 "cd${P1}x"
 __FV_KB_PT=0.2 fv.keyboard.getKeyEvent; got="$FV_KEY:$FV_KEY_CHAR"
 for _ in 1 2 3 4; do fv.keyboard.getKeyEvent 2 || break; got+="|$FV_KEY:$FV_KEY_CHAR"; done
 fvk_done
