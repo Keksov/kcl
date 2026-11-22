@@ -111,6 +111,10 @@ KCL_UNITS=(
     # (fv.msgbox: FV's MsgBox, plain functions over fv.dialogs; readonly: its
     # FV_MF_* constants are assigned once per process)
     "fv.msgbox||readonly|"
+    # (fv.dlg: one-shot whiptail / dialog-style dialogs over fv.app and
+    # fv.dialogs (P4); readonly: its FV_DLG_* exit codes are assigned once
+    # per process)
+    "fv.dlg||readonly|"
 )
 
 # kclt_row ROW — split a row into KU (unit), KNS (namespaces), KFL (flags),

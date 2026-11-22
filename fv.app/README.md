@@ -168,6 +168,7 @@ by `Init`.
 | `fv.app.tile V [AX AY BX BY]` | `TDesktop.Tile(R)` / `TApplication.Tile` | V a desktop (any group) and a rect in its coordinates, or V the application (`FV_APP`) without one (its `GetTileRect`, then its desktop). FV's layout below; `RESULT` kept; rc 2 for a malformed call |
 | `fv.app.cascade V [AX AY BX BY]` | `TDesktop.Cascade(R)` / `TApplication.Cascade` | likewise |
 | `fv.app.setAppPalette ENTRY FG BG [BOLD]` | — | below ("The app palette") |
+| `fv.app.setAppPalettes "ENTRY FG BG [BOLD]"…` | — | several entries in one call (below) |
 
 The aliases (D16): `TDesktop.Tile AX AY BX BY`, `TDesktop.Cascade …`,
 `TApplication.Tile`, `TApplication.Cascade`.
@@ -298,6 +299,14 @@ fv.video owns the traps and restores the terminal on every exit path;
   README): a pool symbol you define for your own fv.video drawing may be
   taken over by `setAppPalette`; use it only while no application runs, or
   not at all.
+* **`fv.app.setAppPalettes "ENTRY FG BG [BOLD]"…`**: the same for several
+  entries, one word each, applied in order by the same rules (an entry sees
+  the palette the earlier ones made; the result equals the calls one by
+  one) with one scan of the palette, one `resetPalette` and one redraw.
+  Every word is checked first: a malformed one (or none) is rc 2 and
+  nothing changes; rc 1 without a screen. An entry that finds every symbol
+  in use gets its `Error:` line and stays as it was, the rest still apply:
+  rc 1. `RESULT` kept. (fv.dlg's `NO_COLOR`: 32 entries in one call.)
 * The shadow attribute is fv.video's symbol `V` (`definePalette V …`
   re-themes every shadow); fv.app does not define it.
 
@@ -420,7 +429,7 @@ on it fails one test.
 | 009_ZeroFork | `PATH=''`: the whole path (Init, the first paint, Run with idle ticks, keys, Alt+1, tile, cascade, next, prev, a resize, a modal dialog, a drag, the end of input, setAppPalette, Done), a real fv.drivers.getEvent from a file; the static fork scan of `fv.app.sh` |
 | 010_CallerState | one application scene under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept |
 | 011_Subshell | Run in `$( )` and in a pipeline refused (rc 2, nothing read or drawn), execView in `$( )` refused, the parent's application untouched, an application made inside a subshell owns its loop there |
-| 012_Palette | the default string and ErrorAttr's symbol; setAppPalette in place, by reuse, by allocation (the application redrawn, == a full repaint); all symbols in use (rc 1, one Error line, nothing changed, 0 / V / W never handed out); refusals |
+| 012_Palette | the default string and ErrorAttr's symbol; setAppPalette in place, by reuse, by allocation (the application redrawn, == a full repaint); all symbols in use (rc 1, one Error line, nothing changed, 0 / V / W never handed out); refusals; setAppPalettes == the entries one by one (random sets with shared symbols, pool exhaustion, repeats, fv.dlg's NO_COLOR set), one resetPalette and one redraw, the colours back at Done, its refusals |
 | 013_Edges | the critic round's edges: a dialog executed before Run drawn by the first GetEvent; doneEvents at Done whoever turned the terminal on; tile / cascade of a plain TGroup without TileError; setAppPalette's colours back at Done; the name re-created as a TWindow (the next application releases it); the end-of-input latch put back at Done; Alt+digit does not leak the window into RESULT |
 | 014_CallBudget | stage 2g, the design's §3.1 scene through the application: `TMyApp`, the desktop, two 40 × 23 windows with a `TTestList` stand-in each, the status line; every action through `app.Run` and the real `GetEvent` (the scripted terminal), a Run without events taken off: §3.2's limits (Down 6, PgDn 8, Tab = F6 → the status line → cmNext side by side 8 and overlapping 10, click 8, repaint 6, resize 80 × 24 → 200 × 50 8, idle tick 1), the first paint, the idle tick after a window switch (logged); 21-row and 42-row stand-ins give equal dispatch counts; the status line draws with 1 write |
 | 015_Demo | `examples/demo.sh --headless`: the built-in script (rc 0, no stderr, frames in `--out`, the final screen), `--keys` (tile), a key file without Alt+X, `--size`, `FV_APP_HEADLESS=1`, the refusals (rc 2). The live mode is never run here |

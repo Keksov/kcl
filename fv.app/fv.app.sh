@@ -864,39 +864,102 @@ fv.app.setAppPalette() {
     if ! fv.app._int "$1" 127 || (( 10#$1 < 1 )); then fv.app._bad setAppPalette 'ENTRY must be 1..127'; return; fi
     if ! fv.app._int "$2" 255 || ! fv.app._int "$3" 255 || ! [[ ${4:-0} == [01] ]]; then fv.app._bad setAppPalette 'FG BG must be 0..255, BOLD 0 or 1'; return; fi
     if (( ! ${#__FV_VS_PAL[@]} )); then RESULT=''; kk.debug "Error: fv.app.setAppPalette: no screen (fv.video.initScreen first)"; return 1; fi
-    local __fva_r=${RESULT-} __fva_e=$(( 10#$1 - 1 )) __fva_f=$(( 10#$2 )) __fva_b=$(( 10#$3 )) __fva_o=${4:-0}
-    local __fva_p=$__FV_VW_APAL __fva_y __fva_s='' __fva_i __fva_c __fva_n=0
-    local -A __fva_u=()
-    __fva_y=${__fva_p:__fva_e:1}
+    local __fva_r=${RESULT-} __fva_p=$__FV_VW_APAL
+    local -A __fva_cnt=()
+    fv.app._palCount
+    if ! fv.app._palSet "$1" "$(( 10#$1 - 1 ))" "$(( 10#$2 ))" "$(( 10#$3 ))" "${4:-0}"; then RESULT=$__fva_r; return 1; fi
+    __FV_VW_APAL=$__fva_p
+    fv.views.resetPalette || :
+    if [[ -n $FV_APP && -n ${__FV_VW_LIVE[$FV_APP]-} ]]; then fv.views.redraw "$FV_APP" || :; fi
+    RESULT=$__fva_r
+    return 0
+}
+
+# fv.app.setAppPalettes "ENTRY FG BG [BOLD]"... — setAppPalette for several
+# entries in one call, each word one entry, applied in order with the same
+# rules (an entry sees the palette the earlier ones made) but with one scan
+# of the palette (the use counts kept up to date as entries change), one
+# fv.views.resetPalette and one redraw. Every word is checked first: a
+# malformed one (or no word) is rc 2 and nothing changes; rc 1 without a
+# screen. An entry that finds every symbol in use gets its Error line and
+# is left as it was, the others still apply: rc 1 at the end. RESULT kept
+fv.app.setAppPalettes() {
+    if (( ! $# )); then fv.app._bad setAppPalettes 'wrong argument count'; return; fi
+    local - IFS=$' \t\n' __fva_a __fva_i=0 __fva_rc=0
+    local -a __fva_w=() __fva_l=()
+    set -f
+    for __fva_a in "$@"; do
+        __fva_i=$(( __fva_i + 1 ))
+        __fva_w=($__fva_a)
+        if (( ${#__fva_w[@]} != 3 && ${#__fva_w[@]} != 4 )); then fv.app._bad setAppPalettes "argument $__fva_i '$__fva_a': ENTRY FG BG [BOLD] expected"; return; fi
+        if ! fv.app._int "${__fva_w[0]}" 127 || (( 10#${__fva_w[0]} < 1 )); then fv.app._bad setAppPalettes "argument $__fva_i '$__fva_a': ENTRY must be 1..127"; return; fi
+        if ! fv.app._int "${__fva_w[1]}" 255 || ! fv.app._int "${__fva_w[2]}" 255 || ! [[ ${__fva_w[3]:-0} == [01] ]]; then
+            fv.app._bad setAppPalettes "argument $__fva_i '$__fva_a': FG BG must be 0..255, BOLD 0 or 1"
+            return
+        fi
+        __fva_l+=("${__fva_w[0]}" "$(( 10#${__fva_w[0]} - 1 ))" "$(( 10#${__fva_w[1]} ))" "$(( 10#${__fva_w[2]} ))" "${__fva_w[3]:-0}")
+    done
+    if (( ! ${#__FV_VS_PAL[@]} )); then RESULT=''; kk.debug "Error: fv.app.setAppPalettes: no screen (fv.video.initScreen first)"; return 1; fi
+    local __fva_r=${RESULT-} __fva_p=$__FV_VW_APAL
+    local -A __fva_cnt=()
+    fv.app._palCount
+    for (( __fva_i = 0; __fva_i < ${#__fva_l[@]}; __fva_i += 5 )); do
+        fv.app._palSet "${__fva_l[@]:__fva_i:5}" || __fva_rc=1
+    done
+    __FV_VW_APAL=$__fva_p
+    fv.views.resetPalette || :
+    if [[ -n $FV_APP && -n ${__FV_VW_LIVE[$FV_APP]-} ]]; then fv.views.redraw "$FV_APP" || :; fi
+    RESULT=$__fva_r
+    return "$__fva_rc"
+}
+
+# fv.app._palCount — the caller's __fva_cnt = symbol -> the entries of the
+# caller's palette string __fva_p that use it
+fv.app._palCount() {
+    local __fva_i __fva_c
     for (( __fva_i = 0; __fva_i < ${#__fva_p}; __fva_i++ )); do
         __fva_c=${__fva_p:__fva_i:1}
-        __fva_u[$__fva_c]=1
-        if [ "$__fva_c" = "$__fva_y" ]; then __fva_n=$(( __fva_n + 1 )); fi
+        __fva_cnt[$__fva_c]=$(( ${__fva_cnt[$__fva_c]:-0} + 1 ))
     done
-    if (( __fva_n == 1 )) && ! [ "$__fva_y" = 0 ] && ! [ "$__fva_y" = "${__FV_VS_SHADOW:-V}" ] && ! [ "$__fva_y" = "$__FV_VW_ERRSYM" ]; then
+}
+# fv.app._palSet ENTRY E FG BG BOLD — one entry of setAppPalette(s) on the
+# caller's __fva_p / __fva_cnt (E = ENTRY - 1; the colours checked and
+# normalised): the symbol chosen by setAppPalette's rules (only this entry
+# uses its symbol: in place; a used symbol with these colours; the first
+# free one of the pool), defined when its colours differ (its old ones kept
+# in __FV_AP_SAVED first), the entry and the counts updated. rc 1: every
+# symbol in use (one Error line, nothing changed) or definePalette refused
+fv.app._palSet() {
+    local __fva_e=$2 __fva_k="$3 $4 $5" __fva_y __fva_s='' __fva_c __fva_i
+    __fva_y=${__fva_p:__fva_e:1}
+    if (( ${__fva_cnt[$__fva_y]:-0} == 1 )) && ! [ "$__fva_y" = 0 ] && ! [ "$__fva_y" = "${__FV_VS_SHADOW:-V}" ] && ! [ "$__fva_y" = "$__FV_VW_ERRSYM" ]; then
         __fva_s=$__fva_y
     else
-        # (a symbol of the palette with these colours)
-        for __fva_c in "${!__fva_u[@]}"; do
-            if [ "$__fva_c" = "$__fva_y" ] || [ "$__fva_c" = 0 ] || [ "$__fva_c" = "$__FV_VW_ERRSYM" ]; then continue; fi
-            if [ "${__FV_VS_PAL[$__fva_c]-}" = "$__fva_f $__fva_b $__fva_o" ]; then __fva_s=$__fva_c; break; fi
+        # (a symbol of the palette with these colours: one with a count)
+        for __fva_c in "${!__fva_cnt[@]}"; do
+            if (( ! ${__fva_cnt[$__fva_c]} )) || [ "$__fva_c" = "$__fva_y" ] || [ "$__fva_c" = 0 ] || [ "$__fva_c" = "$__FV_VW_ERRSYM" ]; then continue; fi
+            if [ "${__FV_VS_PAL[$__fva_c]-}" = "$__fva_k" ]; then __fva_s=$__fva_c; break; fi
         done
         if [[ -z $__fva_s ]]; then
-            fv.app._free
+            # (the first symbol of the pool the palette does not use, not ErrorAttr's)
+            for (( __fva_i = 0; __fva_i < ${#__FV_AP_POOL}; __fva_i++ )); do
+                __fva_c=${__FV_AP_POOL:__fva_i:1}
+                if (( ! ${__fva_cnt[$__fva_c]:-0} )) && ! [ "$__fva_c" = "$__FV_VW_ERRSYM" ]; then __fva_s=$__fva_c; break; fi
+            done
             if [[ -z $__fva_s ]]; then
                 fv.app._err "setAppPalette: entry $1: every symbol of the pool is in use ($(( ${#__FV_AP_POOL} - 1 )) for the palette); nothing changed"
-                RESULT=$__fva_r
                 return 1
             fi
         fi
     fi
-    if ! [ "${__FV_VS_PAL[$__fva_s]-}" = "$__fva_f $__fva_b $__fva_o" ]; then
+    if ! [ "${__FV_VS_PAL[$__fva_s]-}" = "$__fva_k" ]; then
         if [[ -z ${__FV_AP_SAVED[$__fva_s]+1} ]]; then __FV_AP_SAVED[$__fva_s]=${__FV_VS_PAL[$__fva_s]-}; fi
-        fv.video.definePalette "$__fva_s" "$__fva_f" "$__fva_b" "$__fva_o" || { RESULT=$__fva_r; return 1; }
+        fv.video.definePalette "$__fva_s" "$3" "$4" "$5" || return 1
     fi
-    __FV_VW_APAL=${__fva_p:0:__fva_e}$__fva_s${__fva_p:__fva_e+1}
-    fv.views.resetPalette || :
-    if [[ -n $FV_APP && -n ${__FV_VW_LIVE[$FV_APP]-} ]]; then fv.views.redraw "$FV_APP" || :; fi
-    RESULT=$__fva_r
+    __fva_p=${__fva_p:0:__fva_e}$__fva_s${__fva_p:__fva_e+1}
+    if ! [ "$__fva_s" = "$__fva_y" ]; then
+        __fva_cnt[$__fva_y]=$(( ${__fva_cnt[$__fva_y]:-0} - 1 ))
+        __fva_cnt[$__fva_s]=$(( ${__fva_cnt[$__fva_s]:-0} + 1 ))
+    fi
     return 0
 }
