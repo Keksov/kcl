@@ -70,3 +70,61 @@ fvm_scene() {
 fvm_unscene() { app.delete; }
 fvm_draw() { fv.views.drawView app; }
 fvm_st() { fv.video.getRow $(( FV_SCREEN_H - 1 )); }
+
+# P3 stage 3f (the menus). The menu test files run in an application: they
+# source fv.app's test lib (fva_testlib.sh, which sources this one) and call
+# fva_init / fva_app; then:
+#   fvm_menu              the test menu bar through fv.menus.menuBar (items:
+#                         0 File 1 Edit 2 Window | 3 Open (F3, 1001) 4 Save
+#                         (F2, 1002) 5 line 6 Exit (Alt+X, 1003) | 7 Undo
+#                         (Alt+Backspace, help 0) 8 Cut (Shift+Del, 1202) |
+#                         9 Next (F6, 1101) 10 Layout (1110) | 11 Tile
+#                         (1111) 12 Cascade (help 0); Edit 1200, Window 1100)
+#   fvm_box               REPLY = the menu box in the application now (its
+#                         front-most TMenuBox, '' none)
+#   fvm_rows Y1 Y2        REPLY = rows Y1 .. Y2-1 as text, joined by '|'
+#   fvm_nobox             rc 0 when no box instance is left (no
+#                         *__fvbox*_data variable, no box in __FV_MN_MV)
+fvm_menu() {
+    fv.menus.menuBar \
+        sub '~F~ile' \
+            item '~O~pen...' F3 kbF3 cmOpen 1001 \
+            item '~S~ave' F2 kbF2 cmSave 1002 \
+            line \
+            item 'E~x~it' Alt+X kbAltX cmQuit 1003 \
+        end \
+        sub '~E~dit' 1200 \
+            item '~U~ndo' '' kbAltBack cmUndo 0 \
+            item 'Cu~t~' Shift+Del kbShiftDel cmCut 1202 \
+        end \
+        sub '~W~indow' 1100 \
+            item '~N~ext' F6 kbF6 cmNext 1101 \
+            sub '~L~ayout' 1110 \
+                item '~T~ile' '' '' cmTile 1111 \
+                item '~C~ascade' '' '' cmCascade 0 \
+            end \
+        end
+}
+fvm_box() {
+    local -n l=app_views
+    local v
+    REPLY=''
+    for v in "${l[@]}"; do if [ "${__FV_MN_MV[$v]-}" = box ]; then REPLY=$v; fi; done
+}
+fvm_rows() {
+    local y r=''
+    for (( y = $1; y < $2; y++ )); do fv.video.getRow "$y"; r+="$RESULT|"; done
+    REPLY=$r
+}
+fvm_nobox() {
+    local v
+    for v in "${!__FV_MN_MV[@]}"; do if [[ $v == *__fvbox* ]]; then return 1; fi; done
+    [[ -z $(compgen -v | grep -F __fvbox) ]]
+}
+#   fvm_cells X Y1 Y2 W   REPLY = W cells from column X of rows Y1 .. Y2-1,
+#                         joined by '|' (narrow text)
+fvm_cells() {
+    local y r=''
+    for (( y = $2; y < $3; y++ )); do fvw_cells "$1" "$y" "$4"; r+="$RESULT|"; done
+    REPLY=$r
+}

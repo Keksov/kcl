@@ -13,8 +13,10 @@ and the app palette.
 The unit loads `kklass_pascal`, `fv.views`, `fv.menus` and
 [`fv.drivers`](../fv.drivers/README.md).
 
-**Status: P2 complete (stage 2g).** No menu bar yet (`TMenuBar` is P3): the desktop
-takes row 0 too.
+**Status: P2 complete (stage 2g); P3 stage 3f: the menu bar on request.**
+Without a menu nothing changes (no bar, the desktop takes row 0 too: D23);
+an application that wants one gets FV's layout — "The menu bar on request"
+below.
 
 ## Quick start
 
@@ -143,7 +145,7 @@ overrides nothing costs none.
 | `TProgram` | `Idle` | proc | the status line's `Update`; when `FV_COMMANDSETCHANGED`: the broadcast `cmCommandSetChanged` to the program, then the flag cleared |
 | `TProgram` | `InitScreen` | proc | `fv.video.initScreen` (the default palette, the shadow symbol `V`), the app palette back to CAppColor, ErrorAttr's symbol |
 | `TProgram` | `InitStatusLine` | proc | the last row: FV's default `def 0 65535` `'~Alt-X~ Exit' kbAltX cmQuit` + `StdStatusKeys` (`kbAltX cmQuit`, `kbF10 cmMenu`, `kbAltF3 cmClose`, `kbF5 cmZoom`, `kbCtrlF5 cmResize`, `kbF6 cmNext`, `kbShiftF6 cmPrev`, key-only): `NAME__fvstatus`; `FV_STATUSLINE` = it |
-| `TProgram` | `InitMenuBar` | proc | nothing in P2 |
+| `TProgram` | `InitMenuBar` | proc | nothing (the bar only on request, D23: "The menu bar on request") |
 | `TProgram` | `InitDesktop` | proc | the extent less the menu bar's row and the status line's: `NAME__fvdesktop`; `FV_DESKTOP` = it |
 | `TProgram` | `GetPalette` | func | `''`: the program maps into the app palette as it is (an override answers an index list into it) |
 | `TApplication` | `HandleEvent` | proc | TProgram's, then `evCommand cmTile` (`Tile`), `cmCascade` (`Cascade`), `cmResizeApp` (the resize, below), handled |
@@ -236,6 +238,32 @@ fv.video owns the traps and restores the terminal on every exit path;
 **fv.app sets no trap** — set yours before `TApplication.new`. Ctrl+C
 (`intr` stays on) is the emergency exit: the terminal restored, status 130,
 `Done` not run. The orderly exit is `cmQuit` (Alt+X).
+
+## The menu bar on request (P3 stage 3f, D23, design P3 §7.1 / 10.10)
+
+* **Default: no bar.** `TProgram.InitMenuBar` makes nothing, `FV_MENUBAR`
+  stays `''`, the desktop keeps row 0: P2's tests, the bench scenes and the
+  first-paint baselines are unchanged. FV's `InitMenuBar` always makes a
+  one-row `TMenuBar` with no items (app.inc:958-964) — a documented
+  deviation.
+* **FV's way**: an `InitMenuBar` override makes a
+  [`TMenuBar`](../fv.menus/README.md#menus-p3-stage-3f) on the extent's first
+  row and sets `FV_MENUBAR`; `InitDesktop` then starts the desktop at row 1
+  and `TProgram.Init` inserts the bar last (in front: FV's order).
+* **The one-call helper** `fv.menus.menuBar LIST` (the flat `item` / `line`
+  / `sub … end` list, [fv.menus](../fv.menus/README.md#the-bar-on-request-d23))
+  in `InitMenuBar` (it only makes the bar: Init inserts it, InitDesktop
+  leaves row 0 to it — fv.app's `__FV_AP_ININIT` tells it Init runs) or any
+  time after Init (the bar inserted in front, the desktop moved to row 1 with
+  `fv.views.locate`, one terminal update). Called again it replaces the bar;
+  with no items it removes it and the desktop gets row 0 back.
+* **A resize keeps the layout**: the bar has `gfGrowHiX` (row 0, the new
+  width), the desktop `gfGrowHiX + gfGrowHiY` (its top stays at row 1), the
+  status line its own grow mode (the last row).
+* With a bar, F10 (StdStatusKeys: the status line posts `cmMenu`) opens it,
+  Alt+letter opens a submenu, its mapped keys post their commands: the bar
+  pre-processes every key the application dispatches (fv.menus).
+* `Done` destroys the bar with the desktop and the status line.
 
 ## The app palette (design §1.9)
 
@@ -337,8 +365,10 @@ window 29 / 50.
   `__FV_VS_PAL`, `__FV_VS_DOS`, `__FV_VS_H`, `__FV_VS_SHADOW`;
 * **loud refusals**: a second application prints one `Error:` line (not
   only under `VERBOSE_KKLASS=debug`); so does a full palette;
-* from Free Vision: **no menu bar in P2** (`InitMenuBar` makes none; the
-  desktop takes row 0; P3 restores FV's row 0); **`Init` draws nothing** and
+* from Free Vision: **the menu bar only on request** (D23: `InitMenuBar`
+  makes none, so an application without a menu keeps row 0 for its desktop;
+  FV's makes an empty one-row `TMenuBar`, app.inc:958-964, which shows as an
+  empty top row); **`Init` draws nothing** and
   `sfExposed` comes with the first paint (`Run`, or the first `GetEvent` of
   a modal view executed before it; FV draws each view as it is inserted;
   D18 counts the first paint from `Run`); `Run` and
@@ -387,6 +417,7 @@ on it fails one test.
 | 012_Palette | the default string and ErrorAttr's symbol; setAppPalette in place, by reuse, by allocation (the application redrawn, == a full repaint); all symbols in use (rc 1, one Error line, nothing changed, 0 / V / W never handed out); refusals |
 | 013_Edges | the critic round's edges: a dialog executed before Run drawn by the first GetEvent; doneEvents at Done whoever turned the terminal on; tile / cascade of a plain TGroup without TileError; setAppPalette's colours back at Done; the name re-created as a TWindow (the next application releases it); the end-of-input latch put back at Done; Alt+digit does not leak the window into RESULT |
 | 014_CallBudget | stage 2g, the design's §3.1 scene through the application: `TMyApp`, the desktop, two 40 × 23 windows with a `TTestList` stand-in each, the status line; every action through `app.Run` and the real `GetEvent` (the scripted terminal), a Run without events taken off: §3.2's limits (Down 6, PgDn 8, Tab = F6 → the status line → cmNext side by side 8 and overlapping 10, click 8, repaint 6, resize 80 × 24 → 200 × 50 8, idle tick 1), the first paint, the idle tick after a window switch (logged); 21-row and 42-row stand-ins give equal dispatch counts; the status line draws with 1 write
+| 016_MenuBar | P3 3f, the bar on request (10.10): no bar by default (FV_MENUBAR '', the desktop on row 0, only the desktop and the status line); `fv.menus.menuBar` after Init (the bar on row 0 in front, the desktop from row 1, drawn at once, == a full repaint); a resize keeps the layout (100 × 30, 60 × 20); menuBar again replaces the bar; a malformed list changes nothing; no items removes the bar (row 0 back to the desktop); no application: rc 2; an InitMenuBar override that makes a `TMenuBar` (FV's way) and one that calls menuBar: FV's order (desktop, status line, bar in front); Done destroys the bar |
 | 015_Demo | `examples/demo.sh --headless`: the built-in script (rc 0, no stderr, frames in `--out`, the final screen), `--keys` (tile), a key file without Alt+X, `--size`, `FV_APP_HEADLESS=1`, the refusals (rc 2). The live mode is never run here
 
 Run on Git-bash 5.3.15 (008 SKIP), MSYS2 5.3.9, Cygwin 5.2.21 (2026-11-17).

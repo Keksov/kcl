@@ -1,16 +1,19 @@
-# kcl/fv.menus — the status line of the fv.* text UI
+# kcl/fv.menus — the status line and the menus of the fv.* text UI
 
 Layer L2 of the `fv.*` text UI ([plan](../docs/dev/fv/PLAN.md), design
 [P2_DESIGN.md](../docs/dev/fv/P2_DESIGN.md)). Free Vision's `TStatusLine`
 (FV `menus.inc`: `TStatusDef` / `TStatusItem`, `NewStatusDef` /
 `NewStatusKey`, `Draw` / `DrawSelect`, `FindItems`, `HandleEvent` with the
 mouse press tracking, `Hint`, `Update`) as a [kklass](../../kklass/README.md)
-class on [`fv.views`](../fv.views/README.md)' `TView`. `TMenuBar` and
-`TMenuBox` come with P3.
+class on [`fv.views`](../fv.views/README.md)' `TView`; since P3 stage 3f
+the menus: `TMenuView`, `TMenuBar`, `TMenuBox`, `TMenuPopup`, the bar on
+request (`fv.menus.menuBar`, D23) and the status line's hint table
+(`fv.menus.setHint`, D22) — ["Menus"](#menus-p3-stage-3f).
 
 The unit loads `kklass_pascal` and `fv.views`.
 
-**Status: P2 complete (stage 2g; `TStatusLine` since 2e).** The application ([`fv.app`](../fv.app/README.md),
+**Status: P2 complete (stage 2g; `TStatusLine` since 2e); P3 stage 3f: the
+menus.** The application ([`fv.app`](../fv.app/README.md),
 stage 2f) makes the status line in its `InitStatusLine`, holds it in
 `FV_STATUSLINE` and calls its `Update` from `Idle`; without an application
 a script inserts it itself.
@@ -90,7 +93,7 @@ build TMyStatus
 | `Draw` | proc | `DrawSelect(nil)`: "Drawing" below |
 | `HandleEvent` | proc | keys, the press tracking, `cmCommandSetChanged`: "Events" below |
 | `GetPalette` | func | `2 3 4 5 6 7` (FV `CStatusLine`) |
-| `Hint HELPCTX` | func | `''`; a class of yours answers the text shown after the items |
+| `Hint HELPCTX` | func | the line's hint table's text for HELPCTX (`fv.menus.setHint`, stage 3f; FV: `''`), `''` without one; a class of yours answers the text shown after the items |
 | `Update` | proc | the items for the top view's help context: "Update" below |
 
 All five are built-in bodies in fv.views' elision table (`__FV_VW_IMPL`), so
@@ -235,6 +238,263 @@ Inside `app.Run` (the `fvviews` bench, [fv.views "Cost"](../fv.views/README.md#c
 the line's pre-process look-up of a key nobody takes is ~0.2 ms of the
 ~5.8 ms a key event costs on that (~1.9× slow) machine.
 
+## Menus (P3 stage 3f)
+
+Free Vision's menus (FV `menus.inc`: `TMenuView` with `Execute`, `FindItem`,
+`HotKey`, `GetHelpCtx`, `NewSubView`, `HandleEvent` / `DoSelect`;
+`TMenuBar`, `TMenuBox`, `TMenuPopup`; `NewItem` / `NewLine` /
+`NewSubMenu`), decisions **D22** (menus in v1, full) and **D23** (the bar
+only on request), design [P3_DESIGN.md §7](../docs/dev/fv/P3_DESIGN.md).
+
+```bash
+kk.uses fv.app
+
+class TMyApp : TApplication
+    public
+        override proc InitMenuBar
+end
+TMyApp.InitMenuBar() {
+    fv.menus.menuBar \
+        sub '~F~ile' \
+            item '~O~pen...' F3 kbF3 cmOpen 1001 \
+            item '~S~ave' F2 kbF2 cmSave 1002 \
+            line \
+            item 'E~x~it' Alt+X kbAltX cmQuit 1003 \
+        end \
+        sub '~W~indow' 1100 \
+            item '~N~ext' F6 kbF6 cmNext 1101 \
+            sub '~L~ayout' item '~T~ile' '' '' cmTile 0 item '~C~ascade' '' '' cmCascade 0 end \
+        end
+}
+build TMyApp
+TMyApp.new app
+fv.menus.setHint "$FV_STATUSLINE" 1001 'Open a file'    # the hint table (D22)
+app.Run           # F10 / Alt+F / a click opens the bar; cmOpen ... reach HandleEvent
+```
+
+### The classes
+
+| class | fields | FV |
+|---|---|---|
+| `TMenuView : TView` | TView's + `ParentMenu` (the parent menu view, `''` none), `Menu` (`OWNER:S`: submenu `S` of the items `OWNER` holds; `''` = FV nil), `Current`, `OldItem` (item indices, `-1` = nil) | `TMenuView` |
+| `TMenuBar : TMenuView` | — | `TMenuBar`: `GrowMode` `gfGrowHiX`, `ofPreProcess`; `Draw`, `GetItemRect` |
+| `TMenuBox : TMenuView` | — | `TMenuBox`: sized by its items, `sfShadow`, `ofFramed` + `ofPreProcess`; `Draw`, `GetItemRect` |
+| `TMenuPopup : TMenuBox` | — | `TMenuPopup`: no parent, its own items; `HandleEvent` |
+
+* **`TMenuView.new NAME AX AY BX BY [LIST]`** (FV `Init(Bounds)`: TView's +
+  `evBroadcast`), **`TMenuBar.new NAME AX AY BX BY [LIST]`** (FV
+  `Init(Bounds, AMenu)`), **`TMenuBox.new NAME AX AY BX BY [LIST]`** (FV
+  `Init(Bounds, AMenu, nil)`: width 5 + the widest `' NAME '` [+ `' - '
+  PARAM`], height 2 + the items, shortened from the top-left corner of the
+  bounds or moved left / up to fit, as FV), **`TMenuPopup.new NAME AX AY BX
+  BY LIST`** (FV `Init(Bounds, AMenu)`).
+* **LIST** is FV's chain written flat (as the status line's items):
+
+  | words | FV |
+  |---|---|
+  | `item TEXT PARAM KEY CMD HELPCTX` | `NewItem(Name, Param, KeyCode, Command, HelpCtx)`; `KEY` `''` or a key name (`kbF3`, `kbAltX`), `CMD` a command name, `HELPCTX` digits (`''` = 0, hcNoContext) |
+  | `line` | `NewLine` |
+  | `sub TEXT [HELPCTX] … end` | `NewSubMenu(Name, HelpCtx, NewMenu(…))`, nested freely |
+
+  A view made with a LIST owns its items (`Menu` = `NAME:0`, freed by its
+  destructor). A malformed list is refused **before anything is made**: rc 2,
+  one `Error: fv.menus: CLASS.Create: 'NAME': …` line (an item without its
+  five fields or with an empty `TEXT`, a bad key / command / `HELPCTX`, a
+  `sub` without `end` or an `end` without `sub`, an unknown word). The
+  re-creation guard and the bounds are TView's.
+* **`fv.menus.newSubView V AX AY BX BY MENU PARENT`** (FV `NewSubView`, not
+  virtual there either): a `TMenuBox` named `PARENT__fvbox` for `MENU`
+  (`OWNER:S`, borrowed: the box frees nothing of it) with `ParentMenu`
+  `PARENT`, sized inside the bounds; `RESULT` = its name; not inserted. rc 2
+  for a malformed call.
+
+### Virtual methods
+
+| method | kind | FV |
+|---|---|---|
+| `HandleEvent` | proc | TMenuView's: "Events" below; `TMenuPopup` adds its keys |
+| `GetPalette` | func | `2 3 4 5 6 7` (FV `CMenuView`, the status line's entries) |
+| `GetHelpCtx` | func | the current item's `HelpCtx`, walking up the parent menus: below |
+| `Execute` | func | FV's loop: below; `RESULT` = the command, `''` for none |
+| `GetItemRect ITEM` | proc | FV `GetItemRectX`: the item's local rect in `FV_RECT_*`; TMenuView's an empty rect, `TMenuBar`'s and `TMenuBox`'s FV's |
+| `Draw` | proc | `TMenuBar`, `TMenuBox` |
+
+All are built-in bodies in fv.views' elision table (no dispatch unless a
+class of yours overrides one); the broadcast table lists TMenuView's and
+TMenuPopup's handlers for `cmCommandSetChanged` only.
+
+### The model
+
+FV's `TMenuItem` / `TMenu` records are arrays of the owner `O` (kcl §1.9),
+each submenu's items contiguous, submenu 0 the top menu:
+
+| array | content |
+|---|---|
+| `${O}_mtext`, `_mparam`, `_mkey`, `_mcmd`, `_mhelp` | item i's Name (`''` = a separator), Param, KeyCode, Command (`''` for a submenu or a separator), HelpCtx |
+| `${O}_msub` | the submenu of a `sub` item |
+| `${O}_mdis` | FV's `Disabled` (0 / 1): from the command set when made (FV `NewItem`), then by `cmCommandSetChanged` (FV `UpdateMenu`) |
+| `${O}_mfirst`, `_mlast`, `_mdef` | submenu s's first / last item and its `Default` (FV `TMenu.Default`: the first item, then the last one chosen) |
+| `${O}_mkmap` (assoc) + `_mknext` | **the key map**: `KEY` → the first item of the tree with that key in FV `HotKey`'s depth-first order; a chain to the next one. FV walks every item on every key the bar pre-processes; here one lookup |
+| `${O}_mhot` (assoc) + `_mhnext` | **the hot letters**: `S:L` → the first item of submenu S whose hot letter (the character after its first `~`, folded — Cyrillic, Greek, …) is L; a chain |
+| `${O}_mpl`, `_mpp`, `_mqpl`, `_mqpp` | `' NAME '` and the Param as drawn, their cell patterns (made for the screen's ASCII mode at the first draw) |
+
+Read them; change items only by making the view again.
+
+### Execute (FV TMenuView.Execute)
+
+`Execute` reads its own events from the application's event source
+(`__FV_VW_GETEVENT`: the resizes and `Idle` run while a menu is open) and
+does what FV's loop does:
+
+* **mouse**: a press in the view or on the parent bar's current item tracks
+  the item under the pointer (a bar then auto-selects: its box drops), a drag
+  over a parent menu returns to it (the event goes up), a release on an item
+  chooses it, on the parent bar's item keeps the box with its Default, a press
+  outside every menu closes them all;
+* **keys** (through `CtrlToArrow`): Up / Down move with wrapping and skip
+  separators (on a bar Down drops the box), Left / Right move on the top menu
+  and return from a box (the key goes up: the neighbouring submenu drops),
+  Home / End, Enter selects (a bar: drops), **Esc** closes (below), a plain typed
+  character selects the item with that hot letter, Alt+letter selects the
+  TOP menu's item (from a box: the event goes up), any other key asks the top
+  menu's **HotKey** (an F-key …: its enabled command ends the menu). **F10
+  inside an open menu does nothing** (FV: it falls to HotKey, which finds no
+  item with F10);
+* a submenu item selected: its box made by `newSubView` under the item (from
+  the item's left edge, below it, to the owner's size), **executed by the
+  view's owner** (`fv.views.execView`: for the bar's boxes the application,
+  so a box sits beside the desktop, never in a window) and destroyed after
+  its run; a command it answers ends this level too;
+* **Esc**: in a box under the bar it closes the box **and the bar** (FV,
+  menus.inc 673-676: the box leaves the Esc in the event, the loop puts it
+  back and the bar reads it); in a nested box it closes only that box (FV
+  clears it there: the parent box shows again); on the bar alone it leaves
+  the bar;
+* the **end of input** (the latch) closes every level with no command; a
+  failing event source counts as the end of input; **in a subshell** the
+  loop refuses (rc 2, the BASHPID rule, as execView);
+* the event record is saved and put back (FV's local `E`); an event that
+  ends a nested level is put back (`PutEvent`) for its parent; at the end the
+  current item becomes the submenu's Default and the view is drawn plain.
+
+A highlight move in a box repaints the old and the new row (two one-row
+`drawPart`s, FV's `OldItem` trick); the bar is drawn whole (one write).
+
+### Events (TMenuView.HandleEvent: the bar)
+
+The bar has `ofPreProcess`, so the application hands it every key first:
+
+* a key with Alt whose hot letter names a top item → **DoSelect**: the event
+  put back, the bar run modal by its owner (`fv.views.execView`), a command it
+  answers posted as `evCommand` (FV `DoSelect`); the event handled;
+* any other key in the **key map** whose command is enabled → that command
+  posted (FV `HotKey`), the key handled; else the key goes on;
+* `evMouseDown` (the application's positional dispatch) and `evCommand
+  cmMenu` (F10: the status line's StdStatusKeys post it) → DoSelect;
+* `evBroadcast cmCommandSetChanged` → `Disabled` from the command set (FV
+  `UpdateMenu`, the whole tree below its menu); the view redrawn only when
+  what it drew changed (D17; FV redraws when any item changed).
+
+**Hot letters and the layout** (D30, §14.4): the typed character
+(`FV_EV_CHAR`, folded) first; then — for a typed character that is not
+ASCII, or none — the base-layout key (`FV_EV_BASE`; for a plain character
+the layout tables, `fv.keyboard.layoutBase`): the order of
+`fv.views.hotKeyIs` applied to the hot-letter map. So `~Ф~айл` opens on its
+own key, a Latin `~F~ile` with a Russian layout (Alt+а on the US f key), and
+an AZERTY Alt+A never counts as the US `q`.
+
+**TMenuPopup.HandleEvent** (when the popup sits in a group): a Ctrl+letter
+key → the item with that hot letter (FV `GetCtrlChar`), else the key map; an
+enabled command posted; an Alt+letter / digit key swallowed; then
+TMenuView's. A popup is normally executed: `fv.views.execView OWNER POPUP`
+→ `RESULT` the command (`cmCancel` when nothing was chosen: execView's rule
+for an empty answer — give popup items commands other than `cmCancel`).
+
+**Focus broadcasts reach the application**: the bar and each box are made
+current in the application by `execView`, so FV's `cmReleasedFocus` /
+`cmReceivedFocus` go through the application's `HandleEvent`: with a
+`TMyApp` override every menu open costs those dispatches (~0.2 ms each).
+Measured (stage 3f): the open + drop + close of §8.4 counts **22**
+dispatches: 2 for F10 and 2 for `cmMenu` (each `TMyApp.HandleEvent` + its
+`inherited`), **14 for the 7 focus broadcasts**, 3 for the box (kklass's
+constructor, its `Done` and the `inherited` in it: a box is made and
+destroyed per drop) and 1 user `Draw` of the window below the box. The
+design's revision 2 counted 19 (it left out the box's 3); `014_MenuBudget`
+logs 23 because it also counts its own `app.Run` call.
+
+### GetHelpCtx and the status line (D22)
+
+While a menu runs it is the top view, so fv.app's `Idle` (between events)
+makes the status line ask its `GetHelpCtx`: FV's — from the view up the
+parent menus, the first whose current item has a name and a `HelpCtx`
+other than hcNoContext (`Undo` with 0 in Edit's box → Edit's context) — and
+show that context's def and **hint**.
+
+* **The hint table**: **`fv.menus.setHint SL HELPCTX TEXT`** — the built-in
+  `Hint` answers `TEXT` for `HELPCTX` (digits); `TEXT` `''` removes the
+  entry; the line is redrawn when it shows that context and the hint
+  changed; a class that overrides `Hint` still wins. The table is
+  `${SL}_hints` (assoc), freed with the line. rc 2 for a malformed call;
+  `RESULT` is kept.
+
+### The bar on request (D23)
+
+**`fv.menus.menuBar [LIST]`** — the application's bar from LIST: a
+`TMenuBar` on row 0 of `FV_APP`, named `APP__fvmenubar`, `FV_MENUBAR` = it,
+the desktop from row 1 (`fv.views.locate`, its other edges kept). In the
+application's `InitMenuBar` it only makes the bar (Init inserts it in FV's
+order and `InitDesktop` leaves row 0 to it); after Init the bar is inserted
+in front and the desktop moved, as one terminal update. Called again it
+replaces the bar (the old one destroyed); with no LIST it removes the bar
+and the desktop gets row 0 back. A malformed list changes nothing (rc 2,
+the Error line); no application: rc 2. While a menu runs (the bar's or any
+menu view's `Execute`: a hook of the event source, `Idle`) it is refused —
+rc 2, one debug line, nothing changed (the running loop would go on with
+the new bar); call it after the menu closes. `RESULT` is kept. Without it (and
+without an `InitMenuBar` override) there is no bar at all: [fv.app, "The
+menu bar on request"](../fv.app/README.md).
+
+### Cost
+
+Git-bash 5.3.15, the laptop (noisy: CI decides), `tools/bench`
+`views-menu-80` (FV's layout with a bar, two stand-in windows, `TMyApp`;
+F9 stands for an idle tick), 2026-11-22; the same machine's
+`80x24.down` (the stand-in) 6.1 ms:
+
+| action | dispatches | writes | ms | §8.4 laptop |
+|---|---|---|---|---|
+| F10 → the bar → Down drops the 28 × 12 box → Esc closes both (3 idle ticks included, ~5.7 ms) | 22 | 11 | 60–73 | 52 (limit §8.1: 24 / 28) |
+| a highlight move, the hint changes (an idle tick included) | 0 | 3 | 8.4–10.5 | 6.05 |
+| a highlight move, no hint (an idle tick included) | 0 | 2 | 6.0–7.1 | 4.55 |
+| an idle tick alone (the key, Idle, Update without a change) | 0 | 0 | 1.9 | |
+
+The tests pin the counts (`014_MenuBudget`); the times are early-warning
+numbers. CI (ubuntu host, the stand-in 5.23 ms, 2026-11-22): open + drop +
+close 63.9 ms (12.2× the stand-in; §8.4 planned 8.8×), a move with a hint
+change 8.62 ms (1.38× without its 1.39 ms idle tick; planned 1.02×), without
+a hint 5.81 ms (0.85×; planned 0.77×): ~20–50 % over §8.4. The speed work is
+deferred (the owner); its starting point, a same-process split of a move on
+the laptop (rough; per call, the loop overhead taken off):
+
+| part of a highlight move | ms |
+|---|---|
+| each of the two one-row `drawPart`s of the box (FV's OldItem rows: the painter's row + `drawPart`'s clip, views in front, end; not split further) | ~1.1 (+ ~0.3 terminal update) |
+| the status line on a hint change (the idle tick's Update): topView + GetHelpCtx ~0.2, FindItems + Hint ~0.1, its `drawView` (`_compose` + writeLine + the painter) ~1.7, the terminal update ~0.5 | ~2.6 |
+| the status line's Update without a change (every idle tick) | ~0.23 |
+| Execute's per-event tail: `_resetCursor` of the root ~0.11 + `_showNow` ~0.03 | ~0.15 |
+| (the whole box drawn instead, for comparison: `drawView` of the 4-item box) | ~2.9 |
+
+So the box's two row repaints and the status line's redraw are ~85 % of a
+move with a hint; the per-event tail is ~2 %. A lever on either big part
+changes fv.views' `drawPart` / `drawView` machinery or the counts (one
+two-row `drawPart` for adjacent rows: 1 write instead of 2), so it waits for
+that stage. Taken in the 3f review: FV's TrackMouse works out the built-in
+box's and bar's item rects in one pass instead of one `GetItemRect` per
+item (the bar's sums the widths from the first item on every call): a mouse
+event over File's box ~0.15 ms instead of ~0.6 (grows with the items before),
+the same dispatches and writes (no dispatch either way: the built-ins are
+elided), the same item for every cell (a 240-point comparison).
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -246,7 +506,15 @@ the line's pre-process look-up of a key nobody takes is ~0.2 ms of the
   `__FV_VW_CMDOFF` (one array read per item instead of a call) and the event
   hooks `__FV_VW_PUTEVENT` / `__FV_VW_EOF`; its entries in the elision table
   `__FV_VW_IMPL`; calls of `fv.views._virt`, `fv.views._topView` and
-  `fv.views._viewEvent` (fv.views' README lists these friend entries). A
+  `fv.views._viewEvent` (fv.views' README lists these friend entries).
+  The menus (stage 3f) add: the event source `__FV_VW_GETEVENT` (the menus'
+  own loop, as fv.views' loops read it), the per-event holds `__FV_VW_LSU` /
+  `__FV_VW_EH`, the absolute origins `__FV_VW_AX` / `__FV_VW_AY` (the mouse
+  tests), the blanks `__FV_VW_PAD`, the CtrlToArrow table `__FV_VW_C2A`,
+  entries in `__FV_VW_BCAST`; calls of `_evSave` / `_evRestore`, `_ownerOk`,
+  `_showNow`, `_resetCursor`, `_release`, `_newReserved`; fv.video's `_g`;
+  fv.keyboard's `layoutBase`; a read of fv.app's `__FV_AP_ININIT` (when
+  fv.app is loaded: `menuBar` leaves the insert to the application's Init). A
   re-source of fv.views (`kk.unit --forget fv.views`) merges its elision
   table, so these entries stay; the constructor registers them again only if
   they are missing;
@@ -263,6 +531,47 @@ the line's pre-process look-up of a key nobody takes is ~0.2 ms of the
   only when an item was shown pressed; the end of input during a press posts
   nothing; the posted command's other event fields are cleared (FV's record
   overlays them); a line taller than one row is blanked below row 0.
+* **the menus (stage 3f), with the reasons**:
+  * **D23: no bar unless the application asks** (FV always makes an empty
+    one: an empty top row in every program);
+  * the items are **flat per-instance arrays** (FV's pointer chains: bash
+    has none); `Menu` is `OWNER:S`, `Current` / `OldItem` / `Default` are
+    item indices (`-1` = nil); `HotKey` and `FindItem` are map lookups (FV
+    walks every item; the key map starts at the top menu, so a view whose
+    `Menu` is another submenu — a box from `newSubView` inserted by hand —
+    walks its own subtree as FV does); `FindItem`'s second path is the
+    base-layout key of §14.4 (terminals give no scan code), in
+    `fv.views.hotKeyIs`' order;
+  * `Execute` answers `''` for "no command" (FV 0); `fv.views.execView` turns
+    an empty answer into `cmCancel` (its rule), so a popup's caller cannot
+    tell a `cmCancel` item from nothing; the menus themselves read the private
+    `__FV_MN_RES` right after their execView calls;
+  * the loop does nothing on an idle tick (`evNothing`), as fv.views' loops
+    (FV runs its selection code then too; with FV's flow an event is always
+    put back when a box returns, so no case differs);
+  * a box made by `newSubView` shows its Default highlighted from its first
+    draw (FV sets `Current` when `Execute` starts and draws after the first
+    event: the same picture one event earlier), and it is not drawn plain
+    before it is removed (FV does: the writes only); a highlight move repaints
+    two rows by `drawPart` (FV's Draw writes them through `OldItem`: the same
+    cells);
+  * FV's raw-key comparisons are kept: Ctrl+F (CtrlToArrow End) in a box goes
+    Home (FV tests `E.KeyCode = kbEnd`), Ctrl+X on the bar does not drop the
+    box (FV tests `kbDown`);
+  * a redraw on `cmCommandSetChanged` only when the view's own items show
+    another state (D17; FV: when any item of its tree changed);
+  * an `item` / `sub` with an empty `TEXT` is refused with the other
+    malformed lists (FV's `NewItem` drops it silently); `HELPCTX` is a number
+    (as the status line's defs); a bar taller than one row has its other rows
+    blanked (FV writes row 0 only); `TMenuBox.GetItemRect` gives the local row
+    (FV adds its owner's origin, a quirk of its absolute origins); the key
+    walk on a submenu of separators only stops (FV's `TrackKey` loops
+    forever there);
+  * kklass's `.new` / `.delete` of the boxes and the bar run with a local
+    default IFS (a caller's IFS can break kklass, K-3); the caller's IFS is
+    untouched;
+  * the built-in `Hint` reads the hint table (FV answers `''` and leaves the
+    texts to a subclass): an extension, an override still wins.
 
 ## Tests
 
@@ -270,8 +579,11 @@ the line's pre-process look-up of a key nobody takes is ~0.2 ms of the
 `tests/fvm_testlib.sh` reuses fv.views' test lib (the headless screen, the
 buffer reader, both counters, `fvw_budget`, the scripted event source, the
 scene classes) and adds the test status line (`fvm_mkst`) and the
-application-like scene (`fvm_scene`). Each test file's stderr is captured:
-anything on it fails one test.
+application-like scene (`fvm_scene`); the menu tests (009-017) run in an
+application through fv.app's test lib (`fva_testlib.sh`: `fva_app`, the
+scripted terminal with `key K CHAR BASE`) and add the test menu bar
+(`fvm_menu`), `fvm_box`, `fvm_rows`, `fvm_cells`, `fvm_nobox`. Each test
+file's stderr is captured: anything on it fails one test.
 
 | file | what |
 |---|---|
@@ -281,5 +593,14 @@ anything on it fails one test.
 | 004_Mouse | the press tracking (pressed colours, moving between items / off the items / off the row, a press on the blank part, a disabled item, the end of input, the record put back (`FV_EV_BASE` too), the writes per press, the dispatches), a click through the modal loop, == a full repaint |
 | 005_Draw | one write per draw, no dispatch; the colours, greyed commands, the Hint, wide labels and a `~` between wide characters, two rows high, ASCII mode, clipped to a narrow line, an unexposed tree, a GetPalette override, cmCommandSetChanged (0 / 1 write), `_quiet` |
 | 006_Hint | Hint's default; Update: no change / same def / another def (the counts), sfDragging, the top view of a modal dialog, no top view, a GetHelpCtx override, a Hint override (redrawn when the hint changes), a Draw override (every change), an Update override |
-| 007_ZeroFork | the unit's whole path with `PATH=''`; the static scan of `fv.menus.sh` |
-| 008_CallerState | one scene under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept |
+| 007_ZeroFork | the unit's whole path with `PATH=''` (stage 3f: the menus' too — a bar, Alt+F, a nested drop, F3, a press + release, a popup, the hint table, cmCommandSetChanged, the destructors); the static scan of `fv.menus.sh` |
+| 008_CallerState | one scene under nocasematch, failglob, nullglob, noglob, extglob, globasciiranges, odd IFS (digits, `-`, letters, empty), `set -eu` + pipefail, a C locale, all at once: same output, state kept; stage 3f: a menu scene (the bar's draw, Alt+F → DoSelect → the box → Down / Enter, a plain Cyrillic hot letter, cmMenu + F3, a press + release, Alt+Cyrillic to another top item, a popup) under the same setups and IFS `$'\x1f'`, `RESULT` kept |
+| 009_MenuItems | stage 3f, the model: the flat list laid out per submenu (first / last / Default, the sub index), Disabled from the command set, the key map in HotKey's depth-first order with its chain, hot letters per submenu (folded, Cyrillic, a `~` at the end), the classes' options / state / grow mode, the box's size (FV's formula; shortened, moved left / up), newSubView and its refusals, the malformed lists (rc 2, one Error line, nothing made), the destructor (a borrowed menu stays), the re-creation guard |
+| 010_MenuBar | the bar in an application: its draw (one write, the colours), pre-processed keys (a mapped key posts, a disabled one goes on, Alt+X → HotKey, an unknown key goes on), F10 → cmMenu → the bar modal (Default, Left / Right / Ctrl+S / Ctrl+D with wrapping, Esc, the Default remembered), Enter drops the box (owned by the application) and a nested one, a command posted after the menu, Alt+F at once, cmCommandSetChanged (1 / 0 writes), == a full repaint after every close |
+| 011_MenuBox | the box in FV's flow: its draw (frame, separator, Param, the submenu mark, the current bar, a disabled item), Down / Up / Ctrl+X / Ctrl+E / Home / End, F10 inside does nothing, a plain hot letter, F3 (HotKey), Left / Right / Alt+W to other submenus, Enter / hot letter on a disabled item do nothing, Esc in a box under the bar closes both, in a nested box one level, the nested box's place, TMenuPopup run by an owner (a command, cmCancel, removed), == a full repaint after every close |
+| 012_MenuMouse | a press on a bar item opens its box, a drag into it and a release choose; a release on the bar item keeps the box; a press outside closes all; a drag along the bar switches boxes; a release on a separator closes (FV's MouseActive); moves without a button and a wheel change nothing; a popup by press + release, a press outside it |
+| 013_MenuStatus | the hint table (answers, removal, a redraw only for the shown context, refusals, an override wins, freed with the line); the status line follows the open menu (Open / Save hints, Undo (0) → Edit's context, Cascade (0) → Layout's), back after the menu; GetHelpCtx outside a run |
+| 014_MenuBudget | §8.1: open + drop + close ≤ 24 dispatches / 28 writes (with `TMyApp`), a highlight move 0 / 3 with a hint change, 0 / 2 without, the same in a 40-item box, the box's draw 1 writeLines + 2 shadow writes, the bar's 1; no leak after 100 open / drop / close cycles |
+| 015_MenuLoop | the end of input closes every level (one box, two nested) with no command; a failing source; a subshell refuses (execView and Execute rc 2, nothing posted or drawn); the event record put back through execView and a direct Execute; a resize while a box is open (the bar's width, the desktop's row 1, the box stays) |
+| 016_MenuLayout | Cyrillic hot letters (typed, upper case), the base key for a Latin title with a Russian layout, the typed character first with titles in two scripts, an ASCII typed character never as its base key, plain letters in a box (typed, `FV_EV_BASE`, the layout tables), Alt+Cyrillic inside a box goes to the top menu |
+| 017_MenuHotKeys | item search by behaviour: HotKey skips a Disabled item (the bar's pre-process, TopMenu's HotKey in an open box), FindItem skips a Disabled hot letter; HotKey's depth-first order (File > Recent before later File and Edit items), a repeated hot letter (the first wins, also typed upper case); a box from newSubView over a submenu inserted by hand answers only its subtree's keys; menuBar while the bar or a box runs (rc 2, one debug line, nothing changed), again after the close |

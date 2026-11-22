@@ -36,6 +36,19 @@ declare -F TStatusLine.new >/dev/null || miss+=' TStatusLine.new'
 for m in Draw HandleEvent GetPalette Hint Update AddDef AddItem; do [ "${TStatusLine_class_method_owner[$m]-}" = TStatusLine ] || miss+=" TStatusLine.$m"; done
 if [[ -z $miss ]]; then kt_test_pass "ok"; else kt_test_fail "missing:$miss"; fi
 
+kt_test_start "the menus' API (stage 3f): functions, classes, methods, elision and broadcast entries"
+miss=''
+for f in setHint menuBar newSubView _mregister _mparse _mlayout _mmaps _mvCreate _mvFree _barDraw _boxDraw _boxPaint     _mvGetPalette _mvGetHelpCtx _mvItemRect _barItemRect _boxItemRect _mvEvent _doSelect _mvUpdate _popEvent _mvExecute _pat1; do
+    declare -F "fv.menus.$f" >/dev/null || miss+=" fv.menus.$f"
+done
+for c in TMenuView TMenuBar TMenuBox TMenuPopup; do declare -F "$c.new" >/dev/null || miss+=" $c.new"; done
+for m in HandleEvent GetPalette GetHelpCtx Execute GetItemRect; do [ "${TMenuView_class_method_owner[$m]-}" = TMenuView ] || miss+=" TMenuView.$m"; done
+for m in Draw GetItemRect; do [ "${TMenuBar_class_method_owner[$m]-}" = TMenuBar ] || miss+=" TMenuBar.$m"; [ "${TMenuBox_class_method_owner[$m]-}" = TMenuBox ] || miss+=" TMenuBox.$m"; done
+[ "${TMenuPopup_class_method_owner[HandleEvent]-}" = TMenuPopup ] || miss+=' TMenuPopup.HandleEvent'
+got="${__FV_VW_IMPL[TMenuView.Execute]-},${__FV_VW_IMPL[TMenuBar.Draw]-},${__FV_VW_IMPL[TMenuBox.Draw]-},${__FV_VW_IMPL[TMenuPopup.HandleEvent]-},${__FV_VW_BCAST[fv.menus._mvEvent]-}"
+[ "$got" = "fv.menus._mvExecute,fv.menus._barDraw,fv.menus._boxDraw,fv.menus._popEvent,cmCommandSetChanged" ] || miss+=" entries[$got]"
+if [[ -z $miss ]]; then kt_test_pass "ok"; else kt_test_fail "missing:$miss"; fi
+
 kt_test_start "TStatusLine's built-in virtuals are in fv.views' elision table; Hint is a func there"
 got=''
 for m in Draw HandleEvent GetPalette Hint Update; do got+="${__FV_VW_IMPL[TStatusLine.$m]-none},"; done
@@ -149,8 +162,8 @@ compgen -A function | LC_ALL=C sort > '$TMP/f1'
 " 2>&1)"
 # (MAIN's own names: FVO, q, ge; fv.views' / fv.video's / fv.drivers' state
 # the main path touches: __FV_VW_*, __FV_VS_*, __FV_DR_*, FV_*)
-newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(__FV_MN_[A-Z]+|TStatusLine_[A-Za-z_]+|RESULT|REPLY|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft|FVO|__FV_(VW|VS|VI|DR|KB|MS|UN)_[A-Za-z0-9_]+|FV_[A-Z0-9_]+)$' | tr '\n' ' ')"
-newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^((fv\.menus|TStatusLine)\..*|__kk[cm]\.TStatusLine(\..*)?|ge)$' | tr '\n' ' ')"
+newv="$(comm -13 "$TMP/v0" "$TMP/v1" | grep -vE '^(__FV_MN_[A-Z]+|(TStatusLine|TMenuView|TMenuBar|TMenuBox|TMenuPopup)_[A-Za-z_]+|RESULT|REPLY|KK_UNIT_DIR|METHOD_BODY|METHOD_WRAPPER|__KK_SITE_[A-Z0-9]+|__kk_ft|FVO|__FV_(VW|VS|VI|DR|KB|MS|UN)_[A-Za-z0-9_]+|FV_[A-Z0-9_]+)$' | tr '\n' ' ')"
+newf="$(comm -13 "$TMP/f0" "$TMP/f1" | grep -vE '^((fv\.menus|TStatusLine|TMenuView|TMenuBar|TMenuBox|TMenuPopup)\..*|__kk[cm]\.(TStatusLine|TMenuView|TMenuBar|TMenuBox|TMenuPopup)(\..*)?|ge)$' | tr '\n' ' ')"
 if [[ -z $out && -z $newv && -z $newf ]]; then kt_test_pass "ok"; else kt_test_fail "stray vars: [$newv] functions: [$newf] output: [$out]"; fi
 
 kt_test_log "001_Contract.sh completed"

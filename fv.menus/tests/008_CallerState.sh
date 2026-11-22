@@ -114,4 +114,88 @@ for setup in 'shopt -s nocasematch' 'shopt -s failglob' 'shopt -s nullglob' 'set
     else kt_test_fail "output [$got] vs [$ref]; state before [$before] after [$after]"; fi
 done
 
+# P3 stage 3f: the menus under the same setups (and IFS=$'\x1f'): a bar
+# with a Cyrillic hot letter and a popup made before the setup; then the
+# bar's draw, Alt+F through the application's dispatch (DoSelect: the bar
+# run modal, the box dropped by the owner, Down skipping the separator,
+# Enter), a plain Cyrillic hot letter in the box, cmMenu + F3 (HotKey), a
+# press on the bar + a release on an item, the popup run by an owner, the
+# rows read back; RESULT kept by the procedures
+MAKE2='
+exec {FVO}>/dev/null; FV_VIDEO_OUT_FD=$FVO FV_SCREEN_W=60 FV_SCREEN_H=20; fv.video.initScreen
+TGroup.new app 0 0 60 20
+TGroup.new desk 0 1 60 20
+TView.new lf 0 0 60 19
+TMenuBar.new mb 0 0 60 1 sub "~F~ile" item "~O~pen" F3 kbF3 cmOpen 5 line item "~Ф~орма" "" "" cmForm 6 end sub "~Е~два" item "~A~ b" "" "" cmA 0 end
+TMenuPopup.new pp 10 5 40 12 item "~C~opy" Ctrl+C kbCtrlC cmCopy 0 item "~P~aste" "" "" cmPaste 0
+ge() {
+    local s
+    if (( ${#__FV_DR_PEND[@]} )); then fv.drivers.getEvent 0; return; fi
+    if (( ! ${#q[@]} )); then FV_EV_WHAT=evNothing; return 1; fi
+    s=${q[0]}
+    q=("${q[@]:1}")
+    fv.drivers.clearEvent
+    FV_EV_WHAT=${s%%/*} s=${s#*/}
+    if [ "$FV_EV_WHAT" = evKeyDown ]; then FV_EV_KEY=${s%%/*} FV_EV_CHAR=${s#*/}
+    else FV_EV_MOUSE_X=${s%%/*} FV_EV_MOUSE_Y=${s#*/} FV_EV_MOUSE_BUTTONS=1; fi
+}
+cut9() { local LC_ALL=C.UTF-8; fv.video.getRow "$1"; r+="${RESULT:$2:$3}|${REPLY:$2:$3}$4"; }
+ev9() { fv.drivers.clearEvent; __FV_DR_PEND=(); FV_EV_WHAT=$1 FV_EV_KEY=$2 FV_EV_CHAR=$3 FV_EV_COMMAND=$4 FV_EV_MOUSE_X=$5 FV_EV_MOUSE_Y=$6 FV_EV_MOUSE_BUTTONS=1
+    RESULT=keep; fv.views._virt app HandleEvent; r+="${__FV_DR_PEND[3]-none}:$RESULT,"; }
+'
+SCENE2='
+r=""
+lf_data[Options]=$FV_OF_SELECTABLE
+fv.views.insert desk lf; fv.views.insert app desk; fv.views.insert app mb
+app_data[State]=$(( app_data[State] | FV_SF_EXPOSED | FV_SF_SELECTED | FV_SF_MODAL ))
+fv.views.setState app "$FV_SF_FOCUSED" 1
+fv.views.drawView app
+cut9 0 0 14 ";"
+__FV_VW_GETEVENT=ge
+q=(evKeyDown/kbDown/ evKeyDown/kbDown/ evKeyDown/kbEnter/)
+ev9 evKeyDown kbAltF f "" 0 0
+q=(evKeyDown/kbChar/ф)
+ev9 evKeyDown kbAltF f "" 0 0
+q=(evKeyDown/kbF3/)
+ev9 evCommand "" "" cmMenu 0 0
+q=(evMouseMove/3/2 evMouseUp/3/2)
+ev9 evMouseDown "" "" "" 2 0
+q=(evKeyDown/kbAltЕ/е evKeyDown/kbChar/a)
+ev9 evKeyDown kbAltF f "" 0 0
+r+=";"
+q=(evKeyDown/kbDown/ evKeyDown/kbEnter/)
+__FV_DR_PEND=(); RESULT=x; fv.views.execView desk pp; r+="$RESULT;${mb_mdef[0]} ${mb_mdef[1]} ${mb_mdef[2]};"
+cut9 0 0 14 ""
+printf "%s" "$r"
+'
+run2() {
+    OUT=$("$BASH" -c "unset LC_ALL LC_CTYPE LANG; export LC_ALL=C.UTF-8
+source '$UNIT'
+$MAKE2
+$1
+$STATE
+printf '#'
+$SCENE2
+printf '#'
+$STATE" 2>&1)
+}
+run2 ''
+ref2=${OUT#*#} ref2=${ref2%#*}
+kt_test_start "menus: the reference run"
+# the bar ' File  Едва ': Alt+F -> File, Down (Open -> skips the line -> Форма), Down (wraps to Open), Enter
+# -> cmOpen; Alt+F, ф -> cmForm; cmMenu then F3 -> cmOpen; a press on File and a release on Open -> cmOpen;
+# Alt+F then Alt+Е (Cyrillic) -> Едва's box, a -> cmA; the popup: Down, Enter -> cmPaste; Defaults 1 2 5
+want2=' File  Едва   |24222224222222;cmOpen:keep,cmForm:keep,cmOpen:keep,cmOpen:keep,cmA:keep,;cmPaste;1 2 5; File  Едва   |24222224222222'
+if [[ $ref2 == "$want2" ]]; then kt_test_pass "ok"; else kt_test_fail "got [$ref2] want [$want2]"; fi
+for setup in 'shopt -s nocasematch' 'shopt -s failglob nullglob extglob' 'set -f' 'shopt -u globasciiranges' "IFS='0123456789 '" \
+    "IFS=\$'\x1f'" 'IFS=' "IFS='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_.'" 'set -eu -o pipefail' 'export LC_ALL=C' \
+    "shopt -s nocasematch failglob nullglob extglob; shopt -u globasciiranges; set -f -eu; IFS='-0123456789Ww'; export LC_ALL=C"; do
+    kt_test_start "menus: same output and the state kept: $setup"
+    run2 "$setup"
+    got=${OUT#*#} got=${got%#*}
+    before=${OUT%%#*} after=${OUT##*#}
+    if [[ $got == "$ref2" && $before == "$after" ]]; then kt_test_pass "ok"
+    else kt_test_fail "output [$got] vs [$ref2]; state before [$before] after [$after]"; fi
+done
+
 kt_test_log "008_CallerState.sh completed"

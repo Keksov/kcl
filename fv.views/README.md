@@ -1479,7 +1479,11 @@ ASCII 5.03).
   HandleEvent body), reads of `__FV_VW_LIVE` (a live view), `__FV_VW_CRC` (a
   refused TView part's rc), `__FV_VW_ERRSYM`, the disabled-command set
   `__FV_VW_CMDOFF` and the event hooks `__FV_VW_PUTEVENT` / `__FV_VW_EOF`.
-  fv.menus', fv.app's and fv.msgbox's READMEs list what they use;
+  fv.menus', fv.app's and fv.msgbox's READMEs list what they use (P3 3f:
+  the menus' own event loop reads `__FV_VW_GETEVENT` and holds
+  `__FV_VW_LSU` / `__FV_VW_EH` per event as this unit's loops do, and calls
+  `_evSave` / `_evRestore`, `_ownerOk`, `_showNow`, `_resetCursor`,
+  `_release`, `_newReserved`);
 * **loud refusals**: re-creating a live view, a reserved name and a
   constructor that skipped `inherited` print one `Error:` line on stderr (not
   only under `VERBOSE_KKLASS=debug`; `quiet` silences them) — a silent rc

@@ -12,8 +12,11 @@
 #                         replaced (a `declare -f` copy keeps the original as
 #                         __fva_orig_getEvent) by a source that answers the
 #                         put event first, else pops one SPEC per call:
-#                         'key K', 'cmd C [INFO]', 'bc C [INFO]', 'down X Y',
-#                         'up X Y', 'move X Y', 'nothing', 'resize W H'
+#                         'key K [CHAR [BASE]]' (FV_EV_CHAR, FV_EV_BASE:
+#                         P3 3f), 'cmd C [INFO]', 'bc C [INFO]', 'down X Y',
+#                         'up X Y', 'move X Y' (button held), 'moveup X Y'
+#                         (no button), 'wheel X Y' (down), 'nothing',
+#                         'resize W H'
 #                         (what fv.drivers gives after a SIGWINCH:
 #                         FV_SCREEN_W/H set, evCommand cmResizeApp, ID W,
 #                         INFO H), 'run FN' (runs FN, goes on), 'fail N'
@@ -74,23 +77,25 @@ fva_noevents() {
     __FV_DR_PEND=()
 }
 fva_src() {
-    local s a b c IFS=' '
+    local s a b c d IFS=' '
     FVA_N=$(( FVA_N + 1 )) FVA_TO+="${1-}/"
     if (( ${#__FV_DR_PEND[@]} )); then __fva_orig_getEvent 0; return; fi
     while :; do
         if (( ! ${#FVA_Q[@]} )); then fv.drivers.clearEvent; FV_EV_EOF=1 RESULT=''; return 1; fi
         s=${FVA_Q[0]}
         FVA_Q=("${FVA_Q[@]:1}")
-        read -r a b c <<< "$s"
+        read -r a b c d <<< "$s"
         if [ "$a" = run ]; then "$b"; continue; fi
         fv.drivers.clearEvent
         case $a in
             fail) return "$b" ;;
-            key) FV_EV_WHAT=evKeyDown FV_EV_KEY=$b ;;
-            cmd) FV_EV_WHAT=evCommand FV_EV_COMMAND=$b FV_EV_INFO=${c-} ;;
-            bc) FV_EV_WHAT=evBroadcast FV_EV_COMMAND=$b FV_EV_INFO=${c-} ;;
+            key) FV_EV_WHAT=evKeyDown FV_EV_KEY=$b FV_EV_CHAR=${c-} FV_EV_BASE=${d-} ;;
+            cmd) FV_EV_WHAT=evCommand FV_EV_COMMAND=$b FV_EV_INFO=${c-}${d:+ $d} ;;
+            bc) FV_EV_WHAT=evBroadcast FV_EV_COMMAND=$b FV_EV_INFO=${c-}${d:+ $d} ;;
             down) FV_EV_WHAT=evMouseDown FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_MOUSE_BUTTONS=1 ;;
             up) FV_EV_WHAT=evMouseUp FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c ;;
+            moveup) FV_EV_WHAT=evMouseMove FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_MOUSE_BUTTONS=0 ;;
+            wheel) FV_EV_WHAT=evMouseWheel FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_WHEEL=2 ;;
             move) FV_EV_WHAT=evMouseMove FV_EV_MOUSE_X=$b FV_EV_MOUSE_Y=$c FV_EV_MOUSE_BUTTONS=1 ;;
             resize) FV_SCREEN_W=$b FV_SCREEN_H=$c; FV_EV_WHAT=evCommand FV_EV_COMMAND=cmResizeApp FV_EV_ID=$b FV_EV_INFO=$c ;;
         esac

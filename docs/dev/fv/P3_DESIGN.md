@@ -137,7 +137,7 @@ question **Q7**. Headless parser probes: `p3/out_keys_*.txt`.
 | P3-7 | **fv.views gets two P3 hooks** (§10): a **broadcast table** (which built-in handler reacts to which broadcast: the quiet walk and the dispatch skip the rest without a call) in 3a, and a **hot-key map** per group (pre/post-process views that only react to their hot keys are found by one lookup, merged in Z order with the views that have no map entry) in 3c. Coalesced child redraws (10.4) are **dropped** for now. | Pre/post scan: up to 1.5 ms of a keystroke in a dialog (an upper bound, §8.3). |
 | P3-8 | **Mouse auto-repeat** (`evMouseAuto`) comes from fv.drivers: while a button is held and nothing arrives, the first after `FV_REPEAT_DELAY` (0.44 s, FV's 8 ticks), then one per idle timeout (0.05 s); any key or press ends the held state. | fv.drivers README: "comes with the scroll bars (P3)"; L2. |
 | P3-9 | **fv.msgbox = plain functions returning the command in `RESULT`**: `fv.msgbox.messageBox MSG OPTIONS [-- PARAMS…]`, `messageBoxRect`, `inputBox TITLE LABEL VARNAME LIMIT` (the value comes back in the named variable, FV's `var S`). Each call builds and destroys its dialog (FV). | FV's API, bash idiom (§6); end to end ~52 ms laptop. |
-| P3-10 | **Menus as FV** (D22): TMenuView's model, items flat in per-instance arrays (as the status line), a **key map** for item hot keys; the bar runs modal in its owner and drops each box through the **bar's owner** (menus.inc:766), created and disposed per drop; a cursor move repaints 2 rows + the status line's hint (FV's Idle); **the bar only on request** (D23). | open + drop + close 52 ms laptop (19 dispatches with a `TMyApp` override: FV's focus broadcasts reach it), a move 6.05 ms with 0 dispatches (§8.4). |
+| P3-10 | **Menus as FV** (D22): TMenuView's model, items flat in per-instance arrays (as the status line), a **key map** for item hot keys; the bar runs modal in its owner and drops each box through the **bar's owner** (menus.inc:766), created and disposed per drop; a cursor move repaints 2 rows + the status line's hint (FV's Idle); **the bar only on request** (D23). | open + drop + close 52 ms laptop (19 dispatches with a `TMyApp` override: FV's focus broadcasts reach it; measured in stage 3f: 22, §7.2), a move 6.05 ms with 0 dispatches (§8.4). |
 | P3-11 | **Palettes FV's** in dialogs: CDialog (gray / blue / cyan, 32 entries into CAppColor 32–127), CButton, CCluster, CInputLine, CLabel, CStaticText, CListViewer, CScrollBar, CHistory, CMenuView mapped through the owner chain as P2 does. **A list in a plain window: the friendly default** (D25). | D1, D25. |
 | P3-12 | **Redraw only what changed (D17) for widgets**: a state change redraws a control only when its picture changes (a label whose `Light` stays, a button whose colours stay); the input line's sfSelected + sfFocused sequence draws **once at its end** (never skipped: focus can change without a selection change). | Tab between controls: 4.7 drawViews per hop with FV's eager redraws (§8.3). |
 | P3-13 | **Hot keys independent of the keyboard layout** (owner's research item): fv.keyboard reports the base-layout key next to the typed character (`FV_KEY_BASE`; protocol when the terminal has one, a generated layout table otherwise) and one helper matches every hot key (status line, menus, buttons, labels, clusters) by the typed character first, then by the base key — FPC's own order. Options and recommendation: §14, **Q7**. | Today Alt+F with a Russian layout arrives as `ESC а` → `kbAltChar`, and no Latin hot key fires (`p3/out_keys_gb.txt`). |
@@ -805,8 +805,12 @@ fv.msgbox.inputBox -p 'Login' '~P~assword' pass 64        # password mode (D29)
   highlight move = 2 one-row `drawPart`s (FV's OldItem trick); submenus nest the same way (each
   level saves / restores the event record).
 * **Execute** = FV's TMenuView.Execute loop (menus.inc:538-780): mouse tracking across the bar and
-  the boxes, arrows (through `CtrlToArrow`), Home / End, Enter, **Esc closes one level** (a box
-  returns to the bar, Esc again leaves the bar), hot letters, Alt+letter to the top menu, the
+  the boxes, arrows (through `CtrlToArrow`), Home / End, Enter, **Esc**: in a box under the bar
+  it closes the box **and the bar** (menus.inc:673-676: a box whose parent is the bar leaves the
+  Esc in the event, the loop puts it back and the bar reads it), in a nested box it closes only
+  that box (its parent is a box: the Esc is cleared), on the bar alone it leaves the bar (stage 3f
+  review: revision 2 said "a box returns to the bar, Esc again leaves the bar", which is not
+  FV), hot letters, Alt+letter to the top menu, the
   F-key fallback (`TopMenu^.HotKey`, menus.inc:731). **F10 inside an open menu does nothing** in
   FPC — it falls to `HotKey`, which finds no item with F10 — and so here (revision 1's prototype
   closed on F10, `proto_w.sh:808`: wrong). Reads through `__FV_VW_GETEVENT` (sees resizes and the
@@ -820,9 +824,14 @@ fv.msgbox.inputBox -p 'Login' '~P~assword' pass 64        # password mode (D29)
   6.05 ms, without 4.55 ms (laptop, §8.4).
 * **Focus broadcasts reach the application.** The bar and each box are made current in the
   application by `execView`, so FV's `cmReleasedFocus` / `cmReceivedFocus` go to the
-  application's `HandleEvent`: with a `TMyApp` override, open + drop + close costs **19
-  dispatches** (14 of them these broadcasts), measured. FV does the same; the README says that an
-  application `HandleEvent` override sees every menu open (a cost of ~0.2 ms per dispatch).
+  application's `HandleEvent`: with a `TMyApp` override, open + drop + close costs **22
+  dispatches**, 14 of them these broadcasts (7 broadcasts, each `TMyApp.HandleEvent` + its
+  `inherited`), measured in stage 3f (bench `menu.80x24.open-drop-close`; the test
+  `014_MenuBudget` logs 23 because it also counts its own `app.Run` call). Revision 2 counted 19:
+  it left out the box's 3 kklass dispatches (its constructor, its `Done` and the `inherited` in
+  `Done`: the box is made and destroyed per drop). The 22: 2 F10 + 2 `cmMenu` + 14 broadcasts + 3
+  the box + 1 user `Draw` below the box. FV does the same; the README says that an application
+  `HandleEvent` override sees every menu open (a cost of ~0.2 ms per dispatch).
 * **TMenuPopup** (FV): a box without a parent for context menus (right click in the file manager),
   executed by the view's owner.
 
@@ -833,6 +842,14 @@ fv.menus +~600 lines (TMenuView model and Execute ~250, TMenuBar ~80, TMenuBox ~
 resize), tests ~500 lines (8 files, §9.1). Risk: the menu's own Execute loop is a fourth inner
 loop (after execView, mouseEvent, dragView): it saves / restores the event record and honours the
 EOF latch and the BASHPID rule like the others (P2 §2.2).
+
+**Measured (stage 3f with its review fixes, 2026-11-22):** the menus part of `fv.menus.sh` is
+1235 lines, 946 of them code (blank and comment lines left out), against ~600 estimated: FV's
+Execute with all its mouse cases, the layout-aware hot letters (§14.4), the item-list parser with
+its refusals, the one-pass mouse tracking and the caller-state guards (IFS, `RESULT`) were larger
+than planned. fv.app +9 / -2 lines (not ~40: the row-0 work sits in `fv.menus.menuBar`, and
+`InitDesktop` already left row 0 to a bar). Tests 904 lines in 10 files (fv.menus 009-017, fv.app
+016).
 
 ---
 
@@ -872,7 +889,7 @@ application). Method and calibration: the header.
 | messageBox stand-in end to end (build, run, close, destroy) | 10 | 13 | 16 / 20 |
 | 8-control dialog end to end (build, open, close, destroy) | 22 | 19 | 30 / 26 |
 | the dialog's full draw (`drawView dlg`) | 0 | 21 | 2 / 24 |
-| menu: F10, drop the box, close both (FV flow, `TMyApp` override) | 19 (2 F10 + 2 `cmMenu` + 14 focus broadcasts + 1 user Draw below) | 22 | 24 / 28 |
+| menu: F10, drop the box, close both (FV flow, `TMyApp` override) | 19 (2 F10 + 2 `cmMenu` + 14 focus broadcasts + 1 user Draw below; measured in stage 3f: 22, the box's constructor and `Done` + `inherited` add 3, §7.2) | 22 | 24 / 28 |
 | menu highlight move (with the status line's hint) | **0** | 3 (2 rows + the status line) | 2 / 3 |
 
 A user subclass of any widget that overrides a virtual adds one dispatch per use of that virtual

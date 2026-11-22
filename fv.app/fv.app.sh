@@ -53,6 +53,8 @@ kk.uses kklass_pascal fv.views fv.menus fv.drivers || return
 #            the terminal on)
 #   SHOWN    1 once the application had its first paint (Run, or the first
 #            GetEvent of a modal view executed before Run)
+#   ININIT   1 while TProgram.Init runs its InitStatusLine / InitMenuBar /
+#            InitDesktop (fv.menus.menuBar then leaves the insert to Init)
 #   SGET SPUT SOWN SEOF
 #            fv.views' event hooks, the owner and the end-of-input latch as
 #            they were before Init (Done puts them back)
@@ -64,6 +66,7 @@ kk.uses kklass_pascal fv.views fv.menus fv.drivers || return
 #            the default symbol 0 and the shadow symbol V)
 declare -g FV_APP=${FV_APP-} FV_DESKTOP=${FV_DESKTOP-} FV_STATUSLINE=${FV_STATUSLINE-} FV_MENUBAR=${FV_MENUBAR-}
 declare -g __FV_AP_OWNER=${__FV_AP_OWNER-} __FV_AP_VIDEO=${__FV_AP_VIDEO:-0} __FV_AP_EVENTS=${__FV_AP_EVENTS:-0} __FV_AP_SHOWN=${__FV_AP_SHOWN:-0}
+declare -g __FV_AP_ININIT=0
 declare -g __FV_AP_SGET=${__FV_AP_SGET-} __FV_AP_SPUT=${__FV_AP_SPUT-} __FV_AP_SOWN=${__FV_AP_SOWN-} __FV_AP_SEOF=${__FV_AP_SEOF:-0}
 declare -gA __FV_AP_SAVED
 declare -g __FV_AP_DEFPAL=123456789ABBC19DEFGGHIE2JKGG2JL2JKGG22JL5MN3O2PEH9NA5QBBPNHBGRB89A11C89C5MN3OSPEH2NK5TBBPNHBGRBDEFGGHPEH5MN3OP2JL9NA5UB12NL1GR1
@@ -546,6 +549,7 @@ fv.app._progCreate() {
     fv.views._virt "$1" InitScreen || :
     __fva_d[State]=$(( FV_SF_VISIBLE | FV_SF_SELECTED | FV_SF_FOCUSED | FV_SF_MODAL ))
     __fva_d[Options]=0
+    __FV_AP_ININIT=1
     fv.views._virt "$1" InitStatusLine || :
     fv.views._virt "$1" InitMenuBar || :
     fv.views._virt "$1" InitDesktop || :
@@ -554,6 +558,7 @@ fv.app._progCreate() {
         local -n __fva_vd=${__fva_v}_data
         if [[ -z ${__fva_vd[Owner]-} ]]; then fv.views.insert "$1" "$__fva_v" || :; fi
     done
+    __FV_AP_ININIT=0
     return 0
 }
 # fv.app._release — the application's globals, fv.views' hooks, owner and
@@ -635,8 +640,10 @@ fv.app._progInitStatusLine() {
     fi
     RESULT=$__fva_r
 }
-# TProgram.InitMenuBar — P2: nothing (TMenuBar comes with P3; the desktop
-# then takes row 0 too: a documented deviation)
+# TProgram.InitMenuBar — nothing: the bar only on request (D23; FV makes an
+# empty one-row TMenuBar, app.inc:958-964). An override makes one (FV's way:
+# a TMenuBar on the extent's first row, FV_MENUBAR = it) or calls
+# fv.menus.menuBar; InitDesktop then leaves row 0 to it
 fv.app._progInitMenuBar() { return 0; }
 # TProgram.InitDesktop — FV: the extent minus the menu bar's row and the
 # status line's: APP__fvdesktop; FV_DESKTOP = it
