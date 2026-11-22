@@ -88,7 +88,7 @@ rb() {
     local rc=0 v0=${app_views[*]}
     RESULT=keep
     VERBOSE_KKLASS=debug fv.menus.menuBar sub '~X~' item 'x' '' '' cmX 0 end 2>"$FVW_TMP/rb.txt" || rc=$?
-    RB+="rc=$rc bar=$FV_MENUBAR live=${__FV_VW_LIVE[$B]-} same=$([ "$v0" = "${app_views[*]}" ] && echo 1) res=$RESULT lines=$(wc -l < "$FVW_TMP/rb.txt");"
+    RB+="rc=$rc bar=$FV_MENUBAR live=${__FV_VW_LIVE[$B]-} same=$([ "$v0" = "${app_views[*]}" ] && echo 1) res=$RESULT lines=$(( $(wc -l < "$FVW_TMP/rb.txt") ));"
 }
 runq 'key kbF10' 'run rb' 'key kbDown' 'run rb' 'key kbEsc'
 fvw_check "fv.menus.menuBar while the bar runs and while its box runs: rc 2, one debug line, nothing changed (the bar, the views, RESULT)" \
