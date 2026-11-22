@@ -77,7 +77,10 @@ ${LOOP/fv.video.doneVideo/fv.drivers.doneEvents; note \"done-events \$?\"; fv.vi
         kt_test_fail "log=[${log//$'\n'/|}] ts=$(printf '%q' "$ts")"
     fi
     kt_test_start "${TITLES[4]}"
-    if [[ $log == $'init 00\nmouse evMouseDown 9 4 1\nmouse evMouseUp 9 4 0\nkey kbChar q\ndone-events 0' ]]; then kt_test_pass "ok"; else kt_test_fail "log=[${log//$'\n'/|}]"; fi
+    # (the auto-repeat is 009_Auto's: a loaded runner can hold the release
+    # past FV_REPEAT_DELAY, so evMouseAuto lines between are left out here)
+    log2=${log//$'\nmouse evMouseAuto 9 4 1'/}
+    if [[ $log2 == $'init 00\nmouse evMouseDown 9 4 1\nmouse evMouseUp 9 4 0\nkey kbChar q\ndone-events 0' ]]; then kt_test_pass "ok"; else kt_test_fail "log=[${log//$'\n'/|}]"; fi
     kt_test_start "${TITLES[5]}"
     if fvp_restored mouse; then kt_test_pass "ok"; else kt_test_fail "$REPLY"; fi
 }
