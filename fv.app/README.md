@@ -13,7 +13,7 @@ and the app palette.
 The unit loads `kklass_pascal`, `fv.views`, `fv.menus` and
 [`fv.drivers`](../fv.drivers/README.md).
 
-**Status: P2 complete (stage 2g); P3 stage 3f: the menu bar on request.**
+**Status: P2 complete (stage 2g); P3 done (stage 3f: the menu bar on request).**
 Without a menu nothing changes (no bar, the desktop takes row 0 too: D23);
 an application that wants one gets FV's layout — "The menu bar on request"
 below.
@@ -74,6 +74,12 @@ the bytes a terminal sends; without it a built-in script that goes through
 every key above and a mouse drag), writes the frames to `--out` (default
 `/dev/null`), ends by itself (Alt+X in the keys, or the end of the file) and
 prints the final screen on stdout. `tests/015_Demo.sh` runs it so.
+
+The P3 widgets have a demo of their own, with the same options:
+[`fv.dialogs/examples/widgets.sh`](../fv.dialogs/examples/widgets.sh) — a
+menu bar, two file panels with real lists, a dialog with every kind of
+control, message and input boxes ([fv.dialogs README, "The
+demo"](../fv.dialogs/README.md#the-demo)).
 
 ## Classes and fields
 
@@ -416,8 +422,8 @@ on it fails one test.
 | 011_Subshell | Run in `$( )` and in a pipeline refused (rc 2, nothing read or drawn), execView in `$( )` refused, the parent's application untouched, an application made inside a subshell owns its loop there |
 | 012_Palette | the default string and ErrorAttr's symbol; setAppPalette in place, by reuse, by allocation (the application redrawn, == a full repaint); all symbols in use (rc 1, one Error line, nothing changed, 0 / V / W never handed out); refusals |
 | 013_Edges | the critic round's edges: a dialog executed before Run drawn by the first GetEvent; doneEvents at Done whoever turned the terminal on; tile / cascade of a plain TGroup without TileError; setAppPalette's colours back at Done; the name re-created as a TWindow (the next application releases it); the end-of-input latch put back at Done; Alt+digit does not leak the window into RESULT |
-| 014_CallBudget | stage 2g, the design's §3.1 scene through the application: `TMyApp`, the desktop, two 40 × 23 windows with a `TTestList` stand-in each, the status line; every action through `app.Run` and the real `GetEvent` (the scripted terminal), a Run without events taken off: §3.2's limits (Down 6, PgDn 8, Tab = F6 → the status line → cmNext side by side 8 and overlapping 10, click 8, repaint 6, resize 80 × 24 → 200 × 50 8, idle tick 1), the first paint, the idle tick after a window switch (logged); 21-row and 42-row stand-ins give equal dispatch counts; the status line draws with 1 write
+| 014_CallBudget | stage 2g, the design's §3.1 scene through the application: `TMyApp`, the desktop, two 40 × 23 windows with a `TTestList` stand-in each, the status line; every action through `app.Run` and the real `GetEvent` (the scripted terminal), a Run without events taken off: §3.2's limits (Down 6, PgDn 8, Tab = F6 → the status line → cmNext side by side 8 and overlapping 10, click 8, repaint 6, resize 80 × 24 → 200 × 50 8, idle tick 1), the first paint, the idle tick after a window switch (logged); 21-row and 42-row stand-ins give equal dispatch counts; the status line draws with 1 write |
+| 015_Demo | `examples/demo.sh --headless`: the built-in script (rc 0, no stderr, frames in `--out`, the final screen), `--keys` (tile), a key file without Alt+X, `--size`, `FV_APP_HEADLESS=1`, the refusals (rc 2). The live mode is never run here |
 | 016_MenuBar | P3 3f, the bar on request (10.10): no bar by default (FV_MENUBAR '', the desktop on row 0, only the desktop and the status line); `fv.menus.menuBar` after Init (the bar on row 0 in front, the desktop from row 1, drawn at once, == a full repaint); a resize keeps the layout (100 × 30, 60 × 20); menuBar again replaces the bar; a malformed list changes nothing; no items removes the bar (row 0 back to the desktop); no application: rc 2; an InitMenuBar override that makes a `TMenuBar` (FV's way) and one that calls menuBar: FV's order (desktop, status line, bar in front); Done destroys the bar |
-| 015_Demo | `examples/demo.sh --headless`: the built-in script (rc 0, no stderr, frames in `--out`, the final screen), `--keys` (tile), a key file without Alt+X, `--size`, `FV_APP_HEADLESS=1`, the refusals (rc 2). The live mode is never run here
 
 Run on Git-bash 5.3.15 (008 SKIP), MSYS2 5.3.9, Cygwin 5.2.21 (2026-11-17).

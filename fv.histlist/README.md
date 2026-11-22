@@ -6,7 +6,13 @@ Layer L3 of the `fv.*` text UI ([plan](../docs/dev/fv/PLAN.md), design
 line's [`THistory`](../fv.dialogs/README.md#the-input-history) records into
 and its history window shows. Plain functions, no classes, no forks.
 
-**Status: P3 stage 3h.** The unit loads nothing but kbool; fv.dialogs loads it.
+**Status: done in P3 stage 3h** (P3 complete; no part of it deferred). The
+unit loads nothing but kbool; fv.dialogs loads it.
+
+**Cost**: nothing measured on its own — a `historyAdd` is a few array
+operations (a re-add scans its list once for the duplicate); the CI bench's
+`dlg.80x24.history-open-close` (fv.dialogs README, "Cost") includes the
+store's reads.
 
 ## Quick start
 

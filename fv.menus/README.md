@@ -12,8 +12,8 @@ request (`fv.menus.menuBar`, D23) and the status line's hint table
 
 The unit loads `kklass_pascal` and `fv.views`.
 
-**Status: P2 complete (stage 2g; `TStatusLine` since 2e); P3 stage 3f: the
-menus.** The application ([`fv.app`](../fv.app/README.md),
+**Status: P2 complete (stage 2g; `TStatusLine` since 2e); P3 done (stage 3f: the
+menus; the speed work deferred, "Cost").** The application ([`fv.app`](../fv.app/README.md),
 stage 2f) makes the status line in its `InitStatusLine`, holds it in
 `FV_STATUSLINE` and calls its `Update` from `Idle`; without an application
 a script inserts it itself.
@@ -199,7 +199,7 @@ dispatch unless a class on it overrides `GetHelpCtx`). **D17**: a changed
 (another def, another `Hint`); a class that overrides `Draw` is redrawn on
 every change, as in FV.
 
-### What fv.app does with it (stage 2f, as planned here)
+### What fv.app does with it (stage 2f)
 
 * `InitStatusLine` makes the line under the reserved name
   `fv.views._newReserved "$app" status TStatusLine AX AY BX BY LIST…`
@@ -469,12 +469,16 @@ F9 stands for an idle tick), 2026-11-22; the same machine's
 | an idle tick alone (the key, Idle, Update without a change) | 0 | 0 | 1.9 | |
 
 The tests pin the counts (`014_MenuBudget`); the times are early-warning
-numbers. CI (ubuntu host, the stand-in 5.23 ms, 2026-11-22): open + drop +
-close 63.9 ms (12.2× the stand-in; §8.4 planned 8.8×), a move with a hint
-change 8.62 ms (1.38× without its 1.39 ms idle tick; planned 1.02×), without
-a hint 5.81 ms (0.85×; planned 0.77×): ~20–50 % over §8.4. The speed work is
-deferred (the owner); its starting point, a same-process split of a move on
-the laptop (rough; per call, the loop overhead taken off):
+numbers. CI (run 44976117811, the 3f commit, ratios to the same run's
+`80x24.standin.down`): open + drop + close 11.4–12.3× (debian 61.1 ms,
+fedora 61.5, the ubuntu host 43.1, Git-bash 97.9, Cygwin 72.3; §8.4 planned
+8.8×), a move with a hint change 1.60–1.66× (debian 8.53 ms; planned
+1.02×), without a hint 1.07–1.12× (debian 5.77; planned 0.77×), an idle
+tick alone 0.26–0.28×: about 30–50 % over §8.4. (An earlier run on the
+ubuntu host, the stand-in 5.23 ms: 63.9 / 8.62 / 5.81 ms.) The speed work
+(stages 3v-2…3v-5) is deferred by the owner; its starting point, a
+same-process split of a move on the laptop (rough; per call, the loop
+overhead taken off):
 
 | part of a highlight move | ms |
 |---|---|

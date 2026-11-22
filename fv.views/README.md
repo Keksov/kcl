@@ -24,6 +24,10 @@ status line is [`fv.menus`](../fv.menus/README.md). **P3 stage 3b** adds FV's
 `fv.views.ctrlToArrow` ("Lists and scroll bars" below). **P3 stage 3c** adds
 the **hot-key map** of the pre / post-process scan ("The hot-key map" below)
 for [fv.dialogs](../fv.dialogs/README.md)' buttons, labels and clusters.
+The other P3 additions: `fv.views.writeRows` (3a-1), the broadcast table and
+the wide-row edge test (3a-2), `fv.views.hotKeyIs` (3L), D25's marked-row
+colour (3d) and the `HKK` keys of the hot-key map (3h). The speed stages
+3v-2 … 3v-5 are deferred by the owner ("Cost").
 
 ## Quick start
 
@@ -272,8 +276,8 @@ kklass's, not promised).
 rule, "What a func answers" in the kklass book):
 
 * a `proc` leaves the caller's `RESULT`; its rc is the body's;
-* a `func` (FV's functions: `GetHelpCtx GetPalette Valid Execute GetTitle`;
-  later `Hint GetEvent`) **answers with what `RESULT` holds when its body
+* a `func` (FV's functions: `GetHelpCtx GetPalette Valid Execute GetTitle`,
+  P3's `ScrollStep IsSelected`; `Hint` / `GetEvent` in the units above) **answers with what `RESULT` holds when its body
   ends with rc 0**, however it ends: falling off the end, `return 0`, a last
   `inherited …` (`Valid` answers by its rc: "Modal views");
 * a `func` **fails with its body's rc (N ≠ 0)** — an explicit `return N` or a
@@ -285,7 +289,7 @@ own) and a failing last command lost its rc; `013_Elision` pins the fixed
 behaviour. The plain path answers for a `func` with rc 0 and leaves the
 caller's `RESULT` for a failing `func` and for every `proc`.
 
-Tested in `013_Elision`, with every built-in of stages 2c-1, 2c-2, 2c-3 and 2d overridden with
+Tested in `013_Elision`, with every built-in of stages 2c-1, 2c-2, 2c-3, 2d and P3 3b overridden with
 `inherited`, fields named like common locals, `kk.class --forget` +
 redefinition, and the caller setups.
 
@@ -396,8 +400,9 @@ writes in ErrorAttr's symbol; a malformed argument is rc 2).
   fv.video symbols (`__FV_VW_APAL`): fv.video's default palette gives
   CAppColor's distinct bytes the symbols `1`–`9`, `A`–`U` in order of first
   appearance, so entry i is the symbol of byte i (`019_Palette` checks all
-  127 against fv.video's table). **A stub until fv.app (stage 2f)**: its
-  `setAppPalette` changes this string and calls `fv.views.resetPalette`.
+  127 against fv.video's table). [fv.app](../fv.app/README.md) (stage 2f)
+  owns it: its `setAppPalette` changes this string and calls
+  `fv.views.resetPalette`.
 * **A view's palette** is its `GetPalette` (a func: an override of yours is
   dispatched, `inherited GetPalette` works): FV's index list as
   space-separated numbers into its owner's palette (`TFrame` `1 1 2 2 3`;
@@ -409,7 +414,7 @@ writes in ErrorAttr's symbol; a malformed argument is rc 2).
   `delete` and by `resetPalette`.
 * **ErrorAttr**: FV's `$CF` has no symbol in fv.video's default palette; an
   index 0, past the palette below or not a number resolves to the default
-  symbol `0` until fv.app allocates one.
+  symbol `0` until fv.app's `InitScreen` allocates one.
 
 ### TFrame
 
@@ -579,7 +584,8 @@ number; `''` = nil). A handler marks an event handled with
 evCommand` (273: a plain view sees no broadcast), TGroup `$FFFF`, TFrame
 TView's + `evBroadcast`. So a focus broadcast into a desktop costs no
 dispatch while every view in it is built-in or a plain user leaf; only a
-user class that listens (P3: labels, buttons) pays one dispatch.
+user class that listens pays one dispatch (a built-in widget of P3: only for
+the broadcasts its row of the broadcast table names, below).
 
 **Quiet broadcasts** (stage 2c-p): a broadcast that would reach no handler
 that reacts to it is not delivered at all — `message` (the focus broadcasts
@@ -999,7 +1005,7 @@ top edge.
 
 FV's `TScrollBar` and `TListViewer` (views.inc, FPC 2025) and
 `TWindow.StandardScrollBar`; design [P3_DESIGN.md](../docs/dev/fv/P3_DESIGN.md)
-§1–§3, §5 (P3-3, P3-4, D25, D26). `TListBox` (FV dialogs.inc) comes with
+§1–§3, §5 (P3-3, P3-4, D25, D26). `TListBox` (FV dialogs.inc) is in
 fv.dialogs (stage 3d).
 
 ```bash
@@ -1193,8 +1199,10 @@ destroyed while it runs) leaves nothing behind for the next one.
 **Deviations from FV** (stage 3b): P3-4 (a bar draws only a changed picture;
 a list moving its own bar is not told back); rule 4 and P3-12 (FocusItem and
 SetState draw only the changed rows); `List` / `Formatter` / `Marks` for
-`GetText` (rule 2; `Marks` D26); D25's palette in a plain window; Ins with
-`Marks`; FV's `Data` of `cmIdCommunicate` read from the sender's `Value`; the
+`GetText` (rule 2; `Marks` D26); D25's palette in a plain window (FV gives
+ErrorAttr there), marked rows in the window's entry 2 (3d), so an inactive
+list's focused row draws as a marked one; Ins with `Marks`; a double click's
+press is not tracked (FPC trunk's rule, followed on purpose); FV's `Data` of `cmIdCommunicate` read from the sender's `Value`; the
 tracking loops end at a key (put back) and coalesce moves; `TopItem` 0 for
 an empty list without a bar (FV −1);
 the focused item of an active list is colour 3 without asking an
@@ -1410,8 +1418,8 @@ call, the argument checks and the guard per row of one `writeLine` each
 row that needs more (wide text, a text outside the narrow cache, a refused
 row) goes through writeBuf itself; a narrow row over a row with wide cells
 through fv.video's wide splice. The bench's list stand-in (`TTestList`, in
-the tests and in `tools/bench/fvviewcases.sh`) draws through it as P3's lists
-will: the `# writes` notes count one write per painted list (paint / redraw
+the tests and in `tools/bench/fvviewcases.sh`) draws through it as P3's
+`TListViewer` does with ASCII rows (stage 3b): the `# writes` notes count one write per painted list (paint / redraw
 at 80×24 49 → 9, PgDn 21 → 1; the dispatch counts unchanged). Local A/B
 (Git-bash, paired, ratios only): redraw 80×24 0.85, 200×50 0.79, first paint
 0.85 / 0.79, PgDn 0.82. A ONE-row paint costs more through writeLines than
@@ -1458,6 +1466,22 @@ stand-in's 8.4, a fresh-page PgDn 14.6 against 13.4 (ASCII), 21.2
 (Cyrillic), 33.6 (CJK). A fresh Cyrillic page drawn by `writeRows` costs
 ~0.7 ms more than by `writeLines` (probe, 30 pages: 7.26 / 6.59 ms against
 ASCII 5.03).
+
+**The CI numbers (ubuntu host, 80 × 24, fresh pages).** Stage 3a-1 (run
+44769599343, the P2 stand-in scenes, before → after): PgDn Cyrillic 15.23 →
+10.76 ms, CJK 73.50 → 21.30 (200 × 50: 31.31 → 20.69 and 336.6 → 46.7),
+ASCII unchanged (8.07 → 8.11). Stage 3b (run 44854906838): list PgDn ASCII
+7.62 / Cyrillic 9.10 / CJK 16.76 ms against the stand-in's PgDn 6.38 (ratios
+1.19 / 1.43 / 2.63); F-1, the two-panel first paint with real lists, 18.97
+against the P2 stand-in scene's 14.91 (1.27). Stage 3v-1 (run 44872443494):
+list PgDn ASCII 7.99 / Cyrillic 9.12 / CJK 14.12 against the stand-in's 6.45
+(1.24 / 1.41 / 2.19), F-1 20.79 against 15.26 (1.36); the CJK PgDn 0.81–0.84
+of the run before on every runner. Absolute CI times move by about 25 % with
+the runner, so the stages judge by same-run ratios. **D31's targets are not
+met**: PgDn ≤ 8 ms for every kind of text (by ratio: list PgDn / stand-in PgDn
+≤ 1.0) and F-1 ≤ 15 ms (F-1 / `80x24.paint` ≤ 0.80). The rest of the speed
+work, 3v-2 … 3v-5, is deferred by the owner (to be resumed on a real
+application).
 
 ## Contract (kcl README §1) and deviations
 
@@ -1538,7 +1562,21 @@ ASCII 5.03).
   view covers keep the dragging colour of the frame's body (border-only
   frames, above: the same background, nothing visible).
 * from Free Vision, P3 stage 3b: "Lists and scroll bars" above (its
-  deviations paragraph).
+  deviations paragraph). In short: D25's list colours in a plain window and
+  marked rows in the window's entry 2 (an inactive list's focused row draws
+  as a marked one); P3-4, a bar draws only a changed picture, and the direct
+  list → bar link (a list moving its own bar is not told back); FocusItem
+  and SetState redraw only the changed rows; `List` / `Formatter` / `Marks`
+  for `GetText`; non-ASCII rows through `writeRows`; a double click's press
+  as FPC trunk; the tracking loops end at a key (put back);
+* from Free Vision, P3 stages 3a-2, 3L, 3c, 3h: the broadcast table skips a
+  built-in handler without a call for a broadcast it does not react to (FV
+  calls every view); the hot-key map calls a mapped widget only for its hot
+  keys (`HKS`) or named keys (`HKK`), and a typed hot letter wins over a
+  base-layout match across the group (a full scan takes whichever comes first
+  in Z order); `hotKeyIs` matches the base-layout key of a non-ASCII typed
+  character (an addition, D30); a wide row is repainted across the screen
+  only when a pair straddles the rectangle's edge (FV has no wide cells).
 
 Known kklass limits met by the tests (not this unit's): building a class or
 calling `.new` under an `IFS` holding digits or letters fails (with letters
@@ -1603,7 +1641,7 @@ anything on it fails one test.
 | 020_Caches | D21: each structure cache's drop (DEX at insert / delete, FRL at insert / delete / putInFrontOf, OEX at insert: each test fails with its drop removed) and what is read live (hide / show, a State or Options field written by hand, the root's sfExposed, a lock, a bounds change); drawPart's fast path (the painter's rc and RESULT, rows with leading zeros, a redefined painter, the rc 127 of an unset one); the union cover (two windows side by side: the background not drawn, the shadow under the front window not shaded; a gap, a hidden window, a frameless group: drawn; each == a full repaint); drawView and the order redraw's shadow strips cut to the owner's clip (the status line in front of the desktop not repainted) |
 | 021_Rows | D21 stage E: `writeLines` = one `writeLine` per index inside a drawPart (160 seeded random cases: narrow, Cyrillic, wide, emoji, combining and control text, empty rows, sparse arrays, missing / short / long / bad symbol strings; views past their owner and off the screen, negative X / Y, painted row ranges, rows with wide cells, ASCII mode, 40×12 and 200×50; rc and RESULT too); a Draw override with one writeLines == the per-row Draw; refusals rc 2 / RESULT `''` / nothing written (count, X / Y, outside a Draw, bad names, `__fv*`, `RESULT`, associative arrays: no key evaluated); a refused row (the others written), no rows (RESULT 0); under set -eu. 010's write counts follow the stand-in (one write per painted list); 011 and 012 call it too. P3 3a-1: `writeRows` = `fv.video._wrowsu` at the view's origin inside a drawPart (60 random cases), its refusals (count, X, W negative / not digits / empty, names, outside a Draw), a refused row, a wide pair cut at W |
 | 022_ScrollBar | P3 3b, TScrollBar: construction (fields, GrowMode by orientation, the wheel bit); FV's look (`▲ ▓ ▼` / `◄ ►` at Max = Min, the indicator at FV's GetPos for every value of 0..100 on a 10-row and a 20-wide bar, short bars) in CScrollBar's colours; `scrollBarSet` in every form, the clamping, the refusals, RESULT kept; P3-4 (indicator kept: 0 writes, moved: 1, a range change: 1; == a full repaint); `cmScrollBarChanged` on a value change only (INFO, ID, the old PgStep seen), `cmIdCommunicate` between two bars with one Id (the sender ignores its own, an integer INFO); the keys of both orientations with WordStar, a hidden bar, `ctrlToArrow`'s table; the wheel (double: 6); the mouse on the arrows and page parts, `evMouseAuto` on / off the part, the indicator dragged in / out, a lost release ended by a key (put back), move coalescing; 0 dispatches for the built-ins; ScrollStep / ScrollDraw overrides (2 per use); `standardScrollBar`; a C-locale caller (and ASCII mode) gets the same cells |
-| 023_ListViewer | P3 3b, TListViewer: construction and its refusals (NUMCOLS, a bar that is not a TScrollBar) before anything is made; the first paint (rows, colours, the bar) == a full repaint; D25's palettes (plain window / dialog); the keys incl. Ctrl+PgUp / Ctrl+PgDn and WordStar, each == a full repaint; rule 4 (Down: 1 write, 2 dispatches; PgDn: 1 write); Space / Ins with and without Marks, `cmListItemSelected`; Marks in colour 4 under a dialog palette, an IsSelected override asked per drawn row (7 dispatches) winning over Marks; `listSetRange` / `listSetTopItem` / `listFocusItem` / `listDrawItem` and their refusals; ShowSBar on a window switch (the focused row only redrawn); the direct link (one list paint per PgDn, another listener told); L7 (a HandleEvent override gets the broadcast); the Formatter (21 calls, MaxLen 39; a bad name); ChangeBounds (the bar's steps, LastY); multi-column (layout, dividers in colour 5, Left / Right / PgDn / End, the bar's Max); fresh Cyrillic and CJK pages == a full repaint; 60 000 items (End / Home: 2 dispatches, 2 writes); reserved `List` / `Marks` names (`_fv*`, `__fv*`); an ASCII page through `writeLines` under IFS newline / tab / empty; Space / Ins with Marks: the marked row painted once (one write each), a handler moving the focus by hand: still painted; the direct link skips only the list's own vertical bar (its horizontal bar moved meanwhile reaches it) |
+| 023_ListViewer | P3 3b, TListViewer: construction and its refusals (NUMCOLS, a bar that is not a TScrollBar) before anything is made; the first paint (rows, colours, the bar) == a full repaint; D25's palettes (plain window / dialog; P3 3d: marked rows in the window's entry 2, the focused row keeps entry 7 when marked); the keys incl. Ctrl+PgUp / Ctrl+PgDn and WordStar, each == a full repaint; rule 4 (Down: 1 write, 2 dispatches; PgDn: 1 write); Space / Ins with and without Marks, `cmListItemSelected`; Marks in colour 4 under a dialog palette, an IsSelected override asked per drawn row (7 dispatches) winning over Marks; `listSetRange` / `listSetTopItem` / `listFocusItem` / `listDrawItem` and their refusals; ShowSBar on a window switch (the focused row only redrawn); the direct link (one list paint per PgDn, another listener told); L7 (a HandleEvent override gets the broadcast); the Formatter (21 calls, MaxLen 39; a bad name); ChangeBounds (the bar's steps, LastY); multi-column (layout, dividers in colour 5, Left / Right / PgDn / End, the bar's Max); fresh Cyrillic and CJK pages == a full repaint; 60 000 items (End / Home: 2 dispatches, 2 writes); reserved `List` / `Marks` names (`_fv*`, `__fv*`); an ASCII page through `writeLines` under IFS newline / tab / empty; Space / Ins with Marks: the marked row painted once (one write each), a handler moving the focus by hand: still painted; the direct link skips only the list's own vertical bar (its horizontal bar moved meanwhile reaches it) |
 | 024_ListMouse | P3 3b: the wheel on the list (± 1, double ± 4, nothing drawn at the top) and on its bar (the list follows); clicks (an item, past the last item, an inactive window: the first click only selects it); a double click (SelectItem, Marks); a double click's press then a drag (no tracking, FPC trunk: the item under the press, the drag left unread); a drag (coalesced), past the edges with every 4th evMouseAuto; a lost release ended by a key; a loop that returned early (its bar destroyed by a listener) leaves the next drag alone; the bar's arrows / auto / page / indicator scroll the list; the dispatches (2 per event + the listener's); multi-column clicks; auto-repeat end to end through fv.drivers with `__FV_DR_NOW` (a press on the bar's arrow read from a file: steps at the press, at 0.44 s and 0.49 s) |
 | 025_Quiet | P3 3a-2, the broadcast table: fv.views' rows (TView, TFrame, TGroup none; TWindow `cmSelectWindowNum`) give the replaced rules, a QGRP entry counts as `''`; the table against a full dispatch (the table emptied) on seeded random trees of plain views, frames, windows, groups, built-in bodies of the test (a leaf reacting to cmA cmB, a group reacting to cmC) with user listeners (some handle a broadcast), a user group and a user override of a built-in body interleaved — through `message` and through the group's `HandleEvent`: the same reactions in order, each seeing its owner's `Phase`, the same handler / rc, never more handler calls; adding a row and removing it; an override always called, a subclass inheriting the body following its row; the Phase stamp of a skipped quiet subgroup (its owner and the subgroup hold the Phase a full dispatch leaves); the dialog scene: a Tab reaches a listening label-like leaf with both focus broadcasts, never a built-in leaf whose row lacks them; P3 3b: the TScrollBar / TListViewer rows; a list moving its own bar: the broadcast not delivered to it (nor at all without another listener; the window quiet for it then — for that bar only), another listener told, the bar moved by its own mouse reaching the list; P3 3c, the hot-key map: 40 seeded random groups of hot-key bodies of the test (a Title, an _items array), user pre / post views, a focused and a disabled widget, Alt / plain / base keys, Enter, a command, a direct Title write and a focus change mid-way: the same reactions with their Phases as a full scan, fewer widget calls |
 | 026_WideEdge | P3 3a-2, the wide-row edge test: the rule on `fv.views._bands` (kept / banded / widened rectangles, two that meet, rows without wide cells, the C-locale and nested-Draw fallbacks); a static CJK scene under shadowed windows: every rectangle with its left edge at every column (widths 1 2 3 5 and to the edge) == a full repaint; a shadowed window and a plain leaf moved across CJK rows one column at a time, hide / show / reorders at every few columns, drawPart of each row with a window in front at every column, a frame border over CJK rows at every column: each == a full repaint; the narrowing (a drawPart on a CJK row no pair straddles leaves a window in front elsewhere on the row unpainted, no dispatch); seeded random CJK scenes (3 × 40 steps: moves, nudges, resizes, reorders, hide / show, drawView, drawPart, frame borders) == a full repaint after every step; drawPart through its checked path (a painter not seen, each row with a window in front at every column); the marking from fv.video's `__FV_VS_WNEW` (a row whose only pair a view in front hides by half at the first paint: a move uncovering it, a hide, the view sent behind a CJK leaf, the pair cut by the view's right edge) and seeded random scenes of one-pair rows with the views in front starting on a pair's half (4 × 30 steps, nothing marked by hand) == a full repaint; fv.video's VT model after moves over CJK rows |

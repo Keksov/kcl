@@ -19,7 +19,18 @@
 #     typing budgets unchanged), and the history window opened by Down on
 #     the line and closed by Esc (10 strings; the window, its frame, two
 #     bars and the viewer made and destroyed: 10 dispatches, the
-#     constructors, and 19 writes measured): limit 14 / 26.
+#     constructors, and 19 writes measured): limit 14 / 26;
+#   * (3g, design R1 / R2) a 20-control dialog against an 8-control one:
+#     Tab, Shift+Tab, typing, Backspace, F9 and a hot key cost the same
+#     dispatches and writes; keys reach no label / button / cluster body in
+#     either; a focus change reaches each extra label twice (FV's focus
+#     broadcasts), without a write.
+# Measured (Git-bash 5.3; §8.1's prototype numbers in brackets): open +
+# close 5 / 21 [2 / 23: here the focused stand-in sees F2 and the two
+# stand-ins' Draw overrides repaint under the closed dialog], Tab 0 / 4
+# [0 / 6], build-run-destroy 25 / 21 [22 / 19: 3 + 10 constructors (the
+# dialog, its frame, 8 controls) + 2 stand-in Draws + 10 Done], paint 0 / 13
+# [0 / 21], typing 0 / 1.
 # The counts are logged ("# calls" / "# writes"); deltas are taken against a
 # run with only the closing key, so the loop's own reads cancel out.
 
@@ -34,7 +45,7 @@ end
 TDApp.HandleEvent() {
     inherited HandleEvent "$@"
     if [ "$FV_EV_WHAT" = evKeyDown ]; then
-        if [ "$FV_EV_KEY" = kbF2 ]; then fv.views.execView desk dlg; fv.views.clearEvent "$this"
+        if [ "$FV_EV_KEY" = kbF2 ]; then fv.views.execView desk "${EXDLG:-dlg}"; fv.views.clearEvent "$this"
         elif [ "$FV_EV_KEY" = kbF4 ]; then
             fvg_mkdlg dlg8 e_
             fv.views.execView desk dlg8
@@ -66,22 +77,22 @@ run() {
     if [[ -n ${PREP-} ]]; then "$PREP"; fi
     fvg_events "$@"
     fvw_count_on; fvw_writes_on
-    FVW_CALLS=0 FVW_WRITES=0
+    FVW_CALLS=0 FVW_WRITES=0 FVW_HB=0
     fv.views._virt app Execute || :
-    C=$FVW_CALLS W=$FVW_WRITES
+    C=$FVW_CALLS W=$FVW_WRITES HB=$FVW_HB
     fvw_count_off; fvw_writes_off
     fvw_noevents
 }
 # budget LABEL LIMITC LIMITW BASE-SPECS -- SPECS : the delta of SPECS over BASE
 budget() {
-    local l=$1 lc=$2 lw=$3 c0 w0
+    local l=$1 lc=$2 lw=$3 c0 w0 h0
     shift 3
     local -a b=()
     while (( $# )) && [ "$1" != -- ]; do b+=("$1"); shift; done
     shift
-    run "${b[@]}"; c0=$C w0=$W
+    run "${b[@]}"; c0=$C w0=$W h0=$HB
     run "$@"
-    C=$(( C - c0 )) W=$(( W - w0 ))
+    C=$(( C - c0 )) W=$(( W - w0 )) HB=$(( HB - h0 ))
     kt_test_start "budget $l: at most $lc dispatches, $lw writes"
     kt_test_log "# calls $l $C"
     kt_test_log "# writes $l $W"
@@ -136,4 +147,96 @@ kt_test_start "after the typing: == a full repaint"
 fv.views.insert desk dlg; fv.views.select dlg
 if fvw_full app; then kt_test_pass ok; else kt_test_fail "$FVW_DIFF"; fi
 fv.views.delete desk dlg
-app.delete; dlg.delete
+
+# (P3 3g) design R1 / R2: a 20-control dialog costs what an 8-control one
+# costs per keystroke. Both dialogs 76 x 21, built by mkdlgn: a label + input
+# line (focused), check boxes, a label + radio buttons, then (20 only) six
+# more labels + input lines, then OK (default) / Cancel / Help: Tab and
+# Shift+Tab leave the line for the same neighbours in both. Tab, Shift+Tab,
+# typing, Backspace, a key nobody takes (F9) and a hot key (Alt+W: an item of
+# the check boxes) give the same dispatches and writes in both — the pre /
+# post-process views are found by the hot-key map, not by a scan, and the
+# broadcasts reach only the views whose built-in handler reacts (the
+# broadcast table) — within the §8.1 limits of the 8-control dialog
+mkdlgn() {   # NAME N
+    local d=$1 p=${1}_ v i
+    local -a c=()
+    TDialog.new "$d" 2 1 78 22 'Find'
+    TLabel.new "${p}l1" 2 1 14 2 '~T~ext' "${p}in1"
+    TInputLine.new "${p}in1" 15 1 57 2 255
+    TCheckBoxes.new "${p}opts" 3 3 30 6 '~C~ase sensitive' '~W~hole words' 'Re~g~ex'
+    TLabel.new "${p}l2" 32 2 46 3 '~D~irection' "${p}dir"
+    TRadioButtons.new "${p}dir" 32 3 56 5 '~F~orward' '~B~ackward'
+    c=(l1 in1 opts l2 dir)
+    if (( $2 == 20 )); then
+        local -a hot=(N P M E S A)
+        for (( i = 0; i < 6; i++ )); do
+            TLabel.new "${p}x$i" 2 $(( 7 + i * 2 )) 14 $(( 8 + i * 2 )) "Field ~${hot[i]}~" "${p}y$i"
+            TInputLine.new "${p}y$i" 15 $(( 7 + i * 2 )) 57 $(( 8 + i * 2 )) 255
+            c+=("x$i" "y$i")
+        done
+    fi
+    TButton.new "${p}ok" 14 18 24 20 'O~K~' cmOK "$FV_BF_DEFAULT"
+    TButton.new "${p}cn" 26 18 38 20 'Cancel' cmCancel
+    TButton.new "${p}hp" 40 18 50 20 '~H~elp' cmHelp
+    c+=(ok cn hp)
+    if (( ${#c[@]} != $2 )); then echo "mkdlgn: ${#c[@]} controls, not $2" >&2; fi
+    for v in "${c[@]}"; do fv.views.insert "$d" "$p$v"; done
+    fv.views.select "${p}in1"
+}
+mkdlgn dn8 8
+mkdlgn dn20 20
+declare -A NC=() NW=() NH=()
+# (the built-in HandleEvent bodies of the labels, buttons and clusters
+# counted too: FVW_HB, the views the pre / post-process passes reach)
+fvw_wrap FVW_HB fv.dialogs._lblEvent fv.dialogs._btnEvent fv.dialogs._clEvent
+for n in 8 20; do
+    EXDLG=dn$n
+    nprep() { fv.views.select "${EXDLG}_in1"; local -n o=${EXDLG}_opts_data; o[Value]=0; }
+    PREP=nprep
+    budget "dlg$n.tab" 4 8 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'key kbTab' 'key kbCtrlF4'
+    NC[tab|$n]=$C NW[tab|$n]=$W NH[tab|$n]=$HB
+    budget "dlg$n.tab-back" 4 8 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'key kbShiftTab' 'key kbCtrlF4'
+    NC[tab-back|$n]=$C NW[tab-back|$n]=$W NH[tab-back|$n]=$HB
+    budget "dlg$n.type" 2 2 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'char a' 'key kbCtrlF4'
+    NC[type|$n]=$C NW[type|$n]=$W NH[type|$n]=$HB
+    budget "dlg$n.type-back" 2 2 'key kbF2' 'char a' 'key kbCtrlF4' -- 'key kbF2' 'char a' 'key kbBack' 'key kbCtrlF4'
+    NC[type-back|$n]=$C NW[type-back|$n]=$W NH[type-back|$n]=$HB
+    budget "dlg$n.fkey" 2 2 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'key kbF9' 'key kbCtrlF4'
+    NC[fkey|$n]=$C NW[fkey|$n]=$W NH[fkey|$n]=$HB
+    budget "dlg$n.hotkey" 4 8 'key kbF2' 'key kbCtrlF4' -- 'key kbF2' 'alt w' 'key kbCtrlF4'
+    NC[hotkey|$n]=$C NW[hotkey|$n]=$W NH[hotkey|$n]=$HB
+    kt_test_start "dlg$n: the actions did their work (Alt+W: the check boxes focused, Whole words checked)"
+    r="${EXDLG}_opts_data[Value]" q="${EXDLG}_data[Current]"
+    if [[ ${!r-} == 2 && ${!q-} == "${EXDLG}_opts" ]]; then kt_test_pass ok; else kt_test_fail "Value [${!r-}] Current [${!q-}]"; fi
+done
+PREP=
+kt_test_start "R1: a 20-control dialog costs the dispatches and writes of an 8-control one (Tab, Shift+Tab, typing, Backspace, F9, a hot key)"
+bad=''
+for a in tab tab-back type type-back fkey hotkey; do
+    [[ ${NC[$a|8]}/${NW[$a|8]} == "${NC[$a|20]}/${NW[$a|20]}" ]] || bad+=" [$a: ${NC[$a|8]}/${NW[$a|8]} vs ${NC[$a|20]}/${NW[$a|20]}]"
+done
+if [[ -z $bad && ${#NC[@]} == 12 ]]; then kt_test_pass ok; else kt_test_fail "$bad"; fi
+fvw_unwrap fv.dialogs._lblEvent fv.dialogs._btnEvent fv.dialogs._clEvent
+# (keys: no label / button / cluster body reached in either dialog — the
+# hot-key map; a focus change: FV's cmReleasedFocus + cmReceivedFocus
+# broadcasts reach every TLabel, whose built-in handler reacts to them (its
+# Light), so the 20-control dialog's six extra labels add 2 x 6 = 12 body
+# calls per focus change and no write: P3-12 redraws a label only when its
+# Light changes. Measured 8 / 20: tab 10 / 22, tab-back 16 / 28, hot key
+# 11 / 23, typing / Backspace / F9 0 / 0)
+kt_test_start "R1 / R2: label / button / cluster bodies reached: keys none in both (the hot-key map), a focus change + 2 per extra label (the focus broadcasts)"
+bad='' r=''
+for a in tab tab-back type type-back fkey hotkey; do
+    r+=" $a ${NH[$a|8]}/${NH[$a|20]}"
+    case $a in
+        type|type-back|fkey) [[ ${NH[$a|8]}/${NH[$a|20]} == 0/0 ]] || bad+=" [$a: ${NH[$a|8]} / ${NH[$a|20]}]" ;;
+        *) (( ${NH[$a|20]} - ${NH[$a|8]} == 12 )) || bad+=" [$a: ${NH[$a|8]} / ${NH[$a|20]}]" ;;
+    esac
+done
+kt_test_log "# handler bodies (8 / 20 controls):$r"
+if [[ -z $bad && ${#NH[@]} == 12 ]]; then kt_test_pass "$r"; else kt_test_fail "$bad"; fi
+EXDLG=
+kt_test_start "after the 20-control runs: both dialogs closed, == a full repaint"
+if [[ -z ${dn8_data[Owner]} && -z ${dn20_data[Owner]} ]] && fvw_full app; then kt_test_pass ok; else kt_test_fail "$FVW_DIFF"; fi
+app.delete; dlg.delete; dn8.delete; dn20.delete

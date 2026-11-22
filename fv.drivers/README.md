@@ -52,7 +52,7 @@ fv.drivers.getEvent; do …; done < <(…)` when the loop needs an input of its 
 
 | Global | Values |
 |---|---|
-| `FV_EV_WHAT` | `evNothing evKeyDown evMouseDown evMouseUp evMouseMove evMouseAuto evMouseWheel evCommand evBroadcast` (the last two only from `putEvent` for now) |
+| `FV_EV_WHAT` | `evNothing evKeyDown evMouseDown evMouseUp evMouseMove evMouseAuto evMouseWheel evCommand evBroadcast` (`evCommand` from `getEvent` only as `cmResizeApp` and `cmPasteText`; `evBroadcast` only from `putEvent`) |
 | `FV_EV_KEY`, `FV_EV_CHAR` | `evKeyDown`: fv.keyboard's `FV_KEY` (`kbUp`, `kbChar`, `kbUnknown` …) and `FV_KEY_CHAR`; the raw bytes stay in `FV_KEY_SEQ` |
 | `FV_EV_COMMAND` | `evCommand` / `evBroadcast`: a command **name** (`cmResizeApp`, `cmQuit`, …), not a number |
 | `FV_EV_ID`, `FV_EV_INFO` | the message fields (`cmResizeApp`: width and height; `cmPasteText`: the text's length in bytes and the text); `''` otherwise |
@@ -136,7 +136,13 @@ clock).
   on every wheel event and would repeat with no button). Its times are
   seconds (`FV_REPEAT_DELAY`, `FV_IDLE_TIMEOUT`, the period at least
   0.01 s), not ticks of 54.945 ms, and a wall clock gone back does not stall
-  it.
+  it. A new press restarts its delay, as in FV.
+* **A bracketed paste is one `evCommand cmPasteText`** (P3 3d; FPC 2025 has
+  the same event): the text is a string in `FV_EV_INFO` (FV passes a
+  pointer), its length in bytes in `FV_EV_ID`, at most `FV_PASTE_MAX` bytes
+  (fv.keyboard's cap, default 64 KiB; the rest is dropped).
+* **`FV_EV_BASE` is an addition** (P3 3L): FV's `TEvent` has no base-layout
+  key.
 
 ## Contract (kcl README §1) and deviations
 
@@ -174,6 +180,9 @@ while no button is held; while one is held since a press it reads the clock
 before the read (the timeout cut) and after an idle one: an idle `getEvent 0`
 with the read stubbed, Git-bash, laptop: ~85–90 µs unarmed, ~170–190 µs
 armed (2 × 2000 calls, 3 rounds) — only between a press and its release.
+On CI (run 44804614890, the `fvviews` bench, same-run A/B) every action
+stayed at 0.98–1.02 of the run before the stage; 3L (`FV_EV_BASE`, run
+44834457935) 0.96–1.05 on the Linux and Windows rows.
 
 In the application (fv P2 stage 2g, the `fvviews` bench of `tools/bench`:
 every action inside [`fv.app`](../fv.app/README.md)'s `Run`, keys from a
@@ -181,11 +190,11 @@ file): reading a 5-byte key sequence (F12) costs ~1.2 ms of the ~5.8 ms a
 whole key event takes on that machine (~1.9× slower than the one above);
 the rest is the views' routing ([fv.views "Cost"](../fv.views/README.md#cost)).
 The application layer is complete for P2: [`fv.views`](../fv.views/README.md),
-[`fv.menus`](../fv.menus/README.md), `fv.app`.
+[`fv.menus`](../fv.menus/README.md), `fv.app`; P3's widgets build on it.
 
 ## Tests
 
-`bash kcl/fv.drivers/tests/tests.sh` — 178 tests; all but `005` run without a
+`bash kcl/fv.drivers/tests/tests.sh` — 184 tests (Git-bash, 2026-11-22); all but `005` run without a
 terminal (bytes on a file or pipe fd, `FV_KEY_FD` set directly).
 
 | file | what |

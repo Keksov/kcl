@@ -7,7 +7,8 @@ classes on [fv.views](../fv.views/README.md)' `TView` / `TWindow`, with FV's
 field names and fv.views' virtual elision: every built-in virtual runs as a
 plain function unless a class of yours overrides it.
 
-**Status: P3 stage 3h** — `TDialog`, `TButton`, `TStaticText`, `TParamText`,
+**Status: P3 done** (stages 3c, 3d, 3h; 3g the budgets and these docs; the
+speed stages 3v-2…3v-5 are deferred by the owner, "Cost") — `TDialog`, `TButton`, `TStaticText`, `TParamText`,
 `TLabel`, `TCluster`, `TCheckBoxes`, `TRadioButtons` (3c), `TInputLine` (the
 text as clusters, FV's keys, selection, scrolling, the mouse, overwrite,
 password mode, the clipboard keys and bracketed paste) and `TListBox` (3d),
@@ -46,6 +47,31 @@ The modal loop is fv.views' `execView` (FV `ExecView`): Esc or Ctrl+F4 ends
 it with `cmCancel`, Enter presses the default button (`cmOK` here), the end of
 input answers `cmCancel`. A dialog in a subshell (`$( … )`) is refused by
 fv.views' owner-process rule.
+
+## The demo
+
+[`examples/widgets.sh`](examples/widgets.sh) shows the P3 widgets in one
+small application (it is also an example to read): a menu bar on request
+(File / Edit / Window with a Layout submenu / Help, each item's hint in the
+status line), two file panels with real lists (ASCII and Cyrillic names,
+Ins / Space mark), File > Find — a dialog with labels, two input lines with
+a history, a password line, check boxes, radio buttons, a list box, OK /
+Cancel / Help (Help opens a message box from inside the dialog), the
+clipboard keys in the lines —, the result in a message box, File > Rename —
+an input box over the focused file —, Help > Keys (`messageBoxRect`) and
+About.
+
+```bash
+bash kcl/fv.dialogs/examples/widgets.sh                  # live, in this terminal; Alt+X quits
+bash kcl/fv.dialogs/examples/widgets.sh --headless       # a built-in key script, the final screen as text
+bash kcl/fv.dialogs/examples/widgets.sh --headless --keys keys.bin --out frames.bin --size 100x30
+```
+
+The options are fv.app's demo's (`fv.app/examples/demo.sh`); `--headless`
+without `--keys` runs a script that marks files in both panels, fills the
+dialog in (a copy with Ctrl+Ins, a paste with Shift+Ins, a password, a check
+box, a radio button), confirms it, renames a file and opens About.
+`tests/024_Demo.sh` runs it so.
 
 ## Classes and fields
 
@@ -403,6 +429,9 @@ rebuild of the hot-key map at the next key (its stamp check).
 
 ## Deviations from FV
 
+Every deviation of this unit, in one list (the sections above give the
+details):
+
 * kklass classes with FV's field names; other instances' fields under the
   kklass friend contract; FV's linked items (`NewSItem`) written flat;
   `TParamText`'s parameters in `NAME_params`, its format `printf -v`'s.
@@ -429,6 +458,34 @@ rebuild of the hot-key map at the next key (its stamp check).
   rewrites the event's key code first: an unhandled Ctrl+E goes on as Up
   there); `Validator` is a plain function instead of FV's TValidator; P3-12:
   a cursor move without a picture change writes nothing (FV redraws).
+  **Cluster stepping**: Left / Right / Back / Del step one cluster (FV:
+  `Dec(CurPos)` / `Inc(CurPos)`, one UTF-16 unit), and FirstPos keeps the
+  text in `SizeX − 3` cells counted by fv.video's cells.
+* **Password mode** (D29) is an addition (FV has none): `PasswordChar` masks
+  each cluster with one cell, copy and cut do nothing, THistory never records
+  the line.
+* **The cursor shape** (D27): insert = underline, overwrite = block, sent as
+  DECSCUSR by fv.video; at the end `ESC [ 0 q` restores the terminal's
+  default shape, not a shape your shell had set (no query works everywhere).
+* **The clipboard** (D24): the internal clipboard is the string
+  `FV_CLIPBOARD` (FV: its `Clipboard` editor or the system clipboard through
+  fvclip); every copy and cut also goes out by OSC 52 (as fvclip); a
+  bracketed paste is one `cmPasteText` (as FPC 2025). Which of FV's keys
+  (Shift+Ins, Ctrl+Ins, Shift+Del) reach the program depends on the terminal
+  (the table in "The input line"): there the terminal's own paste replaces
+  Shift+Ins; Ctrl+V stays FV's Ins.
+* **Hot keys with any keyboard layout** (D30): the typed character first,
+  then the base-layout key (kitty protocol or the generated layout tables),
+  through fv.views' `hotKeyIs` and hot-key map; FV compares `GetAltCode` /
+  the upper-cased character only, so a Russian layout's Alt+F fires nothing
+  there.
+* **Lists**: `TListBox` and `THistoryViewer` are fv.views' `TListViewer`
+  (fv.views README's list deviations: `List` / `Formatter` / `Marks`
+  instead of virtual `GetText` / `IsSelected` per row, P3-4 bar redraws);
+  `Marks` (D26) is an addition — the long checklist of D29 (Space / Ins mark
+  rows, FV's TListBox has no marks); a list box in a plain window gets the
+  friendly window colours of D25 (FV shows ErrorAttr there), in a dialog
+  FV's CListViewer.
 * **TListBox**: `List` is the caller's array (FV's PCollection, disposed by
   NewList); `GetData` answers `Focused` only (FV's record also holds the
   list); `SetData` keeps the item in the range (FV focuses it as given);
@@ -502,13 +559,43 @@ the same in the `fvviews` bench, `views-dialog-80`):
 | Shift+Left in a scrolled line | 0 (2) | 1 (2) |
 | (3h) the typing rows above with a `THistory` after the line | the same | the same |
 | (3h) the history window opened by Down on the line (10 strings) and closed by Esc | 10 (14) | 19 (26) |
+| (3g) a 20-control dialog (six more labelled input lines): Tab, Shift+Tab, typing, Backspace, F9, a hot key | the 8-control dialog's: 0 | the 8-control dialog's: 3, 4, 1, 1, 0, 4 |
 
 The dispatches of an open + close are the application's override and
-`inherited` for F2 and the windows' list stand-ins redrawn when the dialog
-leaves; the end-to-end ones and the history window's are the constructors
-(`.new` and `inherited`: the window, its frame, two bars and the viewer).
-The times are the CI bench's (design §8.3: the same-run A/B decides the
-dialog targets).
+`inherited` for F2, the focused list stand-in that sees F2 first, and the
+two stand-ins' `Draw` redrawn when the dialog leaves; the end-to-end ones
+add the constructors and the `Done`s (the dialog, its frame, 8 controls),
+the history window's are its constructors (`.new` and `inherited`: the
+window, its frame, two bars and the viewer).
+
+**Many controls** (design R1 / R2, stage 3g): keys reach no label, button
+or cluster handler in either dialog (the hot-key map finds the pre / post
+views); a focus change sends FV's `cmReleasedFocus` / `cmReceivedFocus`,
+which reach every label (its `Light`): the 20-control dialog's six extra
+labels add 12 handler calls per focus change and no write (`013` counts
+them). So Tab grows a little with the labels, typing does not.
+
+**Times** (the CI bench, `views-dialog-80`, design §8.3; ratios to the
+same run's `standin.down`, absolute ms on the ubuntu host runner):
+
+| action | ratio | ms | design target |
+|---|---|---|---|
+| open + close (pre-built) | 11.0–12.2× | 49.0 (slow runner 60.6) | ≤ 50 |
+| Tab between controls | 3.0–3.3× | 13.4 (slow runner 16.3) | ≤ 12 |
+| the dialog's full draw | 2.5–2.7× | 10.9 | ≤ 15 |
+| the 8-control dialog end to end | 17.5–19.8× | 78.4 | ≤ 100 |
+| a key nobody takes / F9 | 0.8× / 0.6× | 3.3 / 2.5 | — |
+| typing ASCII / Cyrillic / CJK | 0.93× / 1.23× / 1.48× | 4.76 / 6.32 / 7.58 | ≤ 5 / ≤ 5.5 / ≤ 8 |
+| the history window open + close | 13.0× | 50.3 | ~35–45 (§15) |
+
+(3c run 44889101961, 3d run 44939385724, 3h run 44947296645.) Met: the
+draw, end to end, ASCII and CJK typing, the scrolled line. Over: Tab and
+open + close by about 10–25 % on slow runners, Cyrillic typing slightly,
+the history window by 15–40 % (the same build / insert / destroy cost as
+open + close). **The speed work is deferred by the owner** (stages
+3v-2…3v-5, fv_ledger.json); the counts above are the guard meanwhile. The
+20-control dialog's `tab-20` / `type-20` rows are new in 3g (no CI numbers
+yet).
 
 ## Tests
 
@@ -531,7 +618,7 @@ the scene, the modal run (`fvg_run`) and the scripted `char` / `alt` keys.
 | 010_ListBox | the constructor, newList (formatter, replacement, `''`, the alias, refusals), DataSize / GetData / SetData and through a dialog, the long checklist (Space / Ins marks over 10 000 items, `cmListItemSelected`, colour 4) |
 | 011_Data | dataSize, getData / setData order and redraw, a non-number, a view of yours with DataSize 2 behind the frame, a subgroup, TParamText; refusals |
 | 012_Focus | Tab / Shift+Tab order (each == a full repaint), arrows on buttons and clusters, a disabled button skipped; user pre / post views interleaved with the widgets (the Phase each sees, a hot key handled in pre stops them); the focus broadcasts (default look, Light) |
-| 013_CallBudget | design §8.1's budgets (the table above), each logged; == a full repaint after open + close and after the end-to-end dialog; the dialog's draw == a full repaint (3d: typing ASCII / Cyrillic / CJK, Backspace, a scrolled line, Shift+Left; 3h: the same with a THistory after the line, the history window open + close) |
+| 013_CallBudget | design §8.1's budgets (the table above), each logged; == a full repaint after open + close and after the end-to-end dialog; the dialog's draw == a full repaint (3d: typing ASCII / Cyrillic / CJK, Backspace, a scrolled line, Shift+Left; 3h: the same with a THistory after the line, the history window open + close; 3g: a 20-control dialog against an 8-control one — the same dispatches and writes for Tab, Shift+Tab, typing, Backspace, F9, a hot key, no label / button / cluster handler reached by a key, 2 per extra label by a focus change) |
 | 014_ZeroFork | the whole path with `PATH=''`; the static scan of `fv.dialogs.sh` (3d: an input line and a list box through every path) |
 | 015_CallerState | one dialog scene under every caller setup: the same output, the state kept (3d: an input line — drawn with a non-ASCII `PasswordChar` too — and a list box in the scene) |
 | 016_Elision | a dialog of subclasses overriding every virtual with `inherited` == the built-in dialog (result, data, picture); 0 dispatches of the built-ins; an overridden HandleEvent never skipped by the map; the func answers and the rc answers through overrides (3d: TInputLine / TListBox subclasses overriding every virtual) |
@@ -541,3 +628,4 @@ the scene, the modal run (`fvg_run`) and the scripted `char` / `alt` keys.
 | 021_Ascii | ASCII mode: no shadow characters, the pressed look, marks, a Cyrillic label and a CJK static text one `?` per character, cluster columns from those cells; each == a full repaint (3d: an input line: one cell per non-ASCII character, FirstPos by those cells) |
 | 022_Clipboard | Ctrl+Ins (FV_CLIPBOARD + the OSC 52 bytes), Shift+Del, Shift+Ins / cmPaste, cmPasteText (control characters dropped, over a selection, overwrite, MaxLen, non-ASCII == fv.video's split), a paste in a modal dialog never pressing the default button, password mode refusing copy and cut, an unselected line taking nothing; a 20 000-character paste / `setText` (Cyrillic, mixed CJK / ZWJ / flags) into `MaxLen` 255 / 253: its first clusters, under 1 s (F1) |
 | 023_HistoryState | (3h) the history path with `PATH=''` (the reference answers); the same scene under IFS default / `\x1f` / empty, nocasematch, extglob, a C locale, set -u and all at once (answers and state kept; the windows made under the setup); 100 open / close cycles leave no view, array or function and no table grows; a subclass overriding every virtual with `inherited` == the built-in; overrides of `InitHistoryWindow` (a window class of yours) and `RecordHistory` used |
+| 024_Demo | (3g) `examples/widgets.sh --headless`: the built-in script (rc 0, no stderr; the final screen's menu bar, panels, renamed file and status line; the frames hold the dialog's values, the masked password, the result and the About box), `--keys` (a rename), a key file without Alt+X, `--size`, `FV_APP_HEADLESS=1`, the refusals (rc 2). The live mode is never run here |

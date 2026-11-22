@@ -1,6 +1,8 @@
 # fv — a Free Vision-style text UI library for bash (kcl/fv.*)
 
-**Status:** P0–P2 done and on main (2026-11-18); next: the deep performance round (D21), then P3. **Ledger:** [`fv_ledger.json`](fv_ledger.json)
+**Status:** P0–P2 done and on main (2026-11-18); D21 done; **P3 done** (stages 3a-1 … 3g,
+2026-11-22) except the deferred speed stages 3v-2…3v-5 (owner, 2026-11-21); next: P4 when the
+owner says. **Ledger:** [`fv_ledger.json`](fv_ledger.json)
 (single source of truth for status).
 
 Owner request (2026-11-07): a set of windowing classes that other scripts can use, with
@@ -139,8 +141,9 @@ the kkore README, or extends the guard if that is cheap.
 | fv.mouse | rtl-console Mouse | SGR 1006 (and X10 fallback) reports → button, wheel, position; enable/disable sequences | L0 |
 | fv.drivers | FV Drivers | the event (`FV_EV_WHAT FV_EV_KEY FV_EV_CHAR FV_EV_COMMAND FV_EV_MOUSE_*` globals, string values with FV names, as the spike did with `EV_*`), `GetEvent` = keyboard + mouse + idle + resize; commands are names (`cmQuit`, `cmResizeApp`), no constants table | L0/L2 |
 | fv.views | FV Views | TView, TGroup, TFrame, TScrollBar, TListViewer, TWindow | L2/L3 |
-| fv.menus | FV Menus | TStatusLine (key table, hints); TMenuBar/TMenuBox per open item O3 | L3 |
-| fv.dialogs | FV Dialogs | TDialog, TButton, TStaticText, TLabel, TInputLine, TCheckBoxes, TRadioButtons, TListBox | L3 |
+| fv.menus | FV Menus | TStatusLine (key table, hints); TMenuView/TMenuBar/TMenuBox/TMenuPopup (D22; the bar on request, D23) | L3 |
+| fv.dialogs | FV Dialogs | TDialog, TButton, TStaticText, TParamText, TLabel, TInputLine, TCheckBoxes, TRadioButtons, TListBox, THistory / THistoryViewer / THistoryWindow (P3 added the history, D28) | L3 |
+| fv.histlist | FV HistList | the input history store (P3 stage 3h, D28) | L3 |
 | fv.app | FV App | TProgram, TApplication, TDesktop, TBackground; `Run`, `Execute`, `EndModal`, `cmQuit` | L2 |
 | fv.msgbox | FV MsgBox | `MessageBox`, `InputBox` inside a running application | L3 |
 | fv.dlg (name per O2) | — (kcl addition) | face C: one-shot dialogs from any script — message, yes/no, input, menu, checklist, radio list | face C |
@@ -285,6 +288,23 @@ agent) goes into every brief.
 * **Design**: [P3_DESIGN.md](P3_DESIGN.md) (revision 2). Stages, in order: 3a-1 fv.video ->
   3a-2 fv.views/fv.drivers -> 3L layouts -> 3b lists -> 3v fv.video speed -> 3c dialogs I ->
   3d input line -> 3h history -> 3e fv.msgbox -> 3f menus -> 3g budget, bench, docs.
+* **Result (2026-11-22)**: every stage done but the speed work —
+  * **done**: 3a-1 (fv.video clusters, uniform rows, fresh-row batch, wide fast path), 3a-2
+    (broadcast table, wide-row edge test, `evMouseAuto`), 3L (hot keys with any layout, option
+    (c)), 3b (TScrollBar, TListViewer, the list targets measured on CI), 3v-1 (the first fv.video
+    speed levers), 3c (fv.dialogs I + the hot-key map), 3d (TInputLine, password, clipboard,
+    cursor shape, TListBox), 3h (fv.histlist, THistory), 3e (fv.msgbox), 3f (the menus, the bar
+    on request), 3g (budgets incl. row / item / kind independence and the 20-control dialog,
+    bench rows `dlg.tab-20` / `dlg.type-20`, the READMEs, the showcase
+    `fv.dialogs/examples/widgets.sh` with its headless test, the owner's live checklist);
+  * **deferred by the owner (2026-11-21)**: **3v-2…3v-5**, the rest of the fv.video speed stage
+    (D31's targets: list PgDn ≤ 8 ms CI for every kind of text, F-1 ≤ 15 ms; today ASCII 7.99 /
+    Cyrillic 9.12 / CJK 14.12 ms against the stand-in's 6.45, F-1 20.79). The dialog, history,
+    msgbox and menu times that came out 10–50 % over their design targets on slow runners are
+    parked with it. To be resumed after the widget stages / on a real application (the file
+    manager), measured there. The per-stage results, reviews and CI numbers:
+    [`fv_ledger.json`](fv_ledger.json) (entries 3a-1 … 3g); the measured counts and times per unit:
+    the READMEs' "Cost" sections.
 
 ### P4 — one-shot dialogs (face C)
 

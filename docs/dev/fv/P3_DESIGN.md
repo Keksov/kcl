@@ -1,5 +1,15 @@
 # fv P3 Stage 0: design of the widgets (L3)
 
+> **Status (2026-11-22, stage 3g): implemented** in stages 3a-1, 3a-2, 3L, 3b, 3v-1, 3c, 3d,
+> 3h, 3e, 3f and 3g (§11's order). The design text below is kept as it was decided; where a
+> stage measured something else, the stage added a note ("measured in stage 3f: …", §8.1's
+> "Measured in the tree" table of 3g). The measured counts and CI times live in
+> [`fv_ledger.json`](fv_ledger.json) (each stage's `result` / `ci_bench`) and in the units'
+> READMEs ("Cost"). **Not met yet**: the speed targets of D31 / Q8 (list PgDn ≤ 8 ms CI for
+> every kind of text, F-1 ≤ 15 ms) — the speed stages 3v-2…3v-5 are deferred by the owner
+> (2026-11-21), and with them the dialog / history / msgbox / menu times that came out 10–50 %
+> over §8.3 / §8.4 on slow runners.
+
 2026-11-20, **revision 2** (after the critic's review and the owner's answers of 2026-11-20; the
 change list is §R; the layout-independent hot-key research is §14). The owner answered Q7 and Q8
 the same day: **D30** (option (c) for layouts) and **D31** (one list speed target for every kind
@@ -896,6 +906,27 @@ A user subclass of any widget that overrides a virtual adds one dispatch per use
 (the elision rule); the limits leave room for one. The "writes" column counts public fv.video
 writer calls, so the per-row `writeBuf` fallback of `_wrows` shows up (it is the H1 cost).
 
+**Measured in the tree (stage 3g, 2026-11-22; Git-bash 5.3, the tests' counting shims).** The
+tests keep the limits above (no count is over its limit) and log the counts; where the tree
+differs from the prototype's numbers, the reason:
+
+| action | prototype (above) | tree | test | why it differs |
+|---|---|---|---|---|
+| list Down inside the page | 2 / 2 | **2 / 1** | fv.views 010 | rule 4 in 3b: the two neighbouring rows in **one** `drawPart` |
+| list scroll by Down at the bottom, ASCII / fresh Cyrillic / fresh CJK | 2 / 1 / 22 | **2 / 1** every kind | 010 | 3a-1's batch of fresh rows inside `_wrows` (10.11 / 10.12): one write for every kind |
+| list PgDn, ASCII / Cyrillic / CJK | 2 / 1 / 22 | **2 / 1** every kind (+1) | 010 | as above; **+1 write when the bar's indicator moves to another cell** (P3-4's one `drawPart` over the old … new cells): it depends on rows / items together (42 rows over 1 000 items moved it, 21 rows or 60 000 items did not) |
+| list wheel / click / End / Home | 2 / 1, 2 / 2, 2 / 1–3 | 2 / 1, 2 / 2, 2 / 1 (+1) | 010 | End / Home move the indicator here: 2 writes |
+| 21 vs 42 rows, 1 000 vs 60 000 items, ASCII vs Cyrillic vs CJK | (3g asks) | **the same** dispatches; the same writes but for the indicator's +1 | 010 | — |
+| Tab between two dialog controls | 0 / 6 | **0 / 4** (8 or 20 controls: 0 / 3 from an input line) | fv.dialogs 013 | P3-12 in 3c: a label / button whose picture stays is not redrawn |
+| typing / Backspace / Shift+Left | 0 / 1 | 0 / 1 | 013 | — |
+| dialog open + close, pre-built | 2 / 23 | **5 / 21** | 013 | the test's scene: the focused stand-in list sees F2 (+1), the two stand-ins' `Draw` overrides repaint under the closed dialog (+2) |
+| messageBox end to end | 10 / 13 (stand-in) | **13 / 15** | fv.msgbox 008 | the constructors' `inherited` chains (the stand-in and the real box count the same) |
+| 8-control dialog end to end | 22 / 19 | **25 / 21** | 013 | 3 (the key) + 10 constructors (dialog, frame, 8 controls) + 2 stand-in `Draw`s + 10 `Done`s |
+| the dialog's full draw | 0 / 21 | **0 / 13** | 013 | fewer than the prototype (every Draw writes its rows in one call, §2.1); not split further in 3g |
+| menu F10 → drop → close | 19 / 22 | **22 / 11** (014 logs 23: its own `app.Run`) | fv.menus 014 | 3f: the box's constructor, `Done` and `inherited` (+3); the box one `writeLines` + 2 shadow writes, the bar one write |
+| menu highlight move, with / without a hint change | 0 / 3 | 0 / 3, 0 / 2 | 014 | — |
+| **20-control dialog** (R1): Tab, Shift+Tab, typing, Backspace, F9, a hot key | (3g asks) | **the 8-control dialog's** dispatches and writes | 013 | keys reach no label / button / cluster handler in either (the hot-key map); a focus change reaches every label twice (FV's `cmReleasedFocus` / `cmReceivedFocus`: the label's `Light`), so the six extra labels add 12 handler calls per focus change — no write, no dispatch (R2: Tab grows a little with the labels, typing does not) |
+
 ### 8.2 Times, lists (fresh pages; laptop ms, median (min–max) of 5 rounds; CI range = ratio × stand-in range)
 
 Git-bash 5.3.15 (`out_r2_gb_list_*.txt`); the stand-in in the same process: ASCII process
@@ -1147,8 +1178,8 @@ and F-1 to the D31 targets before the dialog stages.
 
 | # | risk | mitigation |
 |---|---|---|
-| R1 | Pre / post-process scans grow with the controls in a dialog | the hot-key map (10.3b); 3g measures a 20-control dialog |
-| R2 | Broadcast fan-out: each Tab sends 2–4 broadcasts to every listening control | the broadcast table; picture-change redraws (P3-12); Tab budget test with a 20-control dialog |
+| R1 | Pre / post-process scans grow with the controls in a dialog | the hot-key map (10.3b); 3g measures a 20-control dialog (done: keys cost what they cost in an 8-control dialog, §8.1 "Measured in the tree"; bench `dlg.tab-20` / `dlg.type-20`) |
+| R2 | Broadcast fan-out: each Tab sends 2–4 broadcasts to every listening control | the broadcast table; picture-change redraws (P3-12); Tab budget test with a 20-control dialog (3g: the same dispatches and writes; the focus broadcasts reach every label, 2 handler calls per extra label and focus change, no write) |
 | R3 | Dialog open + close ≈ 38–52 ms CI, end to end with build / destroy up to ~90 ms; mostly P2's window switch, `drawUnder` and kklass object creation | targets 50 / 100 ms; a later P2-machinery or kklass step if the owner wants faster |
 | R4 | CJK typing and CJK lists through P2's full-width wide-row repaint | 10.5; critic on 3a-2; 005's randomized wide scenes |
 | R5 | The input line's clusters and the screen disagree | one splitter (10.1), the M6 re-split, 008's random test (whole-line re-split as the oracle) on all runtimes (Cygwin astral) |
@@ -1159,7 +1190,7 @@ and F-1 to the D31 targets before the dialog stages.
 | R10 | fv.views body growth slows hot functions (body copy per call) | rare branches in helpers (2c-p lesson); 3a/3b A/B on the CI bench |
 | R11 | Auto-repeat on Windows: `read -t` waits in 15.6 ms steps; repeat jitter | harmless (FV's own tick is 55 ms); the delay is a variable |
 | R12 | List PgDn meets 8 ms only at the top of the CI range for ASCII (6.3–8.0) | P3-4 is required; 3b's same-run A/B fixes the target; levers: cheaper row padding, 10.2's fast path |
-| R13 | Only laptop ratios so far, ±25 % between CI runs | CI A/B in 3b (lists), 3c (dialogs), 3g (all), each comparing sides within one run |
+| R13 | Only laptop ratios so far, ±25 % between CI runs | CI A/B in 3b (lists), 3c (dialogs), 3g (all), each comparing sides within one run (3b–3f done, per stage in the ledger's `ci_bench`; 3g's CI bench run with the new `dlg.tab-20` / `dlg.type-20` rows is the supervisor's) |
 | R14 | **Fresh non-ASCII pages**: Cyrillic PgDn 1.89×, CJK 9.3× the ASCII cost (H1) | 10.11 and 10.12 in 3a-1, fresh-page bench and tests in all kinds; CJK to ≤ 8 ms in 3v (D31) |
 | R18 | **3v's size is unknown** (D31): the CJK and F-1 gaps may need more than one fv.video step | 3v starts with a probe and a design note; if the levers found cannot reach the targets in one stage, the supervisor brings the owner the measured gap with options before more stages are added |
 | R15 | **Layout protocols**: a terminal that misreads `CSI > 5 u` / `CSI < u`; replies arriving mid-typing; a table that maps a character to the wrong key for a user's layout | push only after the terminal answered the query (§14.4); replies decoded and swallowed; the typed character always matched first; `FV_KBD_LAYOUT` and `FV_KBD_PROTO=off` overrides; generator reports every ambiguity |

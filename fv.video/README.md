@@ -17,7 +17,9 @@ cluster class of every code point) and no other `fv.*` unit.
 [`fv.keyboard`](../fv.keyboard/README.md) reads the keys from the fd it opens.
 The views and the application above it ([`fv.views`](../fv.views/README.md),
 [`fv.menus`](../fv.menus/README.md), [`fv.app`](../fv.app/README.md)) are complete
-for P2 (stage 2g); they write through this buffer only.
+for P2 (stage 2g), P3's widgets ([`fv.dialogs`](../fv.dialogs/README.md),
+[`fv.msgbox`](../fv.msgbox/README.md)) build on them; they all write through
+this buffer only.
 
 ## Quick start
 
@@ -38,8 +40,8 @@ fv.video.doneVideo                        # also done by the traps if you forget
 
 | Function | Answer |
 |---|---|
-| `fv.video.initVideo [noalt]` | opens the terminal, saves its `stty -g` and the caller's traps, installs the traps below, sets raw mode, then starts [the reader and its watchdog](#the-reader-process-git-bash-msys2-cygwin) where `FV_TTY_READER` says so (default: Git-bash, MSYS2, Cygwin), then prints: alternate screen `ESC[?1049h` (not with `noalt`), cursor hidden `?25l`, autowrap off `?7l`, SGR reset, clear, bracketed paste on `?2004h` (P3 10.8); reads the size. Typed-ahead input is kept. rc 0 = on (also when it already was — here or in the parent of this subshell: a no-op); rc 1 = no terminal / stty failed — nothing printed to any terminal, nothing left open, one debug line; rc 2 = a mode other than `noalt` |
-| `fv.video.doneVideo` | SGR reset, `?7h`, `?25h`, `?1049l` (if used), mouse reporting off (`?1006l ?1003l ?1002l ?1000l`, always), bracketed paste off `?2004l` (always), the terminal's default cursor shape `ESC [ 0 SP q` (when a shape was sent, P3 10.7), the pending input drained (below), the reader and its watchdog stopped, `stty` back to the saved state, the fd closed, `FV_KEY_FD` put back, the caller's traps put back **exactly**. Idempotent: done twice, or done and then the EXIT trap, restores once. In a subshell of the process that called `initVideo`: a no-op (below). rc 0 |
+| `fv.video.initVideo [noalt]` | opens the terminal, saves its `stty -g` and the caller's traps, installs the traps below, sets raw mode, then starts [the reader and its watchdog](#the-reader-process-git-bash-msys2-cygwin) where `FV_TTY_READER` says so (default: Git-bash, MSYS2, Cygwin), then prints: alternate screen `ESC[?1049h` (not with `noalt`), the keyboard protocol's query or push by `FV_KBD_PROTO` ([P3 3L](#the-keyboard-protocol-p3-3l)), cursor hidden `?25l`, autowrap off `?7l`, SGR reset, clear, bracketed paste on `?2004h` (P3 10.8); reads the size. Typed-ahead input is kept. rc 0 = on (also when it already was — here or in the parent of this subshell: a no-op); rc 1 = no terminal / stty failed — nothing printed to any terminal, nothing left open, one debug line; rc 2 = a mode other than `noalt` |
+| `fv.video.doneVideo` | the kitty keyboard flags popped `CSI < u` when they were pushed (first, while the alternate screen is on), SGR reset, `?7h`, `?25h`, `?1049l` (if used), mouse reporting off (`?1006l ?1003l ?1002l ?1000l`, always), bracketed paste off `?2004l` (always), the terminal's default cursor shape `ESC [ 0 SP q` (when a shape was sent, P3 10.7), the pending input drained (below), the reader and its watchdog stopped, `stty` back to the saved state, the fd closed, `FV_KEY_FD` put back, the caller's traps put back **exactly**. Idempotent: done twice, or done and then the EXIT trap, restores once. In a subshell of the process that called `initVideo`: a no-op (below). rc 0 |
 | `fv.video.updateSize` | `FV_SCREEN_W` / `FV_SCREEN_H` from `querySize`; a dimension that is 0, missing, not a number or longer than 5 digits comes from `COLUMNS` / `LINES`, else 80 × 24, with one debug line. Clears `FV_VIDEO_RESIZED` first. rc 0, `RESULT=''` |
 | `fv.video.querySize` | the size source: `RESULT="ROWS COLS"`, rc 0; rc 1 when it cannot tell. Default: `stty size` on `FV_TTY_FD` (a fork). **Override it** to take the size from elsewhere; the tests stub it |
 
@@ -960,7 +962,8 @@ HEAD) → after, as a ratio to the ASCII page of the same process (5.5 ms both):
 What is left of a CJK page is the wide put path (`_putw`: ~0.25 ms a row,
 substrings of the multibyte cells) and the wide frame (`updateScreen`: ~11
 ms of the page against ~3 ms for the Cyrillic one, the resync after every
-CJK character): the D31 speed stage 3v (design 10.15).
+CJK character): the D31 speed stage 3v (design 10.15; 3v-1 below, 3v-2 …
+3v-5 deferred by the owner).
 
 **P3 stage 3v-1, the wide write paths** (2026-11-21; the 3v design note's
 levers V1, V2, V5). Three per-row costs of a CJK page that 3a-1 left, and
@@ -1025,6 +1028,21 @@ the list scene (bench `views-list-80`):
 (The last row is the kbool bench row `W.standin.pgdn-cjk` added with this
 stage.)
 
+**The CI numbers** (the `fvviews` bench, same-run A/B, ubuntu host, 80 × 24,
+fresh pages). Stage 3a-1 (run 44769599343, the P2 stand-in scenes, before →
+after): PgDn Cyrillic 15.23 → 10.76 ms (0.71), CJK 73.50 → 21.30 (0.29);
+200 × 50 CJK 336.6 → 46.7 (0.14); ASCII and the other actions 0.95–1.06.
+Stage 3v-1 (run 44872443494, ratios after / before): the list's CJK PgDn
+0.81–0.84 at 80 × 24 and 0.77–0.81 at 200 × 50 on every runner (Alpine's
+bash 5.1 0.86 / 0.83), the stand-in beside a CJK list 0.86–0.92, ASCII and
+Cyrillic 0.97–1.02; F-1 (the two-panel first paint) 1.02 on Linux, 1.04 on
+Cygwin (the `\x01` IFS guard, ~0.4 ms). After it the list PgDn is ASCII 7.99
+/ Cyrillic 9.12 / CJK 14.12 ms against the stand-in's 6.45, and F-1 20.79
+against 15.26 ([fv.views "Cost"](../fv.views/README.md#cost)). **D31's
+targets (PgDn ≤ 8 ms for every kind of text, F-1 ≤ 15 ms) are not met**; the
+rest of the speed work (3v-2 … 3v-5, design 10.13 / 10.15) is deferred by
+the owner.
+
 ## Contract (kcl README §1) and deviations
 
 §1; deviations:
@@ -1043,9 +1061,15 @@ stage.)
   `REPLY` (the one entry point that sets `REPLY`); attributes are palette symbols,
   not FV attribute bytes; colours are 256-colour indices (D10), and with 16
   colours bright colours are SGR 90–97 / 100–107, not blink/bold as in FPC;
-  bold is a separate flag; cursor types 1–3 all just show the cursor (no
-  shape sequence); `clearScreen` sends nothing until `updateScreen` and
+  bold is a separate flag; cursor types 2 and 3 show the same block
+  (DECSCUSR has no half block), and every exit path's `ESC [ 0 SP q`
+  restores **the terminal's default cursor shape**, not the one the shell
+  had before (D27); `clearScreen` sends nothing until `updateScreen` and
   ignores the clip; the buffer is at most 1024 columns wide (FVMaxWidth).
+* **additions FV's Video unit does not have** (P3): bracketed paste
+  (`?2004h` / `?2004l`), `setClipboard` (OSC 52, cut at `FV_PASTE_MAX`), the
+  kitty keyboard protocol's push / pop (`FV_KBD_PROTO`), `clusters`, and a
+  caller `IFS` holding `\x01` handled by the guard (3v-1).
 * **friend entries for fv.\* units:** `fv.video._g CMD [ARGS…]` runs `CMD`
   under this unit's caller-state guard (nocasematch off, globasciiranges on,
   a UTF-8 character locale for a non-UTF-8 caller, all restored as above;
@@ -1116,7 +1140,7 @@ stage.)
 
 ## Tests
 
-`bash kcl/fv.video/tests/tests.sh` — 565 tests. `initVideo` runs only under
+`bash kcl/fv.video/tests/tests.sh` — 591 tests (Git-bash, 2026-11-22). `initVideo` runs only under
 `script(1)`'s pty (the harness is `tests/fvv_pty.sh`, shared with
 fv.drivers), never on the terminal the tests were started from; without a
 util-linux `script` in the runtime (Git-bash, BSD, macOS) those cases pass as

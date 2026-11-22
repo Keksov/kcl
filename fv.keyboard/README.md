@@ -81,6 +81,7 @@ Names are `kb` + modifiers in the order **Ctrl, Alt, Shift** + a base name.
 * `kbChar` — a printable character, UTF-8 of 1–4 bytes (`FV_KEY_CHAR`); space is `kbChar`, not FV's `kbSpaceBar`
 * `kbAltChar` — Alt + a printable character FV does not name (`ESC !`, `ESC é`); a non-ASCII character the [layout tables](#layout-independent-keys-p3-3l) know is named by its key instead (`ESC ж` → `kbAltSemiCol`, `ESC а` → `kbAltF`)
 * `kbMouse` — a mouse report, raw in `FV_KEY_SEQ`; `kbUnknown` — anything else, raw in `FV_KEY_SEQ`
+* `kbPaste` — a [bracketed paste](#decoding-rules) (P3 3d), the text in `FV_KEY_CHAR`; fv.drivers makes it FV's `evCommand cmPasteText`
 * `kbCtrlSpace` (NUL), `kbAltEnter`, `kbCtrlAltA` … `kbCtrlAltZ` (ESC + Ctrl-letter) **except H, I, J and M** — ESC + 0x08 / 0x09 / 0x0A / 0x0D are `kbAltBack`, `kbAltTab`, `kbAltEnter`, `kbAltEnter` — and `kbCtrlBackslash kbCtrlRBracket kbCtrlCaret kbCtrlUnderscore`
 * `kbF13` … `kbF20` (rxvt / Linux Shift-F, ambiguous) and every modifier combination FV lacks (`kbShiftUp`, `kbCtrlShiftHome`, `kbCtrlAltDel`, `kbCtrlShiftTab`, …)
 * from the kitty protocol only (a legacy terminal cannot tell these keys apart):
@@ -374,7 +375,9 @@ The 3L review's fixes (long CSIs, Ctrl+C, the table split) touch no code on
 the plain typing path: the same harness, before → after the fixes, best of
 24–30 × 600, gave `a` 86.7 → 85.3, `ж` 136.2 → 138.8, `getKeyEvent` `a`
 153.5 → 158.4 µs, and a run with the same file on both sides spreads ±2 %
-(swapped sides: 0.95–0.99×), so: unchanged within the noise.
+(swapped sides: 0.95–0.99×), so: unchanged within the noise. CI agrees:
+the `fvviews` bench (run 44834457935, same-run A/B against the unit before
+3L) kept every action at 0.96–1.05 on the Linux and Windows rows.
 
 The first legacy Alt + non-ASCII key also loads the default tables: 1.9 ms
 once (sourcing 0.7 ms + the 476-character table 1.0 ms); naming a variant in
@@ -400,6 +403,10 @@ code; `tests/012`: the tables' load, variants and lookups under `PATH=''`).
 * **a reader may raise SIGINT** (`kill -INT 0`, a builtin: no fork) for the
   kitty report of Ctrl+C while fv.video's TUI is on (`__FV_KB_ISIG`), as the
   tty does for 0x03;
+* **a bracketed paste is one key, `kbPaste`, capped at `FV_PASTE_MAX`
+  bytes** (default 64 KiB; the rest read and dropped with one debug line);
+  a frame that stalls past `__FV_KB_PT` ends with the text so far and its
+  tail comes as keys;
 * **`getKeyEvent` and `pollKeyEvent` never print**, also inside `$( )` or a
   pipeline: a reader in a subshell loses its queue anyway, and `… | while
   fv.keyboard.getKeyEvent` must not write key names into the loop's output.
@@ -415,7 +422,7 @@ code; `tests/012`: the tables' load, variants and lookups under `PATH=''`).
 
 ## Tests
 
-`bash kcl/fv.keyboard/tests/tests.sh` — 623 tests, no terminal (here-strings,
+`bash kcl/fv.keyboard/tests/tests.sh` — 644 tests (Git-bash, 2026-11-22), no terminal (here-strings,
 files, pipes; `005` uses delayed writers with generous bounds):
 
 | file | what |

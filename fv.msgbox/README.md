@@ -7,7 +7,8 @@ Layer L3 of the `fv.*` text UI ([plan](../docs/dev/fv/PLAN.md), design
 [fv.dialogs](../fv.dialogs/README.md)' classes, run it modal and destroy
 it, answering the command in `RESULT`. No classes of its own, no forks.
 
-**Status: P3 stage 3e.** The unit loads `fv.dialogs` (and through it
+**Status: done in P3 stage 3e** (P3 complete; its speed work is deferred
+with the dialogs', "Cost"). The unit loads `fv.dialogs` (and through it
 `fv.views`); the boxes need an application ([fv.app](../fv.app/README.md):
 `FV_DESKTOP`, `FV_APP`).
 
@@ -208,10 +209,17 @@ The dispatches are the constructors (`.new` and their `inherited` chains),
 the destructor and the application's override for the key; the box's own
 keys cost none. The bench rows `dlg.80x24.msgbox.e2e` (a real
 `messageBox`) and `dlg.80x24.msgbox.standin` (the design's stand-in: the
-same dialog, text and button built by hand) count the same 13 / 15; a
-laptop run (Git-bash 5.3, noisy) took ~65 ms against ~61 ms for the
-stand-in (design §8.3: ~52 ms laptop, ≤ 50 target, 34–46 ms estimated on
-CI). The CI bench decides.
+same dialog, text and button built by hand) count the same 13 / 15.
+
+**Times** (CI run 44957021634, stage 3e): `msgbox.e2e` costs 5–10 % more
+than the stand-in in the same run (the checks, the name scan, the format);
+against the same run's `standin.down` 10.8–11.2×: debian 43.3 ms, fedora
+40.1, the ubuntu host 59.4 (a slow runner), Git-bash 122, Cygwin 111.
+Design §8.3's target ≤ 50 ms (estimate 34–46) is met on debian / fedora and
+missed on the slow ubuntu runner — by ratio about 20 % over, the same build
+/ insert / destroy cost as fv.dialogs' open + close and history rows. **The
+speed work is deferred by the owner** (stages 3v-2…3v-5, fv_ledger.json);
+the counts above guard the shape meanwhile.
 
 ## Tests
 

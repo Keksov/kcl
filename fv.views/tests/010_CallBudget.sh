@@ -24,7 +24,9 @@
 #     window's shadow <= 2 shade calls, a border-only frame redraw <= 4
 #     writes;
 #   * (P3 3b) the list actions with their §8.1 limits, row and item
-#     independence (21 / 42 rows, 1 000 / 60 000 items).
+#     independence (21 / 42 rows, 1 000 / 60 000 items); (P3 3g) the
+#     writes independent too, and fresh Cyrillic / CJK pages at the cost of
+#     ASCII ones.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvw_testlib.sh"
 fvw_init "$(basename "$0" .sh)" "$@"
@@ -161,18 +163,38 @@ app.delete
 # writes): Down 6 / 2, Down at the bottom (a scroll) 6 / 3, PgDn 8 / 3, the
 # wheel 6 / 3, a click 8 / 2, End 6 / 3. Row and item independence: the same
 # dispatches with 21 and 42 rows, 1 000 and 60 000 items
-declare -A LC=() LW=()
+#
+# (P3 3g) The writes too: the same for every row count, item count and kind
+# of text (ASCII, fresh Cyrillic, fresh CJK: fv.video's batch of fresh rows,
+# levers 10.11 / 10.12), except for one thing that depends on neither alone:
+# when the bar's indicator moves to another cell, the bar repaints the cells
+# from the old one to the new one — one drawPart, one write more (P3-4). The
+# test reads the indicator's cell before and after each action (LT = 1 when
+# it moved) and compares the writes minus LT. Measured (every scene, every
+# kind; dispatches / writes without the indicator's write): Down 2 / 1 (rule
+# 4: the two neighbouring rows in one drawPart), Down at the bottom 2 / 1,
+# PgDn 2 / 1, wheel 2 / 1, click 2 / 2, End 2 / 1, Home 2 / 1; the indicator
+# moves on every End / Home here and on PgDn with 42 rows over 1 000 items
+declare -A LC=() LW=() LT=()
+# thumb — REPLY = the cell of w2's bar indicator (FV GetPos)
+thumb() {
+    local __fvw_sp __fvw_ss b="w2l_data[VScrollBar]"
+    fv.views._sbPos "${!b}"
+    REPLY=$__fvw_sp
+}
 lact() {   # KEY LABEL LIMIT LIMITW SPEC...
-    local k=$1 label=$2 limit=$3 lw=$4
+    local k=$1 label=$2 limit=$3 lw=$4 t0
     shift 4
+    thumb; t0=$REPLY
     fvw_budgetw "list $label ($k)" "$limit" run "$@"
     LC[$k|$label]=$FVW_LASTC LW[$k|$label]=$FVW_LASTW
+    thumb; LT[$k|$label]=$(( REPLY != t0 ))
     kt_test_start "list $label ($k): at most $lw writes"
     if (( FVW_LASTW <= lw )); then kt_test_pass "$FVW_LASTW writes"; else kt_test_fail "$FVW_LASTW writes > $lw"; fi
 }
-lactions() {   # H ITEMS
-    local k="$(( $1 - 3 )) rows, $2 items" y=$(( $1 / 2 ))
-    fvw_lscene 80 "$1" "$2"
+lactions() {   # H ITEMS [KIND]
+    local k="$(( $1 - 3 )) rows, $2 items${3:+, $3}" y=$(( $1 / 2 ))
+    fvw_lscene 80 "$1" "$2" "${3:-ascii}"
     fv.views.drawView app
     lact "$k" "Down" 6 2 'key kbDown'
     run 'key kbCtrlPgDn'
@@ -199,5 +221,36 @@ for l in "Down" "Down at the bottom" "PgDn" "wheel" "click" "End" "Home"; do
     done
 done
 if [[ -z $bad && ${#LC[@]} == 28 ]]; then kt_test_pass "ok"; else kt_test_fail "$bad (${#LC[@]} counts)"; fi
+
+# (P3 3g) fresh non-ASCII pages (design §8.1's "after 10.11 / 10.12 for
+# every kind"): the same dispatches and writes as ASCII, 21 and 42 rows
+lactions 24 1000 cyr
+lactions 45 1000 cyr
+lactions 24 1000 cjk
+lactions 45 1000 cjk
+KINDS=("21 rows, 60000 items" "42 rows, 1000 items" "42 rows, 60000 items"
+       "21 rows, 1000 items, cyr" "42 rows, 1000 items, cyr" "21 rows, 1000 items, cjk" "42 rows, 1000 items, cjk")
+kt_test_start "list kinds: fresh Cyrillic and CJK pages cost the dispatches of ASCII ones, action by action"
+bad=''
+for l in "Down" "Down at the bottom" "PgDn" "wheel" "click" "End" "Home"; do
+    ref=${LC[21 rows, 1000 items|$l]-x}
+    for k in "${KINDS[@]:3}"; do
+        [[ ${LC[$k|$l]-y} == "$ref" ]] || bad+=" [$l: $ref vs $k ${LC[$k|$l]-none}]"
+    done
+done
+if [[ -z $bad && ${#LC[@]} == 56 ]]; then kt_test_pass "ok"; else kt_test_fail "$bad (${#LC[@]} counts)"; fi
+kt_test_start "list writes: the same for 21 / 42 rows, 1 000 / 60 000 items, ASCII / Cyrillic / CJK, but for one write when the bar's indicator moves"
+bad='' moved=''
+for l in "Down" "Down at the bottom" "PgDn" "wheel" "click" "End" "Home"; do
+    k="21 rows, 1000 items"
+    ref=$(( ${LW[$k|$l]-90} - ${LT[$k|$l]-0} ))
+    for k in "${KINDS[@]}"; do
+        (( ${LW[$k|$l]-99} - ${LT[$k|$l]-0} == ref )) || bad+=" [$l: $ref vs $k ${LW[$k|$l]-none} - ${LT[$k|$l]-none}]"
+        if (( ${LT[$k|$l]-0} )); then moved+=" [$l / $k]"; fi
+    done
+    kt_test_log "# writes list $l $ref (+1 when the indicator moves)"
+done
+kt_test_log "indicator moved:$moved"
+if [[ -z $bad && ${#LW[@]} == 56 && ${#LT[@]} == 56 ]]; then kt_test_pass "ok"; else kt_test_fail "$bad (${#LW[@]} / ${#LT[@]} counts)"; fi
 
 kt_test_log "010_CallBudget.sh completed"
