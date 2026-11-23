@@ -72,7 +72,7 @@ box "checklist: the mark adds 4 columns to the row" '27 7 53 16' 'key kbEnter' -
 box "a long row widens the box (row + 6)" '14 7 66 16' 'key kbEnter' -- --menu 'Pick' 0 0 0 a 'An item text that is rather long, forty-one' b B
 box "LH 3 of 10: three rows, the bar's column" '27 7 53 17' 'key kbEnter' -- --menu 'Pick' 0 0 3 a A b B c C d D e E f F g G h H i I j J
 box "LH larger than the items: the items" '27 7 53 16' 'key kbEnter' -- --menu 'Pick' 0 0 50 a A b B
-box "a title wider than the text: title + 12" '24 9 55 15' 'key kbEnter' -- --title 'A rather long title' --yesno 'Ok?' 0 0
+box "a title wider than the text: title + 16 (FV TFrame: W - 16 beside the close icon)" '22 9 57 15' 'key kbEnter' -- --title 'A rather long title' --yesno 'Ok?' 0 0
 box "a long text: at most 2/3 of the screen for it (53 + 4)" '11 7 68 16' 'key kbEnter' -- --msgbox "$(printf 'word %.0s' {1..40})" 0 0
 
 kt_test_section "007: -1, clamping, the minimum grown to"

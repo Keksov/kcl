@@ -8,7 +8,8 @@
 #   * the caller's traps: ours while on, exactly the caller's after done;
 #   * SIGWINCH: FV_VIDEO_RESIZED=1, the caller's WINCH handler, and the next
 #     getEvent is cmResizeApp with the new size;
-#   * init twice / done twice: one ?1049h and one ?1049l; noalt: none;
+#   * init twice / done twice: one ?1049h and one ?1049l; noalt: none, no clear
+#     (the size known), the restore ends with the move to the last row;
 #   * inside x=$(...): it draws on the tty, x gets only the value printed;
 #   * FV_TTY = the pty's own path works like /dev/tty;
 #   * raw mode refused by stty (a stty function stands in): rc 1, nothing
@@ -34,7 +35,7 @@ TITLES=("raw mode: -echo -icanon -ixon min 1 time 0, intr = ^C, susp/quit/lnext 
     "SIGWINCH sets FV_VIDEO_RESIZED and runs the caller's WINCH handler; getEvent -> evCommand cmResizeApp 120 40"
     "the state run restored the terminal"
     "initVideo twice / doneVideo twice: rc 0 each, one ?1049h and one ?1049l, the EXIT trap restores nothing more"
-    "noalt: no ?1049h / ?1049l, cursor and autowrap still restored"
+    "noalt: no ?1049h / ?1049l, no clear (ESC [ 2 J: the size is known), cursor and autowrap still restored; exit without doneVideo: the restore ends with ESC [ 30 ; 1 H (the last row, column 1)"
     "inside x=\$(...): drawn on the tty, x holds only the value printed after done"
     "FV_TTY = the pty's path (\$(tty)): works like /dev/tty"
     "raw mode refused by stty: rc 1, nothing printed to the terminal, stty / traps / FV_KEY_FD / fds as they were")
@@ -127,8 +128,10 @@ exit 4'
 fvp_run noalt
 kt_test_start "${TITLES[7]}"
 count noalt $'\e[?1049'; n=$REPLY
+count noalt $'\e[2J'; n2=$REPLY
+fvp_ts noalt; nts=$REPLY
 fvp_file noalt rc
-if [[ $REPLY == 4 && $n == 0 ]] && fvp_restored noalt 0; then kt_test_pass "ok"; else kt_test_fail "rc=$REPLY ?1049=$n $(fvp_restored noalt 0; echo "$REPLY")"; fi
+if [[ $REPLY == 4 && $n == 0 && $n2 == 0 && $nts == *$'\e[?2004l\e[30;1H'* ]] && fvp_restored noalt 0; then kt_test_pass "ok"; else kt_test_fail "rc=$REPLY ?1049=$n 2J=$n2 $(fvp_restored noalt 0; echo "$REPLY")"; fi
 
 fvp_case subst '
 x=$(fv.video.initVideo || exit 91; printf "DRAWN-%s" "$FV_SCREEN_W" >&"$FV_TTY_FD"; fv.video.doneVideo; printf "value")

@@ -68,12 +68,12 @@ f=$FVV_TMP/frame.out; exec {fd}>"$f"; FV_VIDEO_OUT_FD=$fd fv.video.updateScreen 
 if vt_feed "$REPLY" && [[ $VT_SHP == 2 && $VT_VIS == h ]]; then kt_test_pass "ok"; else kt_test_fail "shp=$VT_SHP vis=$VT_VIS $VT_ERR"; fi
 
 # --- the restore's sequence (headless: a fake TUI of this process on a file) ---------
-# restore CSHP -> REPLY = what fv.video._restore wrote
+# restore CSHP [ALT] -> REPLY = what fv.video._restore wrote (ALT 0: a noalt TUI)
 restore() {
     local f=$FVV_TMP/restore.out pf
     : > "$f"
     exec {pf}<>"$f"
-    __FV_VI_ACT=1 __FV_VI_PID=$BASHPID __FV_VI_FD=$pf __FV_VI_SAVED='' __FV_VI_KPUSH=0 __FV_VI_CSHP=$1 __FV_VI_ALT=1
+    __FV_VI_ACT=1 __FV_VI_PID=$BASHPID __FV_VI_FD=$pf __FV_VI_SAVED='' __FV_VI_KPUSH=0 __FV_VI_CSHP=$1 __FV_VI_ALT=${2:-1}
     __FV_VI_KSET=1 __FV_VI_KFD=0 __FV_VI_RMODE=0 __FV_VI_RPID='' __FV_VI_RFD='' __FV_VI_WPID='' __FV_VI_WFD=''
     fv.video._restore
     REPLY=$(<"$f")
@@ -84,6 +84,17 @@ if [[ $REPLY == *"${E}[?1000l${E}[?2004l${E}[0 q" && $__FV_VI_CSHP == 0 && -z $_
 kt_test_start "the restore with no shape sent: ?2004l, no ESC [ 0 SP q"
 restore 0
 if [[ $REPLY == *"${E}[?1000l${E}[?2004l" && $REPLY != *' q'* ]]; then kt_test_pass "ok"; else kt_test_fail "$(printf '%q' "$REPLY")"; fi
+# (fv.dlg P4 4b fix M1: a main-screen TUI left by a signal kept the cursor
+# inside its picture)
+kt_test_start "the restore of a noalt TUI ends with the cursor sent to the last row, column 1 (ESC [ H ; 1 H, after the SGR reset and every mode reset; with a shape: after ESC [ 0 SP q)"
+a=$(FV_SCREEN_H=24; restore 0 0; printf '%s' "$REPLY") b=$(FV_SCREEN_H=7; restore 1 0; printf '%s' "$REPLY")
+if [[ $a == "${E}[0m"*"${E}[?2004l${E}[24;1H" && $b == *"${E}[?2004l${E}[0 q${E}[7;1H" && $a != *1049* ]]; then kt_test_pass "ok"; else kt_test_fail "$(printf '%q' "$a") $(printf '%q' "$b")"; fi
+kt_test_start "the alternate screen's restore is unchanged: ?1049l, no move to the last row"
+restore 0 1
+if [[ $REPLY == *"${E}[?1049l"* && $REPLY == *"${E}[?2004l" && $REPLY != *';1H'* ]]; then kt_test_pass "ok"; else kt_test_fail "$(printf '%q' "$REPLY")"; fi
+kt_test_start "a noalt restore with FV_SCREEN_H not a number: ESC [ 999 ; 1 H (the terminal clamps it to its last row)"
+a=$(FV_SCREEN_H=x; restore 0 0; printf '%s' "$REPLY")
+if [[ $a == *"${E}[?2004l${E}[999;1H" ]]; then kt_test_pass "ok"; else kt_test_fail "$(printf '%q' "$a")"; fi
 FV_KEY_FD=0
 
 # --- 10.9 OSC 52 ------------------------------------------------------------------------

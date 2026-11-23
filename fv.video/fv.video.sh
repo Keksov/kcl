@@ -99,6 +99,9 @@ declare -g __FV_VI_KPUSH=${__FV_VI_KPUSH:-0}
 # CSHP: 1 = a cursor shape (DECSCUSR) was sent since init (the restore sends
 # ESC [ 0 SP q: the terminal's default shape; P3 10.7, D27)
 declare -g __FV_VI_CSHP=${__FV_VI_CSHP:-0}
+# SZFB: 1 = the last updateSize guessed a dimension (COLUMNS / LINES, else
+# 80x24: the terminal did not tell); a noalt init then clears the screen
+declare -g __FV_VI_SZFB=${__FV_VI_SZFB:-0}
 declare -ga __FV_VI_UNDEF
 __FV_VI_UNDEF+=()
 declare -gA __FV_VI_TP=() __FV_VI_PREV=()
@@ -140,6 +143,7 @@ fv.video.updateSize() {
     fi
     fv.video._dim "$__fvv_c" "${COLUMNS-}" 80; FV_SCREEN_W=$__fvv_v
     fv.video._dim "$__fvv_r" "${LINES-}" 24; FV_SCREEN_H=$__fvv_v
+    __FV_VI_SZFB=$__fvv_why
     if (( __fvv_why )); then
         kk.debug "Error: fv.video.updateSize: the terminal size is unknown ('$RESULT'); using ${FV_SCREEN_W}x$FV_SCREEN_H (COLUMNS/LINES, else 80x24)"
     fi
@@ -467,6 +471,12 @@ fv.video._restore() {
     # default cursor shape back when a shape was sent (10.7, D27: ESC [ 0 SP q)
     __fvv_s+=$'\e[?1006l\e[?1003l\e[?1002l\e[?1000l\e[?2004l'
     if (( __FV_VI_CSHP )); then __fvv_s+=$'\e[0 q'; fi
+    # the main screen (noalt): the cursor to the last row, column 1, last —
+    # the picture stays and the shell's next output starts below it (dialog's
+    # endwin), on every exit path (done, exit, a signal)
+    if (( ! __FV_VI_ALT )); then
+        if [[ -n ${FV_SCREEN_H-} && $FV_SCREEN_H != *[!0123456789]* ]]; then __fvv_s+=$'\e['"$FV_SCREEN_H;1H"; else __fvv_s+=$'\e[999;1H'; fi
+    fi
     __FV_VI_CSHP=0 __FV_VS_SSHP=''
     if [[ -z ${1-} ]]; then printf '%s' "$__fvv_s" 2>/dev/null >&$__fvv_fd || :; fi
     # with a reader (RMODE): drain its pipe while it still forwards, then
@@ -633,7 +643,8 @@ fv.video.initVideo() {
     # already on - here, or in the parent of this subshell, whose terminal
     # and FV_TTY_FD the subshell then uses
     if (( FV_VIDEO_ON || __FV_VI_ACT )); then return 0; fi
-    if ! { exec {__fvv_fd}<>"$__fvv_tty"; } 2>/dev/null; then
+    # (a missing path is no terminal, never opened: `<>` would create it)
+    if [[ ! -e $__fvv_tty ]] || ! { exec {__fvv_fd}<>"$__fvv_tty"; } 2>/dev/null; then
         kk.debug "Error: fv.video.initVideo: cannot open '$__fvv_tty' (no terminal)"
         return 1
     fi
@@ -663,12 +674,17 @@ fv.video.initVideo() {
     # never DECKPAM (ESC =): keypad ESC O p..y would read as vt100 F5-F12
     fv.video._kproto
     # (bracketed paste on, P3 10.8: a paste arrives as one frame that
-    # fv.keyboard decodes into one key, kbPaste)
-    __fvv_x=$__fvv_x$'\e[?25l\e[?7l\e[0m\e[H\e[2J\e[?2004h'
-    if (( __fvv_alt )); then __fvv_x=$'\e[?1049h'$__fvv_x; fi
+    # fv.keyboard decodes into one key, kbPaste). noalt leaves the main
+    # screen as it is (no clear, no blank flash): the first frame paints
+    # every cell of a buffer of the size read below (FORCE, or a fresh
+    # buffer) — cleared after all when that size is a guess or wider than
+    # the buffer keeps (1024)
+    if (( __fvv_alt )); then __fvv_x=$'\e[?1049h'$__fvv_x$'\e[?25l\e[?7l\e[0m\e[H\e[2J\e[?2004h'
+    else __fvv_x=$__fvv_x$'\e[?25l\e[?7l\e[0m\e[?2004h'; fi
     __FV_VI_CSHP=0 __FV_VS_SSHP=''
     printf '%s' "$__fvv_x" 2>/dev/null >&$__fvv_fd || :
     fv.video.updateSize
+    if (( ! __fvv_alt && ( __FV_VI_SZFB || FV_SCREEN_W > 1024 ) )); then printf '%s' $'\e[H\e[2J' 2>/dev/null >&$__fvv_fd || :; fi
     FV_VIDEO_ON=1
     # the screen was just cleared: the buffer's next frame repaints everything
     # (FPC: a fresh OldVideoBuf)

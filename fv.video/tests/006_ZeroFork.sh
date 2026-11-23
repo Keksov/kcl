@@ -41,7 +41,7 @@ fv.video.querySize() { return 1; }
 COLUMNS=70 LINES=20 fv.video.updateSize; r+=\"\${FV_SCREEN_W}x\$FV_SCREEN_H \"
 fv.video.doneVideo; r+=\"\$? \"
 fv.video.initVideo bad; r+=\"\$? \"
-FV_TTY=/nonexistent/tty fv.video.initVideo; r+=\"\$?\"
+FV_TTY='$FVV_TMP/none/tty' fv.video.initVideo; r+=\"\$?\"
 fv.video._untrap
 printf '%s' \"\$r\"" 2>&1)
 want=$'caller-winch\n1 0 111x33 0 70x20 0 2 1'

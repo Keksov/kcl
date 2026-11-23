@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 001_NoTerminal.sh - initVideo without a terminal it may drive, and the calls
 # that need none. Nothing here opens the terminal the tests run on:
-#   * a bad mode is rc 2; a missing FV_TTY, a regular file, /dev/null, and
+#   * a bad mode is rc 2; a missing FV_TTY (in a missing folder, or a
+#     missing file in this test's folder: never created), a regular file, /dev/null, and
 #     /dev/tty in a session without a controlling terminal (setsid; SKIP
 #     without util-linux setsid) are rc 1 with nothing printed or written, no
 #     fd left open, FV_KEY_FD / FV_TTY_FD / the caller's traps untouched, and
@@ -31,20 +32,20 @@ if [[ $rc == 2 && ! -s $FVV_TMP/o && -z $RESULT && $FV_VIDEO_ON == 0 ]]; then kt
 
 kt_test_start "a caller's nocasematch does not turn NOALT into noalt: rc 2, nocasematch still on"
 shopt -s nocasematch
-FV_TTY=/nonexistent fv.video.initVideo NOALT > "$FVV_TMP/o" 2>&1; rc=$?
+FV_TTY=$FVV_TMP/missing-tty fv.video.initVideo NOALT > "$FVV_TMP/o" 2>&1; rc=$?
 on=$(shopt -q nocasematch && echo on)
 shopt -u nocasematch
 if [[ $rc == 2 && $on == on && ! -s $FVV_TMP/o ]]; then kt_test_pass "ok"; else kt_test_fail "rc=$rc nocasematch=$on"; fi
 
 : > "$FVV_TMP/plain"
-for t in "$FVV_TMP/none/tty" "$FVV_TMP/plain" /dev/null; do
+for t in "$FVV_TMP/none/tty" "$FVV_TMP/missing-tty" "$FVV_TMP/plain" /dev/null; do
     for m in '' noalt; do
-        kt_test_start "FV_TTY=${t##*/} initVideo ${m:-(alt)}: rc 1, nothing printed or written, no fd left, state untouched"
+        kt_test_start "FV_TTY=${t##*/} initVideo ${m:-(alt)}: rc 1, nothing printed or written (a missing path never created), no fd left, state untouched"
         state; before=$REPLY
         RESULT=x
         FV_TTY=$t fv.video.initVideo $m > "$FVV_TMP/o" 2>&1; rc=$?
         state; after=$REPLY
-        if [[ $rc == 1 && ! -s $FVV_TMP/o && ! -s $FVV_TMP/plain && -z $RESULT && $before == "$after" ]]; then
+        if [[ $rc == 1 && ! -s $FVV_TMP/o && ! -s $FVV_TMP/plain && ! -e $FVV_TMP/missing-tty && -z $RESULT && $before == "$after" ]]; then
             kt_test_pass "ok"
         else
             kt_test_fail "rc=$rc RESULT=$RESULT out=[$(<"$FVV_TMP/o")] before=$before after=$after"

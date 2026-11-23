@@ -56,8 +56,10 @@ kclt_code() {
 KCLT_SRC_RE='(^|[;&|!(]|(^|[[:space:]])(if|then|do|else|elif|while|until))[[:space:]]*(source|\.)[[:space:]]'
 # the data files units may source (not units: no kk.uses), by unit: the
 # exact text of the statement's start. fv.keyboard's generated layout tables
-# (P3 3L, tools/kbdlayout), sourced at the first need and again for the variants
-declare -A KCLT_DATASRC=([fv.keyboard]='source "$__FV_KB_DIR/fv.keyboard.layouts.sh"')
+# (P3 3L, tools/kbdlayout), sourced at the first need and again for the variants;
+# fv.dlg's --help / --version text (P4 4b), shared with bin/fvdlg
+declare -A KCLT_DATASRC=([fv.keyboard]='source "$__FV_KB_DIR/fv.keyboard.layouts.sh"'
+    [fv.dlg]='source "$__FV_DL_DIR/fv.dlg.usage.sh"')
 
 files=() rows=" "
 declare -A KDEFS=()

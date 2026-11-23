@@ -142,6 +142,54 @@ out=$(termstub session)
 kt_test_start "the same in a session: one initVideo (begin) and one doneVideo (end)"
 if [[ $out == 'id|0a 0b 0c ' ]]; then kt_test_pass "$out"; else kt_test_fail "$out"; fi
 
+kt_test_section "008: the session's screen mode (D34, stage 4b)"
+# sesmode BEGIN-ARG... : a stubbed terminal; begin, two runs (Enter), end ->
+# "init/done calls|answers|run refusal"; the frames in $FVW_TMP/ses.out
+sesmode() {
+    (
+        REC='' ANS=''
+        fv.video.initVideo() { if (( ! FV_VIDEO_ON )); then REC+="init:${1-};"; fi; FV_VIDEO_ON=1; return 0; }
+        fv.video.doneVideo() { REC+='done;'; FV_VIDEO_ON=0; return 0; }
+        fv.drivers.initEvents() { return 0; }
+        fv.drivers.doneEvents() { return 0; }
+        exec {o}>"$FVW_TMP/ses.out"
+        FV_VIDEO_OUT_FD=$o FV_SCREEN_W=80 FV_SCREEN_H=24 FV_VIDEO_ON=0
+        unset FV_APP_HEADLESS
+        fv.dlg.begin "$@" || exit 9
+        for t in a b; do
+            fvdl_events 'key kbEnter'
+            fv.dlg.run --menu 'Pick' 0 0 0 "$t" X; ANS+="$?$RESULT "
+            fva_noevents; __FV_VW_EOF=0
+        done
+        fv.dlg.run --fv-screen main --msgbox x 0 0 2>/dev/null; ANS+="$?"
+        fv.dlg.run --keep-tite --clear --infobox y 0 0 2>/dev/null; ANS+=" $?"
+        fv.dlg.end
+        printf '%s|%s' "$REC" "$ANS"
+    )
+}
+a=$(sesmode)
+b=$(sesmode --fv-screen main --backtitle S)
+fb=$(<"$FVW_TMP/ses.out")
+c=$(sesmode --erase-on-exit)
+fc=$(<"$FVW_TMP/ses.out")
+d=$(sesmode --keep-tite)
+kt_test_start "a session takes the mode once: alt = the application's initVideo, main / --erase-on-exit = one initVideo noalt by begin and one doneVideo by end; a run's --fv-screen refused (255), --keep-tite / --clear accepted and ignored"
+if [[ $a == 'init:;done;|0a 0b 255 0' && $b == 'init:noalt;done;|0a 0b 255 0' && $c == 'init:noalt;done;|0a 0b 255 0' && $d == 'init:;done;|0a 0b 255 0' ]]; then kt_test_pass ok
+else kt_test_fail "[$a] [$b] [$c] [$d]"; fi
+kt_test_start "the session's end on the main screen: the picture left, nothing cleared (the cursor's move to the last row is fv.video's noalt restore, stubbed here); --erase-on-exit: the screen cleared last"
+if [[ $fb != *$'\e[2J'* && $fc == *$'\e[0m\e[H\e[2J' ]]; then kt_test_pass ok; else kt_test_fail "main tail [${fb: -30}] erase tail [${fc: -20}]"; fi
+source "$FVDL_TESTS_DIR/../../fv.video/tests/fvv_vt.sh"
+f=$FVW_TMP/hses.out
+fv.dlg.begin --fv-headless --fv-out "$f" --fv-screen main
+fvdl_events 'key kbEnter'
+fv.dlg.run --msgbox 'kept here' 0 0; r=$?
+fva_noevents; __FV_VW_EOF=0
+fv.dlg.end
+s=$(<"$f")
+kt_test_start "a headless session on the main screen: the frame file ends as the noalt restore would (SGR reset, cursor shown, ESC [ 24 ; 1 H), the last dialog still in the picture"
+vt_init 80 24
+if [[ $r == 0 && $s == *$'\e[0m\e[?25h\e[24;1H' ]] && vt_feed "$s" && [[ "$VT_X $VT_Y" == '0 23' ]]; then kt_test_pass ok; else kt_test_fail "rc $r tail [$(printf '%q' "${s: -30}")] vt [$VT_ERR] $VT_X $VT_Y"; fi
+
 kt_test_section "008: inside a running fv application (the host)"
 hb() { fva_b "${FV_DESKTOP}__fvdlg"; HB=$REPLY; }
 hoststub() {   # -> a line of facts

@@ -40,7 +40,7 @@ expect_clean "kk.uses fv.video by name under set -eu, without fv.keyboard / fv.m
     "source '$KBOOL'; kk.uses fv.video; declare -F fv.video.initVideo >/dev/null; [[ -z \${__KK_UNITS[fv.keyboard]-}\${__KK_UNITS[fv.mouse]-} ]]"
 expect_clean "the no-terminal path under set -eu (failing init in if / ||, done, size)" "
 source '$UNIT'
-if FV_TTY=/nonexistent fv.video.initVideo; then exit 9; fi
+if FV_TTY='$TMP/missing-tty' fv.video.initVideo; then exit 9; fi
 fv.video.initVideo bad || :
 FV_TTY=/dev/null fv.video.initVideo || :
 fv.video.doneVideo
@@ -104,7 +104,7 @@ fv.video._rstop
 kt_test_start "a failing call returns to the caller under set -e"
 out="$(bash -c "set -e
 source '$UNIT'
-if FV_TTY=/nonexistent fv.video.initVideo; then echo got; else echo none; fi
+if FV_TTY='$TMP/missing-tty' fv.video.initVideo; then echo got; else echo none; fi
 fv.video.initVideo junk || echo rc\$?
 echo end" 2>&1)"
 if [[ $out == $'none\nrc2\nend' ]]; then kt_test_pass "ok"; else kt_test_fail "out='$out'"; fi
@@ -112,7 +112,7 @@ if [[ $out == $'none\nrc2\nend' ]]; then kt_test_pass "ok"; else kt_test_fail "o
 kt_test_start "nothing reaches stdout, also inside \$( ) (a TUI may run inside x=\$(...))"
 out="$(bash -c "
 source '$UNIT'
-x=\$(FV_TTY=/nonexistent fv.video.initVideo; fv.video.initVideo bad; fv.video.updateSize; fv.video.querySize; fv.video.doneVideo
+x=\$(FV_TTY='$TMP/missing-tty' fv.video.initVideo; fv.video.initVideo bad; fv.video.updateSize; fv.video.querySize; fv.video.doneVideo
      fv.video.querySize() { RESULT='1 2'; }; fv.video.updateSize
      fv.video.initScreen; fv.video.writeStr 0 0 x 1; fv.video.updateScreen; fv.video.writeStr x; fv.video.strWidth abc
      fv.video.definePalette q 1 1; fv.video.detectColorDepth; fv.video.writeBuf 0 0 a 1 2; fv.video.shadeRect 0 0 1 1; fv.video.fillColumns 0 1 1 x 0; fv.video._wstr 0 0 a 1
@@ -127,7 +127,7 @@ source '$KBOOL'
 compgen -v | LC_ALL=C sort > '$TMP/v0'
 compgen -A function | LC_ALL=C sort > '$TMP/f0'
 source '$UNIT'
-FV_TTY=/nonexistent fv.video.initVideo
+FV_TTY='$TMP/missing-tty' fv.video.initVideo
 fv.video.initVideo bad
 fv.video.doneVideo
 fv.video.updateSize

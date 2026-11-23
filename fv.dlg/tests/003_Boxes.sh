@@ -157,8 +157,9 @@ fvdl_snap
 fvdl_find 'Please wait'; t=$REPLY
 fvdl_box; b=$REPLY
 fvdl_live; l=$REPLY
-kt_test_start "infobox: rc 0 at once (no event read), the box stays in the buffer, nothing left alive"
-if [[ $r == 0 && $c == cmOK && $n == 0 && -n $t && $b == '32 10 48 13' && $t == '34 11' && -z $l && -z $FV_APP ]]; then kt_test_pass "box $b"
+fvdl_row 10; tr=$REPLY
+kt_test_start "infobox: rc 0 at once (no event read), the box stays in the buffer with its title (Info + 16 wide: FV TFrame's room beside the close icon), nothing left alive"
+if [[ $r == 0 && $c == cmOK && $n == 0 && -n $t && $b == '30 10 50 13' && $t == '32 11' && $tr == *' Info '* && -z $l && -z $FV_APP ]]; then kt_test_pass "box $b"
 else kt_test_fail "rc $r $c events $n text [$t] box [$b] live [$l]"; fi
 
 # the terminal path with fv.video stubbed (a subshell: the stubs stay there)
@@ -239,9 +240,15 @@ fvdl_run snap 'key kbEnter' -- --title 'A twenty-cell title!' --msgbox x 0 0
 fvdl_box; b2=$REPLY
 fvdl_run snap 'key kbEnter' -- --title "$w" --msgbox x 8 30
 fvdl_box; b3=$REPLY
-kt_test_start "a title wider than the screen: the box as wide as the screen (the frame cuts it), rc 0; a shorter one widens the auto box (+12); an explicit W is kept"
-if [[ $r1 == 0 && $b1 == '0 '*' 80 '* && $b2 == '24 9 56 15' && $b3 == '25 8 55 16' ]]; then kt_test_pass "[$b1] [$b2] [$b3]"
+kt_test_start "a title wider than the screen: the box as wide as the screen (the frame cuts it), rc 0; a shorter one widens the auto box (+16, FV TFrame's room beside the close icon); an explicit W is kept"
+if [[ $r1 == 0 && $b1 == '0 '*' 80 '* && $b2 == '22 9 58 15' && $b3 == '25 8 55 16' ]]; then kt_test_pass "[$b1] [$b2] [$b3]"
 else kt_test_fail "rc $r1 [$b1] [$b2] [$b3]"; fi
+fvdl_run snap 'key kbEnter' -- --title Zt --msgbox hello 0 0
+fvdl_box; b1=$REPLY; fvdl_find 'Zt'; t1=$REPLY
+fvdl_run snap 'key kbEnter' -- --title Disk --yesno 'Format?' 0 0
+fvdl_box; b2=$REPLY; fvdl_find ' Disk '; t2=$REPLY
+kt_test_start "a short title shows in the auto box (fixed: a 16-wide box left FV TFrame no room beside the close icon): Zt -> 18 wide; Disk on a yes/no (the buttons make it 26) shows too"
+if [[ $b1 == '31 9 49 15' && $t1 == '39 9' && $b2 == '27 9 53 15' && -n $t2 ]]; then kt_test_pass "[$b1] [$b2]"; else kt_test_fail "[$b1] title [$t1] [$b2] title [$t2]"; fi
 fvdl_run snap 'key kbEnter' -- --ok-button "$w" --msgbox x 0 0
 r1=$FVDL_RC
 fvdl_box; b1=$REPLY
@@ -299,5 +306,118 @@ tty=$(<"$FVW_TMP/tty.out")
 noff
 kt_test_start "--fv-mouse on (the default): only the disable at Done; the queued Enter arrives"
 if [[ $out == '0|cmOK' && $tty == *"$on"* && $REPLY == 1 ]]; then kt_test_pass "$out"; else kt_test_fail "$out tty [${tty//$'\e'/^[}]"; fi
+
+kt_test_section "003: the screen modes (D34, stage 4b)"
+# scr SPEC... -- ARG... : a headless call with its frames in a file, then the
+# final picture through fv.video's VT model (fvv_vt.sh): SCR = the rows
+# ('|' after each), SCR_CUR = "X Y" of the cursor, SCR_RC the status
+source "$FVDL_TESTS_DIR/../../fv.video/tests/fvv_vt.sh"
+scr() {
+    local -a specs=()
+    local f=$FVW_TMP/scr.out s='' y x r
+    while (( $# )) && [ "$1" != -- ]; do specs+=("$1"); shift; done
+    shift
+    fvdl_run "${specs[@]}" -- --fv-out "$f" "$@"
+    SCR_RC=$FVDL_RC
+    { IFS= read -r -d '' s || :; } < "$f"
+    vt_init 80 24
+    vt_feed "$s" || SCR_RC="vt:$VT_ERR"
+    SCR=''
+    for (( y = 0; y < 24; y++ )); do r=''; for (( x = 0; x < 80; x++ )); do r+=${VT_C[y * 80 + x]}; done; SCR+="$r|"; done
+    SCR_CUR="$VT_X $VT_Y"
+}
+blank=$(printf '%80s' '')
+scr 'key kbEnter' -- --title Zt --msgbox hello 0 0
+kt_test_start "default (the alternate screen): the dialog is gone from the last picture (the desktop repainted), the cursor wherever FV left it"
+if [[ $SCR_RC == 0 && $SCR != *'╔'* && $SCR != *hello* && $SCR == *'░░░'* ]]; then kt_test_pass "cursor $SCR_CUR"; else kt_test_fail "rc $SCR_RC ${SCR:0:200}"; fi
+scr 'key kbEnter' -- --fv-screen main --title Zt --msgbox 'hello there, world' 0 0
+kt_test_start "--fv-screen main: the last dialog stays (frame, title, text, its OK button), the desktop around it, the cursor at column 0 of the last row (dialog's endwin)"
+if [[ $SCR_RC == 0 && $SCR == *'╔'*' Zt '*'╗'* && $SCR == *'║ hello'* && $SCR == *'OK'* && $SCR == *'░░░'* && $SCR_CUR == '0 23' ]]; then kt_test_pass ok; else kt_test_fail "rc $SCR_RC cur $SCR_CUR ${SCR:0:300}"; fi
+scr 'key kbEsc' -- --fv-screen main --yesno 'sure?' 0 0
+kt_test_start "--fv-screen main, Esc (255): the dialog stays too"
+if [[ $SCR_RC == 255 && $SCR == *'║ sure?'* && $SCR_CUR == '0 23' ]]; then kt_test_pass ok; else kt_test_fail "rc $SCR_RC cur $SCR_CUR"; fi
+scr 'char x' 'char y' 'key kbEnter' -- --fv-screen main --inputbox 'Name:' 0 0
+kt_test_start "--fv-screen main inputbox: the typed text stays in the line; the answer as usual"
+if [[ $SCR_RC == 0 && $FVDL_RES == xy && $SCR == *'Name:'* && $SCR == *' xy'* ]]; then kt_test_pass ok; else kt_test_fail "rc $SCR_RC [$FVDL_RES]"; fi
+scr 'key kbDown' 'key kbEnter' -- --fv-screen main --menu 'Pick' 0 0 0 a Apple b Banana
+kt_test_start "--fv-screen main menu: the list stays with its focus; the answer b"
+if [[ $SCR_RC == 0 && $FVDL_RES == b && $SCR == *'a  Apple'* && $SCR == *'b  Banana'* ]]; then kt_test_pass ok; else kt_test_fail "rc $SCR_RC [$FVDL_RES]"; fi
+scr 'key kbEnter' -- --erase-on-exit --msgbox hello 0 0
+a="$SCR_RC|$SCR_CUR" e=$SCR
+scr 'key kbEnter' -- --fv-screen main --clear --msgbox hello 0 0
+b="$SCR_RC|$SCR_CUR" c=$SCR
+kt_test_start "--erase-on-exit (= main + cleared) and --fv-screen main --clear: the screen blank at the exit, then the cursor on the last row (golden: ESC [ H ESC [ J, then ESC [ 24 ; 1 H)"
+want=''; for (( i = 0; i < 24; i++ )); do want+="$blank|"; done
+if [[ $a == '0|0 23' && $b == '0|0 23' && $e == "$want" && $c == "$want" ]]; then kt_test_pass ok; else kt_test_fail "[$a] [$b]"; fi
+scr 'key kbEnter' -- --keep-tite --erase-on-exit --msgbox hello 0 0
+a=$SCR
+scr 'key kbEnter' -- --fv-screen alt --erase-on-exit --msgbox hello 0 0
+b=$SCR
+scr 'key kbEnter' -- --fv-screen main --keep-tite --msgbox hello 0 0
+c="$SCR_CUR" d=$SCR
+kt_test_start "precedence: --keep-tite beats --erase-on-exit, --fv-screen beats both (alt: the dialog gone, nothing cleared; main: kept)"
+if [[ $a != *hello* && $a == *'░░░'* && $b != *hello* && $b == *'░░░'* && $d == *'║ hello'* && $c == '0 23' ]]; then kt_test_pass ok; else kt_test_fail "a ${a:0:80} b ${b:0:80} c $c"; fi
+scr 'key kbEnter' -- --clear --msgbox hello 0 0
+kt_test_start "--clear on the alternate screen: nothing extra (the alternate screen goes at the exit; the screen found is back)"
+if [[ $SCR != *hello* && $SCR == *'░░░'* ]]; then kt_test_pass ok; else kt_test_fail "${SCR:0:80}"; fi
+scr -- --clear --infobox 'Please wait' 0 0
+a="$SCR_RC|$SCR_CUR" e=$SCR
+scr -- --erase-on-exit --infobox 'Please wait' 0 0
+b="$SCR_RC|$SCR_CUR"
+kt_test_start "the infobox with --clear / --erase-on-exit: never cleared (P4-10: the box stays), the cursor on the last row"
+if [[ $a == '0|0 23' && $b == '0|0 23' && $e == *'Please wait'* ]]; then kt_test_pass ok; else kt_test_fail "[$a] [$b]"; fi
+
+f=$FVW_TMP/small.out
+fvdl_run -- --fv-size 20x5 --fv-out "$f" --fv-screen main --yesno 'a long question text here' 0 0 2>"$FVW_TMP/small.err"
+a="$FVDL_RC|$(<"$FVW_TMP/small.err")|$(<"$f")"
+fvdl_run -- --fv-size 20x5 --fv-out "$f" --erase-on-exit --yesno 'a long question text here' 0 0 2>"$FVW_TMP/small.err"
+b="$FVDL_RC|$(<"$f")"
+kt_test_start "too small on the main screen: 255 with the refusal line, nothing sent where the frames go (no paint, no clear, no cursor move: the screen as it was found); --erase-on-exit likewise"
+if [[ $a == '255|fv.dlg.run: terminal too small (need '*', have 20x5)|' && $b == '255|' ]]; then kt_test_pass ok; else kt_test_fail "[$(printf '%q' "$a")] [$(printf '%q' "$b")]"; fi
+
+kt_test_start "fv.dlg._screen's table: main / clr by the options and the widget"
+tab=''
+for spec in '' 'screen=main' 'screen=alt' 'keeptite=1' 'erase=1' 'clear=1' 'screen=main clear=1' 'keeptite=1 erase=1' \
+            'screen=alt erase=1' 'screen=main keeptite=1' 'w:infobox' 'w:infobox clear=1' 'w:infobox screen=alt' 'w:'; do
+    (
+        declare -A __fvl_o=()
+        __fvl_w=msgbox
+        for kv in $spec; do if [[ $kv == w:* ]]; then __fvl_w=${kv#w:}; else __fvl_o[${kv%%=*}]=${kv#*=}; fi; done
+        FV_APP_HEADLESS=1
+        fv.dlg._screen
+        printf '%s%s ' "$__fvl_main" "$__fvl_clr"
+    ) > "$FVW_TMP/tab"
+    tab+=$(<"$FVW_TMP/tab")
+done
+if [[ $tab == '00 10 00 00 11 00 11 00 00 10 10 10 10 00 ' ]]; then kt_test_pass "$tab"; else kt_test_fail "$tab"; fi
+kt_test_start "fv.dlg._screen: a terminal the caller turned on keeps its screen (main asked, not taken; the infobox neither)"
+out=$( declare -A __fvl_o=([screen]=main); __fvl_w=msgbox; unset FV_APP_HEADLESS; FV_VIDEO_ON=1; fv.dlg._screen; printf '%s%s' "$__fvl_main" "$__fvl_clr"
+       __fvl_w=infobox; fv.dlg._screen; printf ' %s%s' "$__fvl_main" "$__fvl_clr" )
+if [[ $out == '00 00' ]]; then kt_test_pass ok; else kt_test_fail "$out"; fi
+
+# on a terminal (fv.video stubbed, in a subshell): which init / done
+modestub() {   # ARG... -> "calls|rc"
+    (
+        REC=''
+        fv.video.initVideo() { if (( ! FV_VIDEO_ON )); then REC+="init:${1-};"; fi; FV_VIDEO_ON=1; return 0; }
+        fv.video.doneVideo() { REC+='done;'; FV_VIDEO_ON=0; return 0; }
+        fv.drivers.initEvents() { return 0; }
+        fv.drivers.doneEvents() { return 0; }
+        exec {o}>"$FVW_TMP/mode.out"
+        FV_VIDEO_OUT_FD=$o FV_SCREEN_W=80 FV_SCREEN_H=24 FV_VIDEO_ON=0
+        unset FV_APP_HEADLESS
+        fvdl_events 'key kbEnter'
+        fv.dlg.run "$@"
+        printf '%s|%s' "$REC" "$?"
+    )
+}
+a=$(modestub --msgbox hi 0 0)
+b=$(modestub --fv-screen main --msgbox hi 0 0)
+c=$(modestub --erase-on-exit --msgbox hi 0 0)
+f=$(<"$FVW_TMP/mode.out")
+d=$(modestub --keep-tite --msgbox hi 0 0)
+kt_test_start "on a terminal: alt = the application's initVideo (alternate screen) and its doneVideo; main = initVideo noalt and doneVideo by fv.dlg; --erase-on-exit's clear goes to the terminal before the restore"
+if [[ $a == 'init:;done;|0' && $b == 'init:noalt;done;|0' && $c == 'init:noalt;done;|0' && $d == 'init:;done;|0' && $f == *$'\e[0m\e[H\e[2J' ]]; then kt_test_pass ok
+else kt_test_fail "[$a] [$b] [$c] [$d] tail [${f: -20}]"; fi
 
 kt_test_log "003_Boxes.sh completed"

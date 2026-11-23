@@ -8,11 +8,12 @@ kk.unit fv.dlg || return $__kk_unit_rc
 # sessions and the host application). whiptail / dialog-compatible flags
 # (D32) on Free Vision's classes; two faces, one parser (P4-2):
 #
-#   fv.dlg.main ARG...    the command's face (bin/fvdlg, stage 4b, calls it):
+#   fv.dlg.main ARG...    the command's face (bin/fvdlg calls it, stage 4b):
 #                         the result on stderr (whiptail / dialog), stdout
 #                         with --stdout, fd N with --output-fd N; stderr /
 #                         stdout buffered while the UI runs when they are
-#                         the terminal (P4-6); --help / --version; answers
+#                         the terminal (P4-6); --help / --version (the text
+#                         in fv.dlg.usage.sh, bin/fvdlg's too); answers
 #                         the exit status (it returns it: bin/fvdlg exits)
 #   fv.dlg.run ARG...     the bash face: the same argv and rules, the answer
 #                         in RESULT (+ FV_DLG_TAGS, a list's chosen tags;
@@ -49,6 +50,14 @@ kk.unit fv.dlg || return $__kk_unit_rc
 # the list; a resize lays the dialog out again as a build at that size
 # would (below the minimum: 255 after the restore); an empty button label
 # is a blank button. A caller locale that is not UTF-8: fv.video's D11 scope.
+# The screen (D34, a call alone or fv.dlg.begin): --fv-screen alt|main, else
+# --keep-tite alt, else --erase-on-exit main, else alt; --clear and
+# --erase-on-exit clear the main screen at the exit; on the main screen the
+# last dialog stays and the cursor ends on the last row (dialog's endwin);
+# the infobox always uses the main screen and is never cleared. No terminal
+# (D36): --no-tty=default answers what Enter would, without a UI
+# (fv.dlg._dflt); --no-tty=refuse (the default) 255; bin/fvdlg adds
+# FVDLG_NOTTY's value and refuses before the load.
 #
 # Conventions (as the other fv units): locals `__fvl_*`, globals `__FV_DL_*`
 # (the list's arrays `__DLFV_*`: fv.views refuses List / Marks names that
@@ -86,12 +95,15 @@ fi
 #              refused: outside the subset), m (the command only: --help,
 #              --version)
 #   BUF        P4-6's buffer while the UI runs: (FILE SAVED1 SAVED2 TRAP)
-#   VERSION    what --version prints
+#   DIR        this file's folder (fv.dlg.usage.sh, the --help / --version
+#              text, lives there)
 #   KIND[list] a TDlgList's widget (menu | checklist | radiolist)
 #   LAY        the running dialog's layout for a resize (fv.dlg._build)
 #   SMALL      a resize below the minimum: the message ('' none)
 #   SES        the session (fv.dlg.begin): app, title, kfd, ofd, s_VAR (the
-#              caller's terminal settings: sVALUE or u)
+#              caller's terminal settings: sVALUE or u), main (1: the main
+#              screen), clr (1: cleared at the end), vid (1: begin turned
+#              the terminal on, noalt)
 #   INFO       the infobox a session / the host still shows ('' none)
 #   TOPT       the terminal options' names (refused in a session / host)
 #   JUMP[C]    the letter jumps' index of the list JN: its first item whose row
@@ -101,7 +113,9 @@ fi
 # __DLFV_FIRST __DLFV_NEXT __DLFV_TEXT
 # FV_DLG_TAGS  output: the chosen tags of the last list (an array)
 declare -g FV_DLG_CMD=${FV_DLG_CMD-}
-declare -g __FV_DL_VERSION=0.1
+declare -g __FV_DL_DIR=${BASH_SOURCE[0]%/*}
+if [[ $__FV_DL_DIR == "${BASH_SOURCE[0]}" ]]; then __FV_DL_DIR=.; fi
+if [[ $__FV_DL_DIR != /* && $__FV_DL_DIR != [A-Za-z]:* ]]; then __FV_DL_DIR=$PWD/$__FV_DL_DIR; fi
 declare -ga __FV_DL_BUF FV_DLG_TAGS __DLFV_TAGS __DLFV_ROWS __DLFV_MARKS __DLFV_FIRST __DLFV_NEXT __DLFV_TEXT
 __FV_DL_BUF+=() FV_DLG_TAGS+=() __DLFV_TAGS+=() __DLFV_ROWS+=() __DLFV_MARKS+=() __DLFV_FIRST+=() __DLFV_NEXT+=() __DLFV_TEXT+=()
 declare -gA __FV_DL_KIND __FV_DL_LAY __FV_DL_SES __FV_DL_JUMP
@@ -129,7 +143,7 @@ declare -gA __FV_DL_OPT=(
     [--ascii-lines]='f ascii' [--no-shadow]='f noshadow'
     [--stdout]='o 1' [--stderr]='o 2' [--output-fd]='o v'
     [--fv-palette]='v palette' [--fv-ascii]='f ascii' [--fv-mouse]='v mouse' [--fv-echo]='v echo'
-    [--fv-screen]='v screen' [--fv-output]='v output'
+    [--fv-screen]='v screen' [--fv-output]='v output' [--no-tty]='v notty'
     [--fv-headless]='f headless' [--fv-keys]='v keys' [--fv-size]='v size' [--fv-out]='v fvout'
     [--help]='m' [--version]='m'
     [--help-button]='x' [--extra-button]='x' [--and-widget]='x' [--item-help]='x' [--timeout]='x'
@@ -141,7 +155,7 @@ declare -gA __FV_DL_OPT=(
 # the values an fv extra takes
 declare -gA __FV_DL_VAL=(
     [palette]='gray blue cyan' [mouse]='on off' [echo]='star none' [screen]='alt main'
-    [output]='lines quoted single'
+    [output]='lines quoted single' [notty]='default refuse'
 )
 
 # ---- the application ----------------------------------------------------------------
@@ -245,6 +259,31 @@ fv.dlg._int() {
 # fv.dlg._isTerm FD — rc 0 when FD is a terminal (P4-6's test; a seam the
 # tests replace)
 fv.dlg._isTerm() { [[ -t $1 ]]; }
+# fv.dlg._hasTerm FACE — rc 0 when the call has a terminal (P4-5, design
+# §3.4 / §3.6; D36's test): FV_TTY (default /dev/tty) exists, opens and is
+# a terminal; the command's face (main) also wants TERM set and not `dumb`
+# (FVDLG_FORCE=1 lifts that rule) — the bash face (run) has no TERM rule.
+# rc 1 with REPLY = why, in bin/fvdlg's words: the path, or 'TERM is empty|
+# dumb; FVDLG_FORCE=1 overrides'. The order is bin/fvdlg's pre-load guard's
+# (exists, opens, TERM), the isatty last — so the unit names what the guard
+# would have named. Fork-free
+fv.dlg._hasTerm() {
+    local IFS= __fvl_f='' __fvl_t=${FV_TTY:-/dev/tty}
+    REPLY=$__fvl_t
+    # (-e first: `<>` would create a missing path)
+    [[ -e $__fvl_t ]] || return 1
+    { exec {__fvl_f}<>"$__fvl_t"; } 2>/dev/null || return 1
+    if [ "${1-}" = main ] && { [[ -z ${TERM-} ]] || [ "$TERM" = dumb ]; } && ! [ "${FVDLG_FORCE-}" = 1 ]; then
+        exec {__fvl_f}>&-
+        if [[ -z ${TERM-} ]]; then REPLY='TERM is empty'; else REPLY='TERM is dumb'; fi
+        REPLY+='; FVDLG_FORCE=1 overrides'
+        return 1
+    fi
+    if [[ ! -t $__fvl_f ]]; then exec {__fvl_f}>&-; return 1; fi
+    exec {__fvl_f}>&-
+    REPLY=''
+    return 0
+}
 # fv.dlg._cw TEXT — RESULT = TEXT's cells without its `~` marks (FV CStrLen)
 fv.dlg._cw() {
     fv.video.strWidth "${1//'~'/}" || RESULT=${#1}
@@ -373,7 +412,7 @@ fv.dlg._parse() {
     fi
     # the fv extras' values: one of the allowed words, exactly (`[ = ]`, not
     # a pattern: no substring, nocasematch has no say)
-    for __fvl_k in palette mouse echo screen output; do
+    for __fvl_k in palette mouse echo screen output notty; do
         [[ -n ${__fvl_o[$__fvl_k]+x} ]] || continue
         __fvl_v=${__fvl_o[$__fvl_k]} __fvl_x=${__FV_DL_VAL[$__fvl_k]} __fvl_z=0
         while [[ -n $__fvl_x ]]; do
@@ -383,8 +422,9 @@ fv.dlg._parse() {
             __fvl_x=${__fvl_x#* }
         done
         if (( ! __fvl_z )); then
-            __fvl_x=${__FV_DL_VAL[$__fvl_k]}
-            __fvl_err="--fv-$__fvl_k must be ${__fvl_x// / | } (got '$__fvl_v')"
+            __fvl_x=${__FV_DL_VAL[$__fvl_k]} __fvl_y=--fv-$__fvl_k
+            if [ "$__fvl_k" = notty ]; then __fvl_y=--no-tty; fi
+            __fvl_err="$__fvl_y must be ${__fvl_x// / | } (got '$__fvl_v')"
             return 1
         fi
     done
@@ -1063,10 +1103,12 @@ fv.dlg._build() {
         if (( __fvl_x > __fvl_minw )); then __fvl_minw=$__fvl_x; fi
     fi
     # the title: the preferred (auto) width only, at most the screen; the
-    # frame cuts a longer one
+    # frame cuts a longer one. FV TFrame's room for it is W - 10, minus 6
+    # for the close icon (a TDialog's wfClose): W = the title + 16 shows it
+    # whole (+ 12 left a short title no room in a 16-wide box: dropped)
     if [[ -n ${__fvl_o[title]-} ]]; then
         fv.dlg._cw "${__fvl_o[title]}"
-        __fvl_pw=$(( RESULT + 12 > __fvl_sw ? __fvl_sw : RESULT + 12 ))
+        __fvl_pw=$(( RESULT + 16 > __fvl_sw ? __fvl_sw : RESULT + 16 ))
     fi
     # the minimum (P4-8): the buttons across (+ the frame and a blank each
     # side; 16 for the frame's icon and a title), down: one text row, the
@@ -1375,7 +1417,7 @@ fv.dlg._call() {
     if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local IFS=$' \t\n' __fvl_face=$1 __fvl_w='' __fvl_err='' __fvl_m='' __fvl_t __fvl_d='' __fvl_il='' __fvl_lb='' __fvl_b1='' __fvl_b2=''
     local __fvl_app='' __fvl_cmd=cmCancel __fvl_rc=255 __fvl_res='' __fvl_vid=0 __fvl_kfd='' __fvl_ofd='' __fvl_fd __fvl_ok=1 __fvl_hl=0
-    local __fvl_mode=own __fvl_top=0 __fvl_bt='' __fvl_k __fvl_i __fvl_x __fvl_y
+    local __fvl_mode=own __fvl_top=0 __fvl_bt='' __fvl_k __fvl_i __fvl_x __fvl_y __fvl_main=0 __fvl_clr=0 __fvl_built=0
     local -a __fvl_p=() __fvl_tags=()
     local -A __fvl_o=()
     shift
@@ -1383,8 +1425,8 @@ fv.dlg._call() {
     if ! fv.dlg._parse "$@"; then fv.dlg._say "$__fvl_face" "$__fvl_err"; return 255; fi
     if [[ -n $__fvl_m ]]; then
         if [ "$__fvl_face" = run ]; then fv.dlg._say run "'$__fvl_m' is for the command (fvdlg)"; return 255; fi
-        if [ "$__fvl_m" = --version ]; then printf 'fvdlg %s (kbool fv.dlg)\n' "$__FV_DL_VERSION"; else fv.dlg._usage; fi
-        return 0
+        fv.dlg._usage "$__fvl_m"
+        return
     fi
     if [[ -n $FV_APP && -n ${__FV_VW_LIVE[$FV_APP]-} ]]; then
         __fvl_mode=host
@@ -1417,11 +1459,29 @@ fv.dlg._call() {
             FV_APP_HEADLESS=1 FV_SCREEN_W=$__fvl_x FV_SCREEN_H=$__fvl_y FV_VIDEO_OUT_FD=$__fvl_ofd FV_KEY_FD=$__fvl_kfd
         fi
         if [ "${FV_APP_HEADLESS-}" = 1 ]; then __fvl_hl=1; fi
+        # D36: no terminal and --no-tty=default — the answer Enter would
+        # give, no UI, printed as the UI's (a headless call has no terminal
+        # to miss). The command's face without it: refused here with
+        # bin/fvdlg's words (its pre-load guard leaves a call that names
+        # --no-tty to this test); the bash face tries the terminal (below)
+        if (( ! __fvl_hl )) && { [ "${__fvl_o[notty]-}" = default ] || [ "$__fvl_face" = main ]; } && ! fv.dlg._hasTerm "$__fvl_face"; then
+            if ! [ "${__fvl_o[notty]-}" = default ]; then
+                fv.dlg._say main "no terminal ($REPLY)"
+                RESULT='' FV_DLG_CMD='' FV_DLG_TAGS=()
+                return 255
+            fi
+            fv.dlg._dflt
+            fv.dlg._emit
+            return
+        fi
+        # D34: the screen mode (fv.dlg._screen)
+        fv.dlg._screen
         if [[ -n ${__fvl_o[backtitle]-} ]]; then __fvl_top=1 __fvl_bt=${__fvl_o[backtitle]}; fi
         if [ "$__fvl_face" = main ]; then fv.dlg._bufOn; fi
-        # the infobox: the main screen (noalt) turned on here, so the
-        # application leaves it on at its Done and the box stays visible
-        if [ "$__fvl_w" = infobox ] && (( ! __fvl_hl )) && (( ! FV_VIDEO_ON )); then
+        # the main screen (the infobox, --fv-screen main): turned on here
+        # without the alternate screen (noalt), so the application leaves
+        # it on at its Done and the last picture stays visible
+        if (( __fvl_main && ! __fvl_hl && ! FV_VIDEO_ON )); then
             if fv.video.initVideo noalt; then __fvl_vid=1; else __fvl_ok=0; fi
         fi
         if (( __fvl_ok )) && fv.views._newReserved '' dlgapp TDlgApp; then
@@ -1446,6 +1506,7 @@ fv.dlg._call() {
     if (( __fvl_ok )); then
         __FV_DL_SMALL='' __FV_DL_LAY=()
         if fv.dlg._build; then
+            __fvl_built=1
             if [ "$__fvl_w" = infobox ]; then
                 # (session / host: not selectable — inserted, it takes
                 # neither the desktop's current view nor the host window's
@@ -1466,6 +1527,11 @@ fv.dlg._call() {
                 fi
                 __fvl_cmd=cmOK
             else
+                # (the main screen: the dialog inserted first, so execView
+                # neither inserts nor removes it — it is the desktop's
+                # current view, its end redraws nothing — and the last
+                # picture stays on the screen: fv.dlg._mainEnd)
+                if (( __fvl_main )); then fv.views.insert "$FV_DESKTOP" "$__fvl_d" || :; fi
                 fv.views.execView "$FV_DESKTOP" "$__fvl_d" || :
                 __fvl_cmd=${RESULT:-cmCancel}
             fi
@@ -1483,8 +1549,25 @@ fv.dlg._call() {
         # application's Done, which draws nothing: deleted alone first it
         # would repaint the desktop over the box; a session's / host's
         # stays)
-        if [ "$__fvl_w" != infobox ] && [[ -n $__fvl_d && -n ${__FV_VW_LIVE[$__fvl_d]-} ]]; then "$__fvl_d.delete"; fi
-        if [ "$__fvl_mode" = own ]; then "$__fvl_app.delete"; else fv.views._showNow; fi
+        # (the main screen's dialog likewise: it stays on the screen)
+        # (the main screen's end only after a dialog was built: a refusal —
+        # too small — leaves the screen as it was found)
+        if [ "$__fvl_w" != infobox ] && (( ! __fvl_main )) && [[ -n $__fvl_d && -n ${__FV_VW_LIVE[$__fvl_d]-} ]]; then "$__fvl_d.delete"; fi
+        if [ "$__fvl_mode" = own ]; then
+            if (( __fvl_main && __fvl_built && ! __fvl_clr )) && [ "$__fvl_w" != infobox ]; then fv.video.updateScreen || :; fi
+            "$__fvl_app.delete"
+            if (( __fvl_main && __fvl_built )); then
+                if (( __fvl_clr )); then fv.dlg._clearOut; fi
+                fv.dlg._mainEnd
+            fi
+        else
+            fv.views._showNow
+        fi
+        # (the dialog gone, its arrays emptied — a 10 000-item list is not
+        # kept until the next call: _dflt's rule; the text's lines too,
+        # unless a session's / host's infobox still shows them)
+        __DLFV_TAGS=() __DLFV_ROWS=() __DLFV_MARKS=() __DLFV_FIRST=() __DLFV_NEXT=() __FV_DL_JUMP=() __FV_DL_JN=''
+        if [ "$__fvl_w" != infobox ] || [ "$__fvl_mode" = own ]; then __DLFV_TEXT=(); fi
     fi
     if (( __fvl_vid )); then fv.video.doneVideo || :; fi
     if [[ -n $__fvl_kfd ]]; then exec {__fvl_kfd}<&- {__fvl_ofd}>&-; fi
@@ -1494,23 +1577,101 @@ fv.dlg._call() {
         RESULT='' FV_DLG_CMD='' FV_DLG_TAGS=()
         return 255
     fi
+    fv.dlg._emit
+}
+
+# fv.dlg._emit — the call's answer (the caller's __fvl_*: face, w, rc, cmd,
+# res, tags, o): FV_DLG_CMD, RESULT, FV_DLG_TAGS; the result written once,
+# after the restore, only on 0 (nothing on 1 / 255) by the widgets that
+# answer text, to O[out] (the command: default 2). An fd that is not open,
+# or a write that fails (a full disk, /dev/full): 255, one line, RESULT,
+# FV_DLG_TAGS and FV_DLG_CMD empty. The status
+fv.dlg._emit() {
     FV_DLG_CMD=$__fvl_cmd
     RESULT=$__fvl_res
     if (( __fvl_rc == 0 )); then FV_DLG_TAGS=("${__fvl_tags[@]}"); fi
-    # the result: once, after the restore, only on 0 (nothing on 1 / 255)
     __fvl_fd=${__fvl_o[out]-}
     if [ "$__fvl_face" = main ]; then __fvl_fd=${__fvl_fd:-2}; fi
-    if (( __fvl_rc == 0 )) && [[ -n $__fvl_fd ]] && [[ -n $__fvl_il || -n $__fvl_lb ]]; then
-        # (an open fd checked first: the probe's own stderr is /dev/null, so
-        # fd 2 itself is written without a redirection around it)
-        if ! { : >&$__fvl_fd; } 2>/dev/null; then
+    if (( __fvl_rc == 0 )) && [[ -n $__fvl_fd ]] && [[ " inputbox passwordbox menu checklist radiolist " == *" $__fvl_w "* ]]; then
+        # (an open fd checked first; the write's own error line is dropped:
+        # the redirection order sends the text to fd N before 2 moves)
+        if ! { : >&$__fvl_fd; } 2>/dev/null || ! printf '%s' "$__fvl_res" >&$__fvl_fd 2>/dev/null; then
             fv.dlg._say "$__fvl_face" "cannot write the result to fd $__fvl_fd"
             RESULT='' FV_DLG_CMD='' FV_DLG_TAGS=()
             return 255
         fi
-        printf '%s' "$__fvl_res" >&$__fvl_fd
     fi
     return "$__fvl_rc"
+}
+
+# fv.dlg._dflt — D36 (--no-tty=default without a terminal): the caller's
+# __fvl_rc / __fvl_cmd / __fvl_res / __fvl_tags = what Enter on the dialog
+# as built would answer, with no UI: msgbox and infobox 0 (cmOK; nothing
+# drawn), yesno 0 (cmYes; --defaultno 1, cmNo), inputbox / passwordbox 0
+# and INIT as the input line keeps it (control characters dropped, at most
+# its 1024 clusters: fv.dialogs' setText rule), menu the --default-item's
+# tag (its first item with that tag, else the first), checklist its `on`
+# tags, radiolist its `on` tag (the last one: whiptail's rule) or '' when
+# none is on — the UI's Enter answers the marks, not the focused row
+fv.dlg._dflt() {
+    local __fvl_rw=0 __fvl_di=0 __fvl_t __fvg_pw=0
+    local -a _fvg_nl=() _fvg_nw=()
+    __fvl_rc=0 __fvl_cmd=cmOK __fvl_res='' __fvl_tags=()
+    if [ "$__fvl_w" = yesno ]; then
+        if [[ -n ${__fvl_o[defaultno]-} ]]; then __fvl_rc=1 __fvl_cmd=cmNo; else __fvl_cmd=cmYes; fi
+    elif [ "$__fvl_w" = inputbox ] || [ "$__fvl_w" = passwordbox ]; then
+        __fvl_t=${__fvl_p[3]-}
+        __fvl_t=${__fvl_t//[${__FV_DG_CC[${#__FV_VS_PB}]-${__FV_DG_CC[5]}}]/}
+        if [[ -n $__fvl_t ]] && ! fv.dialogs._ilPre "$__fvl_t" 1024; then _fvg_nl=(); fi
+        local IFS=
+        __fvl_res="${_fvg_nl[*]}"
+    elif [ "$__fvl_w" = menu ] || [ "$__fvl_w" = checklist ] || [ "$__fvl_w" = radiolist ]; then
+        fv.dlg._items
+        fv.dlg._answerAt "$__fvl_di"
+        __DLFV_TAGS=() __DLFV_ROWS=() __DLFV_MARKS=() __DLFV_FIRST=() __DLFV_NEXT=() __FV_DL_JUMP=() __FV_DL_JN=''
+    fi
+    return 0
+}
+
+# fv.dlg._screen — D34: the caller's __fvl_main (1: this call draws on the
+# main screen) and __fvl_clr (1: that screen cleared at the exit) from its
+# options (__fvl_o) and widget (__fvl_w; '' for fv.dlg.begin): --fv-screen
+# alt|main wins, else --keep-tite = alt, else --erase-on-exit = main, else
+# alt; --clear or --erase-on-exit = cleared. The infobox: always main, never
+# cleared (P4-10: the box is meant to stay). Main only where this call owns
+# the screen's start: headless, or the terminal not on yet (a caller that
+# turned it on keeps its own screen)
+fv.dlg._screen() {
+    local __fvl_s=alt
+    __fvl_main=0 __fvl_clr=0
+    if [[ -n ${__fvl_o[screen]-} ]]; then __fvl_s=${__fvl_o[screen]}
+    elif [[ -n ${__fvl_o[keeptite]-} ]]; then __fvl_s=alt
+    elif [[ -n ${__fvl_o[erase]-} ]]; then __fvl_s=main; fi
+    if [ "$__fvl_w" = infobox ]; then __fvl_s=main; fi
+    if [ "$__fvl_s" = main ] && { [ "${FV_APP_HEADLESS-}" = 1 ] || (( ! FV_VIDEO_ON )); }; then __fvl_main=1; fi
+    if (( __fvl_main )) && ! [ "$__fvl_w" = infobox ] && [[ -n ${__fvl_o[clear]-}${__fvl_o[erase]-} ]]; then __fvl_clr=1; fi
+    return 0
+}
+# fv.dlg._mainEnd — the main screen's end (D34), after the application and
+# any clear: the cursor on the screen's last row, column 0, shown (dialog's
+# endwin: golden `ESC [ 24 ; 1 H`), so the shell's next output starts below
+# the dialog. On a terminal that is fv.video's restore after initVideo noalt
+# (every exit path: done, exit, a signal) — the one place; here only the
+# headless frame file, which has no restore, gets the same tail
+fv.dlg._mainEnd() {
+    [ "${FV_APP_HEADLESS-}" = 1 ] || return 0
+    local IFS= __fvl_f=${FV_VIDEO_OUT_FD-}
+    [[ -n $__fvl_f && $__fvl_f != *[!0123456789]* ]] || return 0
+    printf '%s' $'\e[0m\e[?25h\e['"$FV_SCREEN_H;1H" 2>/dev/null >&$__fvl_f || :
+}
+# fv.dlg._clearOut — --clear / --erase-on-exit on the main screen: SGR reset,
+# the screen cleared, the cursor home (`clear`'s picture), written where the
+# frames go (the terminal, or the headless frame file); the cursor then
+# goes to the last row as after any main-screen call (dialog's order)
+fv.dlg._clearOut() {
+    local IFS= __fvl_f=${FV_VIDEO_OUT_FD:-${FV_TTY_FD-}}
+    [[ -n $__fvl_f && $__fvl_f != *[!0123456789]* ]] || return 0
+    printf '%s' $'\e[0m\e[H\e[2J' 2>/dev/null >&$__fvl_f || :
 }
 
 # fv.dlg._hlOpen FACE — --fv-headless: the key file and the frame file
@@ -1542,9 +1703,14 @@ fv.dlg._hlOpen() {
 # single — dialog's --single-quoted form (fv.dlg._dq)
 fv.dlg._answer() {
     local -n __fvl_la=${__fvl_lb}_data
+    fv.dlg._answerAt "${__fvl_la[Focused]:-0}"
+}
+# fv.dlg._answerAt FOCUSED — _answer's body with the menu's focused item
+# given (the UI's list, or D36's default answer: fv.dlg._dflt)
+fv.dlg._answerAt() {
     local __fvl_i __fvl_f=quoted __fvl_s=''
     if [ "$__fvl_w" = menu ]; then
-        __fvl_tags=("${__DLFV_TAGS[${__fvl_la[Focused]:-0}]}")
+        __fvl_tags=("${__DLFV_TAGS[$1]}")
     else
         for __fvl_i in "${!__DLFV_MARKS[@]}"; do
             if [[ ${__DLFV_MARKS[__fvl_i]:-0} != 0 ]]; then __fvl_tags+=("${__DLFV_TAGS[__fvl_i]}"); fi
@@ -1603,37 +1769,13 @@ fv.dlg._title() {
     __FV_DL_SES[title]=$__fvl_v
 }
 
-# fv.dlg._usage — --help (the command)
+# fv.dlg._usage --help|--version — the command's text, printed from
+# fv.dlg.usage.sh (the one copy: bin/fvdlg prints it from there without a
+# load); its status (printf's on a failed write); 255 with one line when
+# the file is missing
 fv.dlg._usage() {
-    printf '%s\n' \
-        'Usage: fvdlg [OPTION...] WIDGET TEXT HEIGHT WIDTH [ARG...]' \
-        'Free Vision dialogs for shell scripts (kbool fv.dlg); whiptail / dialog flags.' \
-        '' \
-        'Widgets:' \
-        '  --msgbox TEXT H W            a message, OK' \
-        '  --yesno TEXT H W             Yes / No (status 0 / 1)' \
-        '  --infobox TEXT H W           drawn once, returns at once' \
-        '  --inputbox TEXT H W [INIT]   a line of text, OK / Cancel' \
-        '  --passwordbox TEXT H W [INIT]  the same, typed text shown as *' \
-        '  --menu TEXT H W LH [TAG ITEM]...              one tag' \
-        '  --checklist TEXT H W LH [TAG ITEM STATUS]...  the checked tags' \
-        '  --radiolist TEXT H W LH [TAG ITEM STATUS]...  one tag (STATUS on / off)' \
-        '' \
-        'H / W: 0 = fit the text, -1 = the whole screen; LH: the list rows, 0 = fit.' \
-        'Status: 0 OK / Yes, 1 Cancel / No, 255 Esc or an error.' \
-        'The answer goes to stderr; --stdout, --output-fd N choose another.' \
-        'A checklist answers "tag1" "tag2"; --separate-output one tag per line,' \
-        '--single-quoted the form of dialog, --fv-output lines|quoted|single.' \
-        '' \
-        'Options: --title T --backtitle T --ok-button/--ok-label L --cancel-button/--cancel-label L' \
-        '  --yes-button/--yes-label L --no-button/--no-label L --defaultno --nocancel/--no-cancel' \
-        '  --default-item TAG --notags/--no-tags --noitem/--no-items --separate-output --single-quoted' \
-        '  --stdout --stderr --output-fd N --colors --topleft --no-shadow --ascii-lines --scrolltext' \
-        '  --clear --keep-tite --erase-on-exit --fb --insecure (accepted)' \
-        '  --fv-palette gray|blue|cyan  --fv-ascii  --fv-mouse on|off  --fv-echo star|none' \
-        '  --fv-screen alt|main  --fv-output lines|quoted|single' \
-        '  --fv-headless [--fv-keys FILE] [--fv-size WxH] [--fv-out FILE]   (tests)' \
-        '  --help  --version'
+    if ! [[ -r $__FV_DL_DIR/fv.dlg.usage.sh ]]; then fv.dlg._say main "no usage text ($__FV_DL_DIR/fv.dlg.usage.sh)"; return 255; fi
+    source "$__FV_DL_DIR/fv.dlg.usage.sh" "$1"
 }
 
 # ---- the faces --------------------------------------------------------------------
@@ -1654,6 +1796,10 @@ fv.dlg.run() { fv.dlg._call run "$@"; }
 # FV_SCREEN_W / _H, FV_KEY_FD, FV_VIDEO_OUT_FD, FV_ASCII, FV_VIDEO_ASCII)
 # are the session's until fv.dlg.end puts the caller's back. NO_COLOR is
 # applied once. The desktop (and the background title) is painted at once.
+# The screen (D34, fv.dlg._screen): taken here once — the main screen is
+# turned on by begin (initVideo noalt) and off by end, which leaves the
+# session's picture with the cursor on the last row (or clears it:
+# --clear / --erase-on-exit); the alternate screen is the application's.
 # Status 0 (RESULT '', L4); 255 with one line: a session already running, an fv application
 # already running (fv.dlg.run uses it: no session needed), a dialog option,
 # no terminal
@@ -1661,6 +1807,7 @@ fv.dlg.begin() {
     # (D11, M2: as fv.dlg._call)
     if [[ ( $BASHOPTS == *nocasematch* || $BASHOPTS != *globasciiranges* || ${#__FV_VS_PB} != 2 ) && -z ${__fvv_g-} ]]; then fv.video._g "$FUNCNAME" "$@"; return; fi
     local IFS=$' \t\n' __fvl_w='' __fvl_err='' __fvl_m='' __fvl_k __fvl_v __fvl_kfd='' __fvl_ofd='' __fvl_x __fvl_y
+    local __fvl_main=0 __fvl_clr=0
     local -a __fvl_p=()
     local -A __fvl_o=()
     RESULT=''
@@ -1688,7 +1835,21 @@ fv.dlg.begin() {
         FV_APP_HEADLESS=1 FV_SCREEN_W=$__fvl_x FV_SCREEN_H=$__fvl_y FV_VIDEO_OUT_FD=$__fvl_ofd FV_KEY_FD=$__fvl_kfd
         __FV_DL_SES[kfd]=$__fvl_kfd __FV_DL_SES[ofd]=$__fvl_ofd
     fi
+    # D34: the session's screen, once (fv.dlg._screen with no widget: the
+    # infobox rule is a call's); the main screen turned on here (noalt)
+    __fvl_w=''
+    fv.dlg._screen
+    __FV_DL_SES[main]=$__fvl_main __FV_DL_SES[clr]=$__fvl_clr
+    if (( __fvl_main )) && ! [ "${FV_APP_HEADLESS-}" = 1 ]; then
+        if ! fv.video.initVideo noalt; then
+            fv.dlg._sesClose
+            fv.dlg._say begin "no terminal (${FV_TTY:-/dev/tty})"
+            return 255
+        fi
+        __FV_DL_SES[vid]=1
+    fi
     if ! fv.views._newReserved '' dlgapp TDlgApp; then
+        if [[ -n ${__FV_DL_SES[vid]-} ]]; then fv.video.doneVideo || :; fi
         fv.dlg._sesClose
         fv.dlg._say begin "no terminal (${FV_TTY:-/dev/tty})"
         return 255
@@ -1711,7 +1872,17 @@ fv.dlg.end() {
         return 0
     fi
     __FV_DL_INFO=''
-    if [[ -n ${__FV_VW_LIVE[${__FV_DL_SES[app]}]-} ]]; then "${__FV_DL_SES[app]}.delete"; fi
+    # (the main screen: what the session shows stays, the cursor on the
+    # last row — or the screen cleared; the terminal off when begin turned
+    # it on)
+    local __fvl_main=${__FV_DL_SES[main]:-0} __fvl_clr=${__FV_DL_SES[clr]:-0} __fvl_vid=${__FV_DL_SES[vid]:-0}
+    if [[ -n ${__FV_VW_LIVE[${__FV_DL_SES[app]}]-} ]]; then
+        if (( __fvl_main && ! __fvl_clr )); then fv.video.updateScreen || :; fi
+        "${__FV_DL_SES[app]}.delete"
+        if (( __fvl_main && __fvl_clr )); then fv.dlg._clearOut; fi
+        if (( __fvl_main )); then fv.dlg._mainEnd; fi
+    fi
+    if (( __fvl_vid )); then fv.video.doneVideo || :; fi
     fv.dlg._sesClose
     return 0
 }

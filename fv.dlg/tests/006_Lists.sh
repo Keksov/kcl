@@ -24,7 +24,7 @@
 #     each, --single-quoted dialog's form (golden2's escaping rows),
 #     --fv-output lines | quoted | single, nothing checked: '' with rc 0;
 #     FV_DLG_TAGS; the command's face writes it to stderr, no newline;
-#   * 10 000 items: built, End, Enter;
+#   * 10 000 items: built, End, Enter; the arrays empty after the call;
 #   * nothing left: no view, the application gone, FV_APP ''.
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fvdlg_testlib.sh"
@@ -193,6 +193,13 @@ BIG=()
 for (( i = 0; i < 10000; i++ )); do BIG+=("t$i" "item number $i" off); done
 lt "10 000 items: End Space Enter -> the last tag" 0 '"t9999"' 'key kbEnd' 'char _' 'key kbEnter' -- --checklist 'Big' 0 0 0 "${BIG[@]}"
 lt "10 000 items: a letter jump wraps through them (t -> t1)" 0 '"t1"' 'char t' 'char _' 'key kbEnter' -- --checklist 'Big' 0 0 0 "${BIG[@]}"
+# (4b fix L9: the UI path left the list's arrays filled until the next call)
+sz() { REPLY="${#__DLFV_TAGS[@]} ${#__DLFV_ROWS[@]} ${#__DLFV_MARKS[@]} ${#__DLFV_FIRST[@]} ${#__DLFV_NEXT[@]} ${#__FV_DL_JUMP[@]} ${#__DLFV_TEXT[@]}"; }
+sz; a=$REPLY
+fvdl_run 'char _' 'key kbEnter' -- --checklist 'Big' 0 0 0 "${BIG[@]}"
+sz; b=$REPLY r=$FVDL_RC
+kt_test_start "after a 10 000-item call the list's arrays are empty again (tags, rows, marks, jumps, the text's lines; the answer kept in RESULT)"
+if [[ $a == '0 0 0 0 0 0 0' && $b == '0 0 0 0 0 0 0' && $r == 0 && $FVDL_RES == '"t0"' ]]; then kt_test_pass "[$a] -> [$b]"; else kt_test_fail "before [$a] after [$b] rc $r [$FVDL_RES]"; fi
 unset BIG
 
 kt_test_log "006_Lists.sh completed"
