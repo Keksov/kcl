@@ -90,9 +90,14 @@ kk.unit math || return $__kk_unit_rc
 # Character semantics are part of the kcl contract (README §1.6); an empty
 # environment means the C locale. math itself is ASCII-only, but a caller that
 # sources it first must not inherit a broken ctype from it.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# The settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5)
+# applies it: kk.localeDefault exports LC_CTYPE=C.UTF-8 when none of LC_ALL,
+# LC_CTYPE, LANG is set.
+math._settings() {
+    kk.localeDefault
+    return 0
+}
+kk.settings math._settings LC_CTYPE || return
 
 # MATH_DIR = this folder, kept for RUN time (C19, pattern rule 5): the float
 # engine's temp-file fallback (math._fe_start) probes it. KK_UNIT_DIR names

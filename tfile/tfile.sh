@@ -5,9 +5,32 @@ kk.unit tfile || return $__kk_unit_rc
 # Locale self-heal (decision D6, kcl/README.md 1.6). Character semantics are
 # part of this unit's contract: ${#s} must count characters and a slurped file
 # must not be mangled. An empty environment means the C locale.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+#
+# TFILE_USE_CP — is there a `cp` on PATH (else tfile.copy falls back to cat)?
+# A top-level (process-wide) global, NOT a `static var` - a class without
+# static variables gets the thin, capture-free dispatcher on every bash (see
+# tpath.sh).
+#
+# Both live in the settings hook (kkore kk.settings; kklass/docs/dev/
+# IMAGE_PLAN.md §5): the locale and PATH can differ between two starts, and an
+# image start runs the hook again. TFILE_USE_CP is no longer readonly (image
+# I1b): a load image's writer proves its image by putting every hook variable
+# back to its value before the load and running the hooks again, which a
+# readonly variable does not allow. A value someone made readonly is kept
+# (`${x@a}` guarded by `${x+x}` for `set -u`), so a re-run and a reload after
+# `kk.unit --forget tfile` (U24') never fail on `readonly variable`.
+tfile._settings() {
+    kk.localeDefault
+    if [[ -z ${TFILE_USE_CP+x} || ${TFILE_USE_CP@a} != *r* ]]; then
+        if command -v cp >/dev/null 2>&1; then
+            declare -g TFILE_USE_CP=true
+        else
+            declare -g TFILE_USE_CP=false
+        fi
+    fi
+    return 0
+}
+kk.settings tfile._settings LC_CTYPE TFILE_USE_CP || return
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also
@@ -22,22 +45,7 @@ kk.uses kklass_pascal || return
 # _ret / _retBool that both units answer through.
 kk.uses tpath || return
 
-# Check for cp command availability.
-# NOTE: a top-level (process-wide) global, NOT a `static var` - a class without
-# static variables gets the thin, capture-free dispatcher on every bash (see
-# tpath.sh). readonly: computed once, never mutated.
-# Assigned once per process (uses U4, pattern rule 10): a reload after
-# `kk.unit --forget tfile` (U24') keeps the readonly constant instead of failing
-# on `readonly variable` (under `set -e` that exited the caller). `${x@a}` is
-# guarded by `${x+x}`: under `set -u` it is unbound for an unset name.
-if [[ -z ${TFILE_USE_CP+x} || ${TFILE_USE_CP@a} != *r* ]]; then
-    if command -v cp >/dev/null 2>&1; then
-        TFILE_USE_CP=true
-    else
-        TFILE_USE_CP=false
-    fi
-    readonly TFILE_USE_CP
-fi
+# (TFILE_USE_CP, the cp probe: tfile._settings at the top of this file.)
 
 # ---------------------------------------------------------------------------
 # TFile: a static utility namespace (Free Pascal's TFile / .NET System.IO.File).

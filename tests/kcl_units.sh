@@ -56,8 +56,10 @@ KCL_UNITS=(
     "tinifile|||"
     "tstringhelper|||"
     # G3 (kcl dependencies by name: tfile/tdirectory -> tpath, tlist -> tarray,
-    # tobjectlist/tstringlist -> tlist)
-    "tfile||readonly|"
+    # tobjectlist/tstringlist -> tlist). tfile: no flag since image I1b —
+    # TFILE_USE_CP is a settings-hook VAR, no longer readonly (its forget +
+    # reload is tfile/tests/038)
+    "tfile|||"
     "tdirectory|||"
     "tlist|||"
     "tobjectlist|||"
@@ -66,7 +68,7 @@ KCL_UNITS=(
     # wrappers -> tutil). The lowercase helpers tpipe.* tutil.* tsed.* tawk.*
     # bear their unit's name: kk.unit declares them, no kk.namespace line
     # (rule 4); taken checks them through the unit name
-    "tpipe|||"
+    "tpipe||readonly|"
     "tutil||state|"
     "tgrep|||"
     "thead|||"
@@ -242,6 +244,26 @@ kclt_simrun() {
         "${e[@]}" "$BASH" "$@" >"$KCLT_TMP/run.out" 2>"$KCLT_TMP/run.err" ); RC=$?
     OUT="$(<"$KCLT_TMP/run.out")"
     ERR="$(<"$KCLT_TMP/run.err")"
+}
+
+# kclt_simscript — $KCLT_TMP/sim.sh, the child script of the image_sim tests
+# (003-007): kbool, the harness, KCLT_SIM_PRE eval'd, then `kclt_sim ARG...`.
+# KCLT_SIM_FV / KCLT_SIM_REST = the unit names of the fv.* rows / of every
+# other row (in table order), so a new row is simulated without editing a test.
+kclt_simscript() {
+    local r
+    cat > "$KCLT_TMP/sim.sh" <<'EOF'
+source "$KBOOL_ROOT/kbool.sh" || exit 2
+source "$KCL_DIR/tests/image_sim.sh" || exit 2
+if [[ -n ${KCLT_SIM_PRE-} ]]; then eval "$KCLT_SIM_PRE"; fi
+KCLT_SIM_DIR=$KCLT_TMP/sim.$BASHPID
+kclt_sim "$@"
+EOF
+    KCLT_SIM_FV=() KCLT_SIM_REST=()
+    for r in "${KCL_UNITS[@]}"; do
+        r=${r%%|*}
+        if [[ $r == fv.* ]]; then KCLT_SIM_FV+=("$r"); else KCLT_SIM_REST+=("$r"); fi
+    done
 }
 
 # kclt_expect TITLE WANT — pass when OUT == WANT and stderr is empty.

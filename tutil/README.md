@@ -554,18 +554,31 @@ the sinks are inherited. `tutil.sh` declares it ONCE per process (kcl/README.md
 entries) and `tutil._badOut` reads it:
 
 ```bash
-if [[ -z ${TUTIL_OUT_PREFIXES+x} || ${TUTIL_OUT_PREFIXES@a} != *a* ]]; then   # tutil.sh, at load
+if [[ -z ${TUTIL_OUT_PREFIXES+x} || ${TUTIL_OUT_PREFIXES@a} != *a* ]]; then   # tutil._settings
     declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
 fi
 ...
 if ! kk._outName "$__tu_n" "${TUTIL_OUT_PREFIXES[@]}"; then  # tutil._badOut
 ```
 
-A descendant appends its prefix at load, **only if absent**, so a second load
-(after a `--forget`) adds nothing (`tfind.sh` is the worked example):
+A descendant appends its prefix **only if absent**, so a second load (after a
+`--forget`) adds nothing, and it does so **in its settings hook** (kkore
+`kk.settings`, after `kk.uses tutil`), listing the registry it writes: a load
+image runs tutil's hook and then the descendants' hooks again on every start,
+and kcl's lint (`kcl/tests/hook_lint.sh`, R2) refuses a load-time write of a
+registry outside a hook. `tfind.sh` is the worked example:
 
 ```bash
-TUTIL_OUT_PREFIXES+=( __tfd_ )
+tfind._settings() {
+    local __tfd_seen=0 __tfd_p=''
+    kk.localeDefault
+    for __tfd_p in "${TUTIL_OUT_PREFIXES[@]}"; do
+        [[ "$__tfd_p" == "__tfd_" ]] && __tfd_seen=1
+    done
+    [[ "$__tfd_seen" == "1" ]] || TUTIL_OUT_PREFIXES+=( __tfd_ )
+    return 0
+}
+kk.settings tfind._settings LC_CTYPE TUTIL_OUT_PREFIXES || return
 ```
 
 Bash scopes locals **dynamically**, so a caller array named like the scratch
@@ -583,13 +596,14 @@ suffix to the second registry, `TUTIL_OUT_SUFFIXES`.** Next to kklass's
 `${inst}_rfrom`, `${inst}_rto`, `${inst}_rflags` (tsed; the last three hold the
 raw `addReplace` data). Filling one of those as an output array hands the
 caller the instance's own storage — measured on tsed, `s.toArray s_exprs`
-turned the records into the NEXT run's script. `tutil.sh` declares the list at
-load and `tutil._badOut` refuses `${inst}${suffix}` for every entry:
+turned the records into the NEXT run's script. `tutil.sh` declares the list in
+its settings hook and `tutil._badOut` refuses `${inst}${suffix}` for every
+entry:
 
 ```bash
-declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )        # tutil.sh, at load
-TUTIL_OUT_SUFFIXES+=( _exprs )                               # tsed.sh, each only if absent,
-TUTIL_OUT_SUFFIXES+=( _rfrom _rto _rflags )                  #   in one loop
+declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )        # tutil._settings
+TUTIL_OUT_SUFFIXES+=( _exprs )                               # tsed._settings, each only if
+TUTIL_OUT_SUFFIXES+=( _rfrom _rto _rflags )                  #   absent, in one loop
 ```
 
 Two guards live in `tutil._badOut`, apply to **both** registries, and are not

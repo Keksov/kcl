@@ -461,8 +461,8 @@ in a row had edited that one line. It is now a registry
 ([`../tutil/README.md`](../tutil/README.md) §5):
 
 ```bash
-declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )   # tutil.sh, at load
-TUTIL_OUT_PREFIXES+=( __tfd_ )                               # tfind.sh, if absent
+declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )   # tutil._settings (a hook)
+TUTIL_OUT_PREFIXES+=( __tfd_ )                               # tfind._settings, if absent
 ```
 
 Two guards go with it, both from this unit's critic pass: the registry's **own

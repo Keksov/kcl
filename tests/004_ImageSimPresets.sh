@@ -10,7 +10,8 @@
 #   * the harness's negative fixtures, which must FAIL it: a unit whose load
 #     (outside its hook) writes another unit's hook VAR (the H1 registry
 #     case), a hook that is not idempotent (appends twice), a hook that sets
-#     a variable it does not list; and a well-formed pair that passes.
+#     a variable it does not list (also LC_CTYPE through kk.localeDefault,
+#     I1b); and a well-formed pair that passes.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../../ktests/ktest.sh"
@@ -191,6 +192,16 @@ kclt_expect "harness control fixture fxattr: a hook VAR preset with attributes (
 
 kclt_fxrun fxgood
 kclt_expect "harness control fixture: a unit that appends to another unit's registry in its own hook, listing the VAR and checking for its entry, passes [IMAGE_PLAN §5.2, §5.4 tawk / tfind / tsed pattern]" "sim:ok"
+
+# (I1b critic L1) a hook that calls kk.localeDefault without listing LC_CTYPE,
+# loaded with a unit that lists it (the dynamic probe skips a listed VAR; the
+# static scan counts kk.localeDefault as a write of LC_CTYPE)
+kclt_fx fxlocown 'fxlocown._settings() {' '    kk.localeDefault' '    return 0' '}' 'kk.settings fxlocown._settings LC_CTYPE || return'
+kclt_fx fxloc 'kk.uses fxlocown || return' 'fxloc._settings() {' '    kk.localeDefault' '    return 0' '}' 'kk.settings fxloc._settings || return'
+kclt_fxrun fxloc
+kclt_expect "harness negative fixture fxloc: a hook calling kk.localeDefault without listing LC_CTYPE fails (statically: kk.localeDefault writes LC_CTYPE), also when another unit of the load lists LC_CTYPE [IMAGE_PLAN §5.2, I1b critic L1]" "sim:unlisted fxloc._settings LC_CTYPE"
+kt_test_start "the same: rc 1"
+if (( RC == 1 )); then kt_test_pass "ok"; else kt_test_fail "rc=$RC"; fi
 
 kclt_fx fxnr 'fxnr._settings() {' '    declare -g FXNR_V=${FXNR_V:-d}' '    return 0' '}' 'kk.settings fxnr._settings FXNR_V || return'
 kclt_fxrun fxnr 'declare -n FXNR_V=FXNR_T; FXNR_T=t'

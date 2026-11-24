@@ -5,7 +5,9 @@
 #
 #   source integrity  a sweeping mechanical edit must not silently mangle the
 #                     file (`bash -n` + "no single-quoted string left open").
-#   X-SETU (D7)       the unit loads, RE-loads, and runs EVERY sink in BOTH
+#   X-SETU (D7)       the unit loads, RE-loads (also after `kk.unit --forget
+#                     tpipe`: the readonly deadlines are guarded, image I1b),
+#                     and runs EVERY sink in BOTH
 #                     forms from a script under `set -eu`, including
 #                       * the stop path, where `wait` returns 141/143 while the
 #                         member itself answers rc 0 — a bare `wait` in
@@ -97,6 +99,34 @@ printf OK" 2>"$errf" </dev/null)"; rc=$?
 
 expect_clean "the unit loads under set -eu [X-SETU, D7]" ":"
 expect_clean "loading the unit TWICE under set -eu is a no-op [X-SETU]" "source '$UNIT'"
+# (image I1b, IMAGE_PLAN §8.3: the three reap deadlines were an unguarded
+# `declare -gr`, so this reload died on 'readonly variable')
+expect_clean "kk.unit --forget tpipe + a re-source under set -eu: no readonly error, the deadlines kept readonly, the sinks work [U24', rule 10]" '
+kk.unit --forget tpipe
+source "'"$UNIT"'"
+[[ ${__TPIPE_RETERM_US@a} == *r* && $__TPIPE_GRACE_US == 1000000 && $__TPIPE_HARDCAP_US == 3000000 ]] || { echo "deadlines lost" >&2; exit 1; }
+[[ -n ${__KK_UNITS[tpipe]+x} ]] || { echo "tpipe not registered again" >&2; exit 1; }
+p2() { printf "a\nb\n"; }
+TPipe.count -- p2
+[[ "$RESULT" == "2" ]] || { printf "count RESULT=%s\n" "$RESULT" >&2; exit 1; }
+TPipe.first -- yes 2>/dev/null
+[[ "$RESULT" == "y" ]] || { printf "first RESULT=%s\n" "$RESULT" >&2; exit 1; }'
+
+# (I1b critic L4) each deadline has its own readonly guard: one made readonly
+# before the load does not leave the other two unset
+kt_test_start "under set -eu: a readonly __TPIPE_GRACE_US made before the load is kept, the other two deadlines are still set and readonly, the stop path works [rule 10, I1b critic L4]"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$("$KT_TIMEOUT" 30 "$BASH" -c '
+set -eu
+readonly __TPIPE_GRACE_US=500000
+source "$1"
+printf "%s:%s|%s:%s|%s:%s|" "$__TPIPE_RETERM_US" "${__TPIPE_RETERM_US@a}" "$__TPIPE_GRACE_US" "${__TPIPE_GRACE_US@a}" \
+    "$__TPIPE_HARDCAP_US" "${__TPIPE_HARDCAP_US@a}"
+TPipe.first -- yes 2>/dev/null
+printf "%s" "$RESULT"' _ "$UNIT" 2>&1 </dev/null)"; rc=$?
+if [[ $rc -eq 0 && "$out" == "100000:r|500000:r|3000000:r|y" ]]; then kt_test_pass "$out"; else kt_test_fail "rc=$rc out='$out'"; fi
+fi   # kt_need_timeout
 
 expect_clean "the \`--\` form of all five sinks under set -eu" '
 p3() { printf "a\nb\nc\n"; }

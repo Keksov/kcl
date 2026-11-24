@@ -4,10 +4,8 @@ kk.unit tawk || return $__kk_unit_rc
 
 # Locale self-heal (kcl/README.md §1.6). A path, a program and the bytes gawk
 # emits are data and pass through verbatim, so character semantics are part of
-# this unit's contract: an empty environment means the C locale.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# this unit's contract: an empty environment means the C locale. The settings
+# hook tawk._settings (below, after `kk.uses tutil`) applies it.
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also
@@ -24,32 +22,37 @@ kk.uses tutil || return
 #   * the suffixes `_progs`, `_vnames`, `_vvals` — this unit's own storage:
 #     `a.toArray a_progs` would turn the records into the NEXT run's program,
 #     `a_vnames`/`a_vvals` into its variables.
-# Each append is idempotent (only if absent), and the scratch globals are
-# released right after, so the unit leaves `__TAW_SEQ` and the two inplace
-# caches `__TAW_IPC` / `__TAW_APC` (below) behind.
-declare -g __taw_seen=0
-declare -g __taw_p=''
-declare -g __taw_s=''
-for __taw_p in "${TUTIL_OUT_PREFIXES[@]}"; do
-    if [[ "$__taw_p" == "__taw_" ]]; then
-        __taw_seen=1
-    fi
-done
-if [[ "$__taw_seen" != "1" ]]; then
-    TUTIL_OUT_PREFIXES+=( __taw_ )
-fi
-for __taw_s in _progs _vnames _vvals; do
-    __taw_seen=0
-    for __taw_p in "${TUTIL_OUT_SUFFIXES[@]}"; do
-        if [[ "$__taw_p" == "$__taw_s" ]]; then
+# Each append is idempotent (only if absent), and the scratch names are the
+# hook's locals, so the unit leaves `__TAW_SEQ` and the two inplace caches
+# `__TAW_IPC` / `__TAW_APC` (below) behind. It lives in the settings hook
+# (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5.2, the H1 case), next to
+# the locale default: an image start runs tutil's hook (the registries) and
+# then this one again, so the hook lists tutil's registries.
+tawk._settings() {
+    local __taw_seen=0 __taw_p='' __taw_s=''
+    kk.localeDefault
+    for __taw_p in "${TUTIL_OUT_PREFIXES[@]}"; do
+        if [[ "$__taw_p" == "__taw_" ]]; then
             __taw_seen=1
         fi
     done
     if [[ "$__taw_seen" != "1" ]]; then
-        TUTIL_OUT_SUFFIXES+=( "$__taw_s" )
+        TUTIL_OUT_PREFIXES+=( __taw_ )
     fi
-done
-unset -v __taw_seen __taw_p __taw_s
+    for __taw_s in _progs _vnames _vvals; do
+        __taw_seen=0
+        for __taw_p in "${TUTIL_OUT_SUFFIXES[@]}"; do
+            if [[ "$__taw_p" == "$__taw_s" ]]; then
+                __taw_seen=1
+            fi
+        done
+        if [[ "$__taw_seen" != "1" ]]; then
+            TUTIL_OUT_SUFFIXES+=( "$__taw_s" )
+        fi
+    done
+    return 0
+}
+kk.settings tawk._settings LC_CTYPE TUTIL_OUT_PREFIXES TUTIL_OUT_SUFFIXES || return
 
 # Monotonic sequence for `TAwk.apply`'s throw-away instance name (PLAN §2.7): a
 # FIXED name is deleted out from under an outer `apply` by a nested one, so the

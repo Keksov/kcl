@@ -5,9 +5,14 @@ kk.unit tdirectory || return $__kk_unit_rc
 # Locale self-heal (decision D6, kcl/README.md 1.6). Listings sort and match
 # in the ambient locale; an empty environment means the C locale, where a
 # multi-byte name is a string of bytes.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# The settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5)
+# applies it: kk.localeDefault exports LC_CTYPE=C.UTF-8 when none of LC_ALL,
+# LC_CTYPE, LANG is set.
+tdirectory._settings() {
+    kk.localeDefault
+    return 0
+}
+kk.settings tdirectory._settings LC_CTYPE || return
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also

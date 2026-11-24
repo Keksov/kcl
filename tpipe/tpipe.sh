@@ -6,9 +6,14 @@ kk.unit tpipe || return $__kk_unit_rc
 # callback verbatim, so character semantics are part of this unit's contract:
 # an empty environment means the C locale, where ${#s} counts bytes and ${s,,}
 # corrupts multi-byte text.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# The settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5)
+# applies it: kk.localeDefault exports LC_CTYPE=C.UTF-8 when none of LC_ALL,
+# LC_CTYPE, LANG is set.
+tpipe._settings() {
+    kk.localeDefault
+    return 0
+}
+kk.settings tpipe._settings LC_CTYPE || return
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also
@@ -906,9 +911,21 @@ tpipe._open() {
 #           signals are still being lost in its exec hand-over.
 #   HARDCAP the reap gives up: a process that neither TERM nor repeated KILLs
 #           end within this is left (none was seen; it bounds the stop).
-declare -gr __TPIPE_RETERM_US=100000
-declare -gr __TPIPE_GRACE_US=1000000
-declare -gr __TPIPE_HARDCAP_US=3000000
+# Readonly once per process (kcl unit pattern rule 10, like tfile's and
+# fv.dlg's constants): a reload after `kk.unit --forget tpipe` (U24') keeps
+# them instead of failing on `readonly variable` (under `set -e` that exited
+# the caller). Each one is guarded on its own (I1b critic L4: one made readonly
+# beforehand does not leave the others unset). `${x@a}` is guarded by `${x+x}`:
+# under `set -u` it is unbound for an unset name.
+if [[ -z ${__TPIPE_RETERM_US+x} || ${__TPIPE_RETERM_US@a} != *r* ]]; then
+    declare -gr __TPIPE_RETERM_US=100000
+fi
+if [[ -z ${__TPIPE_GRACE_US+x} || ${__TPIPE_GRACE_US@a} != *r* ]]; then
+    declare -gr __TPIPE_GRACE_US=1000000
+fi
+if [[ -z ${__TPIPE_HARDCAP_US+x} || ${__TPIPE_HARDCAP_US@a} != *r* ]]; then
+    declare -gr __TPIPE_HARDCAP_US=3000000
+fi
 
 # tpipe._ptScan — fill the caller's assoc `__tpi_pp` (pid -> ppid) from the
 # process table. rc 0 when the table is usable, i.e. it lists this shell

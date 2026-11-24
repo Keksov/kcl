@@ -5,9 +5,14 @@ kk.unit tpath || return $__kk_unit_rc
 # Locale self-heal (decision D6, kcl/README.md 1.6). Character semantics are
 # part of this unit's contract: ${#s} must count characters and ${s,,} must not
 # corrupt multi-byte text. An empty environment means the C locale.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# The settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5)
+# applies it: kk.localeDefault exports LC_CTYPE=C.UTF-8 when none of LC_ALL,
+# LC_CTYPE, LANG is set.
+tpath._settings() {
+    kk.localeDefault
+    return 0
+}
+kk.settings tpath._settings LC_CTYPE || return
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also
@@ -34,53 +39,59 @@ kk.uses kklass_pascal || return
 # ---------------------------------------------------------------------------
 # Assigned once per process (uses U4, pattern rule 10): a reload after
 # `kk.unit --forget tpath` (U24') keeps the readonly constants instead of failing
-# on `readonly variable` (under `set -e` that exited the caller). `${x@a}` is
-# guarded by `${x+x}`: under `set -u` it is unbound for an unset name.
-if [[ -z ${__TPATH_BS+x} || ${__TPATH_BS@a} != *r* ]]; then
-    # $OSTYPE, not `$(uname -s)` (U4 final review R8: no fork at load): bash
-    # sets msys (Git-bash, MSYS2), cygwin (Cygwin, some MSYS2 builds) — uname's
-    # MINGW*/MSYS*/CYGWIN* — or linux-gnu, darwin..., the POSIX branch.
-    case $OSTYPE in
-        msys*|cygwin*|mingw*|win32*)
-            __TPATH_IS_WINDOWS=1
-            __TPATH_DIRECTORY_SEPARATOR_CHAR='/'
-            __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR='\'
-            __TPATH_PATH_SEPARATOR=';'
-            __TPATH_VOLUME_SEPARATOR_CHAR=':'
-            ;;
-        *)
-            __TPATH_IS_WINDOWS=0
-            __TPATH_DIRECTORY_SEPARATOR_CHAR='/'
-            __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR='/'
-            __TPATH_PATH_SEPARATOR=':'
-            __TPATH_VOLUME_SEPARATOR_CHAR='/'
-            ;;
-    esac
+# on `readonly variable` (under `set -e` that exited the caller). Each name is
+# guarded on its own (I1b critic L4): one of them made readonly beforehand does
+# not leave the others unset. The values go to the scratch table __tpath_c
+# (released below); `${x@a}` is guarded by `${x+x}`: under `set -u` it is
+# unbound for an unset name.
+declare -gA __tpath_c=()
+# $OSTYPE, not `$(uname -s)` (U4 final review R8: no fork at load): bash
+# sets msys (Git-bash, MSYS2), cygwin (Cygwin, some MSYS2 builds) — uname's
+# MINGW*/MSYS*/CYGWIN* — or linux-gnu, darwin..., the POSIX branch.
+case $OSTYPE in
+    msys*|cygwin*|mingw*|win32*)
+        __tpath_c[IS_WINDOWS]=1
+        __tpath_c[DIRECTORY_SEPARATOR_CHAR]='/'
+        __tpath_c[ALT_DIRECTORY_SEPARATOR_CHAR]='\'
+        __tpath_c[PATH_SEPARATOR]=';'
+        __tpath_c[VOLUME_SEPARATOR_CHAR]=':'
+        ;;
+    *)
+        __tpath_c[IS_WINDOWS]=0
+        __tpath_c[DIRECTORY_SEPARATOR_CHAR]='/'
+        __tpath_c[ALT_DIRECTORY_SEPARATOR_CHAR]='/'
+        __tpath_c[PATH_SEPARATOR]=':'
+        __tpath_c[VOLUME_SEPARATOR_CHAR]='/'
+        ;;
+esac
 
-    __TPATH_EXTENSION_SEPARATOR_CHAR='.'
+__tpath_c[EXTENSION_SEPARATOR_CHAR]='.'
 
-    # A literal backslash in its own variable. A bracket expression cannot carry
-    # one: inside [...] bash reads `\` as an escape, so `${p##*[/\\]}` and
-    # `[[ $p == [/\\]* ]]` match NEITHER `/` nor `\` (that is the mechanism behind
-    # finding G6-01 - the class silently collapsed to `/` only, and on 5.2/5.3 it
-    # does not even match that). `${p##*"$__TPATH_BS"}` and
-    # `[[ $p == *"$__TPATH_BS"* ]]` are the forms that do work.
-    __TPATH_BS='\'
+# A literal backslash in its own variable. A bracket expression cannot carry
+# one: inside [...] bash reads `\` as an escape, so `${p##*[/\\]}` and
+# `[[ $p == [/\\]* ]]` match NEITHER `/` nor `\` (that is the mechanism behind
+# finding G6-01 - the class silently collapsed to `/` only, and on 5.2/5.3 it
+# does not even match that). `${p##*"$__TPATH_BS"}` and
+# `[[ $p == *"$__TPATH_BS"* ]]` are the forms that do work.
+__tpath_c[BS]='\'
 
-    # Where drive X: is mounted, as a prefix for the lowercase letter: MSYS2 and
-    # Git-bash mount it at /x, Cygwin at /cygdrive/x (the prefix is
-    # configurable). Both runtimes link /proc/cygdrive to that prefix, so
-    # /proc/cygdrive/x is drive X: on either, with no fork; without it, /x.
-    __TPATH_DRIVE_ROOT=/
-    if (( __TPATH_IS_WINDOWS )) && [[ -d /proc/cygdrive ]]; then
-        __TPATH_DRIVE_ROOT=/proc/cygdrive/
-    fi
-
-    readonly __TPATH_IS_WINDOWS __TPATH_DIRECTORY_SEPARATOR_CHAR \
-             __TPATH_ALT_DIRECTORY_SEPARATOR_CHAR __TPATH_PATH_SEPARATOR \
-             __TPATH_VOLUME_SEPARATOR_CHAR __TPATH_EXTENSION_SEPARATOR_CHAR \
-             __TPATH_BS __TPATH_DRIVE_ROOT
+# Where drive X: is mounted, as a prefix for the lowercase letter: MSYS2 and
+# Git-bash mount it at /x, Cygwin at /cygdrive/x (the prefix is
+# configurable). Both runtimes link /proc/cygdrive to that prefix, so
+# /proc/cygdrive/x is drive X: on either, with no fork; without it, /x.
+__tpath_c[DRIVE_ROOT]=/
+if (( __tpath_c[IS_WINDOWS] )) && [[ -d /proc/cygdrive ]]; then
+    __tpath_c[DRIVE_ROOT]=/proc/cygdrive/
 fi
+
+# __TPATH_<KEY> = __tpath_c[KEY], readonly — each one unless it is readonly already
+for __tpath_n in "${!__tpath_c[@]}"; do
+    __tpath_v=__TPATH_$__tpath_n
+    if [[ -z ${!__tpath_v+x} || ${!__tpath_v@a} != *r* ]]; then
+        declare -gr "$__tpath_v=${__tpath_c[$__tpath_n]}"
+    fi
+done
+unset -v __tpath_c __tpath_n __tpath_v
 
 # ---------------------------------------------------------------------------
 # TPath: a static utility namespace (Free Pascal's TPath / .NET System.IO.Path).

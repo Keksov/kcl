@@ -8,9 +8,14 @@ kk.unit tstringhelper || return $__kk_unit_rc
 # must not corrupt multi-byte text. An empty environment means the C locale,
 # where `${#s}` counts bytes, `${s:i:1}` cuts a lone byte out of a character
 # and `${s,,}` mangles UTF-8 on bash 5.2.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# The settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5)
+# applies it: kk.localeDefault exports LC_CTYPE=C.UTF-8 when none of LC_ALL,
+# LC_CTYPE, LANG is set.
+tstringhelper._settings() {
+    kk.localeDefault
+    return 0
+}
+kk.settings tstringhelper._settings LC_CTYPE || return
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also

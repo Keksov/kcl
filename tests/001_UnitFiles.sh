@@ -254,13 +254,16 @@ kclt_run "$DECOY" -s "$KU" "$KF" < "$KCLT_TMP/decoy.sh"
 kclt_expect "$KU: bash -s (no calling file) with the cwd in a folder holding a headered stand-in $KU.sh: kk.uses $KU loads kcl/$KD/$KU.sh, the cwd is not searched [U43, found_in_U3]" "r=0 kcl"
 
 # --- 7. settings hooks lint (kklass/docs/dev/IMAGE_PLAN.md §5.5, image I1a) ---
-# The rules R1-R5 and the scan: kcl/tests/hook_lint.sh (kclt_hooklint).
+# The rules R1-R7 and the scan: kcl/tests/hook_lint.sh (kclt_hooklint).
 source "$SCRIPT_DIR/hook_lint.sh"
+# the kklass unit files the lint covers (kklass_compiler.sh is a tool, not a unit)
+KCLT_HOOK_KKLASS=()
+for KK_U in kklass kklass_decl kklass_pascal kklass_serializable kklass_autoload; do KCLT_HOOK_KKLASS+=("$KBOOL_ROOT/kklass/$KK_U.sh"); done
 
-kt_test_start "settings hooks lint over the ${#files[@]} unit files + kklass/kklass.sh: on a load-time line outside a kk.settings hook no public self-default / :+ / preset guard / -v test / \${!X} / append, locale read or export, PATH probe, \$\$ / \$BASHPID, clock or random value, terminal test, environment name (R1), no write of a VAR another unit lists (R2), no expansion of a VAR any unit lists (R5); every hook ends with 'return 0' or an assignment (R3); the ${#KCLT_HOOK_PENDING[@]} files not hooked yet are on KCLT_HOOK_PENDING, each existing and without kk.settings (R4; image I1b empties it) [IMAGE_PLAN §5.5]"
-lint="$(kclt_hooklint "${files[@]}" "$KBOOL_ROOT/kklass/kklass.sh" 2>&1)"
+kt_test_start "settings hooks lint over the ${#files[@]} unit files + the kklass units kklass, kklass_decl, kklass_pascal, kklass_serializable, kklass_autoload (not the tool kklass_compiler): on a load-time line outside a kk.settings hook no public self-default / :+ / preset guard / -v test / \${!X} / append, locale read or export, PATH probe, \$\$ / \$BASHPID, clock or random value, terminal test, environment name, /proc read (R1), no write of a VAR another unit lists (R2), no expansion of a VAR any unit lists (R5); every hook ends with 'return 0' or an assignment (R3); a hook calling kk.localeDefault lists LC_CTYPE (R6); a registry VAR several hooks list: each appender kk.uses its owner before its kk.settings line (R7); KCLT_HOOK_PENDING is EMPTY — every unit file is hooked, none is exempt (R4; image I1b emptied it, I1a deferred L5) [IMAGE_PLAN §5.5]"
+lint="$(kclt_hooklint "${files[@]}" "${KCLT_HOOK_KKLASS[@]}" 2>&1)"
 bad=""
-for r in "${KCLT_HOOK_PENDING[@]}"; do [[ -f $KBOOL_ROOT/$r ]] || bad+=" pending-without-file:$r"; done
+(( ${#KCLT_HOOK_PENDING[@]} == 0 )) || bad+=" KCLT_HOOK_PENDING not empty:${KCLT_HOOK_PENDING[*]}"
 if [[ -z "$lint$bad" ]]; then kt_test_pass "clean"; else kt_test_fail "${lint//$'\n'/ | }$bad"; fi
 
 # the lint fails on a fixture for each rule (fixture files under KCLT_TMP)
@@ -293,6 +296,7 @@ fxr1_bpid=$BASHPID
 fxr1._init
 if [[ -z ${FXR1_RO+x} || ${FXR1_RO@a} != *r* ]]; then FXR1_RO=1; readonly FXR1_RO; fi
 declare -g __FXR1_INT=${__FXR1_INT:-0}
+fxr1_dir=${KKLASS_DIR-} fxr1_d2=${FXR1_DIR-}
 EOF
 cat > "$FXL/fxown.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -404,7 +408,43 @@ ${FXR5_INSTR:-literal}
 '
 declare -g FXR5_LAST=${FXR5_LAST:-9}  # don't
 EOF
-lint="$(kclt_hooklint "$FXL/fxr1.sh" "$FXL/fxown.sh" "$FXL/fxr2.sh" "$FXL/fxr3.sh" "$FXL/fxr5.sh" 2>&1)"
+# (image I1b critic) R1's /proc read, R6 (kk.localeDefault without LC_CTYPE),
+# R7 (an appender's kk.settings before the kk.uses of the registry's owner),
+# KCLT_HOOK_CTX keyed to its owner file and to the ${X-} form
+cat > "$FXL/fxr6.sh" <<'EOF'
+#!/usr/bin/env bash
+kk.unit fxr6 || return $__kk_unit_rc
+fxr6._settings() {
+    local v=''
+    { read -r v < /proc/version; } 2>/dev/null
+    kk.localeDefault
+    declare -g FXR6_V=$v
+    return 0
+}
+kk.settings fxr6._settings FXR6_V || return
+fxr6._b() { kk.localeDefault; return 0; }
+kk.settings fxr6._b LC_CTYPE || return
+fxr6_x=$(< /proc/self/stat)
+EOF
+cat > "$FXL/fxr7.sh" <<'EOF'
+#!/usr/bin/env bash
+kk.unit fxr7 || return $__kk_unit_rc
+fxr7._settings() {
+    [[ " ${FXOWN_REG[*]} " == *" d "* ]] || FXOWN_REG+=(d)
+    return 0
+}
+kk.settings fxr7._settings FXOWN_REG || return
+kk.uses fxown || return
+EOF
+mkdir -p "$FXL/kklass"
+cat > "$FXL/kklass/kklass.sh" <<'EOF'
+#!/usr/bin/env bash
+kk.unit kklass || return $__kk_unit_rc
+fxk_a=${KKLASS_DIR-}
+fxk_b=${KKLASS_DIR:-/elsewhere}
+EOF
+lint="$(kclt_hooklint "$FXL/fxr1.sh" "$FXL/fxown.sh" "$FXL/fxr2.sh" "$FXL/fxr3.sh" "$FXL/fxr5.sh" \
+    "$FXL/fxr6.sh" "$FXL/fxr7.sh" "$FXL/kklass/kklass.sh" 2>&1)"
 lint=${lint//"$FXL/"/}; lint=${lint//"${FXL#"$KBOOL_ROOT"/}/"/}
 want="fxr1.sh:14: R1: self-default:FXR1_A
 fxr1.sh:15: R1: self-default:FXR1_B
@@ -417,6 +457,7 @@ fxr1.sh:20: R1: locale-export:kk.localeDefault
 fxr1.sh:21: R1: path-probe:command
 fxr1.sh:22: R1: pid
 fxr1.sh:23: R1: pid
+fxr1.sh:27: R1: self-default:KKLASS_DIR self-default:FXR1_DIR
 fxr1.sh:12: R1: self-default:FXR1_RUN (in fxr1._init, run at load)
 fxr2.sh:4: R2: writes FXOWN_REG, listed by $FXL/fxown.sh's kk.settings
 fxr3.sh:6: R3: hook fxr3._a ends with '[[ -n \${FXR3_X} ]] && FXR3_Y=1', not 'return 0' or an assignment
@@ -438,9 +479,13 @@ fxr5.sh:18: R1: self-default:FXR5_P2 (in fxr5._p2, run at load)
 fxr5.sh:21: R1: self-default:FXR5_P3 (in fxr5._p3, run at load)
 fxr5.sh:24: R1: self-default:FXR5_P4 (in fxr5._p4, run at load)
 fxr5.sh:31: R1: self-default:FXR5_P6 (in fxr5._p6, run at load)
-fxr5.sh:45: R1: self-default:FXR5_P8 (in fxr5._p8, run at load)"
+fxr5.sh:45: R1: self-default:FXR5_P8 (in fxr5._p8, run at load)
+fxr6.sh:6: R6: hook fxr6._settings calls kk.localeDefault but does not list LC_CTYPE
+fxr6.sh:13: R1: proc-read
+fxr7.sh:7: R7: hook fxr7._settings lists FXOWN_REG, which $FXL/fxown.sh's hook lists too: kk.uses fxown before 'kk.settings fxr7._settings' (the owner's hook must run first)
+kklass/kklass.sh:4: R1: self-default:KKLASS_DIR"
 want=${want//"$FXL/"/}
-kt_test_start "settings hooks lint fixtures: each rule fails where it should — R1 (self-defaults :- / := also in a function run at load — called after && / { / \$( / a brace on the next line / past here-documents —, :+, a preset guard, -v, \${!X}, an append, a locale read and export, kk.localeDefault, command -v, \$\$, \$BASHPID, \$EPOCHSECONDS / \$RANDOM, printf %()T, [[ -t, \$HOME / \$TERM; not in a hook body, a readonly reload guard, an internal __ default, a local, single-quoted text, a here-document, a multi-line string, a ( ) body not run), R2 (a load-time write of another unit's hook VAR; not the owner's own), R3 (a hook ending with '&& Y=1', a command or X=\$(...), a hook not defined; not 'return 0', an assignment, declare -g A=1 B=2, declare -ga X, a one-line body ending in one), R5 (a value derived from a listed VAR, \$(( )) and \"\$X\") [IMAGE_PLAN §5.5]"
+kt_test_start "settings hooks lint fixtures: each rule fails where it should — R1 (self-defaults :- / := also in a function run at load — called after && / { / \$( / a brace on the next line / past here-documents —, :+, a preset guard, -v, \${!X}, an append, a locale read and export, kk.localeDefault, command -v, \$\$, \$BASHPID, \$EPOCHSECONDS / \$RANDOM, printf %()T, [[ -t, \$HOME / \$TERM; not in a hook body, a readonly reload guard, an internal __ default, a load-context \${KKLASS_DIR-} in its owner file kklass/kklass.sh (KCLT_HOOK_CTX; another form or another file is reported), a hook reading /proc, a local, single-quoted text, a here-document, a multi-line string, a ( ) body not run), R2 (a load-time write of another unit's hook VAR; not the owner's own), R3 (a hook ending with '&& Y=1', a command or X=\$(...), a hook not defined; not 'return 0', an assignment, declare -g A=1 B=2, declare -ga X, a one-line body ending in one), R5 (a value derived from a listed VAR, \$(( )) and \"\$X\"), R1 a load-time /proc read, R6 (a hook calling kk.localeDefault without LC_CTYPE; not a one-line hook that lists it), R7 (an appender whose kk.settings comes before its kk.uses of the registry owner; not fxr2, which loads it first) [IMAGE_PLAN §5.5, I1b critic]"
 if [[ "$lint" == "$want" ]]; then kt_test_pass "ok"; else kt_test_fail "got='${lint//$'\n'/ | }' want='${want//$'\n'/ | }'"; fi
 
 # R4: a pending file that has a hook must leave the list

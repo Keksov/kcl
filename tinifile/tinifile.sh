@@ -83,9 +83,14 @@ kk.unit tinifile || return $__kk_unit_rc
 # the case-insensitive section/key lookup is `${x,,}`, and under the C locale
 # that leaves a multi-byte letter alone, so `[Café]` would not answer to `CAFÉ`.
 # An empty environment means the C locale; an explicit one is never overridden.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# The settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5)
+# applies it: kk.localeDefault exports LC_CTYPE=C.UTF-8 when none of LC_ALL,
+# LC_CTYPE, LANG is set.
+tinifile._settings() {
+    kk.localeDefault
+    return 0
+}
+kk.settings tinifile._settings LC_CTYPE || return
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also

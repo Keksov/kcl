@@ -60,3 +60,24 @@ if source "$TPATH_DIR/tpath.sh" 2>/dev/null && [[ "$(tpath.getExtensionSeparator
 else
     kt_test_fail "re-sourcing tpath.sh failed or broke the class"
 fi
+# (image I1b critic L4) each constant has its own readonly guard: one made
+# readonly before the load (here __TPATH_BS) does not leave the others unset;
+# and kk.unit --forget + a re-source stays clean under set -eu
+kt_test_start "under set -eu: a readonly __TPATH_BS made before the load is kept, every other __TPATH_* constant is still set and readonly, a forget + reload is clean"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$("$KT_TIMEOUT" -k 5 60 "$BASH" -c '
+set -eu
+readonly __TPATH_BS=keep
+source "$1/tpath.sh"
+c=""
+for n in IS_WINDOWS DIRECTORY_SEPARATOR_CHAR ALT_DIRECTORY_SEPARATOR_CHAR PATH_SEPARATOR VOLUME_SEPARATOR_CHAR EXTENSION_SEPARATOR_CHAR DRIVE_ROOT; do
+    v=__TPATH_$n
+    if [[ -n ${!v+x} && ${!v@a} == *r* ]]; then c+=r; else c+="-$n"; fi
+done
+kk.unit --forget tpath
+source "$1/tpath.sh"
+tpath.getExtensionSeparatorChar
+printf "%s|%s|%s|%s" "$c" "$__TPATH_BS" "$__TPATH_EXTENSION_SEPARATOR_CHAR" "${__tpath_c+leaked}"' _ "$TPATH_DIR" 2>&1 </dev/null)"; rc=$?
+if [[ $rc -eq 0 && "$out" == "rrrrrrr|keep|.|" ]]; then kt_test_pass "$out"; else kt_test_fail "rc=$rc out='$out'"; fi
+fi   # kt_need_timeout

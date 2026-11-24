@@ -62,11 +62,38 @@ else
     kt_test_pass "TFile dispatchers are thin (no capture overhead)"
 fi
 
-kt_test_start "TFILE_USE_CP is readonly and re-sourcing is guarded"
-if (TFILE_USE_CP="x") 2>/dev/null; then
-    kt_test_fail "TFILE_USE_CP is readonly (write unexpectedly succeeded)"
-elif source "$TFILE_DIR/tfile.sh" 2>/dev/null && [[ "$(tfile.exists /)" =~ ^(true|false)$ ]]; then
-    kt_test_pass "TFILE_USE_CP is readonly and re-sourcing is guarded"
+# (image I1b: TFILE_USE_CP is set by the settings hook tfile._settings and is
+# no longer readonly — a load image re-runs hooks after putting their
+# variables back, which readonly forbids; a readonly value is kept)
+kt_test_start "TFILE_USE_CP is set by the settings hook (true/false) and re-sourcing is guarded"
+if [[ "$TFILE_USE_CP" =~ ^(true|false)$ ]] && source "$TFILE_DIR/tfile.sh" 2>/dev/null \
+   && [[ "$(tfile.exists /)" =~ ^(true|false)$ ]]; then
+    kt_test_pass "TFILE_USE_CP=$TFILE_USE_CP, re-source clean"
 else
-    kt_test_fail "re-sourcing tfile.sh failed or broke the class"
+    kt_test_fail "TFILE_USE_CP='${TFILE_USE_CP-<unset>}' or re-sourcing tfile.sh failed or broke the class"
 fi
+
+kt_test_start "under set -eu: kk.unit --forget tfile + a re-source recomputes TFILE_USE_CP; a value made readonly before the load is kept, and its reload does not fail"
+if ! kt_need_timeout; then kt_test_pass "SKIP: $KT_TIMEOUT_WHY"
+else
+out="$("$KT_TIMEOUT" -k 5 60 "$BASH" -c '
+set -eu
+source "$1/tfile.sh"
+a=$TFILE_USE_CP
+TFILE_USE_CP=stale
+kk.unit --forget tfile
+source "$1/tfile.sh"
+b=$TFILE_USE_CP
+kk.unit --forget tfile
+readonly TFILE_USE_CP=false
+source "$1/tfile.sh"
+kk.unit --forget tfile
+source "$1/tfile.sh"
+tfile.exists "$1/tfile.sh"
+printf "%s|%s|%s|%s" "$a" "$b" "$TFILE_USE_CP" "$RESULT"' _ "$TFILE_DIR" 2>&1 </dev/null)"; rc=$?
+if [[ $rc -eq 0 && "$out" =~ ^(true|false)\|(true|false)\|false\|true$ && "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]; then
+    kt_test_pass "$out"
+else
+    kt_test_fail "rc=$rc out='$out'"
+fi
+fi   # kt_need_timeout

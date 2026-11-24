@@ -4,10 +4,8 @@ kk.unit tsed || return $__kk_unit_rc
 
 # Locale self-heal (kcl/README.md §1.6). A path, an expression and the bytes sed
 # emits are data and pass through verbatim, so character semantics are part of
-# this unit's contract: an empty environment means the C locale.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# this unit's contract: an empty environment means the C locale. The settings
+# hook tsed._settings (below, after `kk.uses tutil`) applies it.
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also
@@ -26,31 +24,36 @@ kk.uses tutil || return
 #     script (with `sandbox = 0` a data line `e …` became a command);
 #   * the suffixes `_rfrom`, `_rto`, `_rflags` — the raw `addReplace` data kept
 #     next to `_exprs` (HELPERS_PLAN §2.2), the same storage for the same reason.
-# Each append is idempotent (only if absent), and the scratch globals are
-# released right after, so the unit leaves exactly `__TSD_SEQ` behind.
-declare -g __tsd_seen=0
-declare -g __tsd_p=''
-declare -g __tsd_sfx=''
-for __tsd_p in "${TUTIL_OUT_PREFIXES[@]}"; do
-    if [[ "$__tsd_p" == "__tsd_" ]]; then
-        __tsd_seen=1
-    fi
-done
-if [[ "$__tsd_seen" != "1" ]]; then
-    TUTIL_OUT_PREFIXES+=( __tsd_ )
-fi
-for __tsd_sfx in _exprs _rfrom _rto _rflags; do
-    __tsd_seen=0
-    for __tsd_p in "${TUTIL_OUT_SUFFIXES[@]}"; do
-        if [[ "$__tsd_p" == "$__tsd_sfx" ]]; then
+# Each append is idempotent (only if absent), and the scratch names are the
+# hook's locals, so the unit leaves exactly `__TSD_SEQ` behind. It lives in the
+# settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5.2, the H1
+# case), next to the locale default: an image start runs tutil's hook (the
+# registries) and then this one again, so the hook lists tutil's registries.
+tsed._settings() {
+    local __tsd_seen=0 __tsd_p='' __tsd_sfx=''
+    kk.localeDefault
+    for __tsd_p in "${TUTIL_OUT_PREFIXES[@]}"; do
+        if [[ "$__tsd_p" == "__tsd_" ]]; then
             __tsd_seen=1
         fi
     done
     if [[ "$__tsd_seen" != "1" ]]; then
-        TUTIL_OUT_SUFFIXES+=( "$__tsd_sfx" )
+        TUTIL_OUT_PREFIXES+=( __tsd_ )
     fi
-done
-unset -v __tsd_seen __tsd_p __tsd_sfx
+    for __tsd_sfx in _exprs _rfrom _rto _rflags; do
+        __tsd_seen=0
+        for __tsd_p in "${TUTIL_OUT_SUFFIXES[@]}"; do
+            if [[ "$__tsd_p" == "$__tsd_sfx" ]]; then
+                __tsd_seen=1
+            fi
+        done
+        if [[ "$__tsd_seen" != "1" ]]; then
+            TUTIL_OUT_SUFFIXES+=( "$__tsd_sfx" )
+        fi
+    done
+    return 0
+}
+kk.settings tsed._settings LC_CTYPE TUTIL_OUT_PREFIXES TUTIL_OUT_SUFFIXES || return
 
 # Monotonic sequence for `TSed.edit`'s throw-away instance name (PLAN §2.7): a
 # FIXED name is deleted out from under an outer `edit` by a nested one, so the

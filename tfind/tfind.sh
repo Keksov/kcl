@@ -5,10 +5,8 @@ kk.unit tfind || return $__kk_unit_rc
 # Locale self-heal (kcl/README.md §1.6). A path and the bytes find emits are
 # data and pass through verbatim, so character semantics are part of this unit's
 # contract: an empty environment means the C locale, where a multi-byte file
-# name stops being characters.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# name stops being characters. The settings hook tfind._settings (below, after
+# `kk.uses tutil`) applies it.
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also
@@ -26,19 +24,25 @@ kk.uses tutil || return
 # would bind the scratch nameref a member body below holds. The append is
 # idempotent — `+=` on every load would grow the registry without bound when
 # the unit is loaded again (`kk.unit --forget tfind` + a re-source, U24') — and
-# the two scratch globals are released right after, so the unit leaves exactly
-# `__TFD_SEQ` behind.
-declare -g __tfd_seen=0
-declare -g __tfd_p=''
-for __tfd_p in "${TUTIL_OUT_PREFIXES[@]}"; do
-    if [[ "$__tfd_p" == "__tfd_" ]]; then
-        __tfd_seen=1
+# the scratch names are the hook's locals, so the unit leaves exactly
+# `__TFD_SEQ` behind. It lives in the settings hook (kkore kk.settings;
+# kklass/docs/dev/IMAGE_PLAN.md §5.2, the H1 case), next to the locale default:
+# an image start runs tutil's hook (the registry) and then this one again, so
+# the hook lists tutil's registry as well.
+tfind._settings() {
+    local __tfd_seen=0 __tfd_p=''
+    kk.localeDefault
+    for __tfd_p in "${TUTIL_OUT_PREFIXES[@]}"; do
+        if [[ "$__tfd_p" == "__tfd_" ]]; then
+            __tfd_seen=1
+        fi
+    done
+    if [[ "$__tfd_seen" != "1" ]]; then
+        TUTIL_OUT_PREFIXES+=( __tfd_ )
     fi
-done
-if [[ "$__tfd_seen" != "1" ]]; then
-    TUTIL_OUT_PREFIXES+=( __tfd_ )
-fi
-unset -v __tfd_seen __tfd_p
+    return 0
+}
+kk.settings tfind._settings LC_CTYPE TUTIL_OUT_PREFIXES || return
 
 # Monotonic sequence for `TFind.byName`'s throw-away instance name (PLAN §2.5).
 # A FIXED name is deleted out from under an outer `byName` by a nested one, so

@@ -27,9 +27,14 @@ kk.namespace tca || return
 # Character semantics are part of this unit's contract (kcl/README.md 1.6,
 # decision D6): CaseSensitiveOptions folds case with ${s,,}/${s^^}, and an empty
 # environment means the C locale, where that corrupts UTF-8 on bash 5.2.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# The settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5)
+# applies it: kk.localeDefault exports LC_CTYPE=C.UTF-8 when none of LC_ALL,
+# LC_CTYPE, LANG is set.
+tcustomapplication._settings() {
+    kk.localeDefault
+    return 0
+}
+kk.settings tcustomapplication._settings LC_CTYPE || return
 
 # ============================================================================
 # Internal scratch, module-private. The helpers below are plain functions, not

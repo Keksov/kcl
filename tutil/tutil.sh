@@ -6,9 +6,58 @@ kk.unit tutil || return $__kk_unit_rc
 # tool emits are data and pass through verbatim, so character semantics are part
 # of this unit's contract: an empty environment means the C locale, where
 # ${#s} counts bytes and ${s,,} corrupts multi-byte text.
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+#
+# TUTIL_OUT_PREFIXES — the local-prefix REGISTRY every descendant extends
+# (tfind PLAN §2.6). Three wrappers in a row had edited a hard-coded list inside
+# `tutil._badOut`; this is that list, declared once per process and appended to
+# by each descendant in ITS settings hook:
+#
+#     TUTIL_OUT_PREFIXES+=( __tfd_ )     # tfind.sh, only if absent
+#
+# A second `source` of this file is a no-op (the unit header), and the
+# declaration keeps an existing array — also across the `kk.unit --forget
+# tutil` + re-source dev hatch (U24', kcl unit pattern rule 10 / amendment l) —
+# so a reload cannot reset it and drop a descendant's entry. `tutil/README.md`
+# §5 is the instruction for a new wrapper.
+#
+# TUTIL_OUT_SUFFIXES — the second registry (tsed PLAN §2.1): the per-instance
+# arrays this family keeps beyond kklass's `_data`/`_class`/`_items`. It was a
+# hard-coded `_args|_argv|_paths` case inside `tutil._badOut` until tsed added a
+# fourth, `${inst}_exprs`, and measured that `s.toArray s_exprs` turned the
+# records into the NEXT run's script. A descendant appends its own suffix, only
+# if absent (tsed adds `_exprs _rfrom _rto _rflags` — the last three hold its
+# raw `addReplace` data):
+#
+#     TUTIL_OUT_SUFFIXES+=( _exprs )     # tsed.sh, likewise _rfrom _rto _rflags
+#
+# Declared once per process like the prefix registry, and the same two guards
+# in `tutil._badOut`.
+#
+# The settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5) holds
+# the locale default, both registries and the CR probe __TUTIL_TOOLS_STRIP_CR
+# (see "The CR contract" below): an image start runs it (and the descendants'
+# hooks, which list the registries too) again.
+tutil._settings() {
+    local __tutil_v=''
+    kk.localeDefault
+    if [[ -z ${__TUTIL_TOOLS_STRIP_CR+x} ]]; then
+        declare -g __TUTIL_TOOLS_STRIP_CR=0
+        case "${OSTYPE:-}" in
+            cygwin*|msys*)
+                { read -r __tutil_v < /proc/version; } 2>/dev/null
+                [[ $__tutil_v == CYGWIN_NT* ]] || __TUTIL_TOOLS_STRIP_CR=1
+                ;;
+        esac
+    fi
+    if [[ -z ${TUTIL_OUT_PREFIXES+x} || ${TUTIL_OUT_PREFIXES@a} != *a* ]]; then
+        declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
+    fi
+    if [[ -z ${TUTIL_OUT_SUFFIXES+x} || ${TUTIL_OUT_SUFFIXES@a} != *a* ]]; then
+        declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )
+    fi
+    return 0
+}
+kk.settings tutil._settings LC_CTYPE TUTIL_OUT_PREFIXES TUTIL_OUT_SUFFIXES __TUTIL_TOOLS_STRIP_CR || return
 
 # A unit (kklass/USES_PLAN.md §7.4, phase U4): the two header lines at the
 # top load kbool.sh when needed and make a repeated `source` a no-op, also
@@ -176,37 +225,8 @@ end
 # touch them, and they can be shared by a descendant in another file).
 # ===========================================================================
 
-# TUTIL_OUT_PREFIXES — the local-prefix REGISTRY every descendant extends
-# (tfind PLAN §2.6). Three wrappers in a row had edited a hard-coded list inside
-# `tutil._badOut`; this is that list, declared once at load and appended to by
-# each descendant at ITS load time:
-#
-#     TUTIL_OUT_PREFIXES+=( __tfd_ )     # tfind.sh, only if absent
-#
-# A second `source` of this file is a no-op (the unit header), and the
-# declaration runs once per process — also across the `kk.unit --forget tutil`
-# + re-source dev hatch (U24', kcl unit pattern rule 10 / amendment l) — so a
-# reload cannot reset it and drop a descendant's entry. `tutil/README.md` §5 is
-# the instruction for a new wrapper.
-if [[ -z ${TUTIL_OUT_PREFIXES+x} || ${TUTIL_OUT_PREFIXES@a} != *a* ]]; then
-    declare -ga TUTIL_OUT_PREFIXES=( __tu_ __tg_ __th_ __tt_ )
-fi
-
-# TUTIL_OUT_SUFFIXES — the second registry (tsed PLAN §2.1): the per-instance
-# arrays this family keeps beyond kklass's `_data`/`_class`/`_items`. It was a
-# hard-coded `_args|_argv|_paths` case inside `tutil._badOut` until tsed added a
-# fourth, `${inst}_exprs`, and measured that `s.toArray s_exprs` turned the
-# records into the NEXT run's script. A descendant appends its own suffix at
-# load, only if absent (tsed adds `_exprs _rfrom _rto _rflags` — the last three
-# hold its raw `addReplace` data):
-#
-#     TUTIL_OUT_SUFFIXES+=( _exprs )     # tsed.sh, likewise _rfrom _rto _rflags
-#
-# Declared once per process like the prefix registry, and the same two guards
-# in `tutil._badOut`.
-if [[ -z ${TUTIL_OUT_SUFFIXES+x} || ${TUTIL_OUT_SUFFIXES@a} != *a* ]]; then
-    declare -ga TUTIL_OUT_SUFFIXES=( _args _argv _paths )
-fi
+# (The two out-name registries TUTIL_OUT_PREFIXES / TUTIL_OUT_SUFFIXES are
+# declared by tutil._settings, at the top of this file.)
 
 # The CR contract (README §3 "CRLF: one result on every platform", owner
 # DL11, launch L2.7-C). In TEXT mode TGrep/TSed/TAwk deliver records WITHOUT
@@ -224,23 +244,14 @@ fi
 #   * TGrep with no path operand: stdin goes through `tutil._crStdin` first;
 #   * TGrep with file operands (grep has no input-side switch): the OUTPUT is
 #     cleaned — `_textMode = 1`, the sinks' `TPipe -c` and `run`'s filter.
-# Decided once at load, with no fork; a value set before the first load is
-# kept, and the tests flip it per case to drive the other path. `$OSTYPE`
-# cannot tell the runtimes apart (MSYS2 and Git-bash bash report `cygwin` too,
-# MACHTYPE likewise), so on cygwin/msys the first word of /proc/version does:
-# `CYGWIN_NT-…` is Cygwin, `MSYS_NT-…` / `MINGW64_NT-…` / … is MSYS2. An
-# unreadable /proc/version keeps the MSYS answer (no CR prelude).
-if [[ -z ${__TUTIL_TOOLS_STRIP_CR+x} ]]; then
-    declare -g __TUTIL_TOOLS_STRIP_CR=0
-    case "${OSTYPE:-}" in
-        cygwin*|msys*)
-            __tutil_v=
-            { read -r __tutil_v < /proc/version; } 2>/dev/null
-            [[ $__tutil_v == CYGWIN_NT* ]] || __TUTIL_TOOLS_STRIP_CR=1
-            unset __tutil_v
-            ;;
-    esac
-fi
+# Decided by tutil._settings (the settings hook at the top of this file: a
+# runtime probe, so an image start decides it again), with no fork; a value
+# set before the first load is kept, and the tests flip it per case to drive
+# the other path. `$OSTYPE` cannot tell the runtimes apart (MSYS2 and Git-bash
+# bash report `cygwin` too, MACHTYPE likewise), so on cygwin/msys the first
+# word of /proc/version does: `CYGWIN_NT-…` is Cygwin, `MSYS_NT-…` /
+# `MINGW64_NT-…` / … is MSYS2. An unreadable /proc/version keeps the MSYS
+# answer (no CR prelude).
 # The filter runs plain `command sed`, NOT ktool's GNU sed (launch L3.4, D-L34-8,
 # rule C1): it is written for BSD and busybox sed too (raw CR, `-u` probed), and
 # routing it through ktool would make TGrep and TAwk's `--posix` fallback need

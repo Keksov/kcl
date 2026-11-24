@@ -27,7 +27,11 @@
 #      keys of __KK_SETTINGS_VARS — every unit of the load, there is no prior
 #      set) is put back to its state before the load (unset — a nameref by
 #      `unset -n` —, or its recorded value and attributes); every hook of
-#      __KK_UNIT_SETTINGS runs in load order; the state is dumped again and
+#      __KK_UNIT_SETTINGS runs in THAT order (the order the kk.settings
+#      calls ran, which an image start replays too; NOT __KK_UNIT_ORDER,
+#      where tfind (registered first, it loads tutil) comes before tutil,
+#      whose hook declares the registry tfind's hook appends to (I1b critic
+#      M2); the state is dumped again and
 #      must equal the end-of-load dump ("sim:diff KIND:NAME" names the first
 #      differing variable / function / attribute / shell-state line, with
 #      both texts);
@@ -39,7 +43,8 @@
 #      kklass's kk.* functions), the variables it assigns — NAME=, NAME+=,
 #      NAME[K]= (not a temporary NAME=V in front of a command), declare -g,
 #      export, readonly, unset, printf -v NAME, read's / mapfile's name
-#      operands, for NAME in, : "${NAME:=...}" — minus the locals of the call
+#      operands, for NAME in, : "${NAME:=...}", a call of kk.localeDefault
+#      (LC_CTYPE, I1b critic L1) — minus the locals of the call
 #      path must be listed by its unit: else "sim:unlisted FN VAR". A
 #      heuristic over the printed text (statements cut at ; & | ( ) { } and
 #      quotes): an arithmetic `(( x = 1 ))`, an eval'd or indirect write
@@ -77,6 +82,11 @@
 #     SECONDS SRANDOM, and COLUMNS LINES (checkwinsize) — they change on their
 #     own, per call, per subshell, per command;
 #   * RESULT, kbool's return register (scratch by contract);
+#   * __kk_ft, kklass's pid / fd state of its `declare -f` reader (plan §4:
+#     never image state): class builds open it during the load, kklass's
+#     hook drops it, and kk._fn_text opens it again lazily in any process
+#     whose pid is not its first element — so an image start, which has none,
+#     behaves the same (image I1b);
 #   * this helper's own names: variables __ks_* / KCLT_SIM_*, functions
 #     kclt_sim*.
 # The dump compares two states of ONE process (and its subshells): bash
@@ -91,7 +101,7 @@
 # explain a mismatch. The scratch folder is KCLT_SIM_DIR, else
 # KCLT_TMP/sim.PID (never /tmp). Forks: the two subshells and one mkdir.
 
-KCLT_SIM_SKIP=" _ BASHPID BASH_MONOSECONDS BASH_TRAPSIG BASH_ARGC BASH_ARGV BASH_ARGV0 BASH_COMMAND BASH_LINENO BASH_REMATCH BASH_SOURCE BASH_SUBSHELL EPOCHREALTIME EPOCHSECONDS FUNCNAME HISTCMD LINENO PIPESTATUS RANDOM SECONDS SRANDOM COLUMNS LINES RESULT "
+KCLT_SIM_SKIP=" _ __kk_ft BASHPID BASH_MONOSECONDS BASH_TRAPSIG BASH_ARGC BASH_ARGV BASH_ARGV0 BASH_COMMAND BASH_LINENO BASH_REMATCH BASH_SOURCE BASH_SUBSHELL EPOCHREALTIME EPOCHSECONDS FUNCNAME HISTCMD LINENO PIPESTATUS RANDOM SECONDS SRANDOM COLUMNS LINES RESULT "
 
 # kclt_sim_lines FILE — KCLT_SIM_L = FILE's lines (empty lines dropped): one
 # `read -N` and a split in memory.
@@ -105,7 +115,7 @@ kclt_sim_lines() {
 # kclt_sim_state FILE — the state dump (see the header).
 kclt_sim_state() {
     # the caller's IFS and LC_ALL, before any local of this function
-    declare -p IFS LC_ALL > "$1.pre" 2>/dev/null
+    declare -p IFS LC_ALL > "$1.pre" 2>/dev/null || :     # (LC_ALL unset: rc 1, also under a caller's set -e)
     local - __ks_nc=0
     set +eu
     if [[ $BASHOPTS == *nocasematch* ]]; then __ks_nc=1; shopt -u nocasematch; fi
@@ -331,6 +341,9 @@ kclt_sim__targets() {
                 for)
                     __ks_v=${__ks_ws[0]-}
                     [[ $__ks_v =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && __ks_set+=("$__ks_v") ;;
+                kk.localeDefault)
+                    # kkore's locale default exports LC_CTYPE (I1b critic L1)
+                    __ks_set+=(LC_CTYPE) ;;
                 *)
                     if [[ -n $__ks_w ]] && declare -F -- "$__ks_w" >/dev/null 2>&1; then __ks_calls+=("$__ks_w"); fi ;;
             esac
