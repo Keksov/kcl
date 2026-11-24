@@ -2,8 +2,11 @@
 # image_sim.sh — the simulated image start of kklass/docs/dev/IMAGE_PLAN.md §5.2
 # (the subshell form, no prior set) as a reusable test helper. Not a test file:
 # the ktests runner picks up NNN_*.sh only. Image stage I1a; I1b runs it over
-# every unit, and I2a's writer reuses its logic (kclt_sim_state is the one
-# state dump).
+# every unit. Since I2a-1 the state dump, its compare, the hook VARs' reset,
+# the hook replay (marked as running, kk._image_hook: I1a L9), the pid pairs
+# and the shell-state check are kkore's (kkore/kimage.sh, the same code the
+# image writer proves an image with); this file keeps the test-only extras:
+# the static targets (step 5), the dynamic probe (step 6) and the messages.
 #
 # Use, in a FRESH hermetic bash (no unit loaded yet: no prior set):
 #
@@ -64,7 +67,8 @@
 # back to the loader's pid before the dump); a constant that happens to equal
 # a pid compares as it is.
 #
-# kclt_sim_state FILE — THE STATE DUMP, fork-free, under LC_ALL=C (the quoting
+# kclt_sim_state FILE — THE STATE DUMP: kkore's kk._img_state (kkore/kimage.sh),
+# with this helper's own names excluded. Fork-free, under LC_ALL=C (the quoting
 # `declare -p` picks depends on the locale): sections
 #   @@V  every variable with its attributes (`declare -p` of the names
 #        `compgen -v` lists, filtered); the caller's IFS and LC_ALL first
@@ -73,8 +77,8 @@
 #   @@X  the function attributes (`declare -Fx`, `declare -Ft`: exported,
 #        traced);
 #   @@S  the shell state: `trap -p`, `alias -p`, `umask`.
-# NOT COMPARED (KCLT_SIM_SKIP; a statement about what this harness compares,
-# not about the image's never-holds list of plan §4):
+# NOT COMPARED (KCLT_SIM_SKIP = kkore's __KK_IMG_SKIP; a statement about what
+# this harness compares, not about the image's never-holds list of plan §4):
 #   * bash's own dynamic variables — _ BASHPID BASH_ARGC BASH_ARGV BASH_ARGV0
 #     BASH_COMMAND BASH_LINENO BASH_MONOSECONDS BASH_REMATCH BASH_SOURCE
 #     BASH_SUBSHELL BASH_TRAPSIG
@@ -88,7 +92,8 @@
 #     whose pid is not its first element — so an image start, which has none,
 #     behaves the same (image I1b);
 #   * this helper's own names: variables __ks_* / KCLT_SIM_*, functions
-#     kclt_sim*.
+#     kclt_sim* (kkore's __KK_IMG_XV / __KK_IMG_XF); kkore's image code's
+#     names (__kk_im*, __KK_IMG_*).
 # The dump compares two states of ONE process (and its subshells): bash
 # prints an associative array in its hash order, which is the same there but
 # may differ between two processes that built the same table differently — a
@@ -101,7 +106,14 @@
 # explain a mismatch. The scratch folder is KCLT_SIM_DIR, else
 # KCLT_TMP/sim.PID (never /tmp). Forks: the two subshells and one mkdir.
 
-KCLT_SIM_SKIP=" _ __kk_ft BASHPID BASH_MONOSECONDS BASH_TRAPSIG BASH_ARGC BASH_ARGV BASH_ARGV0 BASH_COMMAND BASH_LINENO BASH_REMATCH BASH_SOURCE BASH_SUBSHELL EPOCHREALTIME EPOCHSECONDS FUNCNAME HISTCMD LINENO PIPESTATUS RANDOM SECONDS SRANDOM COLUMNS LINES RESULT "
+# kkore's image code: the dump, the compare, the reset, the hooks (I2a-1)
+if ! declare -F kk._image_lib >/dev/null || ! kk._image_lib; then
+    echo "image_sim.sh: kkore/kimage.sh cannot be loaded (kbool.sh first)" >&2
+    return 2
+fi
+__KK_IMG_XV=('__ks_*' 'KCLT_SIM_*')
+__KK_IMG_XF=('kclt_sim*')
+KCLT_SIM_SKIP=$__KK_IMG_SKIP
 
 # kclt_sim_lines FILE — KCLT_SIM_L = FILE's lines (empty lines dropped): one
 # `read -N` and a split in memory.
@@ -112,123 +124,20 @@ kclt_sim_lines() {
     KCLT_SIM_L=($__ks_z)
 }
 
-# kclt_sim_state FILE — the state dump (see the header).
-kclt_sim_state() {
-    # the caller's IFS and LC_ALL, before any local of this function
-    declare -p IFS LC_ALL > "$1.pre" 2>/dev/null || :     # (LC_ALL unset: rc 1, also under a caller's set -e)
-    local - __ks_nc=0
-    set +eu
-    if [[ $BASHOPTS == *nocasematch* ]]; then __ks_nc=1; shopt -u nocasematch; fi
-    # (in a function of its own: the locale its `local LC_ALL` leaves may
-    # warn on stderr at its return)
-    kclt_sim__dump "$1" 2>/dev/null
-    if (( __ks_nc )); then shopt -s nocasematch; fi
-    return 0
-}
-kclt_sim__dump() {
-    local LC_ALL=C IFS=$'\n' __ks_f=$1 __ks_z="" __ks_x
-    local -a __ks_v=() __ks_n=() __ks_fn=()
-    set -f
-    compgen -v > "$__ks_f.raw"
-    read -r -N 268435456 __ks_z < "$__ks_f.raw" || :
-    __ks_v=($__ks_z)
-    for __ks_x in "${__ks_v[@]}"; do
-        [[ $KCLT_SIM_SKIP == *" $__ks_x "* || $__ks_x == __ks_* || $__ks_x == KCLT_SIM_* \
-           || $__ks_x == IFS || $__ks_x == LC_ALL ]] && continue
-        __ks_n+=("$__ks_x")
-    done
-    compgen -A function > "$__ks_f.raw"
-    __ks_z=""
-    read -r -N 268435456 __ks_z < "$__ks_f.raw" || :
-    __ks_v=($__ks_z)
-    for __ks_x in "${__ks_v[@]}"; do
-        [[ $__ks_x == kclt_sim* ]] || __ks_fn+=("$__ks_x")
-    done
-    __ks_z=""
-    read -r -N 268435456 __ks_z < "$__ks_f.pre" || :
-    {
-        printf '@@V\n%s' "$__ks_z"
-        declare -p "${__ks_n[@]}"
-        printf '@@F\n'
-        if (( ${#__ks_fn[@]} )); then declare -f "${__ks_fn[@]}"; fi
-        printf '@@X\n'
-        declare -Fx
-        declare -Ft
-        printf '@@S\n'
-        trap -p
-        alias -p
-        umask
-    } > "$__ks_f"
-}
+# kclt_sim_state FILE — the state dump (see the header): kk._img_state.
+kclt_sim_state() { kk._img_state "$1"; }
 
 # kclt_sim_cmp A B — rc 0 when the dumps A and B are equal; else rc 1 and
 # KCLT_SIM_DIFF = "KIND:NAME" of the first differing record (A's order, then
 # B's records A lacks; KIND V F X S) with both texts (newlines as |, cut to
 # 300 chars); with KCLT_SIM_ALL non-empty, " KIND:NAME..." of every differing
-# record (no texts). The equal case costs two reads.
+# record (no texts). The equal case costs two reads. kk._img_cmp.
 kclt_sim_cmp() {
-    local - __ks_nc=0 __ks_va="" __ks_vb="" __ks_r
-    set +eu
-    if [[ $BASHOPTS == *nocasematch* ]]; then __ks_nc=1; shopt -u nocasematch; fi
-    KCLT_SIM_DIFF=""
-    read -r -N 268435456 __ks_va < "$1" || :
-    read -r -N 268435456 __ks_vb < "$2" || :
-    if [[ $__ks_va == "$__ks_vb" ]]; then __ks_r=0; else kclt_sim__explain "$1" "$2"; __ks_r=1; fi
-    if (( __ks_nc )); then shopt -s nocasematch; fi
+    local __ks_r=0
+    __KK_IMG_ALL=${KCLT_SIM_ALL-}
+    kk._img_cmp "$1" "$2" || __ks_r=1
+    KCLT_SIM_DIFF=$__KK_IMG_DIFF
     return "$__ks_r"
-}
-
-# kclt_sim__records FILE — KCLT_SIM_RK (record keys, in order) and
-# KCLT_SIM_RT[KEY] (record text) of a dump
-kclt_sim__records() {
-    local __ks_x __ks_k="" __ks_t="" __ks_s="" __ks_n
-    KCLT_SIM_RK=() KCLT_SIM_RT=()
-    kclt_sim_lines "$1"
-    for __ks_x in "${KCLT_SIM_L[@]}"; do
-        if [[ $__ks_x == @@[VFXS] ]]; then
-            [[ -z $__ks_k ]] || KCLT_SIM_RT[$__ks_k]=$__ks_t
-            __ks_s=${__ks_x:2:1} __ks_k="" __ks_t=""
-            continue
-        fi
-        __ks_n=""
-        case $__ks_s in
-            V) if [[ $__ks_x == 'declare -'* ]]; then __ks_n=${__ks_x#declare -* }; __ks_n=V:${__ks_n%%=*}; fi ;;
-            F) if [[ $__ks_x == *' () ' && $__ks_x != [[:space:]]* ]]; then __ks_n=F:${__ks_x% () }; fi ;;
-            *) __ks_n=$__ks_s:$__ks_x ;;
-        esac
-        if [[ -n $__ks_n ]]; then
-            [[ -z $__ks_k ]] || KCLT_SIM_RT[$__ks_k]=$__ks_t
-            __ks_k=$__ks_n __ks_t=""
-            KCLT_SIM_RK+=("$__ks_k")
-        fi
-        __ks_t+=$__ks_x$'\n'
-    done
-    [[ -z $__ks_k ]] || KCLT_SIM_RT[$__ks_k]=$__ks_t
-}
-declare -gA KCLT_SIM_RT=()
-
-kclt_sim__explain() {
-    local __ks_i __ks_va __ks_vb
-    local -a __ks_ord=()
-    local -A __ks_ra=() __ks_rb=() __ks_in=()
-    kclt_sim__records "$1"
-    __ks_ord=("${KCLT_SIM_RK[@]}")
-    for __ks_i in "${KCLT_SIM_RK[@]}"; do __ks_ra[$__ks_i]=${KCLT_SIM_RT[$__ks_i]}; __ks_in[$__ks_i]=1; done
-    kclt_sim__records "$2"
-    for __ks_i in "${KCLT_SIM_RK[@]}"; do
-        __ks_rb[$__ks_i]=${KCLT_SIM_RT[$__ks_i]}
-        [[ -n ${__ks_in[$__ks_i]-} ]] || __ks_ord+=("$__ks_i")
-    done
-    for __ks_i in "${__ks_ord[@]}"; do
-        if [[ ${__ks_ra[$__ks_i]-<none>} != "${__ks_rb[$__ks_i]-<none>}" ]]; then
-            if [[ -n ${KCLT_SIM_ALL-} ]]; then KCLT_SIM_DIFF+=" $__ks_i"; continue; fi
-            __ks_va=${__ks_ra[$__ks_i]-<none>} __ks_vb=${__ks_rb[$__ks_i]-<none>}
-            __ks_va=${__ks_va//$'\n'/|} __ks_vb=${__ks_vb//$'\n'/|}
-            KCLT_SIM_DIFF="$__ks_i before=${__ks_va:0:300} after=${__ks_vb:0:300}"
-            return 0
-        fi
-    done
-    [[ -n $KCLT_SIM_DIFF ]] || KCLT_SIM_DIFF="(empty lines or record order only)"
 }
 
 # kclt_sim_targets FN [LOCALS] — KCLT_SIM_TGT += "VAR " for every variable FN
@@ -439,45 +348,23 @@ kclt_sim__caller_off() {
     shopt -u nocasematch
 }
 
-# kclt_sim__shell FILE — the shell state the load must not change
-kclt_sim__shell() {
-    {
-        printf '@trap\n'; trap -p
-        printf '@alias\n'; alias -p
-        printf '@umask\n'; umask
-        printf '@options\n'; set +o; shopt -p
-    } > "$1" 2>/dev/null
-}
-
-# kclt_sim__hooks [ONCE] — run every hook in load order (caller options);
-# report a non-zero rc unless ONCE is "quiet"
+# kclt_sim__hooks [quiet] — run every hook in __KK_UNIT_SETTINGS order in the
+# caller's nounset / nocasematch (kk._img_hooks: each marked as running);
+# report a non-zero rc unless "quiet"
 kclt_sim__hooks() {
-    local __ks_e __ks_fn __ks_h
-    for __ks_e in "${__KK_UNIT_SETTINGS[@]}"; do
-        __ks_fn=${__ks_e#*"$__KK_SEP"}
-        [[ $__ks_fn == : ]] && continue
-        kclt_sim__caller_on
-        "$__ks_fn"; __ks_h=$?
-        kclt_sim__caller_off
-        if (( __ks_h != 0 )) && [[ ${1-} != quiet ]]; then echo "sim:hook-rc $__ks_fn $__ks_h"; __ks_rc=1; fi
-    done
-}
-
-# kclt_sim__pidpair — before a dump in the subshell: a hook VAR whose
-# end-of-load value was the loader's pid (KCLT_SIM_PIDV) and whose value now
-# is this subshell's pid gets the loader's pid back (the pair rule)
-kclt_sim__pidpair() {
-    local __ks_x
-    for __ks_x in $KCLT_SIM_PIDV; do
-        if [[ ${!__ks_x-} == "$BASHPID" ]]; then printf -v "$__ks_x" '%s' "$__ks_ppid"; fi
-    done
+    local __ks_e
+    kclt_sim__caller_on
+    kk._img_hooks
+    kclt_sim__caller_off
+    [[ ${1-} != quiet ]] || return 0
+    for __ks_e in "${__KK_IMG_HRC[@]}"; do echo "sim:hook-rc $__ks_e"; __ks_rc=1; done
+    return 0
 }
 
 kclt_sim() {
-    local - __ks_d __ks_l __ks_n __ks_v __ks_e __ks_fn __ks_u __ks_flags __ks_at __ks_rc=0
-    local __ks_cu=0 __ks_cn=0 __ks_ppid=$BASHPID __ks_x __ks_y __ks_z
+    local - __ks_d __ks_l __ks_n __ks_v __ks_e __ks_fn __ks_u __ks_at __ks_rc=0 __kk_imx_d
+    local __ks_cu=0 __ks_cn=0 __ks_ppid=$BASHPID __ks_x __ks_y
     local -A __ks_pre=() __ks_new=()
-    local -a __ks_a=() __ks_sh=()
     [[ $- == *u* ]] && __ks_cu=1
     [[ $BASHOPTS == *nocasematch* ]] && __ks_cn=1
     set +eu
@@ -486,66 +373,37 @@ kclt_sim() {
     if [[ -z ${KCLT_SIM_DIR-} && -z ${KCLT_TMP-} ]]; then echo "sim:usage KCLT_SIM_DIR or KCLT_TMP must name a scratch folder"; return 2; fi
     mkdir -p "$__ks_d" || return 1
     # 1. the state before the load
-    declare -p > "$__ks_d/pre.raw"
-    kclt_sim_lines "$__ks_d/pre.raw"
-    for __ks_l in "${KCLT_SIM_L[@]}"; do
-        if [[ $__ks_l == 'declare -'* ]]; then
-            __ks_n=${__ks_l#declare -* }
-            __ks_n=${__ks_n%%=*}
-            __ks_pre[$__ks_n]=$__ks_l
-        elif [[ -n ${__ks_n-} ]]; then
-            __ks_pre[$__ks_n]+=$'\n'$__ks_l
-        fi
-    done
-    kclt_sim__caller_on; kclt_sim__shell "$__ks_d/sh0"; kclt_sim__caller_off
+    kk._img_pre "$__ks_d/pre.raw" __ks_pre
+    kclt_sim__caller_on; kk._img_shell "$__ks_d/sh0"; kclt_sim__caller_off
     # 2. the load; the shell state; the end-of-load state
     kclt_sim__caller_on
     kk.uses "$@"; __ks_rc=$?
     kclt_sim__caller_off
     if (( __ks_rc != 0 )); then echo "sim:load-rc $__ks_rc"; return 1; fi
-    kclt_sim__caller_on; kclt_sim__shell "$__ks_d/sh1"; kclt_sim__caller_off
+    kclt_sim__caller_on; kk._img_shell "$__ks_d/sh1"; kclt_sim__caller_off
     read -r -N 268435456 __ks_x < "$__ks_d/sh0" || :
     read -r -N 268435456 __ks_y < "$__ks_d/sh1" || :
+    kk._img_shelldiff "$__ks_x" "$__ks_y"
     if [[ $__ks_x != "$__ks_y" ]]; then
-        __ks_z=""
-        for __ks_v in trap alias umask options; do
-            __ks_l=${__ks_x#*"@$__ks_v"$'\n'}; __ks_l=${__ks_l%%$'\n'@*}
-            __ks_n=${__ks_y#*"@$__ks_v"$'\n'}; __ks_n=${__ks_n%%$'\n'@*}
-            [[ $__ks_l == "$__ks_n" ]] || __ks_z+=" $__ks_v"
-        done
-        echo "sim:shell-state${__ks_z}"
+        echo "sim:shell-state${__kk_imx_d}"
         __ks_rc=1
     fi
-    KCLT_SIM_PIDV=" "
-    for __ks_v in "${!__KK_SETTINGS_VARS[@]}"; do
-        __ks_at=""
-        if declare -p "$__ks_v" >/dev/null 2>&1; then __ks_at=${!__ks_v@a}; fi
-        [[ ! -R $__ks_v && $__ks_at != *[aA]* && ${!__ks_v-} == "$__ks_ppid" ]] && KCLT_SIM_PIDV+="$__ks_v "
-    done
+    kk._img_pidvars "$__ks_ppid"
     kclt_sim_state "$__ks_d/end.d"
     # 3.-5. in a subshell
     (
         __ks_rc=0
-        for __ks_v in "${!__KK_SETTINGS_VARS[@]}"; do
-            __ks_at=""
-            if declare -p "$__ks_v" >/dev/null 2>&1; then __ks_at=${!__ks_v@a}; fi
-            if [[ ! -R $__ks_v && $__ks_at == *r* ]]; then echo "sim:readonly $__ks_v"; __ks_rc=1; continue; fi
-            if [[ -R $__ks_v ]]; then unset -n "$__ks_v"; else unset -v "$__ks_v"; fi
-            __ks_l=${__ks_pre[$__ks_v]-}
-            [[ -n $__ks_l ]] || continue
-            __ks_flags=${__ks_l#declare -}
-            __ks_flags=${__ks_flags%% *}
-            __ks_l=${__ks_l#declare -* }
-            if [[ $__ks_flags == - ]]; then eval "declare -g $__ks_l"; else eval "declare -g$__ks_flags $__ks_l"; fi
-        done
-        # (a readonly hook VAR: no simulation is possible)
-        if (( __ks_rc )); then exit "$__ks_rc"; fi
+        if ! kk._img_reset __ks_pre "${!__KK_SETTINGS_VARS[@]}"; then
+            for __ks_v in $__KK_IMG_RO; do echo "sim:readonly $__ks_v"; done
+            # (a readonly hook VAR: no simulation is possible)
+            exit 1
+        fi
         kclt_sim__hooks
-        kclt_sim__pidpair
+        kk._img_pidpair "$__ks_ppid"
         kclt_sim_state "$__ks_d/run1.d"
         if ! kclt_sim_cmp "$__ks_d/end.d" "$__ks_d/run1.d"; then echo "sim:diff $KCLT_SIM_DIFF"; __ks_rc=1; fi
         kclt_sim__hooks quiet
-        kclt_sim__pidpair
+        kk._img_pidpair "$__ks_ppid"
         kclt_sim_state "$__ks_d/run2.d"
         if ! kclt_sim_cmp "$__ks_d/end.d" "$__ks_d/run2.d"; then echo "sim:rerun $KCLT_SIM_DIFF"; __ks_rc=1; fi
         KCLT_SIM_FTMP=$__ks_d/fn.raw
@@ -577,7 +435,7 @@ kclt_sim() {
         for __ks_e in "${__KK_UNIT_SETTINGS[@]}"; do
             __ks_fn=${__ks_e#*"$__KK_SEP"}
             [[ $__ks_fn == : ]] && continue
-            "$__ks_fn" >/dev/null 2>&1
+            kk._image_hook "${__ks_e%%"$__KK_SEP"*}" "$__ks_fn" >/dev/null 2>&1
             compgen -v > "$__ks_d/names.raw"
             kclt_sim_lines "$__ks_d/names.raw"
             for __ks_v in "${KCLT_SIM_L[@]}"; do

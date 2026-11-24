@@ -213,6 +213,7 @@ kclt_run() {
     shift
     ( cd "$cwd" && env -u KBOOL_CONFIG -u KBOOL_HOME -u USERPROFILE -u ProgramData -u PROGRAMDATA \
         -u KKLASS_CKK_DIR -u KK_UNIT_DIR -u VERBOSE_KKLASS -u BASH_ENV \
+        -u LOCALAPPDATA -u XDG_CACHE_HOME -u KBOOL_IMAGE -u KBOOL_IMAGE_DIR -u KBOOL_IMAGE_CHECK -u KBOOL_IMAGE_CHAIN \
         HOME="$KCLT_TMP/home" __KK_CFG_ETC="$KCLT_TMP/etc" \
         KBOOL_ROOT="$KBOOL_ROOT" KCL_DIR="$KCL_DIR" KCLT_TMP="$KCLT_TMP" KDEPS="${KDEPS-}" \
         KCLT_FORGET_PRE="${KCLT_FORGET_PRE-}" KCLT_FORGET_POST="${KCLT_FORGET_POST-}" \
@@ -237,7 +238,9 @@ kclt_simrun() {
     for n in $(compgen -e); do
         [[ $n == FV_* || $n == LC_* || $n == LANG || $n == LANGUAGE ]] && u+=(-u "$n")
     done
+    # (no image variable and no real per-user cache folder: kk.image, image I2a)
     ( cd "$KCLT_TMP/neutral" && env -u KBOOL_CONFIG -u KBOOL_HOME -u USERPROFILE -u ProgramData -u PROGRAMDATA \
+        -u LOCALAPPDATA -u XDG_CACHE_HOME -u KBOOL_IMAGE -u KBOOL_IMAGE_DIR -u KBOOL_IMAGE_CHECK -u KBOOL_IMAGE_CHAIN \
         -u KKLASS_CKK_DIR -u KK_UNIT_DIR -u VERBOSE_KKLASS -u BASH_ENV -u LANG -u LC_ALL -u LC_CTYPE "${u[@]}" \
         HOME="$KCLT_TMP/home" __KK_CFG_ETC="$KCLT_TMP/etc" \
         KBOOL_ROOT="$KBOOL_ROOT" KCL_DIR="$KCL_DIR" KCLT_TMP="$KCLT_TMP" KCLT_SIM_PRE="${KCLT_SIM_PRE-}" \
