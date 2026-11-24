@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/../../ktests/ktest.sh"
 kt_test_init "ImageRoundTrip" "$SCRIPT_DIR" "$@"
 source "$SCRIPT_DIR/kcl_units.sh"
 kclt_setup
-mkdir -p "$KCLT_TMP/img"
+( umask 077 && mkdir -p "$KCLT_TMP/img" )     # (as kk.image makes it: a umask 002 folder is refused in stat mode)
 declare -A r=()
 
 # rt.sh MODE UNIT DUMP — load UNIT (MODE plain: KBOOL_IMAGE=off), say whether
@@ -68,18 +68,25 @@ kk._image_lib || exit 2
 kk._img_state "$2" canon
 EOS
 for f in "$KCLT_TMP"/img/tstringlist-*.img; do IMG=$f; done
-cp "$IMG" "$KCLT_TMP/tsl.full"; cp "${IMG%.img}.ref" "$KCLT_TMP/tsl.ref"
+for REFN in "${IMG%.img}".*.ref; do :; done
+cp "$IMG" "$KCLT_TMP/tsl.full"; cp "$REFN" "$KCLT_TMP/tsl.ref"
 IFS= read -r -d '' z < "$KCLT_TMP/tsl.full" || :
-p=${z%%$'\n'declare -gA _KKLASS_*}
-blen() { local LC_ALL=C; n=${#p}; }; blen
-for opt in -e -u; do
-    cp "$KCLT_TMP/tsl.full" "$IMG"; cp "$KCLT_TMP/tsl.ref" "${IMG%.img}.ref"; rm -f "$KCLT_TMP"/img/*.hold
+blen() { local LC_ALL=C; n=${#p}; }
+# the cuts: inside kklass's tables (classes not yet registered), and inside
+# the kkore registration after them (classes registered: the undo must
+# forget them, or the normal load says "declared again; ignored" — critic
+# mutation undocls)
+for cut in tables:-e registration:-e registration:-u; do
+    opt=${cut#*:} cut=${cut%%:*}
+    if [[ $cut == tables ]]; then p=${z%%$'\n'declare -gA _KKLASS_*}; else p=${z%%$'\n'__KK_UNITS\[*}; fi
+    blen
+    cp "$KCLT_TMP/tsl.full" "$IMG"; cp "$KCLT_TMP/tsl.ref" "$REFN"; rm -f "$KCLT_TMP"/img/*.hold
     head -c $(( n + 40 )) "$KCLT_TMP/tsl.full" > "$IMG"
     kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img" -- "$KCLT_TMP/dm.sh" "$opt" "$KCLT_TMP/tsl.dm.d"
     r=$OUT e=$ERR
     kclt_simrun -- "$KCLT_TMP/cmp.sh" "$KCLT_TMP/tstringlist.plain.d" "$KCLT_TMP/tsl.dm.d"
-    kt_test_start "tstringlist, an image cut in kklass's tables, set $opt: undone, a normal load without 'declared again', the state a normal load's [§8.3]"
-    if [[ $r == "survived rc=0 normal" && $e != *"declared again"* && $OUT == "cmp rc=0 " && $n -gt 100 ]]; then
+    kt_test_start "tstringlist, an image cut in the $cut, set $opt: undone, a normal load without 'declared again', the state a normal load's [§8.3]"
+    if [[ $r == "survived rc=0 normal" && $e != *"declared again"* && $OUT == "cmp rc=0 " && $n -gt 100 && $n -lt ${#z} ]]; then
         kt_test_pass "ok"
     else
         kt_test_fail "run='$r' err='${e//$'\n'/|}' cmp='$OUT' cut=$n"
