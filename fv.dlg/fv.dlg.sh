@@ -112,12 +112,19 @@ fi
 # names that start with _fv / __fv): __DLFV_TAGS __DLFV_ROWS __DLFV_MARKS
 # __DLFV_FIRST __DLFV_NEXT __DLFV_TEXT
 # FV_DLG_TAGS  output: the chosen tags of the last list (an array)
-declare -g FV_DLG_CMD=${FV_DLG_CMD-}
+# (the two outputs keep a caller's value: the settings hook, kkore kk.settings)
+fv.dlg._settings() {
+    declare -g FV_DLG_CMD=${FV_DLG_CMD-}
+    declare -ga FV_DLG_TAGS
+    FV_DLG_TAGS+=()
+    return 0
+}
+kk.settings fv.dlg._settings FV_DLG_CMD FV_DLG_TAGS || return
 declare -g __FV_DL_DIR=${BASH_SOURCE[0]%/*}
 if [[ $__FV_DL_DIR == "${BASH_SOURCE[0]}" ]]; then __FV_DL_DIR=.; fi
 if [[ $__FV_DL_DIR != /* && $__FV_DL_DIR != [A-Za-z]:* ]]; then __FV_DL_DIR=$PWD/$__FV_DL_DIR; fi
-declare -ga __FV_DL_BUF FV_DLG_TAGS __DLFV_TAGS __DLFV_ROWS __DLFV_MARKS __DLFV_FIRST __DLFV_NEXT __DLFV_TEXT
-__FV_DL_BUF+=() FV_DLG_TAGS+=() __DLFV_TAGS+=() __DLFV_ROWS+=() __DLFV_MARKS+=() __DLFV_FIRST+=() __DLFV_NEXT+=() __DLFV_TEXT+=()
+declare -ga __FV_DL_BUF __DLFV_TAGS __DLFV_ROWS __DLFV_MARKS __DLFV_FIRST __DLFV_NEXT __DLFV_TEXT
+__FV_DL_BUF+=() __DLFV_TAGS+=() __DLFV_ROWS+=() __DLFV_MARKS+=() __DLFV_FIRST+=() __DLFV_NEXT+=() __DLFV_TEXT+=()
 declare -gA __FV_DL_KIND __FV_DL_LAY __FV_DL_SES __FV_DL_JUMP
 declare -g __FV_DL_SMALL=${__FV_DL_SMALL-} __FV_DL_INFO=${__FV_DL_INFO-} __FV_DL_JN=${__FV_DL_JN-}
 # (dialog's --single-quoted: the characters that make a tag quoted, the

@@ -69,13 +69,10 @@ kk.unit fv.video || return $__kk_unit_rc
 kk.uses fv.unicode || return
 
 # kcl-wide (README §1.6): no locale variable set -> LC_CTYPE=C.UTF-8 (silent
-# where that name does not exist; the buffer then finds its own, below)
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8 2>/dev/null
-fi
-
-declare -g FV_SCREEN_W=${FV_SCREEN_W:-80} FV_SCREEN_H=${FV_SCREEN_H:-24}
-declare -g FV_VIDEO_ON=${FV_VIDEO_ON:-0} FV_VIDEO_RESIZED=${FV_VIDEO_RESIZED:-0} FV_TTY_FD=${FV_TTY_FD-}
+# where that name does not exist; the buffer then finds its own, below) —
+# with FV_SCREEN_W / _H, FV_VIDEO_ON, FV_VIDEO_RESIZED, FV_TTY_FD and the
+# screen buffer's locale and mode, set by the settings hook fv.video._settings
+# (after fv.video._load, below)
 # ACT: a restore is owed; FD/ALT/SAVED: the terminal's fd, the alternate
 # screen in use, its `stty -g`; KSET/KFD: FV_KEY_FD before init (set?, value);
 # UNDEF: the special characters to undefine (probed once per process); TP:
@@ -809,10 +806,10 @@ else
     # (the 95 printable ASCII characters listed, each pattern-escaped)
     declare -g __FV_VS_PNA=$'*[! \x5c\x21\x22\x23\x24\x25\x26\x27\x28\x29\x5c\x2a\x2b\x2c\x5c\x2d\x2e\x2f0123456789\x3a\x3b\x3c\x3d\x3e\x5c\x3f\x40ABCDEFGHIJKLMNOPQRSTUVWXYZ\x5c\x5b\x5c\x5c\x5c\x5d\x5c\x5e\x5f\x60abcdefghijklmnopqrstuvwxyz\x7b\x7c\x7d\x7e]*'
 fi
-declare -g FV_VIDEO_ASCII=${FV_VIDEO_ASCII:-0} FV_VIDEO_COLORS=${FV_VIDEO_COLORS:-256} FV_VIDEO_OUT_FD=${FV_VIDEO_OUT_FD-}
+# (FV_VIDEO_ASCII, FV_VIDEO_COLORS, FV_VIDEO_OUT_FD and LOC: the settings hook)
 declare -g __FV_VS_W=${__FV_VS_W:-0} __FV_VS_H=${__FV_VS_H:-0} __FV_VS_SP=${__FV_VS_SP-} __FV_VS_DEF=${__FV_VS_DEF:-0}
 declare -g __FV_VS_CX1=${__FV_VS_CX1:-0} __FV_VS_CY1=${__FV_VS_CY1:-0} __FV_VS_CX2=${__FV_VS_CX2:-0} __FV_VS_CY2=${__FV_VS_CY2:-0}
-declare -g __FV_VS_DEPTH=${__FV_VS_DEPTH:-256} __FV_VS_FORCE=${__FV_VS_FORCE:-0} __FV_VS_LOC=${__FV_VS_LOC-}
+declare -g __FV_VS_DEPTH=${__FV_VS_DEPTH:-256} __FV_VS_FORCE=${__FV_VS_FORCE:-0}
 declare -g __FV_VS_CURX=${__FV_VS_CURX:-0} __FV_VS_CURY=${__FV_VS_CURY:-0} __FV_VS_CURT=${__FV_VS_CURT:-0}
 declare -g __FV_VS_SVIS=${__FV_VS_SVIS-} __FV_VS_SPOS=${__FV_VS_SPOS-} __FV_VS_SSHP=${__FV_VS_SSHP-}
 declare -ga __FV_VS_CH __FV_VS_AT __FV_VS_OCH __FV_VS_OAT __FV_VS_DX1 __FV_VS_DX2 __FV_VS_WIDE __FV_VS_N16
@@ -973,7 +970,27 @@ fv.video._load() {
     fv.video._mode
     if [[ ${#__FV_VS_P}${#__FV_VS_B} != "$__fvv_pe" ]]; then fv.video._lcx "$__fvv_pe" 2>/dev/null; fi
 }
-fv.video._load
+# the settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5):
+# the kcl locale default, the public globals that keep a caller's value
+# (FV_SCREEN_W / _H, FV_VIDEO_ON, FV_VIDEO_RESIZED, FV_TTY_FD,
+# FV_VIDEO_COLORS, FV_VIDEO_OUT_FD), then the load's locale and mode
+# (fv.video._load: LOC, and FV_VIDEO_ASCII, which _mode decides from
+# FV_ASCII and the locale — its line here only sets it before that, as the
+# load always did; the text caches _mode empties are declared here, so a run
+# outside the load makes them associative too)
+fv.video._settings() {
+    kk.localeDefault 2>/dev/null
+    declare -g FV_SCREEN_W=${FV_SCREEN_W:-80} FV_SCREEN_H=${FV_SCREEN_H:-24}
+    declare -g FV_VIDEO_ON=${FV_VIDEO_ON:-0} FV_VIDEO_RESIZED=${FV_VIDEO_RESIZED:-0} FV_TTY_FD=${FV_TTY_FD-}
+    declare -g FV_VIDEO_ASCII=${FV_VIDEO_ASCII:-0} FV_VIDEO_COLORS=${FV_VIDEO_COLORS:-256} FV_VIDEO_OUT_FD=${FV_VIDEO_OUT_FD-}
+    declare -g __FV_VS_LOC=${__FV_VS_LOC-}
+    declare -gA __FV_VS_TC __FV_VS_TX __FV_VS_SC __FV_VS_SX __FV_VS_TB
+    fv.video._load
+    return 0
+}
+kk.settings fv.video._settings LC_CTYPE FV_SCREEN_W FV_SCREEN_H FV_VIDEO_ON FV_VIDEO_RESIZED FV_TTY_FD \
+    FV_VIDEO_ASCII FV_VIDEO_COLORS FV_VIDEO_OUT_FD __FV_VS_LOC \
+    __FV_VS_TC __FV_VS_TX __FV_VS_SC __FV_VS_SX __FV_VS_TB || return
 
 # fv.video._g FUNC ARGS — FUNC with nocasematch off, globasciiranges on (the
 # range globs, D21), a UTF-8 locale (C when there is none) and an empty IFS

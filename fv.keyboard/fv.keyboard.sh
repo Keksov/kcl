@@ -53,7 +53,8 @@ kk.unit fv.keyboard || return $__kk_unit_rc
 # the layout the locale names: the locale's character type decides as POSIX
 # says (the first of LC_ALL, LC_CTYPE, LANG that is set and not empty), its
 # language picks the layout; a Latin-script locale (@latin: sr_RS@latin)
-# has none. Read ONCE, here, at load (inside the readers LC_ALL is C): a
+# has none. Read ONCE, at load, by the settings hook below (inside the
+# readers LC_ALL is C): a
 # later change of the locale variables is not seen
 fv.keyboard._locale() {
     local __fvk_v=${LC_ALL:-${LC_CTYPE:-${LANG-}}}
@@ -67,15 +68,19 @@ fv.keyboard._locale() {
         kk) __FV_KB_LOC=kz ;; mk) __FV_KB_LOC=mk ;;
     esac
 }
-declare -g __FV_KB_LOC=''
-fv.keyboard._locale
-
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# the settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5):
+# what can differ between two starts — the locale's layout, the kcl locale
+# default, a caller's FV_KEY_FD
+fv.keyboard._settings() {
+    declare -g __FV_KB_LOC=''
+    fv.keyboard._locale
+    kk.localeDefault
+    declare -g FV_KEY_FD=${FV_KEY_FD:-0}
+    return 0
+}
+kk.settings fv.keyboard._settings __FV_KB_LOC LC_CTYPE FV_KEY_FD || return
 
 declare -g FV_KEY='' FV_KEY_CHAR='' FV_KEY_SEQ='' FV_KEY_LEN=0 FV_KEY_EOF=0 FV_KEY_BASE=''
-declare -g FV_KEY_FD=${FV_KEY_FD:-0}
 # queue: bytes from POS on are unread; NULP >= 0: a NUL byte (which a bash
 # string cannot hold) sits in front of byte NULP; RPL 1: _parse met a reply
 # (no key) the entry point consumes; PK*: the key pollKeyEvent peeked (end,

@@ -219,6 +219,31 @@ kclt_run() {
     ERR="$(<"$KCLT_TMP/run.err")"
 }
 
+# kclt_simrun [NAME=VALUE...] -- SCRIPT [ARG...] — kclt_run's hermetic run
+# (cwd: the neutral folder) without any locale variable (LANG, LANGUAGE, LC_*)
+# and without any FV_* variable of the caller, then with the NAME=VALUE
+# environment given; KCLT_SIM_PRE
+# (shell text the image_sim tests eval before the load) passes through. Sets
+# OUT, ERR, RC. (Image stage I1a: kcl/tests/image_sim.sh, 003 / 004.)
+kclt_simrun() {
+    local -a e=() u=()
+    local n
+    while (( $# )) && [[ $1 != -- ]]; do e+=("$1"); shift; done
+    shift
+    # no FV_* and no locale variable from the caller's environment (hermetic
+    # defaults; a case sets what it needs)
+    for n in $(compgen -e); do
+        [[ $n == FV_* || $n == LC_* || $n == LANG || $n == LANGUAGE ]] && u+=(-u "$n")
+    done
+    ( cd "$KCLT_TMP/neutral" && env -u KBOOL_CONFIG -u KBOOL_HOME -u USERPROFILE -u ProgramData -u PROGRAMDATA \
+        -u KKLASS_CKK_DIR -u KK_UNIT_DIR -u VERBOSE_KKLASS -u BASH_ENV -u LANG -u LC_ALL -u LC_CTYPE "${u[@]}" \
+        HOME="$KCLT_TMP/home" __KK_CFG_ETC="$KCLT_TMP/etc" \
+        KBOOL_ROOT="$KBOOL_ROOT" KCL_DIR="$KCL_DIR" KCLT_TMP="$KCLT_TMP" KCLT_SIM_PRE="${KCLT_SIM_PRE-}" \
+        "${e[@]}" "$BASH" "$@" >"$KCLT_TMP/run.out" 2>"$KCLT_TMP/run.err" ); RC=$?
+    OUT="$(<"$KCLT_TMP/run.out")"
+    ERR="$(<"$KCLT_TMP/run.err")"
+}
+
 # kclt_expect TITLE WANT — pass when OUT == WANT and stderr is empty.
 kclt_expect() {
     kt_test_start "$1"

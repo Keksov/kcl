@@ -66,9 +66,13 @@ fi
 # box's buttons in FV's order (FV ButtonName: slYes slNo slOk slCancel), 4-5
 # the input box's OK and Cancel (FV's literals there). An element unset or
 # '' takes the default. Kept across a reload and as the caller set them
-# before the load.
-if [[ -z ${FV_MSGBOX_TITLES[*]+x} ]]; then declare -ga FV_MSGBOX_TITLES=(Warning Error Information Confirm); fi
-if [[ -z ${FV_MSGBOX_BUTTONS[*]+x} ]]; then declare -ga FV_MSGBOX_BUTTONS=('~Y~es' '~N~o' 'O~k~' 'Cancel' 'O~K~' 'Cancel'); fi
+# before the load (the settings hook, kkore kk.settings).
+fv.msgbox._settings() {
+    if [[ -z ${FV_MSGBOX_TITLES[*]+x} ]]; then declare -ga FV_MSGBOX_TITLES=(Warning Error Information Confirm); fi
+    if [[ -z ${FV_MSGBOX_BUTTONS[*]+x} ]]; then declare -ga FV_MSGBOX_BUTTONS=('~Y~es' '~N~o' 'O~k~' 'Cancel' 'O~K~' 'Cancel'); fi
+    return 0
+}
+kk.settings fv.msgbox._settings FV_MSGBOX_TITLES FV_MSGBOX_BUTTONS || return
 declare -ga __FV_MB_TDEF=(Warning Error Information Confirm)
 declare -ga __FV_MB_BDEF=('~Y~es' '~N~o' 'O~k~' 'Cancel' 'O~K~' 'Cancel')
 declare -ga __FV_MB_CMD=(cmYes cmNo cmOK cmCancel)

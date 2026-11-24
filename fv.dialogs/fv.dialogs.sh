@@ -70,8 +70,12 @@ declare -gA __FV_DG_KIND __FV_DG_CK __FV_DG_CN __FV_DG_RT __FV_DG_RA __FV_DG_PK 
 __FV_DG_KIND+=() __FV_DG_CK+=() __FV_DG_CN+=() __FV_DG_RT+=() __FV_DG_RA+=() __FV_DG_PK+=() __FV_DG_PN+=() __FV_DG_IW+=() __FV_DG_IO+=()
 # FV_CLIPBOARD: the internal clipboard (design P3 §4.5, D24): what an input
 # line's Ctrl+Ins / Shift+Del copied last, what Shift+Ins (cmPaste) inserts;
-# process-wide, kept across a reload
-declare -g FV_CLIPBOARD=${FV_CLIPBOARD-}
+# process-wide, kept across a reload (the settings hook, kkore kk.settings)
+fv.dialogs._settings() {
+    declare -g FV_CLIPBOARD=${FV_CLIPBOARD-}
+    return 0
+}
+kk.settings fv.dialogs._settings FV_CLIPBOARD || return
 # the input line's word delimiters (FPC 2025's TInputLine.HandleEvent set;
 # Tab, LF and CR never stand in a line)
 declare -g __FV_DG_DLS=$' .,;:!?-_/\x5c()[]{}<>"\x27\x60\x7c@#$%^&*+=~'

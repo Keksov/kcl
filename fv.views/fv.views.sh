@@ -50,9 +50,25 @@ kk.unit fv.views || return $__kk_unit_rc
 
 kk.uses kklass_pascal fv.video fv.drivers || return
 
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# the settings hook (kkore kk.settings; kklass/docs/dev/IMAGE_PLAN.md §5):
+# the kcl locale default, the public globals that keep a caller's value (each
+# described where the state is listed below) and the owner process
+fv.views._settings() {
+    kk.localeDefault
+    declare -g FV_MINWINSIZE_X=${FV_MINWINSIZE_X:-16} FV_MINWINSIZE_Y=${FV_MINWINSIZE_Y:-6}
+    declare -g FV_DRAW_VIEW=${FV_DRAW_VIEW-} FV_DRAW_X=${FV_DRAW_X:-0} FV_DRAW_Y=${FV_DRAW_Y:-0} FV_DRAW_PAL=${FV_DRAW_PAL-}
+    declare -g FV_CLIP_X1=${FV_CLIP_X1:-0} FV_CLIP_Y1=${FV_CLIP_Y1:-0} FV_CLIP_X2=${FV_CLIP_X2:-0} FV_CLIP_Y2=${FV_CLIP_Y2:-0}
+    declare -g __FV_VW_OWNER=${__FV_VW_OWNER:-$BASHPID}
+    declare -g FV_COMMANDSETCHANGED=${FV_COMMANDSETCHANGED:-0}
+    declare -g FV_RECT_AX=${FV_RECT_AX:-0} FV_RECT_AY=${FV_RECT_AY:-0} FV_RECT_BX=${FV_RECT_BX:-0} FV_RECT_BY=${FV_RECT_BY:-0}
+    declare -g FV_POINT_X=${FV_POINT_X:-0} FV_POINT_Y=${FV_POINT_Y:-0}
+    declare -g FV_MIN_X=${FV_MIN_X:-0} FV_MIN_Y=${FV_MIN_Y:-0} FV_MAX_X=${FV_MAX_X:-0} FV_MAX_Y=${FV_MAX_Y:-0}
+    return 0
+}
+kk.settings fv.views._settings LC_CTYPE FV_MINWINSIZE_X FV_MINWINSIZE_Y \
+    FV_DRAW_VIEW FV_DRAW_X FV_DRAW_Y FV_DRAW_PAL FV_CLIP_X1 FV_CLIP_Y1 FV_CLIP_X2 FV_CLIP_Y2 \
+    __FV_VW_OWNER FV_COMMANDSETCHANGED FV_RECT_AX FV_RECT_AY FV_RECT_BX FV_RECT_BY \
+    FV_POINT_X FV_POINT_Y FV_MIN_X FV_MIN_Y FV_MAX_X FV_MAX_Y || return
 
 # ---- constants (FV values; readonly once per process, kcl §1.10 rule 7) -----
 # Naming: FV's identifier upper-cased behind a unit prefix: sfCursorVis ->
@@ -98,8 +114,8 @@ if [[ -z ${FV_WF_MOVE+x} || ${FV_WF_MOVE@a} != *r* ]]; then
         FV_WP_GRAYWINDOW FV_WN_NONUMBER FV_FM_CLOSECLICKED FV_FM_ZOOMCLICKED
 fi
 # (stage 2d) FV's MinWinSize, TWindow.SizeLimits' minimum: a typed constant
-# FV programs may change, so a plain global (not 0-9 digits: FV's 16 x 6)
-declare -g FV_MINWINSIZE_X=${FV_MINWINSIZE_X:-16} FV_MINWINSIZE_Y=${FV_MINWINSIZE_Y:-6}
+# FV programs may change, so a plain global (not 0-9 digits: FV's 16 x 6):
+# FV_MINWINSIZE_X / _Y (the settings hook above)
 # (P3 stage 3b) TScrollBar's part codes (FV sbLeftArrow .. sbIndicator) and
 # StandardScrollBar's options (sbHorizontal, sbVertical, sbHandleKeyboard)
 if [[ -z ${FV_SB_VERTICAL+x} || ${FV_SB_VERTICAL@a} != *r* ]]; then
@@ -195,9 +211,9 @@ declare -gA __FV_VW_DEX __FV_VW_FRL __FV_VW_OEX __FV_VW_PNT
 __FV_VW_DEX+=() __FV_VW_FRL+=() __FV_VW_OEX+=() __FV_VW_PNT+=()
 # The drawing context of the Draw that runs (design §1.5; '' / 0 outside one):
 # the view, its absolute origin, its resolved palette, and the part of it
-# this paint may write in the view's own coordinates ([X1,X2) x [Y1,Y2)).
-declare -g FV_DRAW_VIEW=${FV_DRAW_VIEW-} FV_DRAW_X=${FV_DRAW_X:-0} FV_DRAW_Y=${FV_DRAW_Y:-0} FV_DRAW_PAL=${FV_DRAW_PAL-}
-declare -g FV_CLIP_X1=${FV_CLIP_X1:-0} FV_CLIP_Y1=${FV_CLIP_Y1:-0} FV_CLIP_X2=${FV_CLIP_X2:-0} FV_CLIP_Y2=${FV_CLIP_Y2:-0}
+# this paint may write in the view's own coordinates ([X1,X2) x [Y1,Y2)):
+# FV_DRAW_VIEW / _X / _Y / _PAL, FV_CLIP_X1 / _Y1 / _X2 / _Y2 (the settings
+# hook above).
 # Events, focus, modal views (stage 2c-3):
 #   PEND      1 when a terminal update was held back (lockScreenUpdate, a
 #             user lock): the framework's own sequences flush at their end
@@ -224,11 +240,11 @@ declare -g FV_CLIP_X1=${FV_CLIP_X1:-0} FV_CLIP_Y1=${FV_CLIP_Y1:-0} FV_CLIP_X2=${
 #             to run anywhere else (inside $( ), a pipeline)
 # FV_COMMANDSETCHANGED: FV's CommandSetChanged, 1 after a command set
 # change; fv.app's Idle broadcasts cmCommandSetChanged and clears it.
+# (OWNER and FV_COMMANDSETCHANGED: the settings hook above)
 declare -g __FV_VW_PEND=${__FV_VW_PEND:-0} __FV_VW_SKIP=${__FV_VW_SKIP-} __FV_VW_TOPVIEW=${__FV_VW_TOPVIEW-}
 declare -g __FV_VW_CPEND=${__FV_VW_CPEND-} __FV_VW_EH=${__FV_VW_EH:-0}
 declare -g __FV_VW_GETEVENT=${__FV_VW_GETEVENT:-fv.drivers.getEvent} __FV_VW_PUTEVENT=${__FV_VW_PUTEVENT:-fv.drivers.putEvent}
-declare -g __FV_VW_EOF=${__FV_VW_EOF:-0} __FV_VW_OWNER=${__FV_VW_OWNER:-$BASHPID} __FV_VW_CMDINIT=${__FV_VW_CMDINIT-}
-declare -g FV_COMMANDSETCHANGED=${FV_COMMANDSETCHANGED:-0}
+declare -g __FV_VW_EOF=${__FV_VW_EOF:-0} __FV_VW_CMDINIT=${__FV_VW_CMDINIT-}
 # RESIZES (stage 2f): the count of terminal resizes the event source handled
 # itself (fv.app's GetEvent hands a cmResizeApp to the application at once and
 # clears it, as FV's TProgram.GetEvent does with a system event): an inner
@@ -369,10 +385,9 @@ declare -gA __FV_VW_EVBIT=(
 # The var parameters of FV's geometry procedures (TRect Bounds, TPoint, the
 # Min / Max of SizeLimits): procedures leave RESULT alone, so these are the
 # answer of CalcBounds and SizeLimits (both paths), and getBounds /
-# getExtent / makeLocal / makeGlobal set them besides RESULT.
-declare -g FV_RECT_AX=${FV_RECT_AX:-0} FV_RECT_AY=${FV_RECT_AY:-0} FV_RECT_BX=${FV_RECT_BX:-0} FV_RECT_BY=${FV_RECT_BY:-0}
-declare -g FV_POINT_X=${FV_POINT_X:-0} FV_POINT_Y=${FV_POINT_Y:-0}
-declare -g FV_MIN_X=${FV_MIN_X:-0} FV_MIN_Y=${FV_MIN_Y:-0} FV_MAX_X=${FV_MAX_X:-0} FV_MAX_Y=${FV_MAX_Y:-0}
+# getExtent / makeLocal / makeGlobal set them besides RESULT: FV_RECT_AX /
+# _AY / _BX / _BY, FV_POINT_X / _Y, FV_MIN_X / _Y, FV_MAX_X / _Y (the
+# settings hook above).
 
 # ---- classes (FV views.inc; fields design §1.2, virtuals §1.3) --------------
 # Each built-in virtual's kklass body is one line calling its plain body, so

@@ -19,9 +19,12 @@ kk.unit fv.mouse || return $__kk_unit_rc
 # buttons, 0 = none or not named), FV_MOUSE_X / FV_MOUSE_Y (0-based cells),
 # FV_MOUSE_MODS (1 Shift, 2 Alt, 4 Ctrl), RESULT = FV_MOUSE_WHAT.
 
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# the settings hook (kkore kk.settings): the kcl locale default
+fv.mouse._settings() {
+    kk.localeDefault
+    return 0
+}
+kk.settings fv.mouse._settings LC_CTYPE || return
 
 declare -g FV_MOUSE_WHAT='' FV_MOUSE_BUTTON=0 FV_MOUSE_X=0 FV_MOUSE_Y=0 FV_MOUSE_MODS=0
 # byte -> value for the X10 bytes 32-255, built once: `printf %d "'c"` goes

@@ -43,9 +43,14 @@ kk.unit fv.histlist || return $__kk_unit_rc
 #                  still be live; __FV_HL_USED the bytes in use (FV's
 #                  HistoryUsed: 1 for the empty store)
 
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# the settings hook (kkore kk.settings): the kcl locale default and a
+# caller's FV_HISTORY_SIZE (described below)
+fv.histlist._settings() {
+    kk.localeDefault
+    declare -g FV_HISTORY_SIZE=${FV_HISTORY_SIZE:-65536}
+    return 0
+}
+kk.settings fv.histlist._settings LC_CTYPE FV_HISTORY_SIZE || return
 
 # (the first load in this process: a sentinel-marked array is ours)
 fv.histlist._load() {
@@ -60,8 +65,8 @@ fv.histlist._load() {
 fv.histlist._load
 # FV_HISTORY_SIZE: FV's HistorySize (bytes of the whole store); read at each
 # historyAdd: digits (1-9 of them), else 65536. A smaller value set later
-# drops the oldest strings at the next historyAdd
-declare -g FV_HISTORY_SIZE=${FV_HISTORY_SIZE:-65536}
+# drops the oldest strings at the next historyAdd (its default, 65536 when
+# unset or empty, is set by the settings hook above)
 # the probe: one character in a UTF-8 caller, two bytes in a C-locale one
 declare -g __FV_HL_P=$'\xd0\xb6'
 

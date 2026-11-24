@@ -33,9 +33,12 @@ kk.uses fv.keyboard || return
 kk.uses fv.mouse || return
 kk.uses fv.video || return
 
-if [[ -z "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ]]; then
-    export LC_CTYPE=C.UTF-8
-fi
+# the settings hook (kkore kk.settings): the kcl locale default
+fv.drivers._settings() {
+    kk.localeDefault
+    return 0
+}
+kk.settings fv.drivers._settings LC_CTYPE || return
 
 declare -g FV_EV_WHAT=evNothing FV_EV_KEY='' FV_EV_CHAR='' FV_EV_COMMAND='' FV_EV_ID='' FV_EV_INFO=''
 declare -g FV_EV_MOUSE_X=0 FV_EV_MOUSE_Y=0 FV_EV_MOUSE_BUTTONS=0 FV_EV_MOUSE_MODS=0

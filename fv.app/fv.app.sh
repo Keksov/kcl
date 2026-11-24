@@ -64,7 +64,12 @@ kk.uses kklass_pascal fv.views fv.menus fv.drivers || return
 #            __FV_VW_APAL; Init and Done put the app palette back to it)
 #   POOL     the symbols the app palette may allocate (fv.video's 62 minus
 #            the default symbol 0 and the shadow symbol V)
-declare -g FV_APP=${FV_APP-} FV_DESKTOP=${FV_DESKTOP-} FV_STATUSLINE=${FV_STATUSLINE-} FV_MENUBAR=${FV_MENUBAR-}
+# (the four globals keep a caller's value: the settings hook, kkore kk.settings)
+fv.app._settings() {
+    declare -g FV_APP=${FV_APP-} FV_DESKTOP=${FV_DESKTOP-} FV_STATUSLINE=${FV_STATUSLINE-} FV_MENUBAR=${FV_MENUBAR-}
+    return 0
+}
+kk.settings fv.app._settings FV_APP FV_DESKTOP FV_STATUSLINE FV_MENUBAR || return
 declare -g __FV_AP_OWNER=${__FV_AP_OWNER-} __FV_AP_VIDEO=${__FV_AP_VIDEO:-0} __FV_AP_EVENTS=${__FV_AP_EVENTS:-0} __FV_AP_SHOWN=${__FV_AP_SHOWN:-0}
 declare -g __FV_AP_ININIT=0
 declare -g __FV_AP_SGET=${__FV_AP_SGET-} __FV_AP_SPUT=${__FV_AP_SPUT-} __FV_AP_SOWN=${__FV_AP_SOWN-} __FV_AP_SEOF=${__FV_AP_SEOF:-0}
