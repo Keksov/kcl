@@ -53,3 +53,35 @@ for u in tstringlist fv.dlg; do
     kclt_simrun -- "$KCLT_TMP/cmp.sh" "$KCLT_TMP/$u.plain.d" "$KCLT_TMP/$u.hit.d"
     kclt_expect "$u: the state after the image start equals a normal load's (allow-list: frame indices, pid state, name index, caller-keyed tables, hash table; CR texts) [§4, M6]" "cmp rc=0 "
 done
+
+# a damaged image of a unit with classes (tstringlist): cut inside the final
+# block (kklass's tables), started under set -e and under set -u — the undo
+# forgets the classes, so the normal load after it declares them without a
+# "declared again; ignored" message; the state equals a normal load's
+cat > "$KCLT_TMP/dm.sh" <<'EOS'
+source "$KBOOL_ROOT/kbool.sh" || exit 2
+set "$1"
+kk.image tstringlist; r=$?
+echo "survived rc=$r ${__KK_UNIT_PID[tstringlist]+normal}"
+set +eu
+kk._image_lib || exit 2
+kk._img_state "$2" canon
+EOS
+for f in "$KCLT_TMP"/img/tstringlist-*.img; do IMG=$f; done
+cp "$IMG" "$KCLT_TMP/tsl.full"; cp "${IMG%.img}.ref" "$KCLT_TMP/tsl.ref"
+IFS= read -r -d '' z < "$KCLT_TMP/tsl.full" || :
+p=${z%%$'\n'declare -gA _KKLASS_*}
+blen() { local LC_ALL=C; n=${#p}; }; blen
+for opt in -e -u; do
+    cp "$KCLT_TMP/tsl.full" "$IMG"; cp "$KCLT_TMP/tsl.ref" "${IMG%.img}.ref"; rm -f "$KCLT_TMP"/img/*.hold
+    head -c $(( n + 40 )) "$KCLT_TMP/tsl.full" > "$IMG"
+    kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img" -- "$KCLT_TMP/dm.sh" "$opt" "$KCLT_TMP/tsl.dm.d"
+    r=$OUT e=$ERR
+    kclt_simrun -- "$KCLT_TMP/cmp.sh" "$KCLT_TMP/tstringlist.plain.d" "$KCLT_TMP/tsl.dm.d"
+    kt_test_start "tstringlist, an image cut in kklass's tables, set $opt: undone, a normal load without 'declared again', the state a normal load's [§8.3]"
+    if [[ $r == "survived rc=0 normal" && $e != *"declared again"* && $OUT == "cmp rc=0 " && $n -gt 100 ]]; then
+        kt_test_pass "ok"
+    else
+        kt_test_fail "run='$r' err='${e//$'\n'/|}' cmp='$OUT' cut=$n"
+    fi
+done
