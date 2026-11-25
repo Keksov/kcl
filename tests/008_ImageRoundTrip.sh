@@ -92,3 +92,21 @@ for cut in tables:-e registration:-e registration:-u; do
         kt_test_fail "run='$r' err='${e//$'\n'/|}' cmp='$OUT' cut=$n"
     fi
 done
+
+# the M1 probe's false-refusal guard (critic): ONE kk.image of kklass and every
+# kcl unit (KCL_UNITS, in table order — a new row is covered without editing
+# this test) from a caller that has ordinary globals value / rc / y / i: an
+# image is written (the units do not set those names: no refusal). One
+# combined request, not one per unit: a writer per unit would cost minutes.
+kclt_simscript
+cat > "$KCLT_TMP/m1g.sh" <<'EOS'
+source "$KBOOL_ROOT/kbool.sh" || exit 2
+value=1 rc=2 y=3 i=4
+VERBOSE_KKLASS=debug kk.image "$@" 2>"$KCLT_TMP/m1g.err" >/dev/null
+r=$?
+while IFS= read -r l; do [[ $l == *"no image written"* || $l == *"wrote "* ]] && echo "${l%% /*}"; done < "$KCLT_TMP/m1g.err"
+echo "rc=$r value=$value rc_=$rc y=$y i=$i"
+EOS
+kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img" -- "$KCLT_TMP/m1g.sh" kklass "${KCLT_SIM_REST[@]}" "${KCLT_SIM_FV[@]}"
+kclt_expect "kklass and all $(( ${#KCLT_SIM_REST[@]} + ${#KCLT_SIM_FV[@]} )) kcl units in ONE kk.image from a caller with globals value rc y i: the image is written (no false M1 refusal), the globals untouched" \
+    "kbool: image: wrote"$'\n'"rc=0 value=1 rc_=2 y=3 i=4"
