@@ -10,6 +10,7 @@
 # without images), nothing written. The writer's simulation: a P class
 # changed by the script (defineMethod) before kk.image — no image, a hold;
 # after a clean image, before its start — a plain kk.uses (_KKLASS_GEN).
+# Environment names (NO_COLOR, T, C) exported in the writer: no read base.
 # The kkore contract of chaining is kkore/tests/028_ImageChain.sh.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,6 +64,24 @@ for c in "tstringlist|fv.dlg" "kklass tutil|tfind"; do
     kclt_simrun -- "$KCLT_TMP/cmp.sh" "$KCLT_TMP/$u.plain.d" "$KCLT_TMP/$u.hit.d"
     kclt_expect "kk.uses $p; kk.image $u: the hit's state equals \`kk.uses $p $u\` loaded normally (allow-list of 008) [§10 chained starts]" "cmp rc=0 "
 done
+
+# environment names are no read base unless P's files assign them (critic
+# N2, I2b fix round 2): fv.dlg written with NO_COLOR, T and C exported (fv.dlg
+# reads NO_COLOR in a function; T and C are words of P's files, which never
+# assign them), then started without them and with other values: hits
+( umask 077 && mkdir -p "$KCLT_TMP/img2" )
+kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img2" -- "$KCLT_TMP/rt.sh" miss tstringlist fv.dlg "$KCLT_TMP/nc0.d" 'export NO_COLOR=1 T=1 C=1'
+A=${OUT//$'\n'/ | }
+kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img2" -- "$KCLT_TMP/rt.sh" hit tstringlist fv.dlg "$KCLT_TMP/nc1.d"
+B=${OUT//$'\n'/ | }
+kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img2" -- "$KCLT_TMP/rt.sh" hit tstringlist fv.dlg "$KCLT_TMP/nc2.d" 'export NO_COLOR=yes T=2 C=2'
+C=${OUT//$'\n'/ | }
+kt_test_start "fv.dlg on tstringlist written with NO_COLOR, T, C exported: starts without them and with other values hit (no read base of the request's own environment names) [I2b G3]"
+if [[ $A == "miss rc=0 loaded | wrote" && $B == "hit rc=0 image | loaded from" && $C == "hit rc=0 image | loaded from" ]]; then
+    kt_test_pass "ok"
+else
+    kt_test_fail "miss='$A' start='$B' other='$C' err='${ERR//$'\n'/|}'"
+fi
 
 # the base check on P's kklass table: a name the delta of `kk.image tdictionary`
 # writes into _KKLASS_TAKEN (P = tstringlist) set first — a plain kk.uses: the
