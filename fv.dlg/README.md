@@ -635,8 +635,10 @@ Images live in the per-user cache: `$XDG_CACHE_HOME/kbool/image/v1` or
 **`KBOOL_IMAGE=off` turns images and the background process off**. Limits:
 Git-bash has no `setsid`, so the writer stays in the terminal session
 (closing the window may kill it: harmless); stock macOS has no `timeout`, so
-at the limit the writer alone is killed, not its children; a caller's
-unexported variable named like one of fv.dlg's settings makes every start a
+at the limit the writer alone is killed, not its children (busybox's `timeout`
+on Alpine also signals the writer alone); a caller's
+unexported variable named like one the LOAD CREATES (not a settings preset:
+those are read again by the settings hooks and hit) makes every start a
 plain load (safe, never a hit). Bench rows: the `fvdlg` suite of
 `tools/bench` (`dlg1.proc.<widget>.image`, `dlg1.proc.<widget>`,
 `fvdlg.miss`).

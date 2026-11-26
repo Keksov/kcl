@@ -86,8 +86,30 @@ bg_started() {
     done
     return 1
 }
+# this test's own process group ('' unknown): never signalled (fix round 1 M1)
+TEST_PG=""
+if [[ -r /proc/$BASHPID/stat ]]; then
+    { read -r TEST_PG < "/proc/$BASHPID/stat"; } 2>/dev/null
+    TEST_PG=${TEST_PG##*) }; TEST_PG=${TEST_PG#* }; TEST_PG=${TEST_PG#* }; TEST_PG=${TEST_PG%% *}
+    [[ $TEST_PG != *[!0-9]* ]] || TEST_PG=""
+fi
+BG_PAT="kkore/kimgbg.sh --kbool-image-writer"     # (the tree spelt as bin/fvdlg found it: bin/../)
+# bg_procs -> BG_PROCS: live processes whose command line holds BG_PAT AND
+# this file's image folder (only this test's writers; fork-free over /proc)
+bg_procs() {
+    local d
+    local -a a=()
+    BG_PROCS=()
+    for d in /proc/[0-9]*; do
+        [[ ${d#/proc/} != "$BASHPID" && -r $d/cmdline ]] || continue
+        a=()
+        { mapfile -t -d '' a < "$d/cmdline"; } 2>/dev/null || continue
+        [[ " ${a[*]} " == *"$BG_PAT"*"$D/"* ]] && BG_PROCS+=("${d#/proc/}")
+    done
+    return 0
+}
 bg_kill() {
-    if [[ -n $2 && $2 != *[!0-9]* && $2 != 0 ]]; then kill "-$3" -- "-$2" 2>/dev/null; fi
+    if [[ -n $2 && $2 != *[!0-9]* && $2 != 0 && $2 != "$TEST_PG" ]]; then kill "-$3" -- "-$2" 2>/dev/null; fi
     kill "-$3" "$1" 2>/dev/null
 }
 bg_guard() {
@@ -97,10 +119,12 @@ bg_guard() {
         [[ -e $f ]] || continue
         bg_read "$f" && [[ -n $BG_P && $BG_P != *[!0-9]* ]] && all+=("$BG_P ${BG_Q:--}")
     done
+    bg_procs
+    for p in "${BG_PROCS[@]}"; do all+=("$p -"); done
     for e in "${all[@]}"; do
         p=${e%% *} q=${e#* }
         kill -0 "$p" 2>/dev/null || continue
-        BG_LEFT+=" $p"
+        [[ " $BG_LEFT " == *" $p "* ]] || BG_LEFT+=" $p"
         bg_kill "$p" "$q" TERM
         for (( n = 0; n < 30; n++ )); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
         bg_kill "$p" "$q" KILL
@@ -139,8 +163,9 @@ kt_test_start "the first call (a miss; fd 3 = the substitution's pipe, 3>&1 1>&2
 if [[ $r == 0 && $pick == a && -n $M ]] && (( us < 8000000 )); then kt_test_pass ok
 else kt_test_fail "rc=$r pick=[$pick] marker=[$M] us=$us"; fi
 bg_started "$M"
-kt_test_start "the background writer started (its pid in the marker)"
-if [[ -n $BG_P && $BG_P != - ]]; then kt_test_pass ok; else kt_test_fail "marker=[$(cat "$M" 2>/dev/null)]"; fi
+bg_procs
+kt_test_start "the background writer started (its pid in the marker; the guard's /proc scan sees it where there is /proc)"
+if [[ -n $BG_P && $BG_P != - ]] && { [[ ! -d /proc/$BASHPID ]] || (( ${#BG_PROCS[@]} >= 1 )); }; then kt_test_pass ok; else kt_test_fail "marker=[$(cat "$M" 2>/dev/null)] procs=[${BG_PROCS[*]}]"; fi
 O=$BG_O P=$BG_P
 t0=$EPOCHREALTIME
 a=$(env "${IENV[@]}" FVDLG_NOTTY=default "$BASH" "$CMD" --stdout --inputbox N 0 0 first 2>"$TMP/m.err" </dev/null)
