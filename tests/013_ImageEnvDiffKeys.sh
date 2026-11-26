@@ -17,6 +17,8 @@
 #   clashx  the same name as an exported preset in the environment: a plain
 #           kk.uses
 #   off     (chained) KBOOL_IMAGE_CHAIN=off: a plain kk.uses
+#   local   a script in another folder holding a copy of the request's file
+#           (the caller's folder is searched first): a miss, another image
 # on tstringlist (unchained) and on `kk.uses tutil; kk.image tfind`
 # (chained). The same cases run per unit in 010 / 011 / 012 under
 # KCLT_IMAGE_FULL=1 (key and clash); this file always runs them.
@@ -29,7 +31,16 @@ source "$SCRIPT_DIR/image_rt.sh"
 kclt_setup
 kclt_imgscript
 
-kclt_imgenv "" tstringlist key b2 mode modex vk clash clashx
+kclt_imgenv "" tstringlist key b2 mode modex vk clash clashx local
 kclt_imgenv tutil tfind key mode vk off clash
+
+# the harness itself (I3 fix 1, critic L2): a lazy output that differs from
+# the normal load's by one empty line only is a difference (`out rc=1`)
+L='echo a; if [[ $1 == image ]]; then echo; fi; echo b'
+kclt_img tsl.nl RT_LAZY="$L" -- image "" tstringlist
+A=$OUT
+kclt_img tsl.nl.r RT_LAZY="$L" RT_REF="$KCLT_TMP/d/tsl.nl" -- plain "" tstringlist
+kt_test_start "(the harness: an output that differs only by an empty line is a difference — out rc=1)"
+if [[ $A == "image rc=0 image imgs=+0 | hit" && $IMG_OUT == "out rc=1 "* ]]; then kt_test_pass "ok"; else kt_test_fail "start='$A' out='$IMG_OUT'"; fi
 
 kt_test_log "013_ImageEnvDiffKeys.sh completed"

@@ -38,10 +38,13 @@ if [[ -n ${__KK_UNIT_PID[$3]+x} ]]; then echo "$1 rc=$r loaded"; else echo "$1 r
 echo "${l%% /*}"
 unset r l x
 kk._image_lib || exit 2
-kk._img_state "$4" canon
+source "$KCLT_TMP/pid.sh" || exit 2
+__KK_IMG_XV=('__rt_*') __KK_IMG_XF=('__rt_*')
+__rt_pid "$4"
 EOF
 # cmp.sh A B — the compare with THE allow-list (image_rt.sh KCLT_IMG_ALLOW)
 kclt_imgcmpscript
+kclt_imgpidscript     # (pid.sh: the pid rule of image_rt.sh, I3 fix 1)
 
 for c in "tstringlist|fv.dlg" "kklass tutil|tfind"; do
     p=${c%%|*} u=${c#*|}

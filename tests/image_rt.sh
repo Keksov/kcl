@@ -11,8 +11,14 @@
 # an image start with a normal load; nothing else is). Each entry and why it
 # can differ between two processes that hold the same units:
 #   __KK_UNIT_BOT     the loader's frame index of each unit while it loads;
-#                     inert once the unit is complete (nothing reads it then);
-#                     an image holds the writer's value (plan §4, M6)
+#                     an image holds the writer's value (plan §4, M6). Read
+#                     after the load only by kk._unit_check's cycle test
+#                     (kuse.sh, before it looks at DONE): a unit counts as
+#                     still loading when the frame at that depth is a
+#                     `source` of the unit's own file — never so once its load
+#                     has returned, whichever depth is recorded; the critic's
+#                     p8_after.sh (re-use, a nested load, a subshell, forget +
+#                     reload after a start) behaves as after a normal load
 #   __KK_UNIT_PID     pid state: a normal load records the loading shell's
 #                     pid per unit; an image start leaves it absent (nothing
 #                     reads it for a complete unit; never held, plan §4)
@@ -25,12 +31,15 @@
 #   BASH_CMDS         bash's command hash table: filled by the commands a
 #                     process ran (a normal load runs more); never held
 #   PPID              the parent's pid: another process
-#   __FV_VW_OWNER     fv.views' owner pid: its settings hook writes $BASHPID
-#                     on every start (pid state, plan §5.1 (4))
-#   __FV_AP_SOWN      fv.app's copy of that owner pid, taken when an
-#                     application starts (fv.app._progCreate: use time, so only the
-#                     state after RT_LAZY holds it — two normal loads differ
-#                     there too; image I3)
+# THE PID RULE (I3 fix 1, critic M3; it replaced the by-name entries
+# __FV_VW_OWNER and __FV_AP_SOWN): in each dump of a child every plain scalar
+# (not readonly, integer, array or nameref) whose value is that child's own
+# pid ($BASHPID or $$) reads `<pid>` (kclt_imgpidscript: pid.sh). So pid state compares equal across two
+# processes — fv.views' owner pid, which its settings hook writes on every
+# start (plan §5.1 (4)), fv.app's copy of it taken when an application starts
+# (use time: the state after RT_LAZY) — while a pid an image HOLDS (the
+# writer's, another number) differs and fails the compare. kkore's writer
+# refuses such an image anyway (pid state stored outside the hooks).
 # Plus, for function texts only: a CR byte kk._fn_text_cr wrote as ''<CR>''
 # compares as the CR it stands for (__KK_IMG_CMPCR=1, IMG-D7: the same
 # function, quoted so that the MSYS-family parsers keep it).
@@ -44,7 +53,7 @@
 # behaviour) found no other difference: an entry here is never added to make
 # a diff go away.
 KCLT_IMG_ALLOW=(__KK_UNIT_BOT __KK_UNIT_PID __KK_UNIT_IDX __KK_UNIT_CAND __KK_UNIT_IDX_OK __KK_UNIT_RES
-    __KK_UNIT_HIT __KK_FILE_PWD BASH_CMDS PPID __FV_VW_OWNER __FV_AP_SOWN)
+    __KK_UNIT_HIT __KK_FILE_PWD BASH_CMDS PPID)
 
 # kclt_imgscript — write $KCLT_TMP/rt.sh (the child, below) and
 # $KCLT_TMP/cmp.sh A B (prints `cmp rc=N DIFF`: kk._img_cmp A B set with the
@@ -71,7 +80,7 @@ KCLT_IMG_ALLOW=(__KK_UNIT_BOT __KK_UNIT_PID __KK_UNIT_IDX __KK_UNIT_CAND __KK_UN
 #   again into DUMP.lz (lazy data, behaviour). RT_REF (another process's
 #   DUMP): this dump compared with it (`cmp rc=N DIFF`), and with RT_LAZY
 #   also DUMP.lz (`lazy rc=N DIFF`) and DUMP.out as text (`out rc=N`; bash's
-#   "warning: setlocale:" lines and empty lines left out).
+#   "warning: setlocale:" lines left out; empty lines count).
 kclt_imgscript() {
     ( umask 077 && mkdir -p "$KCLT_TMP/img" "$KCLT_TMP/d" "$KCLT_TMP/neutral2" )
     # (the configs of B2 and of the key cases: cfg0's merged effect is the
@@ -111,11 +120,12 @@ if [[ -n ${__KK_UNIT_PID[$3]+x} ]]; then __rt_x=loaded; else __rt_x=image; fi
 echo "$1 rc=$__rt_r $__rt_x imgs=+$(( __rt_n1 - __rt_n0 ))"
 echo "${__rt_o:-?}$__rt_w"
 kk._image_lib || exit 2
-__KK_IMG_XV=('__rt_*' 'RT_*')
-kk._img_state "$4" canon
+source "$KCLT_TMP/pid.sh" || exit 2
+__KK_IMG_XV=('__rt_*' 'RT_*') __KK_IMG_XF=('__rt_*')
+__rt_pid "$4"
 if [[ -n ${RT_LAZY-} ]]; then
     { eval "$RT_LAZY"; } > "$4.out" 2>&1
-    kk._img_state "$4.lz" canon
+    __rt_pid "$4.lz"
 fi
 if [[ -n ${RT_REF-} ]]; then
     __KK_IMG_CMPV=("${__rt_allow[@]}") __KK_IMG_CMPCR=1
@@ -128,12 +138,13 @@ if [[ -n ${RT_REF-} ]]; then
         # system lacks — ru_RU.UTF-8 on a Linux runner — warns whenever a
         # function's `local LC_ALL` returns; the units read the variable's
         # text alone)
+        # (line by line: an empty line counts — I3 fix 1, critic L2)
         __rt_nl() {
-            local - IFS=$'\n' __rt_l __rt_s=""
-            set -f
-            IFS= read -r -d '' __rt_s < "$1" || :
+            local __rt_l
             REPLY=""
-            for __rt_l in $__rt_s; do [[ $__rt_l == *"warning: setlocale: "* ]] || REPLY+=$__rt_l$'\n'; done
+            while IFS= read -r __rt_l || [[ -n $__rt_l ]]; do
+                [[ $__rt_l == *"warning: setlocale: "* ]] || REPLY+=$__rt_l$'\n'
+            done < "$1"
         }
         __rt_nl "$RT_REF.out"; __rt_a=$REPLY
         __rt_nl "$4.out"; __rt_b=$REPLY
@@ -143,6 +154,41 @@ fi
 EOF
     } > "$KCLT_TMP/rt.sh"
     kclt_imgcmpscript
+    kclt_imgpidscript
+    # path.sh "P…" REQ — the image path a start of REQ on P would use (kk.image
+    # --path; VERBOSE_KKLASS=debug: rt.sh's key)
+    printf '%s\n' 'source "$KBOOL_ROOT/kbool.sh" || exit 2' 'VERBOSE_KKLASS=debug' \
+        'if [[ -n $1 ]]; then kk.uses $1 >/dev/null 2>&1 || exit 3; fi' 'kk.image --path "$2" 2>/dev/null' > "$KCLT_TMP/path.sh"
+}
+
+# kclt_imgpidscript — $KCLT_TMP/pid.sh, sourced by the children: `__rt_pid
+# FILE` dumps the state into FILE (kk._img_state canon) with every plain
+# scalar — no readonly, integer, array or nameref attribute: pid state is
+# rewritten by hooks, a constant is readonly (Cygwin's small pids met fv's
+# FV_OF_CENTERED=768) — whose value is this process's pid ($BASHPID or $$)
+# set to `<pid>` for the dump and put back right after it (the lazy /
+# behaviour run needs the real owner pid: fv.views' subshell guard): THE PID
+# RULE above. FILE.pv: its scratch name list. The child leaves __rt_* out of
+# its dump (__KK_IMG_XV / __KK_IMG_XF).
+kclt_imgpidscript() {
+    cat > "$KCLT_TMP/pid.sh" <<'EOF'
+__rt_pid() {
+    local __rt_v __rt_a __rt_i
+    local -a __rt_vs=() __rt_n=() __rt_o=()
+    compgen -v > "$1.pv"
+    mapfile -t __rt_vs < "$1.pv"
+    for __rt_v in "${__rt_vs[@]}"; do
+        [[ $__rt_v == __rt_* || $__rt_v == BASHPID || $__rt_v == PPID || -R $__rt_v ]] && continue
+        __rt_a=${!__rt_v@a}
+        [[ $__rt_a == *[aAinr]* ]] && continue
+        [[ ${!__rt_v} == "$BASHPID" || ${!__rt_v} == "$$" ]] || continue
+        __rt_n+=("$__rt_v") __rt_o+=("${!__rt_v}")
+        printf -v "$__rt_v" '%s' '<pid>'
+    done
+    kk._img_state "$1" canon
+    for (( __rt_i = 0; __rt_i < ${#__rt_n[@]}; __rt_i++ )); do printf -v "${__rt_n[__rt_i]}" '%s' "${__rt_o[__rt_i]}"; done
+}
+EOF
 }
 
 # kclt_imgcmpscript — $KCLT_TMP/cmp.sh A B: kk._img_cmp A B set (two canon
@@ -171,7 +217,9 @@ kclt_img() {
     local -a e=() l=()
     shift
     while (( $# )) && [[ $1 != -- ]]; do
-        if [[ $1 == @rel ]]; then
+        if [[ $1 == @local ]]; then
+            KCLT_CWD=$KCLT_TMP/caller2 s=./rt.sh
+        elif [[ $1 == @rel ]]; then
             KCLT_CWD=$KCLT_TMP s=./rt.sh e+=(RT_CD="$KCLT_TMP/neutral2")
         else
             e+=("$1")
@@ -273,6 +321,16 @@ kclt_rwbug() {
     unset -f __kclt_rw
     [[ $__kclt_t != *'1<>'* ]]
 }
+# kclt_ruloc — KCLT_IMG_RUABS = " (locale absent)" when this system has no
+# ru_RU.UTF-8 (B1's locale: bash counts the bytes of a Cyrillic letter then;
+# the units still read LANG's text — fv.keyboard's layout — but the C library
+# runs in C), else empty: said in the B1 titles, nothing skipped (I3 fix 1,
+# critic L4). One fork.
+kclt_ruloc() {
+    local n
+    n=$(LC_ALL= LC_CTYPE= LANG=ru_RU.UTF-8 "$BASH" -c 'x=$'"'"'\xd0\xb9'"'"'; echo ${#x}' 2>/dev/null)
+    if [[ $n == 1 ]]; then KCLT_IMG_RUABS=""; else KCLT_IMG_RUABS=" (locale absent)"; fi
+}
 kclt_crdrop() {
     local __kclt_t=""
     eval "__kclt_cr() { __kclt_t='a"$'\r'"b'; }"
@@ -368,6 +426,8 @@ echo "yesno rc=$FVDL_RC res=$FVDL_RES cmd=$FVDL_CMD"; echo "$FVDL_SNAPA"'
 #   bp     (chained) KCLT_IMG_B1 with its caller presets set BEFORE P loads
 #          (RT_PREP: P's hooks keep them): a hit
 #   off    (chained) KBOOL_IMAGE_CHAIN=off: a plain kk.uses
+#   local  a script in another folder holding a copy of the request's file
+#          (the caller's folder is searched first): a miss, another image
 #   mode   KBOOL_IMAGE_CHECK=hash (the effective check mode is keyed; the
 #          runtimes default to dates or stat): a miss that writes another image
 #   modex  KBOOL_IMAGE_CHECK=bogus (an invalid value runs as the default: the
@@ -390,6 +450,7 @@ KCLT_IMG_CRBASE=" tutil|tsed "
 # (kkore kk._img__rwbug; image I3): KCLT_IMG_RWUNITS, chained or not.
 KCLT_IMG_RWUNITS=" tfile "
 kclt_imgenv() {
+    [[ -n ${KCLT_IMG_RUABS+x} ]] || kclt_ruloc
     local p=$1 u=$2 c id t img="" x v="" lz=${KCLT_IMG_LAZY[$2]-}
     shift 2
     id=${p// /+}${p:+_}$u
@@ -412,7 +473,7 @@ kclt_imgenv() {
     fi
     for c in "$@"; do
         case $c in
-            b1) kclt_imgab "$t: started under B1 (LANG=ru_RU.UTF-8, NO_COLOR, TERM, COLUMNS, hook VARs preset, a relative caller after a cd${lz:+; then its lazy data}): a hit, the state a normal load's under B1 [§10 env-diff]" \
+            b1) kclt_imgab "$t: started under B1 (LANG=ru_RU.UTF-8${KCLT_IMG_RUABS}, NO_COLOR, TERM, COLUMNS, hook VARs preset, a relative caller after a cd${lz:+; then its lazy data}): a hit, the state a normal load's under B1 [§10 env-diff]" \
                     "$id.b1" "$p" "$u" hit "${KCLT_IMG_B1[@]}" ${lz:+"RT_LAZY=$lz"} ;;
             b2) kclt_imgab "$t: started under B2 (LC_ALL=C, FV_ASCII, TERM=dumb, a config without a merged effect${lz:+; then its lazy data}): a hit, the state a normal load's under B2 [§10 env-diff]" \
                     "$id.b2" "$p" "$u" hit "${KCLT_IMG_B2[@]}" ${lz:+"RT_LAZY=$lz"} ;;
@@ -421,6 +482,14 @@ kclt_imgenv() {
             key) if [[ $IMG_W == cr || $IMG_W == crbase || $IMG_W == rw ]]; then x=nowrite; else x=miss; fi
                 kclt_imgab "$t: started with a KBOOL_CONFIG that adds a define (the merged config is keyed): a miss that writes another image, the state a normal load's [§7.1]" \
                     "$id.key" "$p" "$u" "$x" KBOOL_CONFIG="$KCLT_TMP/cfg1" ;;
+            local)
+                # (another caller folder that holds a file of the request's
+                # name: the request resolves to it — another key; I3 fix 1, critic L3)
+                mkdir -p "$KCLT_TMP/caller2"
+                cp "$KCLT_TMP/rt.sh" "$KCLT_TMP/caller2/rt.sh"
+                kclt_find "$u" && cp "$KF" "$KCLT_TMP/caller2/$u.sh"
+                kclt_imgab "$t: started by a script in another folder that holds a copy of $u.sh (the caller's folder is searched first: the request resolves to the copy, another key): a miss that writes another image, the state a normal load's from that folder [§7.1, §7.2]" \
+                    "$id.local" "$p" "$u" miss @local ;;
             off) kclt_imgab "$t: started with KBOOL_IMAGE_CHAIN=off: a plain kk.uses (a prior set), the state a normal load's [§7.7]" \
                     "$id.off" "$p" "$u" "plain:KBOOL_IMAGE_CHAIN=off and unit " KBOOL_IMAGE_CHAIN=off ;;
             mode) if [[ $IMG_W == cr || $IMG_W == crbase || $IMG_W == rw ]]; then x=nowrite; else x=miss; fi
@@ -432,9 +501,9 @@ kclt_imgenv() {
                 kclt_imgab "$t: started with VERBOSE_KKLASS empty instead of debug (keyed): a miss that writes another image, the state a normal load's [§7.1]" \
                     "$id.vk" "$p" "$u" "$x" RT_VK= ;;
             clash|clashx)
-                img=""
-                while IFS= read -r x; do [[ $x == *"kbool: image: wrote "* ]] && img=${x#*wrote }; done < "$KCLT_TMP/d/$id.w.err"
-                img=${img%% (*}
+                # (the image's path from kk.image --path, under A as written: I3 fix 1 L7)
+                kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img" -- "$KCLT_TMP/path.sh" "$p" "$u"
+                img=${OUT%%$'\n'*}
                 v=""
                 if [[ -f $img ]]; then
                     while IFS= read -r x; do

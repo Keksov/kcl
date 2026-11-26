@@ -16,8 +16,10 @@
 # is written (plan §6.3) and their starts are plain loads — pinned
 # (image_rt.sh KCLT_IMG_CRUNITS); elsewhere they are hits.
 #
-# Default vs full: by default B1 (B2 for the three above). KCLT_IMAGE_FULL=1:
-# B2 for every fv unit, the key case (a config that adds a define: a miss)
+# Default vs full: by default B1 (B2 for the three above) for fv.keyboard,
+# fv.mouse, fv.unicode, fv.video, fv.drivers, fv.app, fv.dlg (fv.views,
+# fv.menus, fv.histlist, fv.dialogs lie inside fv.dlg's closure; fv.msgbox
+# on fv.dialogs: FULL only — I3 fix 1). KCLT_IMAGE_FULL=1: every fv unit, B2 for each, the key case (a config that adds a define: a miss)
 # and the clash case (a caller global named like an image scalar: a plain
 # kk.uses) per unit.
 
@@ -33,10 +35,19 @@ kclt_imgscript
 # fv.video, and fv.dlg, whose closure holds both and most fv units; the
 # other fv units get B2 under FULL)
 B2=" fv.keyboard fv.video fv.dlg "
+# (by default not the units whose whole closure lies inside fv.dlg's, which
+# B1 / B2 start through fv.dlg's image: fv.views, fv.menus, fv.histlist,
+# fv.dialogs; and fv.msgbox, on fv.dialogs — FULL runs them; I3 fix 1)
+INDLG=" fv.views fv.menus fv.histlist fv.dialogs fv.msgbox "
 FULL=0
 if [[ ${KCLT_IMAGE_FULL-} == 1 ]]; then FULL=1; fi
 U=()
-for r in "${KCL_UNITS[@]}"; do r=${r%%|*}; [[ $r == fv.* ]] && U+=("$r"); done
+for r in "${KCL_UNITS[@]}"; do
+    r=${r%%|*}
+    [[ $r == fv.* ]] || continue
+    (( FULL )) || [[ $INDLG != *" $r "* ]] || continue
+    U+=("$r")
+done
 if [[ -n ${KCLT_IMAGE_UNITS-} ]]; then U=($KCLT_IMAGE_UNITS); fi     # (a developer's subset)
 for u in "${U[@]}"; do
     if (( FULL )); then kclt_imgenv "" "$u" b1 b2 key clash

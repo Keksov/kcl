@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # ImageRoundTrip — kk.image on real units (kklass/docs/dev/IMAGE_PLAN.md, stage
-# I2a-1): `kk.image tstringlist` and `kk.image fv.dlg` (the fv closure with
-# kklass, CR functions rewritten by kk._fn_text_cr) in fresh hermetic bashes:
-# the first start writes the image, the second is a hit, and its state equals
-# a normal load's (kkore's dump, canon; the allow-list of image_rt.sh). The image
+# I2a-1): a damaged image of tstringlist (cut in the final block / in the
+# kkore registration, under set -e / set -u: undone, a normal load, the state
+# a normal load's — kkore's dump, canon; the allow-list of image_rt.sh), and
+# the M1 probe's false-refusal guard over kklass and every kcl unit in ONE
+# request. The plain round trips of tstringlist and fv.dlg it had (I2a) are
+# 010 / 011's B1 cases since image I3 (fix round 1: not run twice). The image
 # folder is this test's own (KBOOL_IMAGE_DIR). The kkore contract tests are
 # kkore/tests/021_Image.sh / 022_ImageStart.sh.
 
@@ -18,33 +20,34 @@ declare -A r=()
 
 # rt.sh MODE UNIT DUMP — load UNIT (MODE plain: KBOOL_IMAGE=off), say whether
 # it came from an image (a hit leaves no __KK_UNIT_PID entry), dump the state
+# (its pid values as <pid>: image_rt.sh's pid rule)
 cat > "$KCLT_TMP/rt.sh" <<'EOF'
 source "$KBOOL_ROOT/kbool.sh" || exit 2
 if [[ $1 == plain ]]; then KBOOL_IMAGE=off kk.image "$2"; else kk.image "$2"; fi
 r=$?
 if [[ -n ${__KK_UNIT_PID[$2]+x} ]]; then echo "$1 rc=$r loaded"; else echo "$1 rc=$r image"; fi
 kk._image_lib || exit 2
-kk._img_state "$3" canon
+source "$KCLT_TMP/pid.sh" || exit 2
+__KK_IMG_XV=('__rt_*') __KK_IMG_XF=('__rt_*')
+__rt_pid "$3"
 EOF
 # cmp.sh A B — the compare with THE allow-list of the image tests
 # (image_rt.sh KCLT_IMG_ALLOW, each entry's reason there; image I3 moved it
-# there from here)
+# there from here); pid.sh — the pid rule
 kclt_imgcmpscript
+kclt_imgpidscript
 
-for u in tstringlist fv.dlg; do
-    for m in miss hit plain; do
-        kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img" -- "$KCLT_TMP/rt.sh" "$m" "$u" "$KCLT_TMP/$u.$m.d"
-        r[$m]=$OUT
-    done
-    kt_test_start "$u: the first start writes an image (a normal load), the second is a hit [§6.2, §9]"
-    if [[ ${r[miss]} == "miss rc=0 loaded" && ${r[hit]} == "hit rc=0 image" && ${r[plain]} == "plain rc=0 loaded" ]]; then
-        kt_test_pass "ok"
-    else
-        kt_test_fail "miss='${r[miss]}' hit='${r[hit]}' plain='${r[plain]}' err='${ERR//$'\n'/|}'"
-    fi
-    kclt_simrun -- "$KCLT_TMP/cmp.sh" "$KCLT_TMP/$u.plain.d" "$KCLT_TMP/$u.hit.d"
-    kclt_expect "$u: the state after the image start equals a normal load's (allow-list: frame indices, pid state, name index, caller-keyed tables, hash table; CR texts) [§4, M6]" "cmp rc=0 "
+# the image the damage cases cut, and the normal load they compare with
+for m in miss plain; do
+    kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img" -- "$KCLT_TMP/rt.sh" "$m" tstringlist "$KCLT_TMP/tstringlist.$m.d"
+    r[$m]=$OUT
 done
+kt_test_start "(tstringlist: the first start writes the image the damage cases cut)"
+if [[ ${r[miss]} == "miss rc=0 loaded" && ${r[plain]} == "plain rc=0 loaded" ]] && compgen -G "$KCLT_TMP/img/tstringlist-*.img" >/dev/null; then
+    kt_test_pass "ok"
+else
+    kt_test_fail "miss='${r[miss]}' plain='${r[plain]}' err='${ERR//$'\n'/|}'"
+fi
 
 # a damaged image of a unit with classes (tstringlist): cut inside the final
 # block (kklass's tables), started under set -e and under set -u — the undo
@@ -57,7 +60,9 @@ kk.image tstringlist; r=$?
 echo "survived rc=$r ${__KK_UNIT_PID[tstringlist]+normal}"
 set +eu
 kk._image_lib || exit 2
-kk._img_state "$2" canon
+source "$KCLT_TMP/pid.sh" || exit 2
+__KK_IMG_XV=('__rt_*') __KK_IMG_XF=('__rt_*')
+__rt_pid "$2"
 EOS
 for f in "$KCLT_TMP"/img/tstringlist-*.img; do IMG=$f; done
 for REFN in "${IMG%.img}".*.ref; do :; done
