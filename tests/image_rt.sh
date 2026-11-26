@@ -479,16 +479,20 @@ echo "yesno rc=$FVDL_RC res=$FVDL_RES cmd=$FVDL_CMD"; echo "$FVDL_SNAPA"'
 # An image refused for a raw CR function (IMG_W cr; kclt_imgw) is pinned to
 # KCLT_IMG_CRUNITS on a CR-dropping parser (a written image elsewhere); its
 # B starts are then plain loads (the key's hold) — still equal. Likewise a
-# chained image refused for a CR byte in a read-base value (IMG_W crbase) is
-# pinned to KCLT_IMG_CRBASE ("P|UNIT"), on every parser: tsed names tutil's
-# __TUTIL_CR_SED ('s/\r$//' with a raw CR), so `kk.uses tutil; kk.image
-# tsed` never gets an image (a known limit, image I3).
+# chained image refused for a CR byte in a read-base value (IMG_W crbase)
+# would be pinned to KCLT_IMG_CRBASE ("P|UNIT"): empty since image I4 — such
+# a value is kept in its %q form (kkore kk._img__rbase), so `kk.uses tutil;
+# kk.image tsed` (tsed names tutil's __TUTIL_CR_SED, 's/\r$//' with a raw
+# CR), never imaged in I3, is written and hits on every parser now.
 KCLT_IMG_CRUNITS=" fv.keyboard fv.drivers "
-KCLT_IMG_CRBASE=" tutil|tsed "
+KCLT_IMG_CRBASE=" "
 # And on a bash whose declare -f prints `1<> FILE` as `<> FILE` (bash 5.2;
-# kclt_rwbug) the units whose own files hold such a redirection get no image
-# (kkore kk._img__rwbug; image I3): KCLT_IMG_RWUNITS, chained or not.
-KCLT_IMG_RWUNITS=" tfile "
+# kclt_rwbug) the units whose own files hold such a redirection would get no
+# image: KCLT_IMG_RWUNITS, chained or not — empty since image I4: kkore
+# writes ` 1<> ` again where such a bash prints ` <> ` (checked by a
+# re-print, kk._img__rwfix), so tfile is imaged on bash 5.2 too (in I3 it
+# was not; the refusal stays for a ` <> ` that is no redirection: kkore 022 irs).
+KCLT_IMG_RWUNITS=" "
 kclt_imgenv() {
     [[ -n ${KCLT_IMG_RUABS+x} ]] || kclt_ruloc
     local p=$1 u=$2 c id t img="" x v="" lz=${KCLT_IMG_LAZY[$2]-}

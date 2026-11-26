@@ -323,6 +323,31 @@ for every unit by `kcl/tests` (section 3):
 8. **Tests may keep plain `source`.** A unit suite sources its unit by path
    (`source "$TLIST_DIR/tlist.sh"`); that loads kbool and registers the
    unit like any other load.
+9. **Imageable: what can differ between starts goes into a settings hook.**
+   A script may load units with `kk.image` (kkore README, "load images"): a
+   later start sources a saved image of the load and runs only the units'
+   settings hooks again. So every load-time statement whose result can differ
+   between two starts with the same files lives in ONE file-scope function
+   that the unit passes to `kk.settings FN VAR...`, listing the variables it
+   sets: a public default a caller may preset (`: "${FV_X:=1}"`), an append
+   to another unit's registry (that unit's variable is listed too, and its
+   owner is loaded by `kk.uses` before this `kk.settings` line), the locale
+   (`kk.localeDefault` — then `LC_CTYPE` is listed), a `PATH` probe, a pid
+   or descriptor, the clock, a random value, a terminal test, a `/proc` read.
+   The hook ends with `return 0` (or an assignment), sets globals with
+   `declare -g`, may run any number of times, and loads no unit. Internal
+   `__` self-defaults stay at file scope. Nothing outside the hook writes or
+   reads a variable some hook lists. `kcl/tests/001_UnitFiles` checks this
+   for every unit file and the kklass units (the hook lint,
+   `kcl/tests/hook_lint.sh`, rules R1–R7: no such statement outside a hook,
+   no write of another unit's listed variable, no read of a listed variable
+   outside the hooks, the hook's last line, `LC_CTYPE` listed with
+   `kk.localeDefault`, the registry owner loaded first, and no unit file
+   exempt); the image tests in `kcl/tests` (008–015) load every unit through
+   an image under a changed environment and compare the state with a normal
+   load. A unit that keeps pid state outside its hooks, or prints a function
+   text the image cannot keep (see the kkore README's limits), simply gets no
+   image: `kk.image` then loads it normally.
 
 ---
 
