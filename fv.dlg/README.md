@@ -87,9 +87,15 @@ in a fresh bash, then `exit` with its status. In order (design §7.1):
    `TERM`, then that it is a terminal). A path that opens but is no
    terminal (a file, `/dev/null`) passes the guard and is refused that way
    after the load (255, `no terminal (/dev/null)`).
-5. **The load and the call**: `source kbool.sh`, `kk.uses fv.dlg`,
-   `fv.dlg.main "$@"` (`FVDLG_NOTTY`'s value first, as `--no-tty=VALUE`, so
-   a `--no-tty` on the call wins). No fork on these paths beyond the load's.
+5. **The load and the call**: `source kbool.sh`, `kk.image --background
+   fv.dlg` (a load image: a hit sources the saved load; the first call loads
+   normally and a short-lived background process writes the image — "Cost"
+   below; `KBOOL_IMAGE=off` turns both off), `fv.dlg.main "$@"`
+   (`FVDLG_NOTTY`'s value first, as `--no-tty=VALUE`, so a `--no-tty` on the
+   call wins). No fork on steps 1–4 (readlink for a symlink); a hit forks per
+   the image's check mode (none in `dates`, the Windows runtimes' default; one
+   `stat` elsewhere), a first call adds the load's forks and the writer's
+   spawn.
 
 ### No terminal (D36)
 
@@ -605,6 +611,35 @@ character no item starts with: one lookup); the text wrap is linear (a
 line split into its words once, printable ASCII counted by characters, a
 long word cut in pieces): a 200 KB one-line msgbox ~3 s headless (4a-2:
 quadratic, 40 KB took 9 s).
+
+**`bin/fvdlg` and the load image** (kk.image stage I5; kkore README
+"`kk.image UNIT...` — load images"). The command loads fv.dlg with
+`kk.image --background fv.dlg`, so its start costs one of three things:
+
+| call | what happens | launch → return (CI, GitHub runners) |
+|---|---|---|
+| a hit (every call after the first) | the saved image of the load is sourced, the settings hooks run | Linux 0.13–0.15 s, Git-bash ~0.19 s |
+| the first call (and the first after kbool or a unit changed) | a normal load at once, then a **short-lived background process** writes the image | as the plain load: Linux ~0.6 s, Git-bash ~1.0 s (+ ~2 ms Linux / 25–45 ms Windows for the spawn) |
+| `KBOOL_IMAGE=off` | always the normal load; no image, no background process | as above |
+
+The background writer is a `bash …/kkore/kimgbg.sh` that runs for a few
+seconds (4–5 s on Linux, ~8 s on Cygwin; at most 120 s, then it is killed)
+after the dialog has appeared and **ends by itself**. It has no terminal and
+holds none of the caller's descriptors (`x=$(fvdlg …)` returns at once), and
+two calls in a row start one writer, not two. A killed writer leaves no
+damaged image (it holds off for 10 minutes instead of starting again).
+Images live in the per-user cache: `$XDG_CACHE_HOME/kbool/image/v1` or
+`~/.cache/kbool/image/v1` (Linux, macOS, BSD), `%LOCALAPPDATA%\kbool\image\v1`
+(Git-bash, MSYS2, Cygwin); `KBOOL_IMAGE_DIR=DIR` puts them elsewhere,
+`kk.image --forget fv.dlg` (or deleting the folder) removes them, and
+**`KBOOL_IMAGE=off` turns images and the background process off**. Limits:
+Git-bash has no `setsid`, so the writer stays in the terminal session
+(closing the window may kill it: harmless); stock macOS has no `timeout`, so
+at the limit the writer alone is killed, not its children; a caller's
+unexported variable named like one of fv.dlg's settings makes every start a
+plain load (safe, never a hit). Bench rows: the `fvdlg` suite of
+`tools/bench` (`dlg1.proc.<widget>.image`, `dlg1.proc.<widget>`,
+`fvdlg.miss`).
 
 ## Tests
 

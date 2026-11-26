@@ -35,6 +35,11 @@ source "$FVDL_TESTS_DIR/../../fv.app/tests/fva_testlib.sh"
 fvdl_init() {
     local name=$1
     shift
+    # bin/fvdlg starts through a load image (kk.image --background, stage I5):
+    # off for every test file by default — no image in the real per-user
+    # cache, no background writer left behind, no 4-8 s write per test; the
+    # image test (013_Image.sh) sets its own KBOOL_IMAGE / KBOOL_IMAGE_DIR
+    export KBOOL_IMAGE=off
     source "$FVDL_TESTS_DIR/../fv.dlg.sh"
     kt_test_init "$name" "$FVDL_TESTS_DIR" "$@"
     FVW_TMP="$(cd "$(kt_fixture_tmpdir)" && pwd)"
