@@ -32,9 +32,11 @@
 #                     process ran (a normal load runs more); never held
 #   PPID              the parent's pid: another process
 # THE PID RULE (I3 fix 1, critic M3; it replaced the by-name entries
-# __FV_VW_OWNER and __FV_AP_SOWN): in each dump of a child every plain scalar
-# (not readonly, integer, array or nameref) whose value is that child's own
-# pid ($BASHPID or $$) reads `<pid>` (kclt_imgpidscript: pid.sh). So pid state compares equal across two
+# __FV_VW_OWNER and __FV_AP_SOWN): a plain scalar (not readonly, integer,
+# array or nameref) whose value is its child's own pid ($BASHPID or $$) in
+# BOTH dumps of a compare reads `<pid>` on both sides (kclt_imgpidscript:
+# pid.sh; I3 fix 2: one side alone is a constant that met a pid by chance).
+# So pid state compares equal across two
 # processes — fv.views' owner pid, which its settings hook writes on every
 # start (plan §5.1 (4)), fv.app's copy of it taken when an application starts
 # (use time: the state after RT_LAZY) — while a pid an image HOLDS (the
@@ -129,10 +131,12 @@ if [[ -n ${RT_LAZY-} ]]; then
 fi
 if [[ -n ${RT_REF-} ]]; then
     __KK_IMG_CMPV=("${__rt_allow[@]}") __KK_IMG_CMPCR=1
-    kk._img_cmp "$RT_REF" "$4" set
+    __rt_pidcmp "$RT_REF" "$4"
+    kk._img_cmp "$__rt_ma" "$__rt_mb" set
     echo "cmp rc=$? $__KK_IMG_DIFF"
     if [[ -n ${RT_LAZY-} ]]; then
-        kk._img_cmp "$RT_REF.lz" "$4.lz" set
+        __rt_pidcmp "$RT_REF.lz" "$4.lz"
+        kk._img_cmp "$__rt_ma" "$__rt_mb" set
         echo "lazy rc=$? $__KK_IMG_DIFF"
         # (bash's "warning: setlocale: …" lines left out: a B locale this
         # system lacks — ru_RU.UTF-8 on a Linux runner — warns whenever a
@@ -161,20 +165,33 @@ EOF
         'if [[ -n $1 ]]; then kk.uses $1 >/dev/null 2>&1 || exit 3; fi' 'kk.image --path "$2" 2>/dev/null' > "$KCLT_TMP/path.sh"
 }
 
-# kclt_imgpidscript — $KCLT_TMP/pid.sh, sourced by the children: `__rt_pid
-# FILE` dumps the state into FILE (kk._img_state canon) with every plain
-# scalar — no readonly, integer, array or nameref attribute: pid state is
-# rewritten by hooks, a constant is readonly (Cygwin's small pids met fv's
-# FV_OF_CENTERED=768) — whose value is this process's pid ($BASHPID or $$)
-# set to `<pid>` for the dump and put back right after it (the lazy /
-# behaviour run needs the real owner pid: fv.views' subshell guard): THE PID
-# RULE above. FILE.pv: its scratch name list. The child leaves __rt_* out of
-# its dump (__KK_IMG_XV / __KK_IMG_XF).
+# kclt_imgpidscript — $KCLT_TMP/pid.sh, sourced by the children:
+#   __rt_pid FILE      the state dump into FILE (kk._img_state canon), and
+#                      FILE.pidn: line 1 this process's pid, then the names of
+#                      the plain scalars — no readonly, integer, array or
+#                      nameref attribute (a constant is readonly or integer;
+#                      Cygwin's small pids met fv's FV_OF_CENTERED=768) —
+#                      whose value is that pid ($BASHPID or $$). FILE.pv: its
+#                      scratch name list.
+#   __rt_pidcmp A B    __rt_ma / __rt_mb: the dumps A and B to compare — when
+#                      a name is listed in BOTH A.pidn and B.pidn (each process
+#                      holds its OWN pid there: pid state its hooks or its run
+#                      set), copies A.m / B.m with that record's value read as
+#                      `<pid>`; else A and B as they are. THE PID RULE above.
+# Both sides, not one (I3 fix 2): a plain constant that equals ONE child's
+# pid by chance — fv.drivers' 50000 / 440000, tdirectory's 65536, a hook
+# VAR's 256 against Linux pids up to 4194304 or the MSYS / Cygwin ones — is
+# listed on that side only and compares as the number it is; a pid an image
+# HOLDS (the writer's) is listed on neither the start's side nor masked on
+# the normal load's: it differs.
+# The child leaves __rt_* out of its dump (__KK_IMG_XV / __KK_IMG_XF).
 kclt_imgpidscript() {
     cat > "$KCLT_TMP/pid.sh" <<'EOF'
 __rt_pid() {
-    local __rt_v __rt_a __rt_i
-    local -a __rt_vs=() __rt_n=() __rt_o=()
+    local __rt_v __rt_a __rt_s
+    local -a __rt_vs=()
+    kk._img_state "$1" canon
+    __rt_s="$BASHPID"$'\n'
     compgen -v > "$1.pv"
     mapfile -t __rt_vs < "$1.pv"
     for __rt_v in "${__rt_vs[@]}"; do
@@ -182,11 +199,32 @@ __rt_pid() {
         __rt_a=${!__rt_v@a}
         [[ $__rt_a == *[aAinr]* ]] && continue
         [[ ${!__rt_v} == "$BASHPID" || ${!__rt_v} == "$$" ]] || continue
-        __rt_n+=("$__rt_v") __rt_o+=("${!__rt_v}")
-        printf -v "$__rt_v" '%s' '<pid>'
+        __rt_s+=$__rt_v$'\n'
     done
-    kk._img_state "$1" canon
-    for (( __rt_i = 0; __rt_i < ${#__rt_n[@]}; __rt_i++ )); do printf -v "${__rt_n[__rt_i]}" '%s' "${__rt_o[__rt_i]}"; done
+    printf '%s' "$__rt_s" > "$1.pidn"
+}
+__rt_pidcmp() {
+    local LC_ALL=C __rt_v __rt_pa="" __rt_pb="" __rt_za="" __rt_zb="" __rt_m=0
+    local -a __rt_na=() __rt_nb=()
+    local -A __rt_in=()
+    __rt_ma=$1 __rt_mb=$2
+    [[ -f $1.pidn && -f $2.pidn ]] || return 0
+    mapfile -t __rt_na < "$1.pidn"
+    mapfile -t __rt_nb < "$2.pidn"
+    __rt_pa=${__rt_na[0]-} __rt_pb=${__rt_nb[0]-}
+    for __rt_v in "${__rt_na[@]:1}"; do __rt_in[$__rt_v]=1; done
+    IFS= read -r -d '' __rt_za < "$1" || :
+    IFS= read -r -d '' __rt_zb < "$2" || :
+    for __rt_v in "${__rt_nb[@]:1}"; do
+        [[ -n ${__rt_in[$__rt_v]-} ]] || continue
+        __rt_za=${__rt_za// $__rt_v=\"$__rt_pa\"$'\n'/ $__rt_v=\"<pid>\"$'\n'}
+        __rt_zb=${__rt_zb// $__rt_v=\"$__rt_pb\"$'\n'/ $__rt_v=\"<pid>\"$'\n'}
+        __rt_m=1
+    done
+    (( __rt_m )) || return 0
+    printf '%s' "$__rt_za" > "$1.m"
+    printf '%s' "$__rt_zb" > "$2.m"
+    __rt_ma=$1.m __rt_mb=$2.m
 }
 EOF
 }
@@ -200,7 +238,9 @@ kclt_imgcmpscript() {
         printf '__KK_IMG_CMPV=('
         printf ' %q' "${KCLT_IMG_ALLOW[@]}"
         printf ' )\n'
-        printf '%s\n' '__KK_IMG_CMPCR=1' 'kk._img_cmp "$1" "$2" set' 'echo "cmp rc=$? $__KK_IMG_DIFF"'
+        printf '%s\n' '__KK_IMG_CMPCR=1' '__rt_ma=$1 __rt_mb=$2' \
+            'if [[ -f $KCLT_TMP/pid.sh ]]; then source "$KCLT_TMP/pid.sh" && __rt_pidcmp "$1" "$2"; fi' \
+            'kk._img_cmp "$__rt_ma" "$__rt_mb" set' 'echo "cmp rc=$? $__KK_IMG_DIFF"'
     } > "$KCLT_TMP/cmp.sh"
 }
 

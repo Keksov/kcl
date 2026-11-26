@@ -43,4 +43,14 @@ kclt_img tsl.nl.r RT_LAZY="$L" RT_REF="$KCLT_TMP/d/tsl.nl" -- plain "" tstringli
 kt_test_start "(the harness: an output that differs only by an empty line is a difference — out rc=1)"
 if [[ $A == "image rc=0 image imgs=+0 | hit" && $IMG_OUT == "out rc=1 "* ]]; then kt_test_pass "ok"; else kt_test_fail "start='$A' out='$IMG_OUT'"; fi
 
+# the pid rule needs both sides (I3 fix 2): a plain global that holds the
+# start's pid there and the same NUMBER in the normal load (a constant that
+# met one child's pid by chance) compares equal as the number it is
+P='if [[ $1 == image ]]; then I3_PIDC=$BASHPID; else IFS= read -r I3_PIDC < "$RT_REF.pidn"; fi'
+kclt_img tsl.pc RT_PRE="$P" -- image "" tstringlist
+A=$OUT
+kclt_img tsl.pc.r RT_PRE="$P" RT_REF="$KCLT_TMP/d/tsl.pc" -- plain "" tstringlist
+kt_test_start "(the harness: a value equal to ONE child's pid only is no pid state — compared as it is, equal)"
+if [[ $A == "image rc=0 image imgs=+0 | hit" && $IMG_CMP == "cmp rc=0 " ]]; then kt_test_pass "ok"; else kt_test_fail "start='$A' cmp='$IMG_CMP'"; fi
+
 kt_test_log "013_ImageEnvDiffKeys.sh completed"
