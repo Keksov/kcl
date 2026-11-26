@@ -486,11 +486,11 @@ echo "yesno rc=$FVDL_RC res=$FVDL_RES cmd=$FVDL_CMD"; echo "$FVDL_SNAPA"'
 # CR), never imaged in I3, is written and hits on every parser now.
 KCLT_IMG_CRUNITS=" fv.keyboard fv.drivers "
 KCLT_IMG_CRBASE=" "
-# And on a bash whose declare -f prints `1<> FILE` as `<> FILE` (bash 5.2;
+# And on a bash whose declare -f prints `1<> FILE` as `<> FILE` (bash 5.1 and 5.2;
 # kclt_rwbug) the units whose own files hold such a redirection would get no
 # image: KCLT_IMG_RWUNITS, chained or not — empty since image I4: kkore
 # writes ` 1<> ` again where such a bash prints ` <> ` (checked by a
-# re-print, kk._img__rwfix), so tfile is imaged on bash 5.2 too (in I3 it
+# re-print, kk._img__rwfix), so tfile is imaged on bash 5.1 and 5.2 too (in I3 it
 # was not; the refusal stays for a ` <> ` that is no redirection: kkore 022 irs).
 KCLT_IMG_RWUNITS=" "
 kclt_imgenv() {
