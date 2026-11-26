@@ -3,7 +3,7 @@
 # I2a-1): `kk.image tstringlist` and `kk.image fv.dlg` (the fv closure with
 # kklass, CR functions rewritten by kk._fn_text_cr) in fresh hermetic bashes:
 # the first start writes the image, the second is a hit, and its state equals
-# a normal load's (kkore's dump, canon; the allow-list below). The image
+# a normal load's (kkore's dump, canon; the allow-list of image_rt.sh). The image
 # folder is this test's own (KBOOL_IMAGE_DIR). The kkore contract tests are
 # kkore/tests/021_Image.sh / 022_ImageStart.sh.
 
@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../../ktests/ktest.sh"
 kt_test_init "ImageRoundTrip" "$SCRIPT_DIR" "$@"
 source "$SCRIPT_DIR/kcl_units.sh"
+source "$SCRIPT_DIR/image_rt.sh"
 kclt_setup
 ( umask 077 && mkdir -p "$KCLT_TMP/img" )     # (as kk.image makes it: a umask 002 folder is refused in stat mode)
 declare -A r=()
@@ -25,19 +26,10 @@ if [[ -n ${__KK_UNIT_PID[$2]+x} ]]; then echo "$1 rc=$r loaded"; else echo "$1 r
 kk._image_lib || exit 2
 kk._img_state "$3" canon
 EOF
-# cmp.sh A B — the allow-list (IMAGE_PLAN §4, M6): the loader's frame index
-# of each unit (inert once loaded), pid state (__KK_UNIT_PID, PPID, fv.views'
-# owner pid), the name index and the caller-keyed tables, the hash table;
-# CR function texts compare with ''<CR>'' as <CR> (kk._fn_text_cr's round trip)
-cat > "$KCLT_TMP/cmp.sh" <<'EOF'
-source "$KBOOL_ROOT/kbool.sh" || exit 2
-kk._image_lib || exit 2
-__KK_IMG_CMPV=(__KK_UNIT_BOT __KK_UNIT_PID __KK_UNIT_IDX __KK_UNIT_CAND __KK_UNIT_IDX_OK __KK_UNIT_RES
-    __KK_UNIT_HIT __KK_FILE_PWD BASH_CMDS PPID __FV_VW_OWNER)
-__KK_IMG_CMPCR=1
-kk._img_cmp "$1" "$2" set
-echo "cmp rc=$? $__KK_IMG_DIFF"
-EOF
+# cmp.sh A B — the compare with THE allow-list of the image tests
+# (image_rt.sh KCLT_IMG_ALLOW, each entry's reason there; image I3 moved it
+# there from here)
+kclt_imgcmpscript
 
 for u in tstringlist fv.dlg; do
     for m in miss hit plain; do
@@ -107,6 +99,14 @@ r=$?
 while IFS= read -r l; do [[ $l == *"no image written"* || $l == *"wrote "* ]] && echo "${l%% /*}"; done < "$KCLT_TMP/m1g.err"
 echo "rc=$r value=$value rc_=$rc y=$y i=$i"
 EOS
-kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img" -- "$KCLT_TMP/m1g.sh" kklass "${KCLT_SIM_REST[@]}" "${KCLT_SIM_FV[@]}"
-kclt_expect "kklass and all $(( ${#KCLT_SIM_REST[@]} + ${#KCLT_SIM_FV[@]} )) kcl units in ONE kk.image from a caller with globals value rc y i: the image is written (no false M1 refusal), the globals untouched" \
+# (on a bash whose declare -f prints `1<> FILE` as `<> FILE` — 5.2 — the
+# units of image_rt.sh's KCLT_IMG_RWUNITS get no image at all: left out here,
+# where the M1 guard is the point; image I3)
+M1U=()
+for u in kklass "${KCLT_SIM_REST[@]}" "${KCLT_SIM_FV[@]}"; do
+    if [[ $KCLT_IMG_RWUNITS == *" $u "* ]] && kclt_rwbug; then continue; fi
+    M1U+=("$u")
+done
+kclt_simrun KBOOL_IMAGE_DIR="$KCLT_TMP/img" -- "$KCLT_TMP/m1g.sh" "${M1U[@]}"
+kclt_expect "kklass and $(( ${#M1U[@]} - 1 )) kcl units (all of them, but those this bash cannot image: KCLT_IMG_RWUNITS) in ONE kk.image from a caller with globals value rc y i: the image is written (no false M1 refusal), the globals untouched" \
     "kbool: image: wrote"$'\n'"rc=0 value=1 rc_=2 y=3 i=4"

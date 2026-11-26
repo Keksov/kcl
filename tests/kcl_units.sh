@@ -228,6 +228,8 @@ kclt_run() {
 # environment given; KCLT_SIM_PRE
 # (shell text the image_sim tests eval before the load) passes through. Sets
 # OUT, ERR, RC. (Image stage I1a: kcl/tests/image_sim.sh, 003 / 004.)
+# KCLT_CWD (image I3): the child's folder instead of the neutral one (a
+# relative script path is relative to it).
 kclt_simrun() {
     local -a e=() u=()
     local n
@@ -241,7 +243,7 @@ kclt_simrun() {
     # (no image variable and no real per-user cache folder: kk.image, image I2a;
     # __KK_IMG_MINLOAD=0 here and in kclt_run: a writer writes every load,
     # however short — kkore/kimage.sh kk._img__worth, I2b fix round F6)
-    ( cd "$KCLT_TMP/neutral" && env -u KBOOL_CONFIG -u KBOOL_HOME -u USERPROFILE -u ProgramData -u PROGRAMDATA \
+    ( cd "${KCLT_CWD:-$KCLT_TMP/neutral}" && env -u KBOOL_CONFIG -u KBOOL_HOME -u USERPROFILE -u ProgramData -u PROGRAMDATA \
         -u LOCALAPPDATA -u XDG_CACHE_HOME -u KBOOL_IMAGE -u KBOOL_IMAGE_DIR -u KBOOL_IMAGE_CHECK -u KBOOL_IMAGE_CHAIN \
         -u KKLASS_CKK_DIR -u KK_UNIT_DIR -u VERBOSE_KKLASS -u BASH_ENV -u LANG -u LC_ALL -u LC_CTYPE "${u[@]}" \
         HOME="$KCLT_TMP/home" __KK_CFG_ETC="$KCLT_TMP/etc" __KK_IMG_MINLOAD=0 \

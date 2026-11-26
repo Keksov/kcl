@@ -4,7 +4,7 @@
 # chain (`kk.uses kklass tutil; kk.image tfind`) in fresh hermetic bashes:
 # the first start writes the chained image (its fresh-process simulation
 # passes), the second is a hit, and its state equals `kk.uses P… REQ`
-# loaded normally (kkore's dump, canon; the allow-list of 008). The base
+# loaded normally (kkore's dump, canon; the allow-list of image_rt.sh). The base
 # check on a kklass table: a name the delta writes into P's _KKLASS_TAKEN
 # set before kk.image — a plain kk.uses (the same output and state as
 # without images), nothing written. The writer's simulation: a P class
@@ -17,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../../ktests/ktest.sh"
 kt_test_init "ImageChain" "$SCRIPT_DIR" "$@"
 source "$SCRIPT_DIR/kcl_units.sh"
+source "$SCRIPT_DIR/image_rt.sh"
 kclt_setup
 ( umask 077 && mkdir -p "$KCLT_TMP/img" )     # (as kk.image makes it: a umask 002 folder is refused in stat mode)
 declare -A r=()
@@ -39,15 +40,8 @@ unset r l x
 kk._image_lib || exit 2
 kk._img_state "$4" canon
 EOF
-cat > "$KCLT_TMP/cmp.sh" <<'EOF'
-source "$KBOOL_ROOT/kbool.sh" || exit 2
-kk._image_lib || exit 2
-__KK_IMG_CMPV=(__KK_UNIT_BOT __KK_UNIT_PID __KK_UNIT_IDX __KK_UNIT_CAND __KK_UNIT_IDX_OK __KK_UNIT_RES
-    __KK_UNIT_HIT __KK_FILE_PWD BASH_CMDS PPID __FV_VW_OWNER)
-__KK_IMG_CMPCR=1
-kk._img_cmp "$1" "$2" set
-echo "cmp rc=$? $__KK_IMG_DIFF"
-EOF
+# cmp.sh A B — the compare with THE allow-list (image_rt.sh KCLT_IMG_ALLOW)
+kclt_imgcmpscript
 
 for c in "tstringlist|fv.dlg" "kklass tutil|tfind"; do
     p=${c%%|*} u=${c#*|}
@@ -62,7 +56,7 @@ for c in "tstringlist|fv.dlg" "kklass tutil|tfind"; do
         kt_test_fail "miss='${r[miss]}' hit='${r[hit]}' plain='${r[plain]}' err='${ERR//$'\n'/|}'"
     fi
     kclt_simrun -- "$KCLT_TMP/cmp.sh" "$KCLT_TMP/$u.plain.d" "$KCLT_TMP/$u.hit.d"
-    kclt_expect "kk.uses $p; kk.image $u: the hit's state equals \`kk.uses $p $u\` loaded normally (allow-list of 008) [§10 chained starts]" "cmp rc=0 "
+    kclt_expect "kk.uses $p; kk.image $u: the hit's state equals \`kk.uses $p $u\` loaded normally (the allow-list of image_rt.sh) [§10 chained starts]" "cmp rc=0 "
 done
 
 # environment names are no read base unless P's files assign them (critic
