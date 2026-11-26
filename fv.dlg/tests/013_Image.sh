@@ -95,17 +95,44 @@ if [[ -r /proc/$BASHPID/stat ]]; then
 fi
 BG_PAT="kkore/kimgbg.sh --kbool-image-writer"     # (the tree spelt as bin/fvdlg found it: bin/../)
 # bg_procs -> BG_PROCS: live processes whose command line holds BG_PAT AND
-# this file's image folder (only this test's writers; fork-free over /proc)
+# this file's image folder (only this test's writers): over /proc where it
+# exists (fork-free), else one `ps -axww -o pid= -o command=` (macOS and
+# FreeBSD ps: BSD options only). BG_NOPROC=1 (a test seam) takes the ps path;
+# on Git-bash / MSYS2 / Cygwin, whose ps prints no arguments, a ps shim first
+# on PATH prints the same columns from /proc (as kkore 029; fix round 2).
+BG_PSDIR=""
+if [[ -n ${BG_NOPROC-} ]]; then
+    case $OSTYPE in
+        msys*|cygwin*)
+            BG_PSDIR=$TMP/psbin
+            mkdir -p "$BG_PSDIR"
+            printf '%s\n' '#!/usr/bin/env bash' '# a BSD-ps shim for the no-/proc seam: -axww -o pid= -o command=' \
+                'for d in /proc/[0-9]*; do' \
+                '    a=(); { mapfile -t -d "" a < "$d/cmdline"; } 2>/dev/null || continue' \
+                '    (( ${#a[@]} )) && printf "%5s %s\n" "${d#/proc/}" "${a[*]}"' \
+                'done' > "$BG_PSDIR/ps"
+            chmod +x "$BG_PSDIR/ps" ;;
+    esac
+fi
 bg_procs() {
-    local d
+    local d l p
     local -a a=()
     BG_PROCS=()
-    for d in /proc/[0-9]*; do
-        [[ ${d#/proc/} != "$BASHPID" && -r $d/cmdline ]] || continue
-        a=()
-        { mapfile -t -d '' a < "$d/cmdline"; } 2>/dev/null || continue
-        [[ " ${a[*]} " == *"$BG_PAT"*"$D/"* ]] && BG_PROCS+=("${d#/proc/}")
-    done
+    if [[ -z ${BG_NOPROC-} && -d /proc/$BASHPID ]]; then
+        for d in /proc/[0-9]*; do
+            [[ ${d#/proc/} != "$BASHPID" && -r $d/cmdline ]] || continue
+            a=()
+            { mapfile -t -d '' a < "$d/cmdline"; } 2>/dev/null || continue
+            [[ " ${a[*]} " == *"$BG_PAT"*"$D/"* ]] && BG_PROCS+=("${d#/proc/}")
+        done
+        return 0
+    fi
+    while IFS= read -r l; do
+        l=${l#"${l%%[! ]*}"}
+        p=${l%% *}
+        [[ -n $p && $p != *[!0-9]* && $p != "$BASHPID" ]] || continue
+        [[ " ${l#* } " == *"$BG_PAT"*"$D/"* ]] && BG_PROCS+=("$p")
+    done < <(PATH=${BG_PSDIR:+$BG_PSDIR:}$PATH ps -axww -o pid= -o command= 2>/dev/null)
     return 0
 }
 bg_kill() {
@@ -164,8 +191,8 @@ if [[ $r == 0 && $pick == a && -n $M ]] && (( us < 8000000 )); then kt_test_pass
 else kt_test_fail "rc=$r pick=[$pick] marker=[$M] us=$us"; fi
 bg_started "$M"
 bg_procs
-kt_test_start "the background writer started (its pid in the marker; the guard's /proc scan sees it where there is /proc)"
-if [[ -n $BG_P && $BG_P != - ]] && { [[ ! -d /proc/$BASHPID ]] || (( ${#BG_PROCS[@]} >= 1 )); }; then kt_test_pass ok; else kt_test_fail "marker=[$(cat "$M" 2>/dev/null)] procs=[${BG_PROCS[*]}]"; fi
+kt_test_start "the background writer started (its pid in the marker; the guard's process lister — /proc, else ps — sees it)"
+if [[ -n $BG_P && $BG_P != - ]] && (( ${#BG_PROCS[@]} >= 1 )); then kt_test_pass ok; else kt_test_fail "marker=[$(cat "$M" 2>/dev/null)] procs=[${BG_PROCS[*]}]"; fi
 O=$BG_O P=$BG_P
 t0=$EPOCHREALTIME
 a=$(env "${IENV[@]}" FVDLG_NOTTY=default "$BASH" "$CMD" --stdout --inputbox N 0 0 first 2>"$TMP/m.err" </dev/null)
