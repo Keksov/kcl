@@ -9,14 +9,15 @@ root, which calls `fv.dlg.main`) and `fv.dlg.run` for bash scripts that
 load kbool, with sessions (`fv.dlg.begin` / `fv.dlg.end`) and a
 host-application mode.
 
-**Status: P4 stages 4a-1 + 4a-2 + 4b** — the parser (D32's flag set in both
+**Status: P4 stages 4a-1 + 4a-2 + 4b + 4d** — the parser (D32's flag set in both
 tools' spellings, §4.5's rules), `--msgbox`, `--yesno`, `--infobox`,
-`--inputbox`, `--passwordbox`, `--menu`, `--checklist`, `--radiolist`, the
+`--inputbox`, `--passwordbox`, `--menu`, `--checklist`, `--radiolist`,
+`--gauge`, `--textbox`, the
 results and exit codes (D37's list answers), P4-6's buffering, `NO_COLOR`,
 the sizes and the minimum (P4-8), the scrolling text (P4-9), resize,
 sessions and the host application; the command `bin/fvdlg` (its guards
-before the load, no terminal: D36), the screen modes (D34). Next: 4d
-(gauge, textbox), 4e (bench, docs). The unit loads `kklass_pascal`,
+before the load, no terminal: D36), the screen modes (D34). Next: 4e
+(bench, docs). The unit loads `kklass_pascal`,
 `fv.app` and `fv.dialogs`.
 
 ## Quick start
@@ -47,6 +48,8 @@ fvdlg --title Disk --yesno 'Format /dev/sdb1?' 0 0 && format_it
 name=$(fvdlg --stdout --inputbox 'Your name:' 0 0 "$USER") || exit
 pick=$(fvdlg --menu 'Pick' 0 0 0 a Apple b Banana 3>&1 1>&2 2>&3)   # whiptail's idiom
 fvdlg --infobox 'Installing…' 0 0; long_job   # stays on the screen while long_job runs
+for i in 10 40 70 100; do echo $i; sleep 1; done | fvdlg --gauge 'Copying...' 0 0 0
+fvdlg --textbox /etc/os-release 0 0
 ```
 
 ## The command `bin/fvdlg`
@@ -257,6 +260,8 @@ session or a host writes onto the dialog screen; read `RESULT` there.
 | `--menu TEXT H W LH TAG ITEM…` | + **`TDlgList : TListBox`** (+ a `TScrollBar` only when the items do not fit), rows `tag  item` (the tags padded to the widest) + `O~K~` / `Cancel` | 0 + the focused tag / 1 / 255 |
 | `--checklist TEXT H W LH TAG ITEM STATUS…` | the list with `[X]` / `[ ]` from its marks (STATUS `on` / `off`, any case) | 0 + the checked tags (D37) / 1 / 255 |
 | `--radiolist TEXT H W LH TAG ITEM STATUS…` | the same with `(*)` / `( )`; **exactly one mark** at most | 0 + the marked tag / 1 / 255 |
+| `--gauge TEXT H W [PERCENT]` | the prompt + **`TDlgGauge : TView`** (the meter `███░░░  42%`), no button; the percentages and `XXX` blocks read from stdin by `TDlgApp.Idle` ([The gauge](#widgets), below) | 0 at the end of stdin / 255 (Esc, refusals) |
+| `--textbox FILE H W` | the file in `TDlgText` (no wrap, Left / Right sideways) + `O~K~` ([The textbox](#widgets), below) | 0 / 255 |
 
 **The lists** (design §5.1). `LH` = the list's rows (`0`: every item, as
 far as the box allows); `--default-item TAG` focuses the first item with
@@ -353,6 +358,73 @@ input line / the list keep the focus otherwise. `--scrolltext` (msgbox,
 yesno) uses the view even for text that fits (no bar then). Text that fits
 stays a `TStaticText` (4a-1's layout unchanged).
 
+**The gauge** (`--gauge TEXT H W [PERCENT]`, stage 4d; `TDlgGauge : TView`).
+The prompt, a blank row, and the meter on the row above the bottom frame:
+`██████░░░░░░░░  42%` (ASCII mode `######::::::::  42%`), in the static
+text's colour; no button. PERCENT (default 0) and every value read are
+clamped to 0..100. The auto size (0 0) is 40 columns at least. The
+percentages come from **stdin**, read while the dialog runs:
+
+```sh
+for i in 10 40 70 100; do echo $i; sleep 1; done | fvdlg --gauge 'Copying...' 0 0 0
+{ echo 10; echo XXX; echo 50; echo 'Copying file 2 of 3'; echo XXX; echo 100; } | fvdlg --gauge 'Copying...' 8 50
+```
+
+* a line that is a number (blanks around it allowed) sets the percentage;
+  more than 100 shows 100, a negative number 0; any other line is ignored
+  (`12abc`, `4 2`, an empty line);
+* a line that starts with `XXX` opens a block: its next line is the
+  percentage (not a number: unchanged), the lines up to the next `XXX` line
+  are the new prompt (joined by newlines; `\n` escapes as in TEXT), both
+  taken at the closing `XXX`; a block stdin ends inside is dropped;
+* a trailing CR is dropped (CRLF writers work);
+* **the end of stdin ends the gauge: status 0** (`cmOK`), nothing printed;
+* Esc, Ctrl+F4 and the close icon: 255, as the other boxes (neither tool
+  reads keys in a gauge; here they stop waiting — the writer then gets
+  SIGPIPE at its next write); Ctrl+C: 130 (fv.video's restore), the writer
+  in the same pipeline gets the SIGINT too; a resize lays the box out
+  again (below the minimum: 255);
+* **stdin a terminal is refused** before any screen change (255, one line:
+  `--gauge reads its percentages from stdin, which is a terminal (pipe them
+  in: ...)`), and stdin closed too — the keys come from the terminal, the
+  numbers must not (design R7);
+* inside a running fv application (the host mode) refused (its Idle does
+  not poll stdin); in a session it runs on the session's application;
+  `--no-tty=default` without a terminal reads stdin to its end, status 0.
+
+How the reading works: `TDlgApp.Idle` polls stdin. Idle runs after the
+event read waited `FV_IDLE_TIMEOUT` (0.05 s) without a key, so an idle
+gauge wakes ~20 times a second (~15 on the Windows runtimes' timer) for
+one `read -t 0` — no busy loop; an idle gauge costs the same CPU as an idle
+message box (measured: the same within the timer's resolution over 4 s on
+Git-bash and Cygwin). When something waits, up to 256 lines are read per
+poll with `read -t 0.01`; a read that times out keeps what it got as a
+partial line for the next poll (fv.keyboard's partial-read rule: a writer
+that flushes `4` and later `2⏎` gives 42, never 2 or 4); a partial line of
+more than 4096 characters is dropped up to its newline. Only what changed
+is redrawn (the meter when the percentage changed, the prompt when it
+differs). Headless (`--fv-headless`), where the key file can end before
+stdin does: the end of the keys does not end a gauge — stdin is then read
+to its end with timed reads (0.25 s each) and each change drawn.
+
+**The textbox** (`--textbox FILE H W`, stage 4d). The file in the scrolling
+text view and OK: Up / Down / PgUp / PgDn / Home / End scroll, **Left /
+Right move the column offset** (lines are not wrapped; Right stops when the
+widest line's end is in view), the wheel and the bar too; Enter (OK) 0,
+Esc 255; nothing printed. The content: the file read whole up to a cap of
+**1 MiB** (more: 255 and `the file '…' is larger than 1048576 bytes`);
+every CR dropped, one final newline dropped, tabs expanded to the next
+multiple of 8 cells, other control characters shown as `?`, NUL bytes
+dropped; `\n` and `\Z` in the file are text (never escapes, also with
+`--colors`). A missing file, a directory: 255 and `cannot read the file
+'…'`, before any screen change. A pipe works as FILE (`--textbox <(cmd)`,
+read once). The auto size (0 0) fits the widest line (at most 2/3 of the
+screen) and the lines (at most the screen). Cost: the load splits the text
+in memory (word splitting on newlines, the empty lines marked so they
+stay: C speed) and a draw formats only the visible rows — on Git-bash a
+5 000-line file opens in ~0.23 s, 1 MiB of 250-character lines in ~0.4 s
+(headless, Enter).
+
 **Keys.** FV's: Enter presses the default button, Tab / Shift+Tab and the
 arrows move between the controls, Space presses the focused button, the
 button's `~` letter (Alt + it, or the plain letter: `y` / `n` / `k` — not
@@ -408,7 +480,8 @@ flags are refused (255, one line), never ignored.
 |---|---|---|---|
 | `--msgbox --yesno --infobox --inputbox --passwordbox` | ✓ | ✓ | ✓ |
 | `--menu --checklist --radiolist` | ✓ | ✓ | ✓ (`TDlgList`; empty lists refused: dialog; whiptail answers an empty checklist with 0 and crashes on an empty radiolist) |
-| `--gauge --textbox` | ✓ | ✓ | refused "not supported yet" (4d) |
+| `--gauge TEXT H W [PERCENT]` | ✓ | ✓ | ✓ (stdin: numbers, `XXX` blocks; clamped 0..100; stdin a terminal refused; Esc 255 — [The gauge](#widgets)) |
+| `--textbox FILE H W` | ✓ | ✓ | ✓ (Up / Down / PgUp / PgDn / Home / End, Left / Right sideways; no search; 1 MiB cap) |
 | `--title T`, `--backtitle T` | ✓ | ✓ | ✓ (a session: the session's title, a run's replaces its text; a host: ignored) |
 | `--ok-button L` / `--ok-label L` | button only | both | both |
 | `--cancel-button` / `--cancel-label`, `--yes-button` / `--yes-label`, `--no-button` / `--no-label` | button only | both (the last wins) | both (the last wins) |
@@ -518,6 +591,18 @@ keys; rows in `tests/002_Parse.sh`, `tests/005_Output.sh` and
   tool runs without a terminal either (not in the golden table).
   `--no-tty=default` / `FVDLG_NOTTY=default` are fvdlg's own (D36).
 * **The look** is Free Vision's (grey dialog, shadow, `░` desktop; P4-3).
+* **The gauge** (from the tools' manuals and knowledge; not on the golden
+  table yet): Esc / Ctrl+F4 end it with 255 (both tools read no keys in a
+  gauge, "the exit status is always OK" — dialog); stdin a terminal is
+  refused (both tools would wait on it); a negative number shows 0 (dialog
+  ignores it, whiptail's `strtoul` wraps it); a line that *starts* with
+  `XXX` is a marker (dialog's prefix rule); a block stdin ends inside is
+  dropped (whiptail stops there).
+* **The textbox**: no search (`/`, `?`, `n` — both tools have it), no
+  vi-style keys (dialog's `h j k l`, `B` / `N`), no `0` to reset the
+  sideways scroll; a 1 MiB cap (neither tool has one); tabs at 8 cells
+  always (dialog: `--tab-correct` / `--tab-len`, without them curses'
+  tabs); the button is OK (dialog: EXIT).
 * dialog's `--help-button`, `--extra-button`, `--and-widget`, its exit
   codes 2 / 3 / 5 and the `DIALOG_*` environment are not in the subset
   (refused, not ignored).
@@ -663,6 +748,9 @@ the counters; `dbl X Y` a double click).
 | 010_Pty | the command on script(1)'s pty (util-linux only; SKIP elsewhere): `x=$(… --stdout …)`, the swap idiom, `--output-fd 3`, the exit codes 0 / 1 / 255 / 130 / 143 / 129, stty equal, the restore sequences, no process or buffer file left, one `?1049h` per call / none on the main screen with the cursor to the last row, `--erase-on-exit`'s clear, the infobox, `NO_COLOR`, `TERM=dumb` (+ `FVDLG_FORCE=1`), P4-6 through the command, a backgrounded call stopped and resumed by `fg` |
 | 011_CallerState | a child scene (every widget, a session) under IFS variants, `nocasematch`, `extglob`, `LC_ALL=C` (a Cyrillic jump, a CJK scrolling prompt's frames — M2), `set -u`, `set -e`, the glob options (nullglob, failglob, globstar, dotglob, `set -f` + nocaseglob): the same answers, the caller's state kept; 105 calls leave nothing and grow no table |
 | 012_Budget | §6.1's limits for the boxes and the lists, per key (a list key at most 1 dispatch: measured 0), logged |
+| 013_Image | `bin/fvdlg` through `kk.image --background` (stage I5) |
+| 014_Gauge | the protocol line by line (numbers, the clamp, garbage, CRLF, `XXX` blocks, PERCENT); headless runs with stdin a process substitution (Idle's poll while the keys stay open, `4` then `2⏎` = 42, CRLF, the end of stdin → 0, the keys' end not ending it, Esc during a slow writer → 255 at once, redraw only on change, ~20 polls a second); the screen (the box, the meter's cells and colour, `--fv-ascii`, the auto size, a resize); refusals (stdin a terminal through the `_isTerm` seam — no frame written —, stdin closed, PERCENT, the host); a session; `--no-tty=default`; the command in a pipeline; on a real pty (util-linux script(1); SKIP elsewhere): stdin the terminal refused with nothing sent, a piped gauge drawn and restored, Ctrl+C → 130; every writer / key process ended |
+| 015_Textbox | the content (tabs, CR, controls as `?`, `\n` / `\Z` literal, the final newline, an empty file), the line split (empty lines, CRLF / lone CR, the split's own marker bytes), a pipe as FILE, the auto size, the keys (Down / PgDn / End / PgUp / Home / Up, Enter / Esc), Left / Right (the offset, its stops), the formatter on wide characters, the cap (lowered) and its default, a missing file / a directory, `--no-tty=default`, the command |
 
 The golden table itself (the real tools' runs, the typescripts) is kept in
 the stages' scratch folders (`p4/golden`, `p4/golden2`); its rows are in

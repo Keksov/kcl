@@ -77,8 +77,8 @@ pt "--help stops the parse (the command's)" '0|m:--help' --msgbox t 0 0 --help -
 pt "--version" '0|m:--version' --version
 
 kt_test_section "002: the refusals"
-pt "no arguments" '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)'
-pt "options only" '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)' --title T
+pt "no arguments" '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist, --gauge, --textbox)'
+pt "options only" '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist, --gauge, --textbox)' --title T
 pt "an unknown option" "1|unknown option '--bogus'" --bogus --msgbox t 0 0
 pt "an unknown option after the positionals" "1|unknown option '--bogus'" --msgbox t 0 0 --bogus
 pt "a single-dash word before the widget" "1|unknown option '-x'" -x --msgbox t 0 0
@@ -109,7 +109,9 @@ pt "too few fixed positionals for a list" "1|'--menu' needs TEXT HEIGHT WIDTH LI
 pt "an empty list" "1|'--radiolist' needs at least one TAG ITEM STATUS group (the list is empty)" --radiolist t 0 0 0
 pt "an incomplete group" "1|'--menu' takes TAG ITEM groups (3 words after LIST-HEIGHT: the last group is incomplete)" --menu t 0 0 0 a A b
 pt "a bad STATUS" "1|STATUS must be on or off (got '1' for the tag 'b')" --checklist t 0 0 0 a A on b B 1
-pt "--gauge / --textbox: not yet (4d)" "1|'--textbox' is not supported yet" --textbox /etc/hosts 0 0
+pt "--textbox FILE H W (4d)" '0|textbox|/etc/hosts|0|0||' --textbox /etc/hosts 0 0
+pt "--gauge TEXT H W PERCENT (4d)" '0|gauge|t|6|50|42||' --gauge t 6 50 42
+pt "--gauge: an option after it, not PERCENT" '0|gauge|t|6|50||title=T;' --gauge t 6 50 --title T
 pt "a list widget after a widget: one widget per call" "1|one widget per call ('--menu' after '--msgbox'); --and-widget is not supported" --msgbox a 0 0 --menu t 0 0 0
 pt "a value missing at the end" "1|option '--backtitle' needs a value" --msgbox t 0 0 --backtitle
 pt "a flag with =value" "1|option '--nocancel' takes no value" --nocancel=yes --inputbox t 0 0
@@ -167,7 +169,7 @@ golden msg_colors  "'--colors: unknown option' rc 1" '\Z stripped' '0|msgbox|a\Z
 golden msg_space   "' ' ignored, rc 0" 255 "1|unexpected argument ' '" --msgbox 'Hello world' 8 30 ' '
 golden msg_okbutton 'OKB shown' 'OKB shown' '0|msgbox|Hello|8|30||ok=OKB;' --ok-button OKB --msgbox Hello 8 30
 golden msg_oklabel "'--ok-label: unknown option' rc 1" 'OKL shown' '0|msgbox|Hello|8|30||ok=OKL;' --ok-label OKL --msgbox Hello 8 30
-golden msg_noargs  'usage, 255' 'rc 0, nothing' '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)'
+golden msg_noargs  'usage, 255' 'rc 0, nothing' '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist, --gauge, --textbox)'
 golden msg_stdout  "'--stdout: unknown option' rc 1" 'rc 0' '0|msgbox|Hello|8|30||out=1;' --stdout --msgbox Hello 8 30
 golden yn_button   'JAB / NEINB' 'JAB / NEINB' '0|yesno|q|8|30||no=NEINB;yes=JAB;' --yes-button JAB --no-button NEINB --yesno q 8 30
 golden yn_label    "'--yes-label: unknown option' rc 1" 'JAL / NEINL' '0|yesno|q|8|30||no=NEINL;yes=JAL;' --yes-label JAL --no-label NEINL --yesno q 8 30
@@ -183,8 +185,8 @@ golden f_sepout    'rc 0' "'Unexpected widget with --separate-output', 255" '0|m
 golden f_no_cancel 'unknown option, rc 1' 'rc 0' '0|msgbox|hi|8|30||nocancel=1;' --no-cancel --msgbox hi 8 30
 golden f_helpbutton 'unknown option, rc 1' 'rc 0 (a Help button)' "1|option '--help-button' is not supported (outside fvdlg's whiptail / dialog subset)" --help-button --msgbox hi 8 30
 golden f_andwidget 'unknown option, rc 1' 'both shown, rc 0' "1|option '--and-widget' is not supported (outside fvdlg's whiptail / dialog subset)" --msgbox a 8 30 --and-widget --msgbox b 8 30
-golden f_gauge_missing 'usage, 255' 'rc 0' "1|'--gauge' is not supported yet" --gauge
-golden msg_onlytitle 'usage, 255' 'rc 0, nothing' '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)' --title T
+golden f_gauge_missing 'usage, 255' 'rc 0' "1|'--gauge' needs TEXT HEIGHT WIDTH (got 0 of 3)" --gauge
+golden msg_onlytitle 'usage, 255' 'rc 0, nothing' '1|no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist, --gauge, --textbox)' --title T
 golden menu_trailopt 'rc 0, TRAILT shown' "'Expected a box option', 255" '0|menu|Pick|15|40|4|a|Apple|b|Banana||title=TRAILT;' --menu 'Pick' 15 40 4 a Apple b Banana --title TRAILT
 golden menu_dashtags 'tags - and --title (Down: --title)' "'Expected a box option', 255" '0|menu|Pick|15|40|4|-|Dash|--title|Title||' --menu 'Pick' 15 40 4 -- - Dash --title Title
 golden menu_odd    'usage, 255' "'Expected 2 arguments, found extra 1', 255" "1|'--menu' takes TAG ITEM groups (3 words after LIST-HEIGHT: the last group is incomplete)" --menu 'Pick' 15 40 4 a Apple b

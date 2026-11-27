@@ -38,8 +38,10 @@ kk.unit fv.dlg || return $__kk_unit_rc
 # session / host left on the desktop until the next call) --inputbox
 # --passwordbox (INIT selected: the first key replaces it; D38: '*' per
 # character, --fv-echo none shows nothing) --menu --checklist --radiolist
-# (TDlgList; D37's answers). --gauge and --textbox are parsed and refused
-# "not supported yet" (4d). Text that does not fit scrolls (TDlgText, P4-9).
+# (TDlgList; D37's answers) --gauge (4d: TDlgGauge, the percentages read
+# from stdin by TDlgApp.Idle — fv.dlg._gPoll; stdin a terminal: 255 before
+# any screen change) --textbox (4d: the file in the scrolling text view and
+# OK; fv.dlg._file). Text that does not fit scrolls (TDlgText, P4-9).
 # Parser rules (P4-7, design §4.5): options anywhere before `--`, the
 # widget's fixed positionals literal, an optional positional unless it is
 # exactly a known option, list items in groups (an option only at a group
@@ -108,6 +110,18 @@ fi
 #   TOPT       the terminal options' names (refused in a session / host)
 #   JUMP[C]    the letter jumps' index of the list JN: its first item whose row
 #   JN         starts with C (lower case; built on the first letter, fv.dlg._jumpIdx)
+#   G[K]       the running gauge (fv.dlg._gRun; empty when none): d the
+#              dialog, pct the percentage read, spct the one shown, text /
+#              ntext the prompt and 1 when a new one waits to be shown,
+#              part the partial line kept across polls, skip 1 while an
+#              over-long partial line is dropped up to its newline, blk the
+#              XXX block's state (0 none, 1 its percentage next, 2 its
+#              text), bpct / btxt / bn the block read so far, eof 1 at
+#              stdin's end, on 1 while it runs (TDlgApp.Idle polls then);
+#              polls / shows / tshows: the polls, the meter's and the
+#              text's redraws (kept after the call: the tests' view)
+#   TXCAP      the textbox's size cap in bytes (fv.dlg._file; an internal
+#              self-default, 1 MiB)
 # The list's and the text view's arrays (fv.views refuses List / Marks
 # names that start with _fv / __fv): __DLFV_TAGS __DLFV_ROWS __DLFV_MARKS
 # __DLFV_FIRST __DLFV_NEXT __DLFV_TEXT
@@ -123,10 +137,11 @@ kk.settings fv.dlg._settings FV_DLG_CMD FV_DLG_TAGS || return
 declare -g __FV_DL_DIR=${BASH_SOURCE[0]%/*}
 if [[ $__FV_DL_DIR == "${BASH_SOURCE[0]}" ]]; then __FV_DL_DIR=.; fi
 if [[ $__FV_DL_DIR != /* && $__FV_DL_DIR != [A-Za-z]:* ]]; then __FV_DL_DIR=$PWD/$__FV_DL_DIR; fi
-declare -ga __FV_DL_BUF __DLFV_TAGS __DLFV_ROWS __DLFV_MARKS __DLFV_FIRST __DLFV_NEXT __DLFV_TEXT
-__FV_DL_BUF+=() __DLFV_TAGS+=() __DLFV_ROWS+=() __DLFV_MARKS+=() __DLFV_FIRST+=() __DLFV_NEXT+=() __DLFV_TEXT+=()
-declare -gA __FV_DL_KIND __FV_DL_LAY __FV_DL_SES __FV_DL_JUMP
+declare -ga __FV_DL_BUF __DLFV_TAGS __DLFV_ROWS __DLFV_MARKS __DLFV_FIRST __DLFV_NEXT __DLFV_TEXT __DLFV_RAW
+__FV_DL_BUF+=() __DLFV_TAGS+=() __DLFV_ROWS+=() __DLFV_MARKS+=() __DLFV_FIRST+=() __DLFV_NEXT+=() __DLFV_TEXT+=() __DLFV_RAW+=()
+declare -gA __FV_DL_KIND __FV_DL_LAY __FV_DL_SES __FV_DL_JUMP __FV_DL_G
 declare -g __FV_DL_SMALL=${__FV_DL_SMALL-} __FV_DL_INFO=${__FV_DL_INFO-} __FV_DL_JN=${__FV_DL_JN-}
+declare -g __FV_DL_TXCAP=${__FV_DL_TXCAP:-1048576} __FV_DL_TXW=${__FV_DL_TXW:-0} __FV_DL_TXX=${__FV_DL_TXX:-0}
 # (dialog's --single-quoted: the characters that make a tag quoted, the
 # ones escaped inside the quotes)
 __FV_DL_QSET=$' \t[]{}?*;`~#$^&()|<>' __FV_DL_QESC=$'\'\\\n'
@@ -136,7 +151,7 @@ declare -gA __FV_DL_OPT=(
     [--msgbox]='w msgbox 3 0' [--yesno]='w yesno 3 0' [--infobox]='w infobox 3 0'
     [--inputbox]='w inputbox 3 1' [--passwordbox]='w passwordbox 3 1'
     [--menu]='w menu 4 0 2' [--checklist]='w checklist 4 0 3' [--radiolist]='w radiolist 4 0 3'
-    [--gauge]='n gauge' [--textbox]='n textbox'
+    [--gauge]='w gauge 3 1' [--textbox]='w textbox 3 0'
     [--title]='v title' [--backtitle]='v backtitle'
     [--ok-button]='v ok' [--ok-label]='v ok' [--cancel-button]='v cancel' [--cancel-label]='v cancel'
     [--yes-button]='v yes' [--yes-label]='v yes' [--no-button]='v no' [--no-label]='v no'
@@ -169,15 +184,41 @@ declare -gA __FV_DL_VAL=(
 # TDlgApp : TApplication — no status line (the desktop takes every row; D23
 # gives no menu bar). Its HandleEvent: TApplication's, then after a resize
 # the running dialog laid out again or ended below the minimum (P4-8,
-# fv.dlg._relayout)
+# fv.dlg._relayout). Its Idle: TProgram's, then a running gauge's stdin
+# poll (fv.dlg._appIdle) — paced by the event read's FV_IDLE_TIMEOUT wait
 class TDlgApp : TApplication
     public
         nofields override proc InitStatusLine
         nofields override proc HandleEvent
+        nofields override proc Idle
 end
 TDlgApp.InitStatusLine() { return 0; }
 TDlgApp.HandleEvent() { fv.dlg._appEvent "$this" "$@" || return; }
+TDlgApp.Idle() { fv.dlg._appIdle "$this" "$@" || return; }
 build TDlgApp
+
+# TDlgGauge : TView — the gauge's meter (--gauge, 4d): one row, the bar
+# (█ done, ░ to do; ASCII mode # and :) and the percentage " NNN%" at its
+# right end, in the owner's colour 6 (a dialog's static text: TView has no
+# palette). Pct 0..100 (fv.dlg._gShow sets it). A proc override: one
+# dispatch per draw, and a gauge draws only when its percentage changes
+class TDlgGauge : TView
+    public
+        var Pct
+        override proc Draw
+end
+TDlgGauge.Draw() {
+    local __fvl_s __fvl_b __fvl_n=$(( SizeX - 5 )) __fvl_f __fvl_p=${Pct:-0} __fvl_a='█' __fvl_e='░'
+    if (( __fvl_n < 0 )); then __fvl_n=0; fi
+    if (( FV_VIDEO_ASCII )); then __fvl_a='#' __fvl_e=':'; fi
+    __fvl_f=$(( __fvl_n * __fvl_p / 100 ))
+    printf -v __fvl_s '%*s' "$__fvl_f" ''
+    printf -v __fvl_b '%*s' "$(( __fvl_n - __fvl_f ))" ''
+    __fvl_s=${__fvl_s// /$__fvl_a}${__fvl_b// /$__fvl_e}
+    printf -v __fvl_b ' %3d%%' "$__fvl_p"
+    fv.views.writeStr 0 0 "${__fvl_s}${__fvl_b:0:SizeX}" 6
+}
+build TDlgGauge
 
 # TDlgTitle : TView — the background title (--backtitle): one row, a blank
 # and Text, in colour 1 (TView has no palette: the app palette's entry 1, the
@@ -247,6 +288,7 @@ fv.dlg._register() {
     __FV_VW_IMPL[TDlgText.GetPalette]=fv.dlg._txPal
     __FV_VW_IMPL[TDlgText.HandleEvent]=fv.dlg._txEvent
     __FV_VW_IMPL[TDlgApp.HandleEvent]=fv.dlg._appEvent
+    __FV_VW_IMPL[TDlgApp.Idle]=fv.dlg._appIdle
 }
 fv.dlg._register
 
@@ -395,7 +437,12 @@ fv.dlg._parse() {
         return 1
     fi
     if [[ -z $__fvl_w ]]; then
-        __fvl_err='no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist)'
+        __fvl_err='no widget (--msgbox, --yesno, --infobox, --inputbox, --passwordbox, --menu, --checklist, --radiolist, --gauge, --textbox)'
+        return 1
+    fi
+    # the gauge's PERCENT: an integer (clamped to 0..100 when shown)
+    if [ "$__fvl_w" = gauge ] && (( ${#__fvl_p[@]} > 3 )) && ! fv.dlg._int "${__fvl_p[3]}"; then
+        __fvl_err="PERCENT must be an integer (got '${__fvl_p[3]}')"
         return 1
     fi
     # the list items: whole groups, at least one; STATUS on / off in any case
@@ -781,14 +828,30 @@ fv.dlg._lsSelect() {
 
 # TDlgText.GetPalette (func): every row the dialog's static text colour
 fv.dlg._txPal() { RESULT='6 6 6 6 6'; }
-# TDlgText.HandleEvent: the keys scroll the top row; the rest TListViewer's
+# fv.dlg._txSide V STEP — Left / Right on the text view V (TDlgText's
+# HandleEvent): the textbox's column offset moved by STEP cells, at most
+# what brings the widest line's end into view, V redrawn when it moved, the
+# key consumed; other text (no Formatter list): the key left alone
+fv.dlg._txSide() {
+    local -n __fvl_sd=${1}_data
+    [ "${__fvl_sd[List]-}" = __DLFV_RAW ] || return 0
+    local __fvl_t=$(( __FV_DL_TXX + $2 )) __fvl_m=$(( __FV_DL_TXW - ${__fvl_sd[SizeX]:-1} + 1 ))
+    if (( __fvl_t > __fvl_m )); then __fvl_t=$__fvl_m; fi
+    if (( __fvl_t < 0 )); then __fvl_t=0; fi
+    if (( __fvl_t != __FV_DL_TXX )); then __FV_DL_TXX=$__fvl_t; fv.views.drawView "$1" || :; fi
+    FV_EV_WHAT=evNothing FV_EV_INFO=$1
+}
+# TDlgText.HandleEvent: the keys scroll the top row (Left / Right: the
+# textbox's column, fv.dlg._txSide); the rest TListViewer's
 fv.dlg._txEvent() {
     if ! [ "$FV_EV_WHAT" = evKeyDown ]; then fv.views._lvEvent "$1"; return 0; fi
     local -n __fvl_xd=${1}_data
-    local __fvl_t=${__fvl_xd[TopItem]:-0} __fvl_h=${__fvl_xd[SizeY]:-1} __fvl_m
+    local __fvl_t=${__fvl_xd[TopItem]:-0} __fvl_h=${__fvl_xd[SizeY]:-1} __fvl_m __fvl_k=${__FV_VW_C2A[${FV_EV_KEY:-kbNoKey}]-$FV_EV_KEY}
     __fvl_m=$(( ${__fvl_xd[Range]:-0} - __fvl_h ))
     if (( __fvl_m < 0 )); then __fvl_m=0; fi
-    case ${__FV_VW_C2A[${FV_EV_KEY:-kbNoKey}]-$FV_EV_KEY} in
+    case $__fvl_k in
+        kbLeft) fv.dlg._txSide "$1" -1; return 0 ;;
+        kbRight) fv.dlg._txSide "$1" 1; return 0 ;;
         kbDown) __fvl_t=$(( __fvl_t + 1 )) ;;
         kbUp) __fvl_t=$(( __fvl_t - 1 )) ;;
         kbPgDn) __fvl_t=$(( __fvl_t + __fvl_h )) ;;
@@ -970,7 +1033,7 @@ fv.dlg._fitLabels() {
 # of the room (one row at least) and the list the rest, up to LH
 fv.dlg._geom() {
     local __fvl_room __fvl_x=$(( $1 - 4 > 1 ? $1 - 4 : 1 ))
-    if ! [ "$__fvl_fw" = "$__fvl_x" ]; then fv.dlg._fit "$__fvl_t" "$__fvl_x"; __fvl_fw=$__fvl_x; fi
+    if ! [ "$__fvl_fw" = "$__fvl_x" ]; then fv.dlg._fitT "$__fvl_t" "$__fvl_x"; __fvl_fw=$__fvl_x; fi
     __fvl_lh=0 __fvl_bar=0 __fvl_sc=0
     if (( __fvl_list )); then
         __fvl_room=$(( $2 - __fvl_ex ))
@@ -985,10 +1048,13 @@ fv.dlg._geom() {
         __fvl_ta=$(( __fvl_room - __fvl_lh ))
         if (( __fvl_lh < __fvl_n )); then __fvl_bar=1; fi
     elif [ "$__fvl_w" = infobox ]; then __fvl_ta=$(( $2 - 2 ))
+    elif [ "$__fvl_w" = gauge ]; then __fvl_ta=$(( $2 - 4 ))
     else __fvl_ta=$(( $2 - __fvl_ex + 1 )); fi
-    if { (( __fvl_th > __fvl_ta )) && ! [ "$__fvl_w" = infobox ]; } || (( __fvl_st )); then __fvl_sc=1; fi
+    # (the infobox and the gauge never scroll: no keys reach a text there —
+    # what does not fit is cut, as TStaticText cuts)
+    if { (( __fvl_th > __fvl_ta )) && ! [ "$__fvl_w" = infobox ] && ! [ "$__fvl_w" = gauge ]; } || (( __fvl_st )); then __fvl_sc=1; fi
     __fvl_vh=$__fvl_ta
-    if [ "$__fvl_w" = msgbox ] || [ "$__fvl_w" = yesno ]; then __fvl_vh=$(( __fvl_ta > 1 ? __fvl_ta - 1 : 1 )); fi
+    if [ "$__fvl_w" = msgbox ] || [ "$__fvl_w" = yesno ] || [ "$__fvl_w" = textbox ]; then __fvl_vh=$(( __fvl_ta > 1 ? __fvl_ta - 1 : 1 )); fi
 }
 
 # fv.dlg._ins D V TARGET — V into the dialog D: in front of everything
@@ -1017,9 +1083,18 @@ fv.dlg._mkText() {
         fv.dlg._ins "$1" "$__fvl_tx" "$3"
         return 0
     fi
-    fv.dlg._wrap "$__fvl_t" "$(( $2 - 5 > 1 ? $2 - 5 : 1 ))"
-    __DLFV_TEXT=("${__fvl_wl[@]}")
-    if (( ${#__DLFV_TEXT[@]} > __fvl_vh )); then
+    # (the textbox: the file's lines as they are, no wrap — its formatter
+    # shows them from the column offset Left / Right move, as whiptail /
+    # dialog scroll a text box sideways; a draw formats the visible rows
+    # only, so a big file costs its load, not a walk over its words)
+    local __fvl_ln=__DLFV_TEXT __fvl_fm=''
+    if [ "${__fvl_w-}" = textbox ]; then __fvl_ln=__DLFV_RAW __fvl_fm=fv.dlg._txFmt
+    else
+        fv.dlg._wrap "$__fvl_t" "$(( $2 - 5 > 1 ? $2 - 5 : 1 ))"
+        __DLFV_TEXT=("${__fvl_wl[@]}")
+    fi
+    local -n __fvl_la=$__fvl_ln
+    if (( ${#__fvl_la[@]} > __fvl_vh )); then
         fv.views._newReserved "$1" textbar TScrollBar "$(( $2 - 3 ))" 1 "$(( $2 - 2 ))" "$(( 1 + __fvl_vh ))" || :
         __fvl_txb=$RESULT
         if (( __fvl_list )); then printf -v "${__fvl_txb}_data[GrowMode]" '%d' "$(( FV_GF_GROWLOX | FV_GF_GROWHIX ))"; fi
@@ -1028,8 +1103,9 @@ fv.dlg._mkText() {
     fv.views._newReserved "$1" text TDlgText 1 1 "$(( $2 - 3 ))" "$(( 1 + __fvl_vh ))" 1 '' "$__fvl_txb" || :
     __fvl_tv=$RESULT __fvl_tx=$RESULT
     printf -v "${__fvl_tv}_data[GrowMode]" '%d' "$__fvl_g"
-    printf -v "${__fvl_tv}_data[List]" '%s' __DLFV_TEXT
-    fv.views.listSetRange "$__fvl_tv" "${#__DLFV_TEXT[@]}" || :
+    printf -v "${__fvl_tv}_data[List]" '%s' "$__fvl_ln"
+    printf -v "${__fvl_tv}_data[Formatter]" '%s' "$__fvl_fm"
+    fv.views.listSetRange "$__fvl_tv" "${#__fvl_la[@]}" || :
     # (a resize, QUIET: inserted while not selectable — FV's Show would
     # reset the dialog's current view, and a focused input line selects all
     # its text when it is focused again)
@@ -1075,7 +1151,7 @@ fv.dlg._build() {
     local __fvl_sw __fvl_sh __fvl_ex __fvl_minw __fvl_minh __fvl_bw __fvl_bh __fvl_tw=0 __fvl_th=0 __fvl_ta=0 __fvl_x __fvl_y
     local __fvl_hh=${__fvl_p[1]} __fvl_ww=${__fvl_p[2]} __fvl_l1='' __fvl_l2='' __fvl_c1='' __fvl_c2='' __fvl_n1=0 __fvl_n2=0 __fvl_w1=0 __fvl_w2=0 __fvl_df=1 __fvl_pw
     local __fvl_list=0 __fvl_lh=0 __fvl_lhw=0 __fvl_n=0 __fvl_rw=0 __fvl_di=0 __fvl_bar=0 __fvl_sc=0 __fvl_vh=0 __fvl_st=0 __fvl_fw=''
-    local __fvl_tv='' __fvl_tx='' __fvl_txb='' __fvl_role=dlg __fvl_k=1 __fvl_sb=''
+    local __fvl_tv='' __fvl_tx='' __fvl_txb='' __fvl_role=dlg __fvl_k=1 __fvl_sb='' __fvl_gv=''
     local -n __fvl_ad=${FV_DESKTOP}_data
     if [[ -z ${__FV_VW_IMPL[TDlgList.HandleEvent]-} ]]; then fv.dlg._register; fi
     __fvl_sw=${__fvl_ad[SizeX]:-80} __fvl_sh=${__fvl_ad[SizeY]:-24}
@@ -1087,8 +1163,11 @@ fv.dlg._build() {
     # adds itself and a blank; a list its rows and two blanks; the infobox
     # only its frame
     __fvl_ex=2
-    if [ "$__fvl_w" = msgbox ]; then
+    if [ "$__fvl_w" = msgbox ] || [ "$__fvl_w" = textbox ]; then
         __fvl_l1=${__fvl_o[ok]-O~K~} __fvl_c1=cmOK __fvl_n1=1 __fvl_ex=5
+    elif [ "$__fvl_w" = gauge ]; then
+        # (frame, the text, a blank, the meter, frame; no button)
+        __fvl_ex=4
     elif [ "$__fvl_w" = yesno ]; then
         __fvl_l1=${__fvl_o[yes]-~Y~es} __fvl_c1=cmYes __fvl_l2=${__fvl_o[no]-~N~o} __fvl_c2=cmNo __fvl_n1=1 __fvl_n2=1 __fvl_ex=5
         if [[ -n ${__fvl_o[defaultno]-} ]]; then __fvl_df=2; fi
@@ -1098,6 +1177,8 @@ fv.dlg._build() {
         if ! [ "$__fvl_w" = inputbox ] && ! [ "$__fvl_w" = passwordbox ]; then __fvl_list=1 __fvl_ex=6; fi
     fi
     if [[ -n ${__fvl_o[scrolltext]-} ]] && { [ "$__fvl_w" = msgbox ] || [ "$__fvl_w" = yesno ]; }; then __fvl_st=1; fi
+    # (the textbox: always the scrolling view — its keys page the file)
+    if [ "$__fvl_w" = textbox ]; then __fvl_st=1; fi
     __fvl_minw=16 __fvl_pw=0
     if (( __fvl_n1 )); then
         # (labels wider than the screen allows are clipped: text never
@@ -1124,7 +1205,7 @@ fv.dlg._build() {
     # (+ the background title's row); a desktop below it is refused, a
     # smaller H / W grown to it
     __fvl_minh=$__fvl_ex
-    if [ "$__fvl_w" = infobox ]; then __fvl_minh=3; elif (( __fvl_list )); then __fvl_minh=8; fi
+    if [ "$__fvl_w" = infobox ]; then __fvl_minh=3; elif (( __fvl_list )); then __fvl_minh=8; elif [ "$__fvl_w" = gauge ]; then __fvl_minh=5; fi
     if (( __fvl_minw > __fvl_sw || __fvl_minh > __fvl_sh )); then
         __fvl_x="terminal too small"
         if [ "${__fvl_mode-own}" = host ]; then __fvl_x="the desktop is too small"; fi
@@ -1145,9 +1226,13 @@ fv.dlg._build() {
     else
         __fvl_x=$(( __fvl_sw * 2 / 3 ))
         if (( __fvl_x < 10 )); then __fvl_x=10; fi
-        fv.dlg._fit "$__fvl_t" "$__fvl_x"
+        fv.dlg._fitT "$__fvl_t" "$__fvl_x"
         __fvl_fw=$__fvl_x
         __fvl_bw=$(( __fvl_tw + 4 ))
+        # (the textbox: the scrolling view wraps at W - 5 — the widest line
+        # fits; the gauge: a meter of 35 cells at least, the screen allowing)
+        if [ "$__fvl_w" = textbox ]; then __fvl_bw=$(( __fvl_tw + 5 )); fi
+        if [ "$__fvl_w" = gauge ] && (( __fvl_bw < 40 )); then __fvl_bw=40; fi
         if (( __fvl_list )); then
             __fvl_x=$(( __fvl_rw + 6 + (__fvl_lhw < __fvl_n ? 1 : 0) ))
             if (( __fvl_bw < __fvl_x )); then __fvl_bw=$__fvl_x; fi
@@ -1160,7 +1245,7 @@ fv.dlg._build() {
     # rows at this width, the list's LH rows); the split: fv.dlg._geom
     if ! [ "$__fvl_fw" = "$(( __fvl_bw - 4 > 1 ? __fvl_bw - 4 : 1 ))" ]; then
         __fvl_fw=$(( __fvl_bw - 4 > 1 ? __fvl_bw - 4 : 1 ))
-        fv.dlg._fit "$__fvl_t" "$__fvl_fw"
+        fv.dlg._fitT "$__fvl_t" "$__fvl_fw"
     fi
     if (( __fvl_list )); then __fvl_x=$(( __fvl_th + __fvl_lhw + __fvl_ex )); else __fvl_x=$(( __fvl_th + __fvl_ex )); fi
     if (( __fvl_hh < 0 )); then __fvl_bh=$__fvl_sh
@@ -1237,6 +1322,15 @@ fv.dlg._build() {
         if (( __fvl_di )); then fv.views.listFocusItem "$__fvl_lb" "$__fvl_di" || :; fi
         fv.views.insert "$__fvl_d" "$__fvl_lb" || :
     fi
+    if [ "$__fvl_w" = gauge ]; then
+        # the meter: the row above the frame, from column 2; PERCENT clamped
+        fv.views._newReserved "$__fvl_d" gauge TDlgGauge 2 "$(( __fvl_bh - 2 ))" "$(( __fvl_bw - 2 ))" "$(( __fvl_bh - 1 ))" || :
+        __fvl_gv=$RESULT
+        fv.dlg._pct "${__fvl_p[3]:-0}" || RESULT=0
+        printf -v "${__fvl_gv}_data[Pct]" '%s' "$RESULT"
+        printf -v "${__fvl_gv}_data[GrowMode]" '%d' "$(( FV_GF_GROWLOY | FV_GF_GROWHIY | FV_GF_GROWHIX ))"
+        fv.views.insert "$__fvl_d" "$__fvl_gv" || :
+    fi
     if (( __fvl_n1 )); then
         __fvl_x=$(( (__fvl_bw - __fvl_w1 - (__fvl_w2 ? __fvl_w2 + 2 : 0)) / 2 ))
         fv.dlg._btn "$__fvl_d" b1 "$__fvl_x" "$(( __fvl_bh - 3 ))" "$__fvl_l1" "$__fvl_c1" "$(( __fvl_df == 1 ? FV_BF_DEFAULT : FV_BF_NORMAL ))" || :
@@ -1249,7 +1343,7 @@ fv.dlg._build() {
     __FV_DL_LAY=([d]=$__fvl_d [hh]=$__fvl_hh [ww]=$__fvl_ww [pw]=$__fvl_bw [ph]=$__fvl_bh [minw]=$__fvl_minw [minh]=$__fvl_minh
         [top]=$__fvl_top [tl]=${__fvl_o[topleft]-} [b1]=$__fvl_b1 [b2]=$__fvl_b2 [w1]=$__fvl_w1 [w2]=$__fvl_w2 [df]=$__fvl_df
         [w]=$__fvl_w [ex]=$__fvl_ex [list]=$__fvl_list [lhw]=$__fvl_lhw [n]=$__fvl_n [st]=$__fvl_st
-        [il]=$__fvl_il [lb]=$__fvl_lb [sb]=$__fvl_sb [tx]=$__fvl_tx [txb]=$__fvl_txb [tv]=$__fvl_tv [text]=$__fvl_t)
+        [il]=$__fvl_il [lb]=$__fvl_lb [sb]=$__fvl_sb [tx]=$__fvl_tx [txb]=$__fvl_txb [tv]=$__fvl_tv [text]=$__fvl_t [gv]=$__fvl_gv)
     # the focus (fv.dlg._focus0); the input line's INIT after it (selected)
     fv.dlg._focus0
     if [[ -n $RESULT ]]; then fv.views.select "$RESULT" || :; fi
@@ -1349,6 +1443,9 @@ fv.dlg._relayout() {
     if [[ -n ${__FV_DL_LAY[il]-} ]]; then
         fv.views.locate "${__FV_DL_LAY[il]}" 2 "$(( __fvl_bh - 5 ))" "$(( __fvl_bw - 2 ))" "$(( __fvl_bh - 4 ))" || :
     fi
+    if [[ -n ${__FV_DL_LAY[gv]-} && -n ${__FV_VW_LIVE[${__FV_DL_LAY[gv]}]-} ]]; then
+        fv.views.locate "${__FV_DL_LAY[gv]}" 2 "$(( __fvl_bh - 2 ))" "$(( __fvl_bw - 2 ))" "$(( __fvl_bh - 1 ))" || :
+    fi
     if [[ -n $__fvl_lb && -n ${__FV_VW_LIVE[$__fvl_lb]-} ]]; then
         local -n __fvl_ld=${__fvl_lb}_data
         __fvl_y=$(( __fvl_ta + 2 ))
@@ -1401,6 +1498,276 @@ fv.dlg._relayout() {
     return 0
 }
 
+# ---- the gauge and the textbox (4d) -----------------------------------------------
+
+# fv.dlg._pct V — RESULT = V as a percentage: blanks / tabs around it
+# allowed, an integer with an optional '-', clamped to 0..100 (a negative
+# 0, more than 100 100); rc 1 (RESULT untouched) when V is not one
+fv.dlg._pct() {
+    local __fvl_v=$1 __fvl_b=$' \t' __fvl_m=0
+    __fvl_v=${__fvl_v#"${__fvl_v%%[!$__fvl_b]*}"}
+    __fvl_v=${__fvl_v%"${__fvl_v##*[!$__fvl_b]}"}
+    if [[ $__fvl_v == -* ]]; then __fvl_m=1 __fvl_v=${__fvl_v:1}; fi
+    [[ -n $__fvl_v && $__fvl_v != *[!0123456789]* ]] || return 1
+    # (leading zeros dropped: more than three digits left is more than 100)
+    __fvl_v=${__fvl_v#"${__fvl_v%%[!0]*}"}
+    if (( __fvl_m )) || [[ -z $__fvl_v ]]; then RESULT=0
+    elif (( ${#__fvl_v} > 3 || 10#$__fvl_v > 100 )); then RESULT=100
+    else RESULT=$(( 10#$__fvl_v )); fi
+}
+
+# fv.dlg._gRun — the gauge's run (the caller's __fvl_d, __fvl_t; sets
+# __fvl_cmd): the dialog on the desktop (inserted here, so execView leaves
+# it there — a run that goes on without keys still shows it), its modal
+# loop, where TDlgApp.Idle polls stdin (fv.dlg._appIdle) and stdin's end
+# ends the dialog with cmOK; Esc / Ctrl+F4 / the close icon cmCancel (255,
+# as the other boxes), a resize below the minimum as the other boxes. The
+# keyboard's end of input (a headless key file that ran out; on a terminal
+# it does not happen) does not end a gauge — it has no buttons: stdin is
+# then read to its end with timed reads (fv.dlg._gPoll 1), each change
+# shown, and the answer is cmOK
+fv.dlg._gRun() {
+    local -n __fvl_gd=${__FV_DL_LAY[gv]}_data __fvl_od=${__fvl_d}_data
+    __FV_DL_G=([d]=$__fvl_d [pct]=${__fvl_gd[Pct]:-0} [spct]=${__fvl_gd[Pct]:-0} [text]=$__fvl_t [ntext]=0 [part]='' [skip]=0
+        [blk]=0 [bpct]='' [btxt]='' [bn]=0 [eof]=0 [on]=1 [polls]=0 [shows]=0 [tshows]=0)
+    if [[ -z ${__fvl_od[Owner]-} ]]; then fv.views.insert "$FV_DESKTOP" "$__fvl_d" || :; fi
+    fv.views.execView "$FV_DESKTOP" "$__fvl_d" || :
+    __fvl_cmd=${RESULT:-cmCancel}
+    if ! [ "$__fvl_cmd" = cmOK ] && (( __FV_VW_EOF && ! __FV_DL_G[eof] )); then
+        while (( ! __FV_DL_G[eof] )); do
+            fv.dlg._gPoll 1
+            fv.views._showNow
+        done
+    fi
+    if (( __FV_DL_G[eof] )); then __fvl_cmd=cmOK; fi
+    __FV_DL_G[on]=0
+    return 0
+}
+
+# TDlgApp.Idle — TProgram's, then a running gauge's poll; stdin's end ends
+# the gauge's dialog with cmOK. Paced by the event read: Idle runs after a
+# read that waited FV_IDLE_TIMEOUT (0.05 s) with no key, so an idle gauge
+# wakes 20 times a second for one `read -t 0` (no busy loop)
+fv.dlg._appIdle() {
+    fv.app._progIdle "$1" || :
+    if (( ${__FV_DL_G[on]:-0} && ! ${__FV_DL_G[eof]:-0} )); then
+        fv.dlg._gPoll 0
+        if (( __FV_DL_G[eof] )) && [[ -n ${__FV_VW_LIVE[${__FV_DL_G[d]}]-} ]]; then fv.views.endModal "${__FV_DL_G[d]}" cmOK || :; fi
+    fi
+    return 0
+}
+
+# fv.dlg._gPoll BLIND — the gauge's stdin read (design §4.3, R7): up to 256
+# lines per poll, then the changes shown (fv.dlg._gShow). BLIND 0 (Idle):
+# a line is read only when something waits (`read -t 0`: nothing read; the
+# end of stdin counts as waiting), with `read -t 0.01`; BLIND 1 (no keys
+# left): `read -t 0.25` at once. A read that times out keeps what it got:
+# the partial line is kept across polls (fv.keyboard's partial-read rule:
+# a writer that flushes `4`, later `2\n`, gives 42); a partial line longer
+# than 4096 characters is dropped up to its newline. The end of stdin (or
+# a read error, taken for it): a last line without its newline counts, eof 1
+fv.dlg._gPoll() {
+    local __fvl_l __fvl_rc __fvl_n=0 __fvl_t=0.01
+    if (( $1 )); then __fvl_t=0.25; fi
+    __FV_DL_G[polls]=$(( ${__FV_DL_G[polls]:-0} + 1 ))
+    while (( __fvl_n++ < 256 )); do
+        if (( ! $1 )) && ! read -t 0 -u 0 2>/dev/null; then break; fi
+        __fvl_l='' __fvl_rc=0
+        IFS= read -r -t "$__fvl_t" -u 0 __fvl_l 2>/dev/null || __fvl_rc=$?
+        if (( __fvl_rc > 128 )); then
+            __FV_DL_G[part]+=$__fvl_l
+            if (( ${#__FV_DL_G[part]} > 4096 )); then __FV_DL_G[part]='' __FV_DL_G[skip]=1; fi
+            break
+        fi
+        __fvl_l=${__FV_DL_G[part]}$__fvl_l __FV_DL_G[part]=''
+        if (( __FV_DL_G[skip] )); then
+            __FV_DL_G[skip]=0 __fvl_l=''
+            if (( ! __fvl_rc )); then continue; fi
+        fi
+        if (( __fvl_rc )); then
+            if [[ -n $__fvl_l ]]; then fv.dlg._gLine "$__fvl_l"; fi
+            __FV_DL_G[eof]=1
+            break
+        fi
+        fv.dlg._gLine "$__fvl_l"
+    done
+    fv.dlg._gShow
+}
+
+# fv.dlg._gLine LINE — one line of the gauge's protocol (whiptail / dialog;
+# a trailing CR dropped): a percentage (fv.dlg._pct) sets it; a line that
+# starts with XXX opens a block — its next line the percentage (not a
+# number: unchanged), the lines up to the next XXX line the new prompt
+# (joined by newlines; `\n` escapes and --colors as TEXT's: fv.dlg._text),
+# both taken at the closing XXX (a block stdin ends inside is dropped);
+# any other line is ignored
+fv.dlg._gLine() {
+    local __fvl_l=${1%$'\r'}
+    case ${__FV_DL_G[blk]:-0} in
+        1)
+            __FV_DL_G[bpct]=''
+            if fv.dlg._pct "$__fvl_l"; then __FV_DL_G[bpct]=$RESULT; fi
+            __FV_DL_G[blk]=2 __FV_DL_G[btxt]='' __FV_DL_G[bn]=0 ;;
+        2)
+            if [[ $__fvl_l == XXX* ]]; then
+                __FV_DL_G[blk]=0
+                if [[ -n ${__FV_DL_G[bpct]} ]]; then __FV_DL_G[pct]=${__FV_DL_G[bpct]}; fi
+                fv.dlg._text "${__FV_DL_G[btxt]}"
+                __FV_DL_G[text]=$RESULT __FV_DL_G[ntext]=1
+            else
+                if (( __FV_DL_G[bn] )); then __FV_DL_G[btxt]+=$'\n'; fi
+                __FV_DL_G[btxt]+=$__fvl_l __FV_DL_G[bn]=$(( __FV_DL_G[bn] + 1 ))
+            fi ;;
+        *)
+            if [[ $__fvl_l == XXX* ]]; then __FV_DL_G[blk]=1
+            elif fv.dlg._pct "$__fvl_l"; then __FV_DL_G[pct]=$RESULT; fi ;;
+    esac
+}
+
+# fv.dlg._gShow — what changed drawn (and nothing else): the meter when the
+# percentage differs from the one shown, the prompt when a new one differs
+# from the text view's (the layout record keeps it for a resize)
+fv.dlg._gShow() {
+    local __fvl_v __fvl_k
+    if ! [ "${__FV_DL_G[pct]}" = "${__FV_DL_G[spct]}" ]; then
+        __FV_DL_G[spct]=${__FV_DL_G[pct]}
+        __fvl_v=${__FV_DL_LAY[gv]-}
+        if [[ -n $__fvl_v && -n ${__FV_VW_LIVE[$__fvl_v]-} ]]; then
+            printf -v "${__fvl_v}_data[Pct]" '%s' "${__FV_DL_G[pct]}"
+            fv.views.drawView "$__fvl_v" || :
+            __FV_DL_G[shows]=$(( __FV_DL_G[shows] + 1 ))
+        fi
+    fi
+    if (( ${__FV_DL_G[ntext]:-0} )); then
+        __FV_DL_G[ntext]=0
+        __FV_DL_LAY[text]=${__FV_DL_G[text]}
+        __fvl_v=${__FV_DL_LAY[tx]-}
+        __fvl_k="${__fvl_v}_data[Text]"
+        if [[ -n $__fvl_v && -n ${__FV_VW_LIVE[$__fvl_v]-} ]] && ! [ "${!__fvl_k-}" = "${__FV_DL_G[text]}" ]; then
+            printf -v "$__fvl_k" '%s' "${__FV_DL_G[text]}"
+            fv.views.drawView "$__fvl_v" || :
+            __FV_DL_G[tshows]=$(( __FV_DL_G[tshows] + 1 ))
+        fi
+    fi
+}
+
+# fv.dlg._file FILE — RESULT = the textbox's text: the file read whole
+# (fork-free, bytes counted in the C locale) up to the cap __FV_DL_TXCAP
+# (1 MiB; more: refused), NUL bytes dropped (bash's read), every CR
+# dropped, one final newline dropped, tabs expanded to the next multiple of
+# 8 cells, the other control characters shown as '?'; `\n` escapes and \Z
+# are NOT applied (file content is literal). rc 1 with __fvl_err: a
+# directory, a file that does not open, one over the cap
+fv.dlg._file() {
+    local __fvl_fd='' __fvl_s='' __fvl_n=0 __fvl_cc __fvl_l __fvl_w=0
+    __DLFV_RAW=() __FV_DL_TXW=0 __FV_DL_TXX=0
+    if [[ -d $1 ]] || ! { exec {__fvl_fd}<"$1"; } 2>/dev/null; then
+        __fvl_err="cannot read the file '$1'"
+        return 1
+    fi
+    fv.dlg._fread
+    exec {__fvl_fd}<&-
+    if (( __fvl_n > __FV_DL_TXCAP )); then
+        __fvl_err="the file '$1' is larger than $__FV_DL_TXCAP bytes (the textbox's cap)"
+        return 1
+    fi
+    # the lines (fv.dlg._flines: the C locale, substitutions only where
+    # their characters occur — a pattern substitution over a big text in a
+    # UTF-8 locale costs ~0.1 ms per match), the controls but tab as '?'
+    # (C1 too in a UTF-8 call), the tabs expanded, the widest line's cells
+    fv.dlg._flines
+    __fvl_cc=${__FV_DG_CC[${#__FV_VS_PB}]-${__FV_DG_CC[5]}}
+    __fvl_cc=${__fvl_cc//[$'\t\n\r']/}
+    if [[ $__fvl_s == *[$__fvl_cc]* ]]; then __DLFV_RAW=("${__DLFV_RAW[@]//[$__fvl_cc]/?}"); fi
+    for (( __fvl_n = 0; __fvl_n < ${#__DLFV_RAW[@]}; __fvl_n++ )); do
+        __fvl_l=${__DLFV_RAW[__fvl_n]}
+        if [[ $__fvl_l == *$'\t'* ]]; then fv.dlg._untab "$__fvl_l"; __fvl_l=$RESULT __DLFV_RAW[__fvl_n]=$RESULT; fi
+        if [[ $__fvl_l != $__FV_VS_PNA ]]; then __fvl_w=${#__fvl_l}; else fv.video.strWidth "$__fvl_l" || RESULT=${#__fvl_l}; __fvl_w=$RESULT; fi
+        if (( __fvl_w > __FV_DL_TXW )); then __FV_DL_TXW=$__fvl_w; fi
+    done
+    if (( ! ${#__DLFV_RAW[@]} )); then __DLFV_RAW=(''); fi
+    local IFS=$'\n'
+    RESULT="${__DLFV_RAW[*]}"
+}
+# fv.dlg._fitT TEXT MAXW — fv.dlg._fit, but for the textbox the lines'
+# stats from fv.dlg._file (its rows: the lines; its width: the widest line
+# + 1, at most MAXW) — no walk over a big file's words
+fv.dlg._fitT() {
+    if [ "$__fvl_w" = textbox ]; then
+        __fvl_tw=$(( __FV_DL_TXW + 1 < $2 ? __FV_DL_TXW + 1 : $2 )) __fvl_th=${#__DLFV_RAW[@]}
+        if (( __fvl_th < 1 )); then __fvl_th=1; fi
+        return 0
+    fi
+    fv.dlg._fit "$@"
+}
+# fv.dlg._txFmt INDEX WIDTH — the textbox's row (TListViewer's Formatter):
+# line INDEX of __DLFV_RAW from the column offset __FV_DL_TXX on (cells: a
+# printable ASCII line by characters, any other by fv.video.clusters — a
+# wide character the offset splits shows as a blank); the view cuts it
+fv.dlg._txFmt() {
+    local __fvl_l=${__DLFV_RAW[$1]-} __fvl_j __fvl_c=0 __fvl_o=$__FV_DL_TXX
+    local -a _fvdl_cl=() _fvdl_cw=()
+    if (( ! __fvl_o )); then RESULT=$__fvl_l; return 0; fi
+    if [[ $__fvl_l != $__FV_VS_PNA ]]; then RESULT=${__fvl_l:__fvl_o}; return 0; fi
+    # (at most the offset + the row's characters walked)
+    fv.video.clusters "${__fvl_l:0:__fvl_o + $2}" _fvdl_cl _fvdl_cw || :
+    for (( __fvl_j = 0; __fvl_j < ${#_fvdl_cl[@]} && __fvl_c < __fvl_o; __fvl_j++ )); do __fvl_c=$(( __fvl_c + _fvdl_cw[__fvl_j] )); done
+    RESULT=''
+    if (( __fvl_c > __fvl_o )); then RESULT=' '; fi
+    local IFS=
+    RESULT+="${_fvdl_cl[*]:__fvl_j}"
+}
+# fv.dlg._fread — _file's read (its __fvl_fd, __fvl_s, __fvl_n): at most
+# the cap + 1 bytes, the length in bytes (the C locale for both)
+fv.dlg._fread() {
+    local LC_ALL=C
+    IFS= read -r -N "$(( __FV_DL_TXCAP + 1 ))" -u "$__fvl_fd" __fvl_s || :
+    __fvl_n=${#__fvl_s}
+}
+# fv.dlg._flines — _file's lines (its __fvl_s, the text read) into
+# __DLFV_RAW, every CR dropped, one final newline dropped. Split by word
+# splitting on newlines (C speed; mapfile reads a file or a here-string
+# byte by byte here: ~70 us a line on the Windows runtimes), with the empty
+# lines marked by \x1e first so the splitting keeps them (a \x1e of the
+# file's own is a control character, shown as '?' anyway); every
+# substitution runs only where its characters occur, in the C locale (bytes)
+fv.dlg._flines() {
+    # (the characters in variables, quoted where they are used: a $'...'
+    # inside these expansions came out empty in a loaded unit on Git-bash)
+    local - LC_ALL=C __fvl_x=$__fvl_s __fvl_n=$'\n' __fvl_m=$'\x1e' __fvl_r=$'\r'
+    if [[ $__fvl_x == *"$__fvl_m"* ]]; then __fvl_x=${__fvl_x//"$__fvl_m"/?}; fi
+    __fvl_x=${__fvl_x%"$__fvl_n"}
+    if [[ $__fvl_x == *"$__fvl_n$__fvl_n"* ]]; then
+        # (twice: a run of empty lines overlaps the first pass's matches)
+        __fvl_x=${__fvl_x//"$__fvl_n$__fvl_n"/"$__fvl_n$__fvl_m$__fvl_n"}
+        __fvl_x=${__fvl_x//"$__fvl_n$__fvl_n"/"$__fvl_n$__fvl_m$__fvl_n"}
+    fi
+    if [[ $__fvl_x == "$__fvl_n"* ]]; then __fvl_x=$__fvl_m$__fvl_x; fi
+    if [[ $__fvl_x == *"$__fvl_n" ]]; then __fvl_x+=$__fvl_m; fi
+    set -f
+    local IFS=$__fvl_n
+    # shellcheck disable=SC2206 # (split on purpose: newlines only, no globbing)
+    __DLFV_RAW=($__fvl_x)
+    __DLFV_RAW=("${__DLFV_RAW[@]#"$__fvl_m"}")
+    if [[ $__fvl_x == *"$__fvl_r"* ]]; then
+        __DLFV_RAW=("${__DLFV_RAW[@]%"$__fvl_r"}")
+        if [[ ${__DLFV_RAW[*]} == *"$__fvl_r"* ]]; then __DLFV_RAW=("${__DLFV_RAW[@]//"$__fvl_r"/}"); fi
+    fi
+}
+# fv.dlg._untab LINE — RESULT = LINE with each tab expanded to the next
+# multiple of 8 cells (a printable ASCII piece: characters = cells)
+fv.dlg._untab() {
+    local __fvl_x=$1 __fvl_r='' __fvl_g __fvl_c=0 __fvl_w __fvl_p
+    while [[ $__fvl_x == *$'\t'* ]]; do
+        __fvl_g=${__fvl_x%%$'\t'*} __fvl_x=${__fvl_x#*$'\t'}
+        if [[ $__fvl_g != $__FV_VS_PNA ]]; then __fvl_w=${#__fvl_g}; else fv.video.strWidth "$__fvl_g" || RESULT=${#__fvl_g}; __fvl_w=$RESULT; fi
+        __fvl_c=$(( __fvl_c + __fvl_w ))
+        printf -v __fvl_p '%*s' "$(( 8 - __fvl_c % 8 ))" ''
+        __fvl_r+=$__fvl_g$__fvl_p __fvl_c=$(( __fvl_c + ${#__fvl_p} ))
+    done
+    RESULT=$__fvl_r$__fvl_x
+}
+
 # ---- the call ---------------------------------------------------------------------
 
 # fv.dlg._call FACE ARG... — both faces: parse, the screen, the dialog, the
@@ -1449,7 +1816,24 @@ fv.dlg._call() {
             return 255
         done
     fi
-    fv.dlg._text "${__fvl_p[0]}"
+    # (4d: what the gauge and the textbox read — refused before any screen
+    # change: the gauge's stdin, the textbox's file)
+    if [ "$__fvl_w" = gauge ]; then
+        if [ "$__fvl_mode" = host ]; then
+            fv.dlg._say "$__fvl_face" "--gauge needs fvdlg's own application or a session (the running fv application's Idle does not read stdin)"
+            return 255
+        fi
+        if ! [[ -e /dev/fd/0 ]]; then fv.dlg._say "$__fvl_face" "--gauge reads its percentages from stdin, which is not open"; return 255; fi
+        if fv.dlg._isTerm 0; then
+            fv.dlg._say "$__fvl_face" "--gauge reads its percentages from stdin, which is a terminal (pipe them in: ... | fvdlg --gauge TEXT H W)"
+            return 255
+        fi
+    fi
+    if [ "$__fvl_w" = textbox ]; then
+        if ! fv.dlg._file "${__fvl_p[0]}"; then fv.dlg._say "$__fvl_face" "$__fvl_err"; return 255; fi
+    else
+        fv.dlg._text "${__fvl_p[0]}"
+    fi
     __fvl_t=$RESULT RESULT=''
     if [ "$__fvl_mode" = own ]; then
         # the terminal's settings for this call only (the caller's come back
@@ -1462,7 +1846,7 @@ fv.dlg._call() {
         if [[ -n ${__fvl_o[ascii]-} ]]; then FV_ASCII=1; fi
         if [ "$__fvl_w" = infobox ] && [[ -z $FV_KBD_PROTO ]]; then FV_KBD_PROTO=off; fi
         if [[ -n ${__fvl_o[headless]-} ]]; then
-            if ! fv.dlg._hlOpen "$__fvl_face"; then return 255; fi
+            if ! fv.dlg._hlOpen "$__fvl_face"; then __DLFV_RAW=(); return 255; fi
             FV_APP_HEADLESS=1 FV_SCREEN_W=$__fvl_x FV_SCREEN_H=$__fvl_y FV_VIDEO_OUT_FD=$__fvl_ofd FV_KEY_FD=$__fvl_kfd
         fi
         if [ "${FV_APP_HEADLESS-}" = 1 ]; then __fvl_hl=1; fi
@@ -1473,10 +1857,12 @@ fv.dlg._call() {
         # --no-tty to this test); the bash face tries the terminal (below)
         if (( ! __fvl_hl )) && { [ "${__fvl_o[notty]-}" = default ] || [ "$__fvl_face" = main ]; } && ! fv.dlg._hasTerm "$__fvl_face"; then
             if ! [ "${__fvl_o[notty]-}" = default ]; then
+                __DLFV_RAW=()
                 fv.dlg._say main "no terminal ($REPLY)"
                 RESULT='' FV_DLG_CMD='' FV_DLG_TAGS=()
                 return 255
             fi
+            __DLFV_RAW=()
             fv.dlg._dflt
             fv.dlg._emit
             return
@@ -1539,8 +1925,11 @@ fv.dlg._call() {
                 # current view, its end redraws nothing — and the last
                 # picture stays on the screen: fv.dlg._mainEnd)
                 if (( __fvl_main )); then fv.views.insert "$FV_DESKTOP" "$__fvl_d" || :; fi
-                fv.views.execView "$FV_DESKTOP" "$__fvl_d" || :
-                __fvl_cmd=${RESULT:-cmCancel}
+                if [ "$__fvl_w" = gauge ]; then fv.dlg._gRun
+                else
+                    fv.views.execView "$FV_DESKTOP" "$__fvl_d" || :
+                    __fvl_cmd=${RESULT:-cmCancel}
+                fi
             fi
             if [ "$__fvl_cmd" = cmOK ] || [ "$__fvl_cmd" = cmYes ]; then __fvl_rc=0
             elif [ "$__fvl_cmd" = cmNo ]; then __fvl_rc=1; fi
@@ -1576,6 +1965,7 @@ fv.dlg._call() {
         __DLFV_TAGS=() __DLFV_ROWS=() __DLFV_MARKS=() __DLFV_FIRST=() __DLFV_NEXT=() __FV_DL_JUMP=() __FV_DL_JN=''
         if [ "$__fvl_w" != infobox ] || [ "$__fvl_mode" = own ]; then __DLFV_TEXT=(); fi
     fi
+    __DLFV_RAW=()
     if (( __fvl_vid )); then fv.video.doneVideo || :; fi
     if [[ -n $__fvl_kfd ]]; then exec {__fvl_kfd}<&- {__fvl_ofd}>&-; fi
     if [ "$__fvl_face" = main ] && [ "$__fvl_mode" = own ]; then fv.dlg._bufOff; fi
@@ -1611,6 +2001,7 @@ fv.dlg._emit() {
     return "$__fvl_rc"
 }
 
+# (the gauge: stdin read to its end, rc 0; the textbox: rc 0)
 # fv.dlg._dflt — D36 (--no-tty=default without a terminal): the caller's
 # __fvl_rc / __fvl_cmd / __fvl_res / __fvl_tags = what Enter on the dialog
 # as built would answer, with no UI: msgbox and infobox 0 (cmOK; nothing
@@ -1632,6 +2023,10 @@ fv.dlg._dflt() {
         if [[ -n $__fvl_t ]] && ! fv.dialogs._ilPre "$__fvl_t" 1024; then _fvg_nl=(); fi
         local IFS=
         __fvl_res="${_fvg_nl[*]}"
+    elif [ "$__fvl_w" = gauge ]; then
+        # (stdin read to its end, as the dialog would; nothing shown)
+        local __fvl_s=''
+        while IFS= read -r -N 65536 __fvl_s || [[ -n $__fvl_s ]]; do __fvl_s=''; done
     elif [ "$__fvl_w" = menu ] || [ "$__fvl_w" = checklist ] || [ "$__fvl_w" = radiolist ]; then
         fv.dlg._items
         fv.dlg._answerAt "$__fvl_di"

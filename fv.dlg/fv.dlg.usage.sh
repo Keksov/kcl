@@ -25,6 +25,11 @@ printf '%s\n' \
     '  --menu TEXT H W LH [TAG ITEM]...              one tag' \
     '  --checklist TEXT H W LH [TAG ITEM STATUS]...  the checked tags' \
     '  --radiolist TEXT H W LH [TAG ITEM STATUS]...  one tag (STATUS on / off)' \
+    '  --gauge TEXT H W [PERCENT]   a progress bar; percentages read from stdin (a pipe)' \
+    '                               one per line, XXX / PERCENT / TEXT... / XXX sets' \
+    '                               the text too; status 0 at the end of stdin' \
+    '  --textbox FILE H W           a file viewer (arrows, PgUp / PgDn, Home / End;' \
+    '                               Left / Right scroll sideways), OK' \
     '' \
     'H / W: 0 = fit the text, -1 = the whole screen; LH: the list rows, 0 = fit.' \
     'Status: 0 OK / Yes, 1 Cancel / No, 255 Esc or an error (130 / 143 / 129:' \

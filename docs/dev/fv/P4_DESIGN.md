@@ -982,6 +982,88 @@ env-diff test in the unit's own suite).
 
 ---
 
+## 4d as built (2026-11-27; awaiting review)
+
+What stage 4d implemented against §4.3 / §5.1 / R7, and where it differs.
+
+**Files.** `fv.dlg/fv.dlg.sh` (the option table: `--gauge` = `w gauge 3 1`,
+`--textbox` = `w textbox 3 0`; `TDlgApp.Idle`; `TDlgGauge`; the section "the
+gauge and the textbox"), `fv.dlg.usage.sh`, the README, tests
+**`014_Gauge.sh` / `015_Textbox.sh`** (§7.2's 013 / 014 renumbered: 013 is
+`013_Image`), 001 / 002 / 005 updated. `bin/fvdlg` unchanged (its pre-load
+guards do not look at stdin; the image writer gets `</dev/null`).
+
+**The gauge.**
+* `TDlgGauge : TView` (one field `Pct`, a `Draw` proc: one dispatch per
+  draw): `█` done / `░` to do (ASCII `#` / `:`), then `" %3d%%"`, all in the
+  owner's colour 6 (the dialog's static text). Layout: frame, the prompt
+  (a `TStaticText` of H − 4 rows; never the scrolling view — no key reaches
+  it; text that does not fit is cut), a blank, the meter on row H − 2;
+  minimum height 5; auto width 40 at least.
+* `TDlgApp.Idle` (registered in `__FV_VW_IMPL`: no dispatch) = TProgram's,
+  then `fv.dlg._gPoll 0` while a gauge runs (`__FV_DL_G[on]`). **Pacing**:
+  Idle runs only after the event read waited `FV_IDLE_TIMEOUT` (0.05 s)
+  without an event, so an idle gauge wakes ~20 times a second (~15 on the
+  Windows timer) for one `read -t 0 -u 0`. Measured (4 s idle, headless,
+  `times`): gauge 234 / 218 ms CPU on Git-bash / Cygwin, an idle msgbox 297
+  / 204 ms — the poll adds nothing above the event loop's own wake-ups.
+* The poll: while `read -t 0` says something waits (the end of stdin
+  counts), `IFS= read -r -t 0.01` a line, at most 256 per poll; a timed-out
+  read's partial text is kept in `__FV_DL_G[part]` and prefixed to the next
+  line (§4.3's rule — the `4` … `2⏎` = 42 test and its mutation); a
+  partial line over 4096 characters is dropped up to its newline. Then
+  `_gShow` draws only what changed (the meter when the percentage changed,
+  the prompt when it differs from the text view's).
+* The protocol (`_gLine`; the tools' manuals checked: both say "one integer
+  per line", "XXX, then a percentage, then the prompt up to another XXX",
+  "exits when EOF is reached"): a number line (blanks around it) sets the
+  percentage, **clamped 0..100**; any other line ignored; a trailing CR
+  dropped; a line *starting* with `XXX` is a marker (dialog's prefix rule);
+  the block's percentage line not a number keeps the percentage; the
+  prompt's lines joined by newlines, `\n` escapes (and `\Z` with
+  `--colors`) as TEXT's; both taken at the closing marker; a block stdin
+  ends inside is dropped (whiptail stops there).
+* End of stdin → `endModal cmOK` → **0**. Esc / Ctrl+F4 / the close icon →
+  255 (neither tool reads keys in a gauge; stated in the README's
+  differences); Ctrl+C 130 (fv.video). The keyboard's end of input (a
+  headless key file that ran out; a terminal never sends it) does **not**
+  end a gauge: `_gRun` then reads stdin to its end with `read -t 0.25`,
+  drawing each change, and answers 0. The dialog is inserted before
+  `execView` so it stays on the desktop for that phase.
+* Refusals before any screen change: stdin a terminal (`fv.dlg._isTerm 0`,
+  the tests' seam; the pty test runs the real one), stdin not open, PERCENT
+  not an integer, the host mode (the host's Idle does not poll; a session's
+  `TDlgApp` does). `--no-tty=default` (D36) reads stdin to its end, 0.
+
+**The textbox** — one change from §5.1: **no wrap; Left / Right scroll
+sideways** (as both tools' manuals describe). The first draft wrapped the
+file into `__DLFV_TEXT` with `fv.dlg._wrap`: 1 MiB of long lines took 13 s
+on Git-bash. As built:
+* `fv.dlg._file`: one `read -r -N cap+1` in the C locale (the cap
+  `__FV_DL_TXCAP`, 1 MiB, an internal self-default; more → 255); the lines
+  split by **word splitting on newlines** after marking the empty lines with
+  0x1e (mapfile reads a file or a here-string byte by byte here, ~70 µs a
+  line; a pattern substitution in a UTF-8 locale costs ~0.1 ms a match);
+  CRs dropped, tabs to 8 cells, other controls as `?`; the widest line's
+  cells kept (`__FV_DL_TXW`).
+* `TDlgText` gets `List=__DLFV_RAW` and `Formatter=fv.dlg._txFmt` (the line
+  from the column offset `__FV_DL_TXX`; cells: characters for printable
+  ASCII, `fv.video.clusters` otherwise, a wide character the offset splits
+  shows as a blank) — a draw formats the visible rows only. Left / Right in
+  `TDlgText.HandleEvent` (textbox only) move the offset by one cell, up to
+  the widest line's end in view. Measured headless + Enter, Git-bash: 5 000
+  lines 0.23 s, 1 MiB of 250-character lines 0.37 s.
+* `_fitT` gives `_build` / `_geom` the file's stats instead of `_fit`'s word
+  walk; the auto width = the widest line + 5 (at most 2/3 of the screen).
+
+**Open.** The golden table's gauge / textbox rows (the Debian VM) were not
+run in this stage (no VM). `fv.dlg._flines` first used `$'…'` inside quoted
+array expansions and `[[ ]]` patterns under a function-local `LC_ALL=C`;
+on Git-bash 5.3 they came out empty in the loaded unit (a plain script
+did not reproduce it) — rewritten with variables; not isolated further.
+
+---
+
 ## Appendix A. Probes and prototype (`scratchpad/p4/`)
 
 | file | what |
